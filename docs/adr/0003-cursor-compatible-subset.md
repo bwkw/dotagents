@@ -31,7 +31,7 @@ Claude-only frontmatter stays, but only as optimization on top of behaviour the 
 guarantees. `verify-skills.sh` flags any skill whose body does not restate its frontmatter constraints.
 
 **`disable-model-invocation` is never set.** It blocks programmatic `Skill` invocation, subagent
-preloading, and scheduled-task triggering — not just model auto-invocation. `review` dispatches to
+preloading, and scheduled-task triggering — not just model auto-invocation. `review-all` dispatches to
 its layer references by name, so setting it converts the dispatcher into a silent no-op.
 
 ## Consequences
@@ -76,6 +76,8 @@ the manifest format was not documented in what we could read. Revisit when it is
 
 ## Precedent
 
-`~/.claude/commands/review-all.md` already works this way: it declares "this command is read-only:
-it never modifies code, only reports findings" in the body, and notes that skills run on the main
-thread so invocations proceed in order. It has been in daily use in this form.
+The command this skill grew out of already worked this way. Before being retired to
+`~/.claude/retired-commands-<date>/`, `review-all.md` declared "this command is read-only: it never
+modifies code, only reports findings" in its body, and noted that skills run on the main thread so
+invocations proceed in order. It had been in daily use in that form, which is why the pattern was
+carried over rather than invented here.

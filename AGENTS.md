@@ -29,10 +29,10 @@ Skills land in `~/.agents/skills/<name>` and are reachable from `~/.claude/skill
 
 Third-party skills are **not** vendored here. They are installed separately:
 
-```bash
-npx skills add obra/superpowers -g -a claude-code -a cursor
-npx skills add mattpocock/skills -g -a claude-code -a cursor
-```
+**Install them selectively, with `-s`.** Every installed skill's description is resident in context
+permanently, so taking a whole repository costs the selection accuracy of every other skill. The
+curated lists, and what was deliberately left out, are in `README.md`. Do not run
+`npx skills add <repo>` without `-s` here.
 
 ## Invariants
 
@@ -46,7 +46,7 @@ These are load-bearing. Breaking one fails silently rather than loudly.
 
 2. **Never set `disable-model-invocation`.**
    It blocks far more than model auto-invocation: programmatic `Skill` calls, subagent preloading,
-   and scheduled-task triggering. `review` dispatches to its layer references by name, so setting
+   and scheduled-task triggering. `review-all` dispatches to its layer references by name, so setting
    this turns the dispatcher into a no-op with no error.
 
 3. **Hooks are copied, not symlinked.**

@@ -121,7 +121,7 @@ npx skills add getsentry/skills -g -a claude-code -a cursor \
 
 ```bash
 ./scripts/verify-skills.sh      # スキルの lint
-./scripts/test-verify-gate.sh   # 検証ゲートの 20 テスト
+./scripts/test-verify-gate.sh   # 検証ゲートの 38 テスト
 ```
 
 ゲートだけは実テストを持っています。**フェイルクローズでなければならない唯一のコンポーネント**だからです。武装していないときに黙ること、失敗時にブロックすること、連続失敗でエスカレートすること、知らないリポジトリで推測しないこと、「ユーザーに実行を依頼した」を結果として受け付けないこと、そして Cursor 経路では follow-up 予算を使い切らないこと、を固定しています。

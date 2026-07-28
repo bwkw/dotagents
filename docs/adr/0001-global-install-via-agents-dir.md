@@ -56,7 +56,7 @@ confirming in Cursor which way it actually behaves: if entries appear twice, dro
 
 **Claude Code plugin marketplace.** The official answer for sharing skills across repositories, and
 genuinely better on versioning. Rejected for two reasons: Cursor does not support plugins at all, and
-plugins namespace skills as `plugin:skill`, which breaks `review`'s by-name dispatch to its layer
+plugins namespace skills as `plugin:skill`, which breaks `review-all`'s by-name dispatch to its layer
 references.
 
 **Copying into each product repo.** A pattern seen in the wild: the same skills duplicated under

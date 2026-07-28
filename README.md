@@ -160,7 +160,7 @@ belongs in `reference/`, loaded on demand.
 
 ```bash
 ./scripts/verify-skills.sh      # skill lint
-./scripts/test-verify-gate.sh   # 20 tests for the verification gate
+./scripts/test-verify-gate.sh   # 38 tests for the verification gate
 ```
 
 The gate has real tests because it is the one component that must fail *closed*. They cover staying
