@@ -22,6 +22,11 @@ Every verifier is a **fresh subagent that did not take part in the find phase**.
 and the findings, not the reasoning that produced them — that is the whole point. A reviewer who
 watched the work get done evaluates the reasoning; a reviewer who did not evaluates the result.
 
+**Use the `review-verifier` agent.** It carries the refute-by-default asymmetry and the read-only
+constraint in its own definition, which means those hold *before* it reads anything — passing them in
+a prompt to `general-purpose` makes them a request instead. It is installed globally by this toolkit,
+so it exists in every repository.
+
 ---
 
 ## 6a. Refutation — against false positives
@@ -54,6 +59,37 @@ restated here.
 | `confirmed` | Keep. Re-bucket by `corrected_severity` when present. |
 | `refuted` | Drop from Critical/⛔. Report the **count and a one-line summary only** — do not restate each finding or its evidence. |
 | `uncertain` | Demote to 👤. |
+
+### Perspective-diverse verification, for ⛔ and 🔴 only
+
+A finding that survives one verifier survived **one way of being wrong**. For the two severities where
+being wrong is expensive in both directions — a false ⛔ costs the reader's trust in the whole report, a
+missed one costs production — run **three verifiers with different lenses** instead of one, and let them
+disagree.
+
+Three lenses, not three repetitions. Repetition mostly reproduces the same blind spot:
+
+| Lens | The only question it answers |
+|---|---|
+| **reachability** | Does real execution reach this? Which caller, which permission, which timing? |
+| **existing guard** | Is this already prevented somewhere else — a constraint, a middleware guard, a type that makes the state unrepresentable? |
+| **severity** | Is ⛔/🔴 right for what the code actually does, or is this a 🟡/💡? |
+
+Rules that make the diversity worth its cost:
+
+- **Each verifier judges only its own lens.** Tell it so. It must not speculate about the other two or
+  soften its verdict anticipating them — independence is the only reason three is better than one.
+- **Two of three must not refute** for the finding to survive at ⛔/🔴. One refutation with concrete
+  evidence beats two shrugs; weigh the evidence, not the tally, and say when you overrode the count.
+- **The severity lens can only lower**, never raise. Raising is the find phase's job, and a verifier
+  that escalates is no longer verifying.
+- **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
+  of the report for findings nobody was going to act on urgently.
+
+**The infrastructure exception overrides the reachability lens.** For a destructive or
+permission-widening change — resource replacement, state loss, a delete that takes data with it, a
+widened IAM grant — improbability is not a refutation. Refute only by showing the guard exists or that
+the change is not in fact destructive. `review-verifier` carries this exception in its own definition.
 
 ---
 

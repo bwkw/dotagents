@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches what code review cannot fix later — one-way doors, migration order, rollback, and what the plan omitted. Read-only.
+description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches one-way doors, migration order, and rollback. Read-only.
 argument-hint: "[path to plan/spec] (default: the most recent plan under docs/)"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(gh:*), WebFetch
 metadata:
@@ -46,6 +46,7 @@ a separate act, done deliberately.
 
 | File | Trigger condition |
 |---|---|
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the refutation pass (Step 5) |
 | `${CLAUDE_SKILL_DIR}/reference/report-format.md` | when writing the report, for bucketing and presentation |
 | `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | if the repository has them — the project's own conventions are the standard |
 | the code the plan names | always for the high-risk claims; see Step 2 |
@@ -99,7 +100,31 @@ Separately from the checklist, always ask:
 Absence is the hardest thing to review and the most common source of production surprise. A checklist
 finds what is wrong with what is written; only this step finds what was never written.
 
-## Step 5. Report
+## Step 5. Refute your own findings
+
+**Mandatory, and it applies to 🚪 one-way doors and 🔴 findings.** Read
+`${CLAUDE_SKILL_DIR}/reference/verification.md` for the general shape — the refute-by-default
+asymmetry, the ⛔/🔴 three-lens pass, and the disposition table all apply here unchanged. Dispatch to
+**`review-verifier`**, which did not take part in Steps 1–4.
+
+Design review has a specific failure mode that code review does not, and it is what this step exists
+to catch: **a plan is a document, so anything not written down looks missing.** The find phase is
+structurally biased toward over-reporting absence. Three questions turn that bias back:
+
+- **Is this "one-way door" actually irreversible, or just expensive to undo?** Expensive is a 🟡. A
+  door is one-way only when reversing it destroys data, breaks a consumer you do not control, or
+  cannot be done at all. Name the moment it closes. If you cannot name the moment, it is not a door.
+- **Is the omission actually omitted?** Check the rest of the plan, the repository's existing
+  conventions, and the framework's defaults. "The plan does not mention rollback" is refuted if the
+  deploy pipeline already rolls back, and that is the single most common false positive here.
+- **Can you write the path by which the design fails?** "This is the wrong shape" without a concrete
+  bad outcome is a 🧭, not a 🔴. Keep it — 🧭 is load-bearing at plan stage — but do not let it wear
+  🔴's severity.
+
+Report the refuted count. **A design review where nothing was refuted did not run this step**, or
+reported everything it thought of — say which, plainly, in 🔎.
+
+## Step 6. Report
 
 Follow `${CLAUDE_SKILL_DIR}/reference/report-format.md` for bucketing and presentation, with these
 substitutions:
@@ -138,8 +163,9 @@ substitutions:
 - [ ] Every load-bearing claim is either grounded with `file:line` or listed as unverified
 - [ ] One-way doors are separated from ordinary findings
 - [ ] Step 4 ran — absences, not just errors
-- [ ] **Some findings were rejected**, and the count is reported. See `report-format.md` — the
-      reasoning is there, and a review that filtered nothing has not been calibrated.
+- [ ] **Step 5 ran in `review-verifier`**, and every 🚪 names the moment the door closes
+- [ ] **Some findings were rejected**, and the count is reported. A review that refuted nothing either
+      skipped Step 5 or reported everything it thought of — say which in 🔎.
 
 ## Next
 

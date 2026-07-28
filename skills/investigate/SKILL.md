@@ -74,10 +74,27 @@ Most questions are answered at rungs 1–2. **Reading files is the last rung, no
 you find yourself opening a fifth file to answer a "where is X" question, the search term is wrong,
 not the budget.
 
-For a broad question with independent parts, dispatch them to **parallel subagents** — one per part,
-in a single message — and synthesise. Each subagent gets its own share of the budget. Investigation
-is the single best use of subagents, because the reading stays in their context and only the
-conclusion comes back to yours.
+For a broad question with independent parts, dispatch them to **parallel `codebase-explorer`
+subagents** — one per part, in a single message — and synthesise. Each gets its own share of the
+budget. Investigation is the single best use of subagents, because the reading stays in their context
+and only the conclusion comes back to yours. `codebase-explorer` is installed globally by this
+toolkit, and carries the read-only constraint and the confirmed / inferred / not-confirmed split in
+its own definition rather than in a prompt that can be ignored.
+
+### Before reporting a negative, try to refute it
+
+"Nothing depends on this", "this is the only caller", "this value is not used anywhere" — a negative is
+the easiest answer to get wrong and the most damaging, because a change gets made on the strength of
+it. **Search again with different vocabulary before asserting one.**
+
+- the symbol's other names — aliases, re-exports, a renamed import
+- indirect reach — dynamic dispatch, reflection, a registry, a string key, dependency injection
+- **references built from strings** — concatenation, template literals, a name assembled at runtime
+- non-code call sites — config, migrations, seeds, CI workflows, IaC templates
+
+Then **say which vocabularies you tried.** That is what makes the negative worth anything; without it
+you have reported absence of evidence as evidence of absence. One extra search round, and the
+highest-value spend in the budget.
 
 ## Step 3. Respect the budget
 
@@ -119,6 +136,7 @@ What is fact, what is inference, and what would settle the rest.
 - [ ] Every claim has a `file:line` or is explicitly marked unconfirmed
 - [ ] Unexamined territory is named
 - [ ] Fact and inference are visibly separated
+- [ ] **Every negative claim names the vocabularies that were tried** before asserting it
 
 ## Anti-patterns
 
