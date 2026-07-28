@@ -82,35 +82,18 @@ quietly dropped, and supply what is missing.
 
 ## Recurring silent, irreversible failure patterns
 
-Apply these in **both** phases, across clusters. They are the shapes that look clean in review and
-become silent production incidents. When one matches, raise it even outside the diff.
+These live in [`silent-failure-patterns.md`](silent-failure-patterns.md) — **read it now if you have
+not already.**
 
-**Global default × local compensation.** The change adds behaviour to a *shared default* — a task or
-job catalog, a base class, common config, a DB default, a seed — and its correctness depends on
-*compensating work at the call site* (populating a context, setting a flag, pre-processing).
-Verify that **every entry path** performs that compensation, not just the one the PR touched. `grep`
-out every other path that can trigger or modify the same aggregate — other controllers, use cases,
-batch jobs, event handlers, screens — and check each against the requirement. **If no guard or
-architecture test enforces the invariant, that is 🧭** (🔴 when you can read a path to real harm).
+They are deliberately not duplicated here, because they are not a verify-phase concern. The find phase
+applies them too, and keeping the only copy in this file is exactly the mistake that once removed them
+from the find phase entirely: the patterns were still written down, still correct, and no longer read
+by the pass that had the best chance of catching them early.
 
-**Fail-open or fail-closed — which way does the silence fall?** Check the direction of the fallback
-on a default value, an evaluation error, a missing context or key. If it makes an irreversible,
-statutory, externally-submitted, or billable operation **silently skip, auto-complete, or no-op**,
-ask whether that direction is right. **Failing silently is usually more harmful than failing loudly
-or visibly over-executing**, especially for statutory and external submissions. → 🧭 / 🔴
+What belongs to *this* phase is the second look:
 
-**Duplicated source of truth.** A mapping, constant, or table declared authoritative in a design doc
-or one location is **re-hardcoded** somewhere else — a seed, another layer, another path — with no
-cross-check test. Drift then produces silent incidents. Look for the place the two are reconciled;
-if there is none, file it. → 🟡
-
-**Deploy ordering for LIVE-read seed and config.** When a seed, catalog, or config is read **fresh at
-startup rather than from a snapshot**, changing it opens a rollout window: if it lands before the
-code is fully deployed, the old code breaks on it. Determine whether a hard ordering gate is needed
-and when it actually runs (seeded automatically or by hand, relative to the app rollout). → 👤 when
-you cannot determine it.
-
-**Observability of silent success.** When an irreversible operation can be **silently skipped or
-auto-completed** under some condition, check that there is an *active signal* — a log line, a metric
-— not just a row in the database afterward. Without one it is undetectable. → 🟡. **Do not casually
-recommend standing up a new sweep or cron**; prefer one passive monitor plus manual recovery.
+- A cluster that reported clean is a **claim**. These five patterns are where such a claim is most
+  often wrong, because each one is locally invisible — every individual file reads correctly.
+- When you match a pattern here that the find phase did not, record both the finding **and the fact
+  that find missed it**. That second part calibrates 🔎: it is direct evidence about how much the clean
+  portions of this review are worth.
