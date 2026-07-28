@@ -1,12 +1,12 @@
 ---
-name: review-all
+name: da-review-all
 description: Review a change across every layer it touches, as a tech lead. Use for code review, PR review, or checking work before shipping — especially when a change spans backend, frontend, and infrastructure. Reviews each layer in its own subagent, then finds the irreversible risks that fall between them, like a contract and its consumer shipping out of order. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff and its blast radius)"
 metadata:
   source: bwkw/dotagents
 ---
 
-# /review-all — cross-layer review dispatcher
+# /da-review-all — cross-layer review dispatcher
 
 Works out which layers a change touches and runs **only the layer reviews that apply**. When one
 change spans several layers — a schema change, the code that reads it, the infrastructure that hosts
@@ -26,7 +26,7 @@ it — this removes both the work of invoking each layer by hand and, more impor
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/review-all` | triage the findings, then fix |
+| implementation complete, or a PR open | `/da-review-all` | triage the findings, then fix |
 
 ## What this skill delegates to
 
@@ -35,16 +35,21 @@ change and runs the ones that apply, then does the part none of them can.
 
 | Layer skill | Owns |
 |---|---|
-| `review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
-| `review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
-| `review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
+| `da-review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
+| `da-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
+| `da-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
 
 **The dispatcher reads no reference files.** Each layer skill tells its own subagents what to load,
 and the cross-layer report skeleton is inline in Step 4. Opening a reference here would park it in the
 main context for the rest of the session, which is the cost this split exists to avoid.
 
-The one exception is Step 4, which reads `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` —
-the cross-layer case is the only one no layer skill can reach.
+Step 4 is the one exception, and it reads two files — **both listed here so each is one level from this
+file**, because a reference reached only through another reference gets partially read:
+
+| File | When |
+|---|---|
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | Step 4, first — the five patterns in their single-layer form |
+| `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` | Step 4, then — the same five where cause and consequence sit in different layers, which no layer skill can reach |
 
 ---
 
@@ -101,7 +106,7 @@ For each layer with files, launch a subagent and tell it to use that layer's ski
 The layer skill handles the rest — it reads its own posture, process, perspectives, and the
 silent-failure patterns, and fans out to its own perspective subagents. **Do not restate its
 instructions here.** If a layer needs different guidance, that belongs in the layer skill, where a
-direct `/review-backend` invocation also benefits from it.
+direct `/da-review-backend` invocation also benefits from it.
 
 > **This by-name dispatch is why `disable-model-invocation` must never be set on any of them.** That
 > field blocks programmatic `Skill` calls and subagent preloading, not just model auto-invocation —
@@ -132,15 +137,14 @@ layers, which no single-layer review can see:
 - **Release order and rollback.** The safe order to ship a cross-layer change, and what stays
   consistent if only one side is rolled back.
 
-**The cross-layer lens for silent, irreversible failures** — read
-`${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` and apply the five patterns once more, but
-only for the case no layer skill can reach: where the *compensating work* sits in a **different layer**
-from the shared default that needs it. A global default whose correctness depends on the frontend sending a particular
-value, or on a batch job setting a flag, is correct in each layer read alone and broken between them.
-
-The same applies to pattern 3 across layers — a mapping declared in backend code and re-hardcoded in
-an infrastructure template or a frontend constant is the version of SSOT drift that no single layer
-review can detect, because each copy is locally correct.
+**Then the silent, irreversible failures in their cross-layer form.** Read
+`${CLAUDE_SKILL_DIR}/reference/cross-layer.md` and work through all five. Do not settle for
+re-applying the patterns as written — each has a shape that appears only when the cause and the
+consequence sit in **different layers**, and no layer review can reach any of them because every copy,
+every half, every side is locally correct. In short: a shared default whose compensation lives in
+another layer; a fallback that treats absent-from-elsewhere as permitted; one source of truth
+re-declared under a different name; live-read config racing a two-pipeline rollout; and an action in
+one layer whose only signal lands in another.
 
 **Always pull each layer's 🧭 and unverified clears (👤) to the top.** Design doubts, system-wide
 concerns, and overconfident clears cut across layers, so they must not stay buried inside a

@@ -1,1 +1,0 @@
-../../_shared/finding-discipline.md
