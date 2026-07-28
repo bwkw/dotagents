@@ -136,13 +136,25 @@ check_skill() {
   local bytes lines
   bytes=$(wc -c <"$skill" | tr -d ' ')
   lines=$(wc -l <"$skill" | tr -d ' ')
-  (( bytes > MAX_BYTES )) && err  "$id" "SKILL.md is ${bytes} bytes (max ${MAX_BYTES}) -- move detail into reference/"
+  if (( bytes > MAX_BYTES )); then
+    if [[ "$dir" == "$REPO/skills/"* ]]; then
+      err "$id" "SKILL.md is ${bytes} bytes (max ${MAX_BYTES}) -- move detail into reference/"
+    else
+      warn "$id" "SKILL.md is ${bytes} bytes (max ${MAX_BYTES}) -- invoking it parks that much in context all session; consider removing it"
+    fi
+  fi
   (( lines > MAX_LINES )) && warn "$id" "SKILL.md is ${lines} lines (target <= ${MAX_LINES})"
 
   # --- invariant: never disable model invocation ----------------------------
   # It also blocks programmatic Skill calls and subagent preloading, which breaks dispatchers.
+  # Ours must never set it. An upstream skill setting it is worth knowing -- it cannot be called from
+  # another skill -- but it is not a defect we can fix, so it is a warning there, not an error.
   if has_frontmatter_key "$skill" disable-model-invocation; then
-    err "$id" "sets 'disable-model-invocation' -- this also blocks programmatic Skill calls and subagent preload (see docs/adr/0003)"
+    if [[ "$dir" == "$REPO/skills/"* ]]; then
+      err "$id" "sets 'disable-model-invocation' -- this also blocks programmatic Skill calls and subagent preload (see docs/adr/0003)"
+    else
+      warn "$id" "sets 'disable-model-invocation' -- usable by name only; no skill can dispatch to it"
+    fi
   fi
 
   # --- invariant: Cursor sees only name/description/paths -------------------
@@ -153,8 +165,13 @@ check_skill() {
   if has_frontmatter_key "$skill" allowed-tools; then
     # Match inflections too ("never modifies", "never writes"), or the check rejects prose that
     # states the restriction perfectly well.
-    grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports' <<<"$body" \
-      || err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/adr/0003)"
+    if grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports' <<<"$body"; then
+      :
+    elif [[ "$dir" == "$REPO/skills/"* ]]; then
+      err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/adr/0003)"
+    else
+      warn "$id" "declares 'allowed-tools' but the body never states the restriction -- that constraint does not exist in Cursor"
+    fi
   fi
 
   # A skill whose body dispatches to subagents but whose allowed-tools omits Task has been
@@ -175,9 +192,15 @@ check_skill() {
   # Installed globally, ours sit among two dozen third-party skills. Without a marker there is no
   # way to answer "which of these am I responsible for" -- not for a person reading /skills, and
   # not for skills-audit deciding what it may propose removing.
-  local fm_block; fm_block="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill")"
-  grep -q 'source: bwkw/dotagents' <<<"$fm_block" \
-    || err "$id" "frontmatter is missing 'metadata.source: bwkw/dotagents' -- ours must be distinguishable from installed third-party skills"
+  # Only for skills in this repository. Run over an install directory -- which skills-audit tells you
+  # to do -- every third-party skill would report as missing our marker, which is both wrong and
+  # 28 lines of noise in a 35-line report. A report that is mostly noise stops being read, which is
+  # the exact failure finding-discipline.md is about.
+  if [[ "$dir" == "$REPO/skills/"* ]]; then
+    local fm_block; fm_block="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill")"
+    grep -q 'source: bwkw/dotagents' <<<"$fm_block" \
+      || err "$id" "frontmatter is missing 'metadata.source: bwkw/dotagents' -- ours must be distinguishable from installed third-party skills"
+  fi
 
   # --- symlinks must stay inside the repository -----------------------------
   # A skill's reference/ is read by an agent on instruction. A symlink there pointing outside the

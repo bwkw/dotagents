@@ -168,6 +168,11 @@ npx skills add getsentry/skills -g -a claude-code -a cursor \
 
 同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
 
+**測ってから削除したもの**（勘ではなく）。`/skills-audit` が description のトリガ語彙を総当たりで比較し、この2つが最高スコアで落ちました:
+
+- `getsentry/security-review` — `find-bugs` と **33% 重複**。`find-bugs` は同じブランチ差分に対してバグ**と**セキュリティ**と**品質を見ます。しかも Claude Code は自前の `security-review` を同梱していて、同名の個人スキルがそれを隠すので、**外すと組み込みが戻ってきます** —— 何も失いません。
+- `obra/subagent-driven-development` — **28KB**、サイズ上限の2倍以上。呼び出すとそれ全部がセッション中コンテキストに居座ります。`dispatching-parallel-agents` が同じ土地を 6KB でカバーします。
+
 スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 
 ## Advisor（オプトイン）

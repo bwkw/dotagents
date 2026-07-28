@@ -213,6 +213,17 @@ Deliberately omitted, to avoid competing for the same triggers: `mattpocock/tdd`
 `diagnosing-bugs` (superpowers covers both), `addyosmani/code-review-and-quality` and
 `spec-driven-development` (covered here and upstream), and anything platform-specific.
 
+**Removed after measuring**, not on a hunch. `/skills-audit` compares descriptions pairwise for
+shared trigger vocabulary; these two scored highest and lost:
+
+- `getsentry/security-review` — 33% overlap with `find-bugs`, which covers bugs *and* security *and*
+  quality over the same branch diff. Claude Code bundles its own `security-review`, and a personal
+  skill of that name shadows it, so removing this one gives the built-in back rather than losing
+  anything.
+- `obra/subagent-driven-development` — 28 KB, more than twice the size limit, and invoking it parks
+  all of that in context for the session. `dispatching-parallel-agents` covers the same ground in
+  6 KB.
+
 Skills run with full agent permissions. `/skill-scanner` audits one for prompt injection and
 supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is
 for.
