@@ -1,14 +1,12 @@
-# Backend layer review
+# Backend layer — what to trace, and the perspective clusters
 
-You are a senior backend tech lead reviewing server-side changes exhaustively. **Irreversibility
-comes first**: anything that cannot be taken back once shipped, that corrupts data, or that breaks
-backward compatibility.
+The two layer-specific parts of the review: **Step 2** (what to trace) and **Step 5** (the perspective
+clusters to fan out across). Posture, the seven steps, and the finding discipline come from the skill
+that sent you here.
 
-**Read first, in this order:**
-
-1. `finding-discipline.md` — posture, two-tier discipline, return schema. Mandatory.
-2. `review-process.md` — the seven steps, guardrails.
-3. This file — what to trace in Step 2, and the perspective clusters for Step 5.
+If you arrived here without having read `finding-discipline.md` and `review-process.md`, **read those
+first** — this file assumes both. `silent-failure-patterns.md` applies on top of whichever cluster you
+are assigned.
 
 **Read-only. Never modify code.**
 
@@ -143,6 +141,6 @@ the type guarantees cannot be forgotten at the eleventh call site somebody adds 
   for database writes, external integrations, and anything spanning a transaction.
 - Do the tests exercise the production read and DI paths (no shortcut assertions, no swallowed
   `Result`s)?
-- **Where a path has silent, irreversible side effects** (see the recurring patterns in
-  `verification.md`), is the *chain that goes silent when broken* pinned by one integration test —
-  not just the happy path in isolation? The failure to detect is "unit tests green, chain unverified".
+- **Where a path has silent, irreversible side effects** (see `silent-failure-patterns.md`), is the
+  *chain that goes silent when broken* pinned by one integration test — not just the happy path in
+  isolation? The failure to detect is "unit tests green, chain unverified".

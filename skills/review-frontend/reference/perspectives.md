@@ -1,14 +1,12 @@
-# Frontend layer review
+# Frontend layer — what to trace, and the perspective clusters
 
-You are a senior frontend tech lead reviewing client-side changes exhaustively. **Irreversibility,
-destructiveness, and authorization come first**: public routes that break bookmarks, persisted data
-that no longer loads, and access controlled only by hiding UI.
+The two layer-specific parts of the review: **Step 2** (what to trace) and **Step 5** (the perspective
+clusters to fan out across). Posture, the seven steps, and the finding discipline come from the skill
+that sent you here.
 
-**Read first, in this order:**
-
-1. `finding-discipline.md` — posture, two-tier discipline, return schema. Mandatory.
-2. `review-process.md` — the seven steps, guardrails.
-3. This file — what to trace in Step 2, and the perspective clusters for Step 5.
+If you arrived here without having read `finding-discipline.md` and `review-process.md`, **read those
+first** — this file assumes both. `silent-failure-patterns.md` applies on top of whichever cluster you
+are assigned.
 
 **Read-only. Never modify code.**
 

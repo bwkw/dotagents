@@ -21,8 +21,9 @@ work. That is why they are here rather than in a document you would read once.
 
 2. **Never set `disable-model-invocation`.**
    It blocks programmatic `Skill` calls and subagent preloading too, not just model auto-invocation.
-   `review-all` dispatches to its layer references by name, so setting it turns the dispatcher into a
-   no-op with no error.
+   `review-all` dispatches to `review-backend`, `review-frontend`, and `review-infra` **by skill
+   name**, so setting it on any of them turns that layer into a silent no-op — the dispatcher reports
+   the layer as covered and reviews nothing. `verify-skills.sh` checks this.
 
 3. **Frontmatter that a real YAML parser rejects still loads.**
    An unquoted `": "` in a description parses as a nested mapping. The skill appears in the menu with

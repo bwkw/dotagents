@@ -28,21 +28,23 @@ it — this removes both the work of invoking each layer by hand and, more impor
 |---|---|---|
 | implementation complete, or a PR open | `/review-all` | triage the findings, then fix |
 
-## Files to read
+## What this skill delegates to
 
-**The dispatcher reads none of them.** Each layer file tells its own subagent what to load, and the
-cross-layer report skeleton is inline in Step 4. Opening a reference here would put it in the main
-context for the rest of the session, which is the cost this split exists to avoid.
+Each layer is a **skill in its own right**, directly invokable on its own. This one classifies the
+change and runs the ones that apply, then does the part none of them can.
 
-| File | Read by |
+| Layer skill | Owns |
 |---|---|
-| `reference/backend.md` | the backend subagent, on instruction |
-| `reference/frontend.md` | the frontend subagent |
-| `reference/infra.md` | the infra subagent |
-| `reference/review-process.md` | each layer file, as its first instruction |
-| `reference/finding-discipline.md` | every reviewing and verifying subagent |
-| `reference/verification.md` | each layer subagent, during its verify phase |
-| `reference/report-format.md` | whichever subagent writes a layer report |
+| `review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
+| `review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
+| `review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
+
+**The dispatcher reads no reference files.** Each layer skill tells its own subagents what to load,
+and the cross-layer report skeleton is inline in Step 4. Opening a reference here would park it in the
+main context for the rest of the session, which is the cost this split exists to avoid.
+
+The one exception is Step 4, which reads `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` —
+the cross-layer case is the only one no layer skill can reach.
 
 ---
 
@@ -91,17 +93,19 @@ entire layer, and that is not recoverable by anything later in the process.
 
 ## Step 3. Run the layer reviews
 
-For each layer with files, launch a subagent and give it the file list you classified into that
-layer. Prefer a purpose-built agent when the repository defines one (`senior-architect`,
-`ddd-expert`, `database-specialist`, a domain expert); otherwise `general-purpose`.
+For each layer with files, launch a subagent and tell it to use that layer's skill **by name**:
 
-The task for each subagent:
+> Use the `review-<layer>` skill and follow it exactly. Your scope is strictly these files:
+> `<the list>`. Do not re-derive the full diff.
 
-> Read `${CLAUDE_SKILL_DIR}/reference/<layer>.md` and follow it exactly. Your scope is strictly these
-> files: `<the list>`. Do not re-derive the full diff.
+The layer skill handles the rest — it reads its own posture, process, perspectives, and the
+silent-failure patterns, and fans out to its own perspective subagents. **Do not restate its
+instructions here.** If a layer needs different guidance, that belongs in the layer skill, where a
+direct `/review-backend` invocation also benefits from it.
 
-**Use the `${CLAUDE_SKILL_DIR}` form, not a relative path.** It expands to an absolute path, so it
-resolves inside the subagent, whose working directory is not yours.
+> **This by-name dispatch is why `disable-model-invocation` must never be set on any of them.** That
+> field blocks programmatic `Skill` calls and subagent preloading, not just model auto-invocation —
+> setting it on a layer skill turns this step into a silent no-op. The linter checks for it.
 
 Run the layers **sequentially**. Each one fans out to its own subagents internally, so there is no
 parallelism to gain here, and attempting it just makes the transcript harder to follow.
@@ -128,11 +132,15 @@ layers, which no single-layer review can see:
 - **Release order and rollback.** The safe order to ship a cross-layer change, and what stays
   consistent if only one side is rolled back.
 
-**The cross-layer lens for silent, irreversible failures** — apply the four patterns in
-`verification.md` one more time, but only for the case they cannot cover: where the *compensating
-work* sits in a **different layer** from the shared default that needs it. A global default whose
-correctness depends on the frontend sending a particular value, or on a batch job setting a flag, is
-correct in each layer read alone and broken between them.
+**The cross-layer lens for silent, irreversible failures** — read
+`${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` and apply the five patterns once more, but
+only for the case no layer skill can reach: where the *compensating work* sits in a **different layer**
+from the shared default that needs it. A global default whose correctness depends on the frontend sending a particular
+value, or on a batch job setting a flag, is correct in each layer read alone and broken between them.
+
+The same applies to pattern 3 across layers — a mapping declared in backend code and re-hardcoded in
+an infrastructure template or a frontend constant is the version of SSOT drift that no single layer
+review can detect, because each copy is locally correct.
 
 **Always pull each layer's 🧭 and unverified clears (👤) to the top.** Design doubts, system-wide
 concerns, and overconfident clears cut across layers, so they must not stay buried inside a
