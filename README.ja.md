@@ -37,10 +37,12 @@ cd ~/private/dotagents
 ```
 dotagents/skills/<name>/
         ↑ symlink
-~/.agents/skills/<name>          ← Cursor はここをネイティブに読む
+~/.agents/skills/<name>          ← Cursor はここを直接読む
         ↑ symlink
 ~/.claude/skills/<name>          ← Claude Code は symlink を追う
 ```
+
+リンクを張るのは Claude Code 側だけです。Cursor が `~/.agents/skills/` を読むことは**推測ではなく観測**です —— `~/.cursor/skills/` にエントリを持たない上流スキルが Cursor のメニューに出て、かつ両方から到達できるスキルは1回しか出ません。確認の経緯は [ADR 0001](docs/adr/0001-global-install-via-agents-dir.md)。
 
 実体はひとつだけ。ここのファイルを編集すれば両方のエージェントに即反映され、同期の手順もドリフトもありません。
 

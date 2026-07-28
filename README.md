@@ -39,10 +39,15 @@ cd ~/private/dotagents
 ```
 dotagents/skills/<name>/
         ↑ symlink
-~/.agents/skills/<name>          ← Cursor reads this natively
+~/.agents/skills/<name>          ← Cursor reads this directly
         ↑ symlink
 ~/.claude/skills/<name>          ← Claude Code follows the link
 ```
+
+Only Claude Code gets a link. Cursor reading `~/.agents/skills/` is observed, not assumed: an
+upstream skill with no `~/.cursor/skills/` entry shows up in its menu, and a skill reachable from
+both paths is listed once. [ADR 0001](docs/adr/0001-global-install-via-agents-dir.md) records how
+that was checked.
 
 One physical copy. Editing a file here takes effect in both agents immediately, with no sync step
 and nothing to drift.

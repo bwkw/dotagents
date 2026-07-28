@@ -34,23 +34,35 @@ Install globally only. Do not install per-project.
 - Project-scoped skills are out of reach by construction. That is intended: a personal toolkit that
   needs per-repo installation is a per-repo change, which this design rules out.
 
-## Open question: the `~/.cursor/skills/` link
+## Resolved, 2026-07-28: no `~/.cursor/skills/` link
 
-The `skills` CLI installs to `~/.agents/skills/`, symlinks `~/.claude/skills/` for Claude Code, and
-labels Cursor **"universal"** — creating no `~/.cursor/skills/` link at all, on the basis that Cursor
-reads `~/.agents/skills/` natively. (An older install of `find-skills` from January does have a
-`~/.cursor/skills/` link, so this looks like a deliberate upstream change once Cursor gained native
-support.)
+This was an open question. It is now settled by observation in Cursor, which was the only way to
+settle it.
 
-`setup.sh` still creates the `~/.cursor/skills/` link. The two failure modes are not symmetric:
+Two things were visible in Cursor's skill menu:
 
-- If Cursor reads both locations, our skills appear **twice** in its menu. Cosmetic.
-- If Cursor does not read `~/.agents/skills/` and we skipped the link, our skills are **silently
-  absent** in Cursor. Functional, and silent.
+- **`/codebase-design` appeared**, and it has no `~/.cursor/skills/` entry — it exists only under
+  `~/.agents/skills/` and `~/.claude/skills/`. So **Cursor reads `~/.agents/skills/` natively**, which
+  had been an assumption taken from the upstream CLI's behaviour rather than something checked.
+- **`/review-all` appeared once**, despite being reachable from both `~/.agents/skills/` and
+  `~/.cursor/skills/`. So Cursor does not double-list a skill reachable by two paths.
 
-Belt-and-braces wins when one branch is cosmetic and the other is a silent absence. Revisit after
-confirming in Cursor which way it actually behaves: if entries appear twice, drop the
-`~/.cursor/skills/` link from `link_skill` and match the CLI.
+That inverts the reasoning that kept the link. It was retained because "a silent absence is worse
+than a duplicate menu entry" — but there is no absence to guard against, so the link buys nothing and
+writes into a directory we have no reason to touch.
+
+`setup.sh` no longer creates it, and removes any it created before, matching what the upstream
+`skills` CLI does. Only Claude Code gets a link, because Claude Code is the one that needs one.
+
+If a future Cursor stops reading `~/.agents/skills/`, the symptom is skills vanishing from its menu
+while `setup.sh status` still reports them installed. The fix is to restore the second link in
+`link_skill`.
+
+**A second observation worth recording**, because it strengthens ADR 0003 beyond what that ADR
+claims: the Cursor session was running **GPT-5.6**, not a Claude model. So "behaviour lives in the
+body, not the frontmatter" is not only about which YAML keys get parsed — the prose in these skills
+is read and executed by a different model family entirely. A constraint expressed as an instruction
+survives that; a constraint expressed as a Claude-specific frontmatter key was never going to.
 
 ## Alternatives rejected
 

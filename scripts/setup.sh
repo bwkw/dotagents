@@ -84,23 +84,26 @@ link_skill() {
     did "link ~/.agents/skills/$name"
   fi
 
-  # Agent-visible entries point at the physical entry, not at the repo, so there is one
-  # place to repoint if the repo ever moves.
-  local agent_dir
-  for agent_dir in "$CLAUDE_SKILLS" "$CURSOR_SKILLS"; do
-    local dest="$agent_dir/$name"
-    local rel="../../.agents/skills/$name"   # ~/.claude/skills/<n> -> ~/.agents/skills/<n>
-    if [[ -e "$dest" && ! -L "$dest" ]]; then
-      bad "$dest exists as a real directory, not ours -- refusing to replace it"
-      continue
-    fi
-    if points_at "$dest" "$rel"; then
-      note "up to date: ${agent_dir/#$HOME/$TILDE}/$name"
-    else
-      run ln -sfn "$rel" "$dest"
-      did "link ${agent_dir/#$HOME/$TILDE}/$name"
-    fi
-  done
+  # Only Claude Code needs a link. Cursor reads ~/.agents/skills natively -- confirmed by observing
+  # an upstream skill with no ~/.cursor/skills entry appear in its menu -- and a skill reachable from
+  # both paths is listed once, not twice. See docs/adr/0001.
+  local dest="$CLAUDE_SKILLS/$name"
+  local rel="../../.agents/skills/$name"   # ~/.claude/skills/<n> -> ~/.agents/skills/<n>
+  if [[ -e "$dest" && ! -L "$dest" ]]; then
+    bad "$dest exists as a real directory, not ours -- refusing to replace it"
+  elif points_at "$dest" "$rel"; then
+    note "up to date: ~/.claude/skills/$name"
+  else
+    run ln -sfn "$rel" "$dest"
+    did "link ~/.claude/skills/$name"
+  fi
+
+  # Earlier versions created a ~/.cursor/skills link too. Remove ours, but only if it is a symlink
+  # pointing where we would have pointed it -- anything else belongs to someone else.
+  if points_at "$CURSOR_SKILLS/$name" "$rel"; then
+    run rm -f "$CURSOR_SKILLS/$name"
+    did "remove the now-redundant ~/.cursor/skills/$name"
+  fi
 }
 
 copy_hook() {
@@ -261,14 +264,13 @@ cmd_status() {
   while read -r n; do
     [[ -n "$n" ]] || continue
     total=$((total+1))
-    local a="$AGENTS_SKILLS/$n" c="$CLAUDE_SKILLS/$n" u="$CURSOR_SKILLS/$n"
-    if [[ -d "$a" && -d "$c" && -d "$u" ]]; then
-      ok "$n  ${c_dim}(agents+claude+cursor)${c_off}"
+    local a="$AGENTS_SKILLS/$n" c="$CLAUDE_SKILLS/$n"
+    if [[ -d "$a" && -d "$c" ]]; then
+      ok "$n  ${c_dim}(~/.agents, linked from ~/.claude; Cursor reads ~/.agents directly)${c_off}"
     else
       local where=""
       [[ -d "$a" ]] || where+=" agents"
       [[ -d "$c" ]] || where+=" claude"
-      [[ -d "$u" ]] || where+=" cursor"
       bad "$n  missing:$where"; missing=$((missing+1))
     fi
   done < <(skill_names)
