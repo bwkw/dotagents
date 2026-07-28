@@ -31,7 +31,7 @@ Claude-only frontmatter stays, but only as optimization on top of behaviour the 
 guarantees. `verify-skills.sh` flags any skill whose body does not restate its frontmatter constraints.
 
 **`disable-model-invocation` is never set.** It blocks programmatic `Skill` invocation, subagent
-preloading, and scheduled-task triggering — not just model auto-invocation. `review-all` dispatches to
+preloading, and scheduled-task triggering — not just model auto-invocation. `da-review-all` dispatches to
 its layer references by name, so setting it converts the dispatcher into a silent no-op.
 
 > **Amended by ADR 0005 (2026-07-28).** The blanket ban was over-general, and the sentence above is the
@@ -39,9 +39,9 @@ its layer references by name, so setting it converts the dispatcher into a silen
 > Official guidance *recommends* the field for side-effectful workflows and for anything you always
 > invoke by name, and it is the only way to make a skill cost zero description budget.
 >
-> The rule is now **never on something reached by name**: `verify` (the only thing that arms the gate)
-> and `review-backend` / `review-frontend` / `review-infra` (dispatch targets). Everything else may set
-> it; `pr-describe` does. Note that this field is one of the four Cursor *does* understand, so unlike
+> The rule is now **never on something reached by name**: `da-verify` (the only thing that arms the gate)
+> and `da-review-backend` / `da-review-frontend` / `da-review-infra` (dispatch targets). Everything else may set
+> it; `da-pr-describe` does. Note that this field is one of the four Cursor *does* understand, so unlike
 > the rest of this ADR's subject matter it behaves identically in both agents.
 
 ## Consequences
@@ -74,7 +74,7 @@ on Claude Code, and the `stop` payload is recognised by `loop_count`.
 Two consequences worth stating plainly:
 
 - **Cursor's gate can be walked past.** A follow-up message is a strong nudge; it is not a refusal.
-  The user can stop the agent with checks red. This is documented in `README.md` and in the `verify`
+  The user can stop the agent with checks red. This is documented in `README.md` and in the `da-verify`
   skill rather than glossed over.
 - **We stop injecting at `loop_count >= 3`**, below Cursor's limit of 5. Consuming the whole budget
   would leave the user with an agent that will not settle and no explanation for why.

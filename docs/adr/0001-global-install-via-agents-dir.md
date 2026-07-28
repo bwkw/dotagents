@@ -44,7 +44,7 @@ Two things were visible in Cursor's skill menu:
 - **`/codebase-design` appeared**, and it has no `~/.cursor/skills/` entry — it exists only under
   `~/.agents/skills/` and `~/.claude/skills/`. So **Cursor reads `~/.agents/skills/` natively**, which
   had been an assumption taken from the upstream CLI's behaviour rather than something checked.
-- **`/review-all` appeared once**, despite being reachable from both `~/.agents/skills/` and
+- **`/da-review-all` appeared once**, despite being reachable from both `~/.agents/skills/` and
   `~/.cursor/skills/`. So Cursor does not double-list a skill reachable by two paths.
 
 That inverts the reasoning that kept the link. It was retained because "a silent absence is worse
@@ -74,7 +74,7 @@ survives that; a constraint expressed as a Claude-specific frontmatter key was n
 
 **Claude Code plugin marketplace.** The official answer for sharing skills across repositories, and
 genuinely better on versioning. Rejected for two reasons: Cursor does not support plugins at all, and
-plugins namespace skills as `plugin:skill`, which breaks `review-all`'s by-name dispatch to its layer
+plugins namespace skills as `plugin:skill`, which breaks `da-review-all`'s by-name dispatch to its layer
 references.
 
 **Copying into each product repo.** A pattern seen in the wild: the same skills duplicated under

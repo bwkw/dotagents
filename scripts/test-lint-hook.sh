@@ -56,16 +56,16 @@ echo "lint hook: disable-model-invocation scope"
 
 # Denied: something reaches these by name, so the field breaks them silently.
 for d in claude cursor; do
-  probe_dmi verify          deny "$d"
-  probe_dmi review-backend  deny "$d"
-  probe_dmi review-frontend deny "$d"
-  probe_dmi review-infra    deny "$d"
+  probe_dmi da-verify          deny "$d"
+  probe_dmi da-review-backend  deny "$d"
+  probe_dmi da-review-frontend deny "$d"
+  probe_dmi da-review-infra    deny "$d"
 done
 
 # Allowed with a warning: legitimate for a user-invoked workflow. Officially recommended, and free.
 for d in claude cursor; do
-  probe_dmi pr-describe  ask "$d"
-  probe_dmi skills-audit ask "$d"
+  probe_dmi da-pr-describe  ask "$d"
+  probe_dmi da-skills-audit ask "$d"
   probe_dmi anything-else ask "$d"
 done
 
@@ -76,10 +76,10 @@ reason() { payload "$1" claude "---" "name: $1" "description: Use when testing."
   | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);
       process.stdout.write(j.hookSpecificOutput?.permissionDecisionReason ?? "");}catch{}})'; }
 
-grep -q 'fails OPEN' <<<"$(reason verify)" \
+grep -q 'fails OPEN' <<<"$(reason da-verify)" \
   && ok "verify: the reason says the gate fails OPEN" \
   || bad "verify: the reason does not mention failing open"
-grep -q 'reviewing nothing' <<<"$(reason review-backend)" \
+grep -q 'reviewing nothing' <<<"$(reason da-review-backend)" \
   && ok "review-backend: the reason says the layer would be reported as covered" \
   || bad "review-backend: the reason does not say what breaks"
 
@@ -117,16 +117,16 @@ mk() { # name
       "disable-model-invocation: true" "metadata:" "  source: bwkw/dotagents" "---" "" \
       "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$PROBE/$1/SKILL.md"
 }
-for n in verify review-backend review-frontend review-infra pr-describe skills-audit; do mk "$n"; done
+for n in da-verify da-review-backend da-review-frontend da-review-infra da-pr-describe da-skills-audit; do mk "$n"; done
 
 # Strip ANSI colour before matching -- the marker and the text are separated by a reset sequence,
 # so a literal "✗ skills/x" pattern never matches the raw output.
 out="$("$LINTER" "$PROBE" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
-for n in verify review-backend review-frontend review-infra; do
+for n in da-verify da-review-backend da-review-frontend da-review-infra; do
   grep -q "^✗ skills/$n:" <<<"$out" \
     && ok "linter errors on '$n'" || bad "linter did NOT error on '$n'"
 done
-for n in pr-describe skills-audit; do
+for n in da-pr-describe da-skills-audit; do
   grep -q "^✗ skills/$n:" <<<"$out" \
     && bad "linter wrongly errors on '$n'" || ok "linter allows '$n'"
 done

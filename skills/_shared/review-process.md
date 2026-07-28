@@ -33,7 +33,7 @@ and it is mandatory for every subagent you launch.
    - `BASE` empty (detached HEAD, no upstream, first commit, missing ref) → diff against the empty
      tree and say so: `git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`.
    - If the default branch that `symbolic-ref` returned looks like it is not the real PR base, ask.
-   - If the change also touches other layers, say so and suggest `/review-all` across all of them.
+   - If the change also touches other layers, say so and suggest `/da-review-all` across all of them.
 
 ## Step 2. Impact mapping — mandatory, before reading for defects
 
@@ -70,12 +70,12 @@ generic checks even when there is no project context to be found.
 
 Launch one subagent per perspective cluster, **all in a single message so they run in parallel**.
 
-Use **`codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
+Use **`da-codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
 go, what else touches this pattern. Use `general-purpose` for clusters that need judgement about the
 design. Pass every subagent its cluster's checklist from the layer file, and **never skip a cluster**
 because the ideal agent for it is unavailable.
 
-> `codebase-explorer` and `review-verifier` are installed globally by this toolkit, so they exist in
+> `da-codebase-explorer` and `da-review-verifier` are installed globally by this toolkit, so they exist in
 > every repository. Do not wait for a repository to define an agent — by design this toolkit never
 > adds a file to a product repository, so a repository-local agent will never appear.
 

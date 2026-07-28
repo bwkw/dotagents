@@ -1,5 +1,5 @@
 ---
-name: investigate
+name: da-investigate
 description: Map what a change would touch, or trace how something actually works. Use when asked where something lives, what depends on it, or what would break. Answers with file:line evidence under a fixed exploration budget, and names what it could not confirm. Read-only.
 argument-hint: "the question to answer"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(rg:*), Bash(gh:*)
@@ -7,7 +7,7 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /investigate — answer the question, then stop
+# /da-investigate — answer the question, then stop
 
 Two failure modes bracket codebase investigation. One is stopping too early and answering from a
 plausible guess. The other is "look into the codebase" with no boundary, reading three hundred files
@@ -28,7 +28,7 @@ budget** that ends the search whether or not the answer is complete.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| a question, or the start of planning | `/investigate` | `/grill-me`, `/writing-plans`, `/design-review` |
+| a question, or the start of planning | `/da-investigate` | `/grill-me`, `/writing-plans`, `/da-design-review` |
 
 ## Files to read
 
@@ -74,10 +74,10 @@ Most questions are answered at rungs 1–2. **Reading files is the last rung, no
 you find yourself opening a fifth file to answer a "where is X" question, the search term is wrong,
 not the budget.
 
-For a broad question with independent parts, dispatch them to **parallel `codebase-explorer`
+For a broad question with independent parts, dispatch them to **parallel `da-codebase-explorer`
 subagents** — one per part, in a single message — and synthesise. Each gets its own share of the
 budget. Investigation is the single best use of subagents, because the reading stays in their context
-and only the conclusion comes back to yours. `codebase-explorer` is installed globally by this
+and only the conclusion comes back to yours. `da-codebase-explorer` is installed globally by this
 toolkit, and carries the read-only constraint and the confirmed / inferred / not-confirmed split in
 its own definition rather than in a prompt that can be ignored.
 

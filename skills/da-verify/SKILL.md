@@ -1,5 +1,5 @@
 ---
-name: verify
+name: da-verify
 description: Run this repository's own verification commands and report with evidence. Use before claiming work is done, before committing, or before opening a PR. Resolves commands from the repo's profile rather than guessing, and refuses what the repo forbids.
 argument-hint: "[check-id] (default: every gating check)"
 allowed-tools: Bash, Read, Grep, Glob
@@ -7,7 +7,7 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /verify — run the checks, show the evidence
+# /da-verify — run the checks, show the evidence
 
 Claude stops when work *looks* done. Without a check it can actually run, "looks done" is the only
 signal available, and the human ends up being the verification loop. This skill is the check.
@@ -18,7 +18,7 @@ It is also the **manual path for the Stop gate**. `dotagents-verify-gate.sh` run
 at the end of a turn on both agents — but only Claude Code's Stop hook can actually refuse to
 finish. **Cursor's `stop` hook cannot block**; it only auto-submits a follow-up message asking the
 agent to keep going, and Cursor caps how many times that can happen. So in Cursor the gate is a
-nudge, and running `/verify` explicitly is how you actually know. Do not assume parity.
+nudge, and running `/da-verify` explicitly is how you actually know. Do not assume parity.
 
 ## Preconditions
 
@@ -32,7 +32,7 @@ nudge, and running `/verify` explicitly is how you actually know. Do not assume 
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation, or a fix | `/verify` | commit, `/review-all`; `/pr-describe` when the user types it |
+| implementation, or a fix | `/da-verify` | commit, `/da-review-all`; `/da-pr-describe` when the user types it |
 
 ## Files to read
 
@@ -154,7 +154,7 @@ reason, and a gate that blocks for no reason gets switched off.
 
 ## Next
 
-All green → commit, then `/review-all`. Anything red → fix it, then run `/verify` again.
+All green → commit, then `/da-review-all`. Anything red → fix it, then run `/da-verify` again.
 **If the same check fails twice in a row, stop patching.** Write down what you tried and why it
 failed, `/clear`, and restart with that folded into the prompt — repeated correction piles failed
 approaches into the context and makes each attempt worse than the last.

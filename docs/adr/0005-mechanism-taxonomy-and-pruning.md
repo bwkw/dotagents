@@ -42,10 +42,10 @@ Two skills can never have it:
 
 | Skill | What breaks |
 |---|---|
-| `verify` | It is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never arms and passes every turn — the guardrail **opens**. |
-| `review-backend` / `-frontend` / `-infra` | `review-all` dispatches to them by name; the dispatcher would report a layer as covered while reviewing nothing. |
+| `da-verify` | It is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never arms and passes every turn — the guardrail **opens**. |
+| `da-review-backend` / `-frontend` / `-infra` | `da-review-all` dispatches to them by name; the dispatcher would report a layer as covered while reviewing nothing. |
 
-Everything else may set it. Applied to `pr-describe` only: it writes to GitHub, it is always typed, and
+Everything else may set it. Applied to `da-pr-describe` only: it writes to GitHub, it is always typed, and
 nothing dispatches to it. That is the official textbook case, and it frees 241 characters.
 
 Enforced in two places that must agree — the lint hook and `verify-skills.sh`. **The first version of
@@ -69,8 +69,8 @@ fix a budget problem defeats itself. The bar is *`general-purpose` cannot satisf
 
 | Agent | Why a definition rather than a prompt |
 |---|---|
-| **`review-verifier`** | `verification.md` requires a verifier that did not take part in finding, and that returns `refuted` rather than `uncertain` when it cannot substantiate a claim. That posture has to hold *before* it reads anything. Passed in a prompt, it is a request. |
-| **`codebase-explorer`** | Read-only tracing with `file:line` evidence, an explicit budget, and confirmed / inferred / not-confirmed kept apart. Used by `investigate`'s fan-out and every review's Step 2. |
+| **`da-review-verifier`** | `verification.md` requires a verifier that did not take part in finding, and that returns `refuted` rather than `uncertain` when it cannot substantiate a claim. That posture has to hold *before* it reads anything. Passed in a prompt, it is a request. |
+| **`da-codebase-explorer`** | Read-only tracing with `file:line` evidence, an explicit budget, and confirmed / inferred / not-confirmed kept apart. Used by `da-investigate`'s fan-out and every review's Step 2. |
 
 Linked into `~/.claude/agents/`, which Cursor also reads, so one link covers both agents. Managed by
 `setup.sh` with prune, uninstall, status and manifest support on the same footing as skills and hooks —
@@ -89,13 +89,13 @@ Removed: specialist advisory skills, duplicates of what the harness now provides
 skill in direct behavioural conflict with our own.
 
 Every by-name reference was checked before removing anything. Nine had no inbound references. The two
-that did are kept **for that reason**: `brainstorming` (referenced by our own `design-review`, and by
+that did are kept **for that reason**: `brainstorming` (referenced by our own `da-design-review`, and by
 `writing-plans`) and `using-git-worktrees` (by `writing-plans` and `executing-plans`).
 
 | Removed | Reason |
 |---|---|
 | `find-skills` | 303 chars teaching `npx skills add` **without `-s`**, which AGENTS.md has an invariant against |
-| `using-superpowers` | Mandates skill invocation "before ANY response including clarifying questions", which contradicts `investigate` and `design-review` — both of which refuse an unstated goal. It also hard-wires brainstorming → writing-plans, a funnel that structurally cannot reach `/grill-me` or `/design-review` |
+| `using-superpowers` | Mandates skill invocation "before ANY response including clarifying questions", which contradicts `da-investigate` and `da-design-review` — both of which refuse an unstated goal. It also hard-wires brainstorming → writing-plans, a funnel that structurally cannot reach `/grill-me` or `/da-design-review` |
 | `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | Specialist advisory, off the development loop |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set, removed together so no reference dangles |
 | `research`, `dispatching-parallel-agents` | The harness provides WebFetch and parallel agents natively |
@@ -117,7 +117,7 @@ each body. **The file vocabulary stays**: it is what routes `*.tf` to infra and 
 It is the official non-destructive suppression mechanism, and it was the obvious way to avoid deciding.
 Rejected: it lives in Claude Code's `settings.json`, which Cursor does not read, so every entry makes
 the two agents disagree about which skills are active — one of the two seams `design.md` names as a
-source of silent failure. Worse, `/skills-audit` reads files rather than settings, so the tool that
+source of silent failure. Worse, `/da-skills-audit` reads files rather than settings, so the tool that
 exists to detect skill-state confusion could not see the confusion this created. Suppression here means
 uninstalling, which is symmetric, visible from both agents, and reversible in one command.
 
@@ -149,5 +149,5 @@ Claude-only and the final call is a human's.
 - `verify-skills.sh` checks agents as well as skills, and fails when a skill dispatches to an agent that
   does not exist.
 - The gate's arming path is documented correctly in three places; `design.md` previously claimed the
-  gate armed itself, and that error is what produced an earlier proposal to disable `verify`'s
+  gate armed itself, and that error is what produced an earlier proposal to disable `da-verify`'s
   auto-invocation — which would have failed the gate open.

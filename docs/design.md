@@ -143,25 +143,25 @@ Nothing is logged, nothing errors, and the tool appears to work. That is what th
 There is no pipeline. Each skill is invoked by name, and most sessions use one or two.
 
 **Before writing code**, when the shape is not obvious: `/grill-me` to be interrogated until the
-requirement is actually pinned down, `/investigate` when you need to know what a change would touch,
-`/writing-plans` to get a plan on disk. Then `/design-review` on that plan — it catches what code
+requirement is actually pinned down, `/da-investigate` when you need to know what a change would touch,
+`/writing-plans` to get a plan on disk. Then `/da-design-review` on that plan — it catches what code
 review cannot fix later, because by the time a diff exists the migration strategy and the contract
 shape are already decided.
 
-**While writing code**, the upstream skills do the work. `/verify` when you want the evidence rather
-than the assertion — **and it is `/verify` that arms the gate, the only thing that does.** Once armed,
-the gate will not let a turn end with checks red. A session where `/verify` never ran is a session with
+**While writing code**, the upstream skills do the work. `/da-verify` when you want the evidence rather
+than the assertion — **and it is `/da-verify` that arms the gate, the only thing that does.** Once armed,
+the gate will not let a turn end with checks red. A session where `/da-verify` never ran is a session with
 no gate, which is why the skill's auto-invocation matters as much as typing it.
 
-**After writing code**, `/review-backend`, `/review-frontend`, and `/review-infra` each review one
-layer as a tech lead, and `/review-all` classifies the change and runs the ones that apply before
+**After writing code**, `/da-review-backend`, `/da-review-frontend`, and `/da-review-infra` each review one
+layer as a tech lead, and `/da-review-all` classifies the change and runs the ones that apply before
 looking specifically for the cross-layer risks — a contract change and its consumer shipping out of
-order, a config read live at startup meeting code that has not deployed yet. Then `/pr-describe`.
+order, a config read live at startup meeting code that has not deployed yet. Then `/da-pr-describe`.
 
 The layer skills are the same skills whether you invoke them or the dispatcher does; see ADR 0004 for
 why they are skills rather than reference files the dispatcher hands to a subagent.
 
-**Periodically**, `/skills-audit`. The toolkit's own failure mode is accumulation: every installed
+**Periodically**, `/da-skills-audit`. The toolkit's own failure mode is accumulation: every installed
 description is resident in context permanently, so each new skill costs the selection accuracy of
 every existing one. Growth has to be paid for by pruning.
 
@@ -173,7 +173,7 @@ own message at the second failure for this reason.
 
 ## The largest known gap: nothing measures whether the skills work
 
-There are thirty-odd skills installed and no way to tell which ones help. `/skills-audit` is a
+There are thirty-odd skills installed and no way to tell which ones help. `/da-skills-audit` is a
 *static* check — budget, duplication, compatibility, disuse — which is a different thing from an
 *eval*. The official `skill-creator` plugin runs paired with-skill / without-skill agents on the same
 prompt in the same turn and diffs pass rate, tokens, and duration; `mgechev/skillgrade` does the CI
@@ -188,7 +188,7 @@ Two smaller gaps in the same family:
 - **No cost observability.** OpenTelemetry is configured for skill-activation events but nothing
   tracks tokens or spend. If the advisor or parallel subagents get used more heavily, there is no way
   to tell "this is working" from "this is expensive".
-- **Skill supply-chain review is separate from what `/skills-audit` does.** That audit reads for
+- **Skill supply-chain review is separate from what `/da-skills-audit` does.** That audit reads for
   over-constraint; `/skill-scanner` reads for prompt injection. Neither reviews an MCP server or a
   plugin before it is installed.
 

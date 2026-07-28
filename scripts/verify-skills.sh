@@ -152,12 +152,12 @@ check_skill() {
   # Match on $name, not $id -- $id is "skills/<name>" and a bare case pattern never matches it.
   if has_frontmatter_key "$skill" disable-model-invocation; then
     case "$name" in
-      # /verify is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate
+      # /da-verify is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate
       # never arms and passes every turn: the guardrail opens instead of closing.
-      verify)
+      da-verify)
         err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)" ;;
       # review-all dispatches to these three by name via a subagent.
-      review-backend|review-frontend|review-infra)
+      da-review-backend|da-review-frontend|da-review-infra)
         err "$id" "is a by-name dispatch target of review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so review-all would report this layer as covered while reviewing nothing" ;;
       *)
         : ;;  # legitimate: user-invocable only, zero budget cost, nothing dispatches to it
@@ -258,6 +258,39 @@ for root in "${ROOTS[@]}"; do
   done
 done
 
+# --- protected names must still exist, and the two enforcers must agree ----
+# The disable-model-invocation scope is a hardcoded list of skill names in two files. Renaming a
+# skill without updating both leaves the guardrail installed and enforcing nothing -- which happened
+# for real when the `da-` prefix was introduced. So the list is cross-checked against reality here.
+if [[ -d "$REPO/skills" ]]; then
+  echo
+  echo "checking the disable-model-invocation scope"
+  hook_file="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
+
+  # The names this script protects, read back out of its own case patterns.
+  linter_names="$(sed -n '/case "\$name" in/,/esac/p' "$0" \
+    | grep -oE '^[[:space:]]+(da-[a-z-]+\|?)+\)' | tr -d ' )' | tr '|' '\n' | sort -u)"
+  # The names the hook protects.
+  hook_names="$(grep -oE '"da-[a-z-]+"' "$hook_file" 2>/dev/null | tr -d '"' | sort -u)"
+
+  scope_ok=1
+  while read -r pn; do
+    [[ -n "$pn" ]] || continue
+    [[ -f "$REPO/skills/$pn/SKILL.md" ]] \
+      || { err "scope" "'$pn' is protected from disable-model-invocation but skills/$pn does not exist -- it was renamed and the list was not updated, so the guardrail now protects nothing"; scope_ok=0; }
+  done <<<"$linter_names"
+
+  if [[ -n "$hook_names" ]] && [[ "$linter_names" != "$hook_names" ]]; then
+    err "scope" "verify-skills.sh and the lint hook protect different names -- both must agree or one of them silently stops enforcing"
+    printf '%s  linter: %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$linter_names")" "$c_off"
+    printf '%s  hook:   %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$hook_names")" "$c_off"
+    scope_ok=0
+  fi
+
+  (( scope_ok )) && printf '%s✓%s protected names exist and both enforcers agree: %s\n' \
+    "$c_green" "$c_off" "$(tr '\n' ' ' <<<"$linter_names")"
+fi
+
 # --- agents ----------------------------------------------------------------
 # A skill that dispatches to an agent by name fails silently when the agent is missing: the caller
 # falls back to general-purpose and the posture the agent definition carried is simply absent.
@@ -287,7 +320,7 @@ if [[ -d "$REPO/agents" ]]; then
     [[ -n "$ref" ]] || continue
     [[ " $agent_defs " == *" $ref "* ]] && continue
     err "agents" "skills dispatch to '$ref' but agents/$ref.md does not exist -- the caller silently falls back to general-purpose"
-  done < <(grep -rhoE '\b(review-verifier|codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
+  done < <(grep -rhoE '\b(da-review-verifier|da-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
   printf '%s✓%s %s agent(s) defined:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
 fi
 

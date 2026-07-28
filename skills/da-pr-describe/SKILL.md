@@ -1,5 +1,5 @@
 ---
-name: pr-describe
+name: da-pr-describe
 description: Write or update the current branch's PR title and description. Use when preparing a PR for review, or when the description is stale. Produces something a reviewer can read before opening the diff. Touches only the PR, never repository files.
 argument-hint: "[PR number] (default: the PR for the current branch)"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(mktemp:*), Read, Grep, Glob, Write
@@ -8,9 +8,9 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /pr-describe — make the PR readable before the diff
+# /da-pr-describe — make the PR readable before the diff
 
-**Invoked by you only — type `/pr-describe`.** It writes to GitHub, so the timing is yours to choose,
+**Invoked by you only — type `/da-pr-describe`.** It writes to GitHub, so the timing is yours to choose,
 not something to infer from the code looking finished. `disable-model-invocation` also keeps its
 description out of context entirely, which costs nothing and frees budget for the skills that do need
 to fire on their own. Nothing dispatches to this skill by name.
@@ -32,7 +32,7 @@ draft body to a temporary file outside the repo.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation done, PR opened | `/pr-describe` | request review |
+| implementation done, PR opened | `/da-pr-describe` | request review |
 
 ## Files to read
 

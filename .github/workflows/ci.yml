@@ -84,6 +84,22 @@ jobs:
         with:
           node-version: '22'
 
+      # CLAUDE.md must stay a symlink to AGENTS.md -- Claude Code does not read AGENTS.md, so if the
+      # two become separate files the always-loaded layer drifts and nothing reports it. This broke
+      # once: `perl -pi` on a symlink replaces it with a regular file, silently.
+      - name: CLAUDE.md is still a symlink to AGENTS.md
+        run: |
+          mode="$(git ls-files -s CLAUDE.md | awk '{print $1}')"
+          if [ "$mode" != "120000" ]; then
+            echo "::error file=CLAUDE.md::CLAUDE.md is mode $mode, not a symlink (120000). Restore it: rm CLAUDE.md && ln -s AGENTS.md CLAUDE.md"
+            exit 1
+          fi
+          target="$(readlink CLAUDE.md)"
+          if [ "$target" != "AGENTS.md" ]; then
+            echo "::error file=CLAUDE.md::CLAUDE.md points at '$target', expected AGENTS.md"
+            exit 1
+          fi
+
       # verify-skills.sh validates frontmatter with targeted rules rather than a parser, which is
       # fast but not authoritative. An unquoted ": " in a description once shipped a skill whose
       # frontmatter did not parse while every local check passed.

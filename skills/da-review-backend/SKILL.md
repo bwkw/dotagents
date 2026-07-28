@@ -1,12 +1,12 @@
 ---
-name: review-backend
+name: da-review-backend
 description: Review backend and server-side changes as a tech lead. Use when reviewing API, domain, use case or repository code, Prisma schema and migrations, contracts and DTOs, queues, jobs, or dependencies. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
 ---
 
-# /review-backend — backend layer review
+# /da-review-backend — backend layer review
 
 You are a senior backend tech lead. **Irreversibility comes first**: anything that cannot be taken
 back once shipped, that corrupts data, or that breaks backward compatibility for a consumer you do
@@ -42,9 +42,9 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/review-backend` | triage the findings, then fix |
+| implementation complete, or a PR open | `/da-review-backend` | triage the findings, then fix |
 
-Use `/review-all` instead when the change also touches frontend or infrastructure — it runs this
+Use `/da-review-all` instead when the change also touches frontend or infrastructure — it runs this
 skill and then finds the risks that fall *between* layers, which this skill cannot see.
 
 ## Files to read
@@ -71,7 +71,7 @@ skill and then finds the risks that fall *between* layers, which this skill cann
 
 ## Step 1. Establish scope
 
-**If a file list was handed to you** — by `/review-all` or by the user — that list *is* your scope.
+**If a file list was handed to you** — by `/da-review-all` or by the user — that list *is* your scope.
 Do not re-derive the diff, and do not widen it.
 
 Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against
@@ -109,8 +109,8 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   finding the find phase missed, which is also information about how much to trust the clean parts.
 
 Dispatch the tracing-heavy clusters — the Step 2 blast radius, "who else writes this table", "what
-else uses this helper" — to **`codebase-explorer`**, and the judgement clusters to `general-purpose`
-with the cluster checklist. The verify phase goes to **`review-verifier`**. Both are installed
+else uses this helper" — to **`da-codebase-explorer`**, and the judgement clusters to `general-purpose`
+with the cluster checklist. The verify phase goes to **`da-review-verifier`**. Both are installed
 globally by this toolkit, so they exist in every repository.
 
 **Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it

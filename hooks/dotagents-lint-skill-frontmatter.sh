@@ -75,9 +75,9 @@ process.stdin.on("end", () => {
   if (/^disable-model-invocation\s*:\s*(true|yes|on|1)\s*$/m.test(fm)) {
     const name = key("name") ?? String(path).replace(/.*\/([^/]+)\/SKILL\.md$/, "$1");
 
-    // /verify is the only thing in the toolkit that runs `gate.sh arm`. Without its auto-invocation
+    // /da-verify is the only thing in the toolkit that runs `gate.sh arm`. Without its auto-invocation
     // the Stop gate never arms, so it passes every turn: the guardrail opens instead of closing.
-    if (name === "verify") {
+    if (name === "da-verify") {
       return deny(
         "Never set 'disable-model-invocation' on 'verify'. It is the only thing that runs " +
         "'gate.sh arm', so disabling auto-invocation leaves the Stop gate unarmed and it passes " +
@@ -86,7 +86,7 @@ process.stdin.on("end", () => {
     }
 
     // review-all dispatches to these three by name via a subagent.
-    if (["review-backend", "review-frontend", "review-infra"].includes(name)) {
+    if (["da-review-backend", "da-review-frontend", "da-review-infra"].includes(name)) {
       return deny(
         `'${name}' is a by-name dispatch target of review-all, and ` +
         "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +

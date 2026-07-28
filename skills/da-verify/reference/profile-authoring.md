@@ -1,6 +1,6 @@
 # Writing a repository profile
 
-A profile tells `/verify` and the Stop gate how to check *this* repository. It lives in the dotagents
+A profile tells `/da-verify` and the Stop gate how to check *this* repository. It lives in the dotagents
 repo, not in the product repo — that is what keeps product repositories unmodified.
 
 File: `<dotagents>/profiles/<repo-name>.json`. Schema: `_schema.json`. Start from `_example.json`.

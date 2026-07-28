@@ -106,9 +106,9 @@ automatic invocation — so setting it on something another skill dispatches to 
 **with no error**. Two skills here can never have it, and both the lint hook and `verify-skills.sh`
 enforce it (see ADR 0005):
 
-- **`verify`** — the only thing that runs `gate.sh arm`. Without automatic invocation the Stop gate
+- **`da-verify`** — the only thing that runs `gate.sh arm`. Without automatic invocation the Stop gate
   never arms and passes every turn: the guardrail opens.
-- **`review-backend` / `review-frontend` / `review-infra`** — `review-all` dispatches to them by name.
+- **`da-review-backend` / `da-review-frontend` / `da-review-infra`** — `da-review-all` dispatches to them by name.
 
 `user-invocable: false` (in context, hidden from the menu) is **not used here**: no skill on this
 machine is background knowledge rather than a workflow, and Cursor ignores the field, which would make
@@ -154,5 +154,5 @@ of truth.
 **`skillOverrides` is not used**, though it is the official non-destructive way to suppress a skill
 (`on` / `name-only` / `user-invocable-only` / `off`). It lives in Claude Code's `settings.json`, which
 Cursor does not read, so every entry would make the two agents disagree about which skills are active —
-and `/skills-audit` reads files rather than settings, so it could not see the divergence it created.
+and `/da-skills-audit` reads files rather than settings, so it could not see the divergence it created.
 Suppression here means uninstalling, which is symmetric and visible from both agents.

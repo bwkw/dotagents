@@ -1,5 +1,5 @@
 ---
-name: skills-audit
+name: da-skills-audit
 description: Audit the whole set of installed skills for bloat and breakage. Use before adding a skill, when skills stop firing automatically, or for periodic clean-up. Not a security scan.
 argument-hint: "[path] (default: ~/.agents/skills)"
 allowed-tools: Bash, Read, Grep, Glob
@@ -7,7 +7,7 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /skills-audit — keep the toolkit from rotting
+# /da-skills-audit — keep the toolkit from rotting
 
 Skills degrade in a specific way: they accumulate. Every installed skill's `description` is resident
 in context at all times, so the more there are, the less of each one survives — and the model picks
@@ -38,7 +38,7 @@ read as a clean bill of health.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| about to add a skill, or a quarterly clean-up | `/skills-audit` | consolidate, rewrite descriptions, or uninstall |
+| about to add a skill, or a quarterly clean-up | `/da-skills-audit` | consolidate, rewrite descriptions, or uninstall |
 
 ## Files to read
 

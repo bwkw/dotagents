@@ -79,7 +79,7 @@ warn_if_no_profile() {
     echo
     echo "  WARNING: no profile matches $remote"
     echo "  The gate is armed but has no commands to run, so it will pass every turn in silence."
-    echo "  Write $profiles/<name>.json before relying on this. /verify will walk you through it."
+    echo "  Write $profiles/<name>.json before relying on this. /da-verify will walk you through it."
   fi
 }
 
@@ -119,7 +119,7 @@ cmd_record() {
   local root; root="$(repo_root "${2:-}")"
   local dir
   dir="$(find_armed "$root")" || die "not armed, so there is nothing to record against.
-Run 'gate.sh arm' first, or let /verify do it."
+Run 'gate.sh arm' first, or let /da-verify do it."
   # Appended as one JSON object per line; the hook greps for the id rather than parsing.
   printf '{"%s": "passed"}\n' "$check" >> "$dir/delegated.json"
   echo "recorded: $check"

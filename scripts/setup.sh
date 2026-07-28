@@ -151,7 +151,10 @@ prune_agents() {
   ' "$MANIFEST" 2>/dev/null || true)"
 
   for f in "$CLAUDE_AGENTS"/*.md; do
-    [[ -e "$f" ]] || continue
+    # `-e` follows the symlink, so it is false for exactly the links that most need pruning: the ones
+    # whose target was renamed or deleted. Test `-L` as well or a rename leaves a dangling link behind
+    # and the agent silently resolves to nothing.
+    [[ -e "$f" || -L "$f" ]] || continue
     name="$(basename "$f" .md)"
     # Ours by shape (a symlink into this repo's agents/) or by manifest record. Anything else is
     # someone else's and is left alone.
@@ -161,6 +164,16 @@ prune_agents() {
       run rm -f "$f"
       did "prune ~/.claude/agents/$name.md (no longer in the repository)"
     fi
+  done
+
+  # Sweep dangling links into this repo's agents/ even when the name was never recorded -- a rename
+  # between two installs leaves one behind under the old name, which the loop above cannot match by
+  # manifest and which `points_at` alone would not reach if the manifest was rewritten first.
+  for f in "$CLAUDE_AGENTS"/*.md; do
+    [[ -L "$f" && ! -e "$f" ]] || continue
+    [[ "$(link_target "$f")" == "$REPO/agents/"* ]] || continue
+    run rm -f "$f"
+    did "prune ~/.claude/agents/$(basename "$f") (dangling -- its target is gone)"
   done
 }
 

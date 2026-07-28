@@ -359,7 +359,7 @@ if [[ -z "$failed_id" ]]; then
         echo
         echo "$reason"
         echo
-        echo "Ask the user to run it and wait for their output. Once they report it, /verify"
+        echo "Ask the user to run it and wait for their output. Once they report it, /da-verify"
         echo "records the result. Do not write that record yourself -- the whole point of this"
         echo "check is that the result came from them."
         echo

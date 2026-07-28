@@ -1,5 +1,5 @@
 ---
-name: design-review
+name: da-design-review
 description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches one-way doors, migration order, and rollback. Read-only.
 argument-hint: "[path to plan/spec] (default: the most recent plan under docs/)"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(gh:*), WebFetch
@@ -7,7 +7,7 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /design-review — catch it while it is still cheap
+# /da-design-review — catch it while it is still cheap
 
 Code review finds defects in an implementation. It cannot find that the implementation should never
 have been built this way. By the time a diff exists, the expensive decisions — the migration
@@ -30,7 +30,7 @@ a separate act, done deliberately.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/grill-me`, `/writing-plans`, `/brainstorming` | `/design-review` | revise the plan, then `/executing-plans` |
+| `/grill-me`, `/writing-plans`, `/brainstorming` | `/da-design-review` | revise the plan, then `/executing-plans` |
 
 ## Files to read
 
@@ -105,7 +105,7 @@ finds what is wrong with what is written; only this step finds what was never wr
 **Mandatory, and it applies to 🚪 one-way doors and 🔴 findings.** Read
 `${CLAUDE_SKILL_DIR}/reference/verification.md` for the general shape — the refute-by-default
 asymmetry, the ⛔/🔴 three-lens pass, and the disposition table all apply here unchanged. Dispatch to
-**`review-verifier`**, which did not take part in Steps 1–4.
+**`da-review-verifier`**, which did not take part in Steps 1–4.
 
 Design review has a specific failure mode that code review does not, and it is what this step exists
 to catch: **a plan is a document, so anything not written down looks missing.** The find phase is
@@ -163,11 +163,11 @@ substitutions:
 - [ ] Every load-bearing claim is either grounded with `file:line` or listed as unverified
 - [ ] One-way doors are separated from ordinary findings
 - [ ] Step 4 ran — absences, not just errors
-- [ ] **Step 5 ran in `review-verifier`**, and every 🚪 names the moment the door closes
+- [ ] **Step 5 ran in `da-review-verifier`**, and every 🚪 names the moment the door closes
 - [ ] **Some findings were rejected**, and the count is reported. A review that refuted nothing either
       skipped Step 5 or reported everything it thought of — say which in 🔎.
 
 ## Next
 
-Revise the plan against the 🔴 items, then `/design-review` again if the shape changed materially.
+Revise the plan against the 🔴 items, then `/da-design-review` again if the shape changed materially.
 Otherwise proceed to implementation.

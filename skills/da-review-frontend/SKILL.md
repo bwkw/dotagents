@@ -1,12 +1,12 @@
 ---
-name: review-frontend
+name: da-review-frontend
 description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
 ---
 
-# /review-frontend — frontend layer review
+# /da-review-frontend — frontend layer review
 
 You are a senior frontend tech lead. **Irreversibility, destructiveness, and authorization come
 first**: public routes that break existing bookmarks and inbound links, persisted client data that no
@@ -47,9 +47,9 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/review-frontend` | triage the findings, then fix |
+| implementation complete, or a PR open | `/da-review-frontend` | triage the findings, then fix |
 
-Use `/review-all` instead when the change also touches backend or infrastructure — a contract change
+Use `/da-review-all` instead when the change also touches backend or infrastructure — a contract change
 and the component consuming it shipping out of order is invisible from inside this layer.
 
 ## Files to read
@@ -76,7 +76,7 @@ and the component consuming it shipping out of order is invisible from inside th
 
 ## Step 1. Establish scope
 
-**If a file list was handed to you** — by `/review-all` or by the user — that list *is* your scope.
+**If a file list was handed to you** — by `/da-review-all` or by the user — that list *is* your scope.
 Do not re-derive the diff, and do not widen it.
 
 Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against
@@ -114,8 +114,8 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   throws and falls through to rendering, or a feature flag that defaults to enabled on a fetch error.
 
 Dispatch the tracing-heavy clusters — which routes reach this, what reads this persisted key, where
-this component is mounted — to **`codebase-explorer`**, and the judgement clusters to
-`general-purpose` with the cluster checklist. The verify phase goes to **`review-verifier`**. Both are
+this component is mounted — to **`da-codebase-explorer`**, and the judgement clusters to
+`general-purpose` with the cluster checklist. The verify phase goes to **`da-review-verifier`**. Both are
 installed globally by this toolkit, so they exist in every repository.
 
 **Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it

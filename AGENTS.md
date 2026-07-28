@@ -24,9 +24,9 @@ work. That is why they are here rather than in a document you would read once.
    It blocks programmatic `Skill` calls and subagent preloading too, not just model auto-invocation —
    and it removes the description from context entirely, which is why it costs zero budget. Two places
    it must never appear, both enforced by `verify-skills.sh` and the lint hook:
-   - **`verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
+   - **`da-verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
      arms and passes every turn: the guardrail **opens**.
-   - **`review-backend` / `review-frontend` / `review-infra`** — `review-all` dispatches to them by
+   - **`da-review-backend` / `da-review-frontend` / `da-review-infra`** — `da-review-all` dispatches to them by
      name, so setting it makes the dispatcher report a layer as covered while reviewing nothing.
 
 3. **Frontmatter that a real YAML parser rejects still loads.**
@@ -47,12 +47,20 @@ work. That is why they are here rather than in a document you would read once.
    warns about that. `~/.claude/.dotagents-gate/trace.log` records every invocation and why it
    passed — read it before believing the gate did nothing.
 
-7. **Every skill carries `metadata.source: bwkw/dotagents`.**
+7. **Everything shipped here is named `da-*`, and the name is load-bearing.**
+   It is how you tell ours apart at the `/` menu, and it keeps us from shadowing a built-in — a skill
+   once named `review` hid Claude Code's own `/review` with no warning. **Renaming one breaks two
+   hardcoded lists**: the `disable-model-invocation` scope in `verify-skills.sh` and the same list in
+   the lint hook. Rename without updating both and the guardrail stays installed while enforcing
+   nothing — that happened when the prefix was introduced. `verify-skills.sh` now cross-checks that
+   every protected name still exists and that the two enforcers agree, so it fails loudly instead.
+
+8. **Every skill carries `metadata.source: bwkw/dotagents`.**
    Ours sit among two dozen third-party skills, and the difference decides what may be done: ours can
    be rewritten, an upstream one can only be installed or removed, because editing it in place is
    lost on the next `npx skills update`. Hooks prefix output with `[dotagents]` for the same reason.
 
-8. **No secrets here.** `setup.sh` merges only the keys its templates declare and never reads or
+9. **No secrets here.** `setup.sh` merges only the keys its templates declare and never reads or
    rewrites a value it did not write — the agent settings it edits contain other people's
    credentials.
 
@@ -63,13 +71,13 @@ re-read; after auto-compaction only the first ~5,000 tokens of each are restored
 that is silently lost. Detail belongs in `reference/`, loaded on demand.
 
 Descriptions are resident permanently, all of them, always. Every skill added costs the selection
-accuracy of every existing one. `/skills-audit` measures it.
+accuracy of every existing one. `/da-skills-audit` measures it.
 
 ## Working with skills
 
 Before acting, check whether an installed skill already covers the task — `/` lists them, and
 `README.md` has a "say this / when" table. **A user instruction outranks anything a skill says.** Some
-skills require a clarifying question as their first act (`investigate` and `design-review` both refuse
+skills require a clarifying question as their first act (`da-investigate` and `da-design-review` both refuse
 an unstated goal); when a skill's preconditions ask a question, ask it before doing the work.
 
 ## Adding upstream skills

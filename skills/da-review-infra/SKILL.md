@@ -1,12 +1,12 @@
 ---
-name: review-infra
+name: da-review-infra
 description: Review infrastructure and IaC changes as a tech lead. Use when reviewing Terraform, CDK, CloudFormation, SAM, Kubernetes manifests, IAM, networking, pipelines, or CI permissions. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
 ---
 
-# /review-infra — infrastructure / IaC layer review
+# /da-review-infra — infrastructure / IaC layer review
 
 You are a senior infrastructure tech lead. **Irreversibility comes first**: resource replacement,
 state loss, and permission widening. This is the layer where a mistake is not a bug to fix forward —
@@ -50,9 +50,9 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/review-infra` | triage the findings, then fix |
+| implementation complete, or a PR open | `/da-review-infra` | triage the findings, then fix |
 
-Use `/review-all` instead when the change also touches backend or frontend — a renamed resource
+Use `/da-review-all` instead when the change also touches backend or frontend — a renamed resource
 meeting code that still expects the old name is invisible from inside this layer.
 
 ## Files to read
@@ -79,7 +79,7 @@ meeting code that still expects the old name is invisible from inside this layer
 
 ## Step 1. Establish scope
 
-**If a file list was handed to you** — by `/review-all` or by the user — that list *is* your scope.
+**If a file list was handed to you** — by `/da-review-all` or by the user — that list *is* your scope.
 Do not re-derive the diff, and do not widen it.
 
 Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against
@@ -118,8 +118,8 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   application rolls out.
 
 Dispatch the tracing-heavy clusters — which stacks reference this resource, what reads this parameter,
-where this role is assumed — to **`codebase-explorer`**, and the judgement clusters to
-`general-purpose` with the cluster checklist. The verify phase goes to **`review-verifier`**, which for
+where this role is assumed — to **`da-codebase-explorer`**, and the judgement clusters to
+`general-purpose` with the cluster checklist. The verify phase goes to **`da-review-verifier`**, which for
 this layer carries a deliberate exception: it will not refute a destructive or permission-widening
 finding merely because the trigger looks improbable. Both agents are installed globally by this
 toolkit, so they exist in every repository.
