@@ -95,6 +95,28 @@ record? That moment is where a gate has to sit, if one is needed.
   The plan should name these rather than discover them at merge time.
 - Does the plan's definition of done include evidence, or only "implemented"?
 
+## 9. Production readiness ★the tech-lead gate
+
+The dimensions a production-readiness review covers, applied at plan stage where they are still cheap to
+change. Do not treat this as a checkbox sweep — the value is finding the dimension the plan is **silent**
+on, because silence is where the surprise comes from.
+
+| Dimension | The question that catches things |
+|---|---|
+| **Service levels** | What does "working" mean numerically, and who notices when it stops? A plan with no target has no way to fail visibly. |
+| **Architecture** | Covered by §0 and §5 above. |
+| **Performance and capacity** | At what load does this stop working? What happens at 10×? Is there a quota, a connection pool, or a rate limit that this change moves closer to its ceiling? |
+| **Observability** | §7. |
+| **Testing** | §8. |
+| **Deployment and rollback** | §2 and §4. |
+| **Documentation and runbook** | When this pages someone at 3am, what do they read? A plan that changes operational behaviour and ships no runbook change has moved work onto the on-call rotation without saying so. |
+| **Dependency readiness** | **The most commonly skipped one.** This plan depends on other services, teams, quotas, or infrastructure being ready. Are they? Has anyone asked them, or is it assumed? A dependency that is "nearly done" elsewhere is a scheduling risk this plan owns. |
+
+Two failure modes worth naming, because they are documented pitfalls of this kind of review rather than
+hypotheticals: treating readiness as a **one-time gate** (it changes as the system does), and
+**checkbox culture** — answering the dimension instead of thinking about it. If every row gets a
+confident one-line answer, the review has not happened.
+
 ---
 
 ## Calibration

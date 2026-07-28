@@ -47,6 +47,15 @@ the same thing, keep only the comment** — do not pad.
 Each ⛔ row gets one 💬 suggested comment with its line. Each 👤 item must state, in the comment,
 **what to look at or whom to ask** to settle it.
 
+**Mark what is optional, inside the comment.** Anything that is a preference rather than a defect opens
+with **`Nit:`** — the widely used convention for "worth considering, not a reason to hold this up". Four
+characters, and it removes the most common failure of an otherwise good review: the author cannot tell
+which of eleven comments actually block, so they either do all of them or ignore the lot.
+
+**A personal style preference is not a finding.** Where the project states no convention, the author's
+choice stands. A review that spends its credibility on formatting has none left for the migration that
+loses data. `finding-discipline.md` has the suppression rule; this is its presentation half.
+
 **This is a proposal, not a post.** The skill is read-only. Actually posting with
 `gh pr review --comment` or `gh api` happens only when the user explicitly asks, and then the
 bodies above are used verbatim.

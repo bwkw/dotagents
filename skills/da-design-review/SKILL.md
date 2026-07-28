@@ -100,6 +100,27 @@ Separately from the checklist, always ask:
 Absence is the hardest thing to review and the most common source of production surprise. A checklist
 finds what is wrong with what is written; only this step finds what was never written.
 
+### The pre-mortem — write it in the past tense, and the tense is the point
+
+Before moving on, write this out properly rather than thinking about it:
+
+> **It is six months from now. This shipped, and it failed.** Write the incident review. What broke,
+> what the first symptom was, how long it took anyone to notice, and what the retrospective concluded
+> should have been obvious.
+
+The grammatical shift is not stylistic. Imagining an outcome as **already having happened** —
+prospective hindsight — raises the number of correctly identified causes by roughly **30%** against
+asking what *could* go wrong (Mitchell, Russo & Pennington 1989; the technique is Gary Klein's, HBR
+2007). Forward-looking risk questions produce the list everyone already has. Past-tense questions
+surface what people privately suspect and would not otherwise put in writing.
+
+Write it as narrative, and be concrete about the first symptom: *"the queue backed up and nobody
+noticed for a day"* is a finding; *"there may be performance issues"* is not.
+
+Then convert each cause into a 🔴 (the plan should handle this), a 🧭 (the shape may be wrong), or a ❓
+(the plan does not mention it). **Anything that will not convert stays in the report as a named residual
+risk** — do not drop a cause because it did not fit a bucket.
+
 ## Step 5. Refute your own findings
 
 **Mandatory, and it applies to 🚪 one-way doors and 🔴 findings.** Read

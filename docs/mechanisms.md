@@ -156,3 +156,34 @@ of truth.
 Cursor does not read, so every entry would make the two agents disagree about which skills are active —
 and `/da-skills-audit` reads files rather than settings, so it could not see the divergence it created.
 Suppression here means uninstalling, which is symmetric and visible from both agents.
+
+---
+
+## Sources behind the review perspectives
+
+The review skills' checklists are not invented here. Where a perspective carries a number or a named
+technique, this is where it came from — recorded so a future reader can check whether it still holds
+rather than trusting it.
+
+| Claim used in a skill | Source |
+|---|---|
+| A model judging output rates its own family's work 10–25% higher, more so in more capable models; never use the same model as judge and candidate; ensembling reduces variance but not shared systematic bias | [Self-Preference Bias in LLM-as-a-Judge](https://arxiv.org/pdf/2410.21819), [Justice or Prejudice? Quantifying Biases in LLM-as-a-Judge](https://arxiv.org/pdf/2410.02736), [LLM-Judge Bias Mitigation (2026)](https://futureagi.com/blog/evaluating-llm-judge-bias-mitigation-2026/) |
+| Verbosity bias inflates preference for longer answers by 15–30 points; position bias exists | same |
+| ~20% of agent-authored samples reference packages that do not exist; slopsquatting registers the hallucinated names; yanked or CVE-bearing versions get reproduced; happy-path bias shows up as catch-all handlers and calls without timeouts | [AI Hallucinations in Production Code (2026)](https://www.devx.com/uncategorized/ai-hallucinations-production-code-risks-mitigations-2026/), [AI-Generated Code Review Standards](https://www.metacto.com/blogs/establishing-code-review-standards-for-ai-generated-code), [CSA: AI-Generated Code Vulnerability Surge](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-generated-code-vulnerability-surge-2026/) |
+| Prospective hindsight — imagining the failure as already having happened — raises correct identification of causes by ~30% | Mitchell, Russo & Pennington 1989, via [Performing a Project Premortem](https://www.researchgate.net/publication/3229642_Performing_a_Project_Premortem) (Klein, HBR 2007) and [Ness Labs](https://nesslabs.com/pre-mortem-anticipate-failure-with-prospective-hindsight) |
+| Core Web Vitals thresholds LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1; INP replaced FID and is the most commonly failed; cause is main-thread JavaScript during interaction | [Core Web Vitals 2026 guide](https://www.digitalapplied.com/blog/core-web-vitals-2026-inp-lcp-cls-optimization-guide), [Ultimate checklist](https://www.corewebvitals.io/core-web-vitals/ultimate-checklist) |
+| WCAG 2.2 supersedes 2.1 with nine new criteria; contrast is the most common failure; Accessible Authentication (3.3.8) requires paste and autofill to work | [WCAG 2.2 checklist](https://www.levelaccess.com/blog/wcag-2-2-aa-summary-and-checklist-for-website-owners/), [What frontend developers need to fix](https://danholloran.me/posts/wcag-2-2-what-frontend-developers-need-to-fix) |
+| CSP: avoid `unsafe-inline`/`unsafe-eval`, prefer nonce or hash, minimise allowlisted domains, re-review when a dependency is added | [OWASP WSTG: Test for CSP](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/12-Test_for_Content_Security_Policy) |
+| Terraform state holds attributes in plaintext; encrypt, version and lock the backend; restrict who can read it; scanners cover the mechanical checks | [Terraform Architecture Review Checklist (CIS-mapped)](https://archguard.io/blog/terraform-architecture-review-checklist), [IaC Security Review](https://www.propelcode.ai/blog/infrastructure-as-code-security-review-terraform-cloudformation) |
+| Production-readiness dimensions, and that dependency readiness is a commonly skipped one | [Google SRE: Production Readiness Review](https://sre.google/sre-book/evolving-sre-engagement-model/), [Launch checklist](https://sre.google/sre-book/launch-checklist/), [Production readiness checklist](https://getdx.com/blog/production-readiness-checklist/) |
+| Do not block on personal style preference; mark optional comments as `Nit:` | [Google: What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html) |
+
+Two of these changed a design decision rather than adding a checklist item, and both are worth knowing
+before trusting a review:
+
+- **The three-lens verification pass is not three independent opinions.** It is one model checked from
+  three angles. That reduces the chance of one bad run and does nothing about bias shared across all
+  three. The skills now say so, and route to a different model where one is available.
+- **`refuted` as the default verdict is a counterweight, not pessimism.** With self-preference measured
+  at 10–25%, a neutral prior over-confirms. This was originally chosen on instinct; the number is why it
+  stays.
