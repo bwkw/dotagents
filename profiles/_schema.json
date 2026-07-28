@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "dotagents repository profile",
+  "description": "Per-repository verification config. Lives here rather than in the product repo so product repos stay unmodified. Resolved by matching the git remote of the working directory.",
+  "type": "object",
+  "required": ["match", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "match": {
+      "type": "object",
+      "description": "How to recognise the repository this profile applies to.",
+      "additionalProperties": false,
+      "properties": {
+        "remote": {
+          "type": "string",
+          "description": "Substring matched against `git remote get-url origin`, e.g. 'owner/repo'."
+        }
+      },
+      "required": ["remote"]
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Directory relative to the repo root where checks run. Omit to run at the root."
+    },
+    "forbidden": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Command substrings that must never be executed by an agent in this repository. Deploys, destroys, and anything that touches a live environment."
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "cmd", "gate", "agent_may_run"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "cmd": {
+            "type": "string",
+            "description": "Shell command. `{files}` is replaced with the changed files when scope is 'changed'."
+          },
+          "gate": {
+            "type": "boolean",
+            "description": "True if failing this check must block completion."
+          },
+          "agent_may_run": {
+            "type": "boolean",
+            "description": "False when the repository forbids the agent from running it, or when it needs resources or credentials the agent should not consume. The agent must ask the user to run it and wait for the output."
+          },
+          "delegate_reason": {
+            "type": "string",
+            "description": "Required when agent_may_run is false. Shown to the user so the request is not arbitrary."
+          },
+          "scope": {
+            "enum": ["all", "changed"],
+            "description": "'changed' narrows the command to files touched in the working tree."
+          },
+          "when": {
+            "type": "string",
+            "description": "Human-readable condition for conditional checks. Only meaningful when gate is false."
+          }
+        }
+      }
+    }
+  }
+}
