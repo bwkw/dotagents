@@ -34,6 +34,18 @@
       "items": {
         "type": "object",
         "required": ["id", "cmd", "gate", "agent_may_run"],
+        "allOf": [
+          {
+            "$comment": "An unexplained request to run something by hand reads as arbitrary and gets ignored, so the schema requires the reason rather than a document asking for it.",
+            "if": { "properties": { "agent_may_run": { "const": false } }, "required": ["agent_may_run"] },
+            "then": { "required": ["delegate_reason"] }
+          },
+          {
+            "$comment": "scope:changed narrows a command to the changed files, which only means anything if the command has somewhere to put them.",
+            "if": { "properties": { "scope": { "const": "changed" } }, "required": ["scope"] },
+            "then": { "properties": { "cmd": { "pattern": "\\{files\\}" } } }
+          }
+        ],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string" },

@@ -45,15 +45,9 @@ Instruction to the verifier, including the tie-breaking rule:
   corrected_severity?, reachability? }
 ```
 
-**Severity recalibration — the second line of defence against inflation.** Even for `confirmed`
-(the claimed failure *can* occur), the verifier must answer whether a **real use case reaches it**,
-with `file:line` or a concrete path. **"Possible in the code" alone does not keep something at
-critical or ⛔.** When reachability is not backed by real code, lower `corrected_severity`, write
-what would settle it into `reachability`, and route it to 👤.
-
-Return **permanent defects** (invariant unenforced, guard missing, fail-open where it should be
-fail-closed) separately from **probabilistic triggers** (one specific path, a deploy window,
-malformed input). The former keeps its severity; the latter depends on reachability.
+**Severity recalibration.** Apply the reachability rule from `finding-discipline.md` and return
+`corrected_severity` and `reachability` accordingly. That is where the rule is defined; it is not
+restated here.
 
 | Verdict | Disposition |
 |---|---|
@@ -68,9 +62,8 @@ malformed input). The former keeps its severity; the latter depends on reachabil
 One **skeptic** subagent, also fresh. May be launched in the same batch as 6a. It does three things.
 
 **Challenge overconfident clears.** Find the high-risk places the find phase dismissed as "same as
-existing", "same as siblings", or "no problem", and read the actual guard that backs that safety,
-citing `file:line`. Where you cannot confirm it, upgrade to 👤 as an *unverified clear* — or to 🔴
-if the concrete harm is legible. **"Matches siblings" alone never passes as grounds for a clear.**
+existing" or "no problem", and read the actual guard, citing `file:line`. Where you cannot confirm
+it, return `kind: "unverified-clear"` — or a `defect` if the concrete harm is legible.
 
 **Hunt for what was missed.** Make one fresh pass over the most irreversible, highest-risk surfaces —
 money, billing, external or government submission, authorization, PII, data migration, concurrency —

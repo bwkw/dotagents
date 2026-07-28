@@ -102,6 +102,26 @@ jobs:
           sys.exit(bad)
           PY
 
+      # The schema expresses delegate_reason and scope/{files} structurally now, which only helps if
+      # something actually validates against it.
+      - name: Profiles satisfy the schema
+        run: |
+          pip install --quiet jsonschema
+          python3 - <<'PY'
+          import json, pathlib, sys, jsonschema
+          schema = json.loads(pathlib.Path("profiles/_schema.json").read_text())
+          bad = 0
+          for f in sorted(pathlib.Path("profiles").glob("*.json")):
+              if f.name == "_schema.json":
+                  continue
+              try:
+                  jsonschema.validate(json.loads(f.read_text()), schema)
+              except jsonschema.ValidationError as e:
+                  print(f"::error file={f}::{e.message}")
+                  bad = 1
+          sys.exit(bad)
+          PY
+
       - name: Profiles are valid and complete
         run: |
           node -e '

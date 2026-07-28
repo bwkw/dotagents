@@ -138,10 +138,8 @@ substitutions:
 - [ ] Every load-bearing claim is either grounded with `file:line` or listed as unverified
 - [ ] One-way doors are separated from ordinary findings
 - [ ] Step 4 ran — absences, not just errors
-- [ ] **Some findings were rejected.** A review that accepts every concern it generated has not been
-      calibrated. Reviewers asked to find gaps will always find something; following all of it
-      produces over-engineering — extra abstraction layers, defensive code, tests for cases that
-      cannot occur. If nothing was filtered out, say so explicitly and explain why.
+- [ ] **Some findings were rejected**, and the count is reported. See `report-format.md` — the
+      reasoning is there, and a review that filtered nothing has not been calibrated.
 
 ## Next
 

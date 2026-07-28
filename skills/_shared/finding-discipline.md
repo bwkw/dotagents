@@ -53,8 +53,7 @@ You are not here to approve. You are here to stop changes that break production.
 - "Just hasn't been added" for observability, tests, error handling, a11y, empty states, or analytics
   is not a finding — only when the change adds a new failure mode, external call, async path, or
   user-facing entry point.
-- Do not file a lone finding with `confidence=low` and severity at or below warning. Cap warning and
-  info at roughly the top 3 per cluster by severity.
+- Cap warning and info at roughly the top 3 per cluster by severity.
 
 ## Tier ② — Never suppressed (no caps, no diff-scope excuse)
 
@@ -106,12 +105,7 @@ habit is not a missed finding; it is a report where most items are noise, becaus
 nobody reads the third. A finding you cannot score at 80 is one you have not done the work to
 support — do the work, or drop it.
 
-**Exempt from the threshold**, because their value does not depend on being right:
-
-- **🧭 design and system-wide doubts.** The point is to raise a question, not assert a defect. Score
-  them, report the score, keep them regardless.
-- **👤 unverified clears.** "I could not confirm this is safe" is a statement about *your* knowledge,
-  which you have complete confidence about.
+The exemptions are in the schema below, under `kind`, rather than stated here as a rule to remember.
 
 ### What counts as a false positive
 
@@ -140,12 +134,21 @@ Score these below 80 by definition, however real they look:
     recommendation: "what to do",
     comment: "review comment body, ready to paste on that line: problem -> why it matters -> fix.
               Self-contained, minimal jargon.",
+    kind: "defect" | "design-doubt" | "unverified-clear",
     confidence: 0-100 }
 ]
 ```
 
-Return findings scoring 80 or above, plus a count of those dropped. 🧭 and 👤 items are returned
-whatever they score.
+`kind` is orthogonal to `severity`, and it is what decides the threshold:
+
+| `kind` | Means | Threshold |
+|---|---|---|
+| `defect` | Something is wrong. | Dropped below 80. |
+| `design-doubt` | A question a senior would ask. Not a claim that anything is broken. | **Exempt** — its value does not depend on being right. |
+| `unverified-clear` | "I could not confirm this is safe." A statement about your own knowledge. | **Exempt** — you have complete confidence about what you did not read. |
+
+Return every `defect` scoring 80 or above, every `design-doubt` and `unverified-clear` regardless,
+and a count of what was dropped. The bucket follows: `design-doubt` → 🧭, `unverified-clear` → 👤.
 
 `file` must point at the **specific line** the comment goes on. A filename with no line is not
 acceptable. `comment` may be a draft; it gets finished during synthesis.

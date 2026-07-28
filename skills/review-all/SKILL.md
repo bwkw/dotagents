@@ -30,26 +30,19 @@ it — this removes both the work of invoking each layer by hand and, more impor
 
 ## Files to read
 
-### Always read
+**The dispatcher reads none of them.** Each layer file tells its own subagent what to load, and the
+cross-layer report skeleton is inline in Step 4. Opening a reference here would put it in the main
+context for the rest of the session, which is the cost this split exists to avoid.
 
-| File | Why |
+| File | Read by |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | The posture and reporting rules. Passed to every subagent. |
-| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | Bucketing, merging, and the presentation format for the cross-layer summary. |
-
-### Read only if
-
-| File | Trigger condition |
-|---|---|
-| `${CLAUDE_SKILL_DIR}/reference/backend.md` | Only inside the backend subagent |
-| `${CLAUDE_SKILL_DIR}/reference/frontend.md` | Only inside the frontend subagent |
-| `${CLAUDE_SKILL_DIR}/reference/infra.md` | Only inside the infra subagent |
-| `${CLAUDE_SKILL_DIR}/reference/review-process.md` | Read by each layer subagent, not by this dispatcher |
-| `${CLAUDE_SKILL_DIR}/reference/verification.md` | Read by each layer subagent during its verify phase |
-
-> Reading everything "just in case" is forbidden. The layer bodies are large; loading one here costs
-> the whole session, because a skill's content stays in context until the session ends. The
-> dispatcher stays thin on purpose — the layer bodies belong in the disposable context of a subagent.
+| `reference/backend.md` | the backend subagent, on instruction |
+| `reference/frontend.md` | the frontend subagent |
+| `reference/infra.md` | the infra subagent |
+| `reference/review-process.md` | each layer file, as its first instruction |
+| `reference/finding-discipline.md` | every reviewing and verifying subagent |
+| `reference/verification.md` | each layer subagent, during its verify phase |
+| `reference/report-format.md` | whichever subagent writes a layer report |
 
 ---
 
@@ -135,24 +128,11 @@ layers, which no single-layer review can see:
 - **Release order and rollback.** The safe order to ship a cross-layer change, and what stays
   consistent if only one side is rolled back.
 
-**The cross-layer lens for silent, irreversible failures** — apply one pass, always:
-
-- **Global default × another layer's compensation.** One layer adds behaviour to a *shared default*
-  (a common module, base class, DB default, seed, catalog, shared config) whose correctness depends
-  on *compensating work in another layer* (a context value, a flag, pre-processing, a value the
-  frontend sends). Check that **every entry path** satisfies it — other controllers, use cases, batch
-  jobs, events, screens — and whether a guard or architecture test enforces the invariant. The one
-  path the PR touched being correct is not enough.
-- **Fail-open or fail-closed.** Does the fallback on a default, an evaluation error, or a missing
-  context or key make an irreversible, statutory, externally-submitted, or billable operation
-  **silently skip, auto-complete, or no-op**? **Failing silently is worse than failing loudly or
-  visibly over-executing.**
-- **Deploy order for LIVE-read seed and config.** Config read fresh at startup rather than from a
-  snapshot opens a rollout window where the new data meets the old code. Determine whether a hard
-  gate is needed and when it runs. → 👤 if undeterminable.
-- **Observability of silent success.** If an irreversible operation can be silently skipped, is there
-  an *active* signal (log, metric), not just a row afterwards? Without one it is undetectable → 🟡.
-  **Do not casually recommend a new sweep or cron**; prefer one passive monitor plus manual recovery.
+**The cross-layer lens for silent, irreversible failures** — apply the four patterns in
+`verification.md` one more time, but only for the case they cannot cover: where the *compensating
+work* sits in a **different layer** from the shared default that needs it. A global default whose
+correctness depends on the frontend sending a particular value, or on a batch job setting a flag, is
+correct in each layer read alone and broken between them.
 
 **Always pull each layer's 🧭 and unverified clears (👤) to the top.** Design doubts, system-wide
 concerns, and overconfident clears cut across layers, so they must not stay buried inside a
@@ -206,12 +186,9 @@ Follow each 🔗 row with one 📍 location and one 💬 suggested comment.
 - Never modify code or configuration. Read-only.
 - Suggested comments stay suggestions. Posting via `gh pr review` or similar happens only when the
   user explicitly asks for it.
-- **Calibrate cross-layer findings by reachability too.** Before raising a 🔗 as 🔴 or ⛔, establish
-  which real path, deploy order, or input reaches the breakage. **"Possible given the code" is not
-  grounds for severe.** Where reachability is not backed by real code, do not inflate: place it in 👤
-  with what to confirm (which path is used, the seed and config rollout order, backend/frontend
-  release synchronisation). Keep permanent defects — an invariant not enforced by a guard or
-  architecture test, a fail-open that should be fail-closed — separate from probabilistic triggers.
+- Cross-layer findings are calibrated by the same reachability rule as everything else; it lives in
+  `finding-discipline.md`. What to confirm here is specific though: which path is actually used, the
+  seed and config rollout order, and whether backend and frontend release together.
 - Always present the layer classification before acting on it.
 - Do not run reviews for layers the change does not touch.
 - If only one layer is touched, the result is the same as running that layer alone; say explicitly

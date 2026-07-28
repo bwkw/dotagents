@@ -122,7 +122,7 @@ A separate lens from architecture. Architecture asks whether the boundaries sit 
 this asks whether the type system does any work at those boundaries, or whether every invariant
 lives in a comment and the hope of a careful reviewer.
 
-Score each 1–10 and report anything at 5 or below, naming the specific field or signature:
+Report anything that fails one of these, naming the specific field or signature:
 
 - **Encapsulation** — can a caller construct an invalid value? A DTO where every field is optional
   and nullable pushes validation onto every consumer, permanently.
