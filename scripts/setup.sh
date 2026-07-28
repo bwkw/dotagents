@@ -2,6 +2,7 @@
 # dotagents installer.
 #
 #   install [--dry-run] [--prune-scripts]   link skills, copy hooks, merge settings
+#           [--statusline]                  ...and enable the status line (visible; opt-in)
 #   status                                  what is installed and whether it is current
 #   doctor                                  diagnose drift and breakage
 #   uninstall [--dry-run]                   remove exactly what we installed
@@ -22,6 +23,7 @@ MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
 PRUNE_SCRIPTS=0
+WITH_STATUSLINE=0
 
 # Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
 TILDE="~"
@@ -114,6 +116,26 @@ copy_hook() {
   did "copy ~/.claude/hooks/$f"
 }
 
+# Skills removed from the repository leave three symlinks behind, and write_manifest then forgets
+# they existed, so uninstall cannot reclaim them either. Prune before the manifest is rewritten.
+prune_skills() {
+  local shipped; shipped="$(skill_names)"
+  local recorded n q
+  recorded="$(node -e '
+    const fs=require("fs");
+    try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+          (m.skills||[]).forEach(x=>console.log(x)); } catch {}
+  ' "$MANIFEST" 2>/dev/null || true)"
+  for n in $recorded; do
+    grep -qxF "$n" <<<"$shipped" && continue
+    for q in "$CLAUDE_SKILLS/$n" "$CURSOR_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
+      # Only ever remove a symlink. A real directory there belongs to someone else.
+      if [[ -L "$q" ]]; then run rm -f "$q"; did "prune ${q/#$HOME/$TILDE}"
+      elif [[ -e "$q" ]]; then warn "${q/#$HOME/$TILDE} is not a symlink -- left in place"; fi
+    done
+  done
+}
+
 prune_hooks() {
   local shipped; shipped="$(hook_names)"
   local installed f
@@ -152,16 +174,33 @@ merge_settings() {
 
 # Cursor keeps its hooks in a different file with a different shape. Same rule: only the entries
 # our snippet declares, appended alongside whatever is already registered there.
+merge_statusline() {
+  (( WITH_STATUSLINE )) || return 0
+  local tmpl="$REPO/templates/claude.statusline.snippet.json"
+  # Explicitly requested, so a missing template is an error rather than a shrug.
+  [[ -f "$tmpl" ]] || die "--statusline was requested but the snippet is missing: $tmpl"
+
+  if (( DRY_RUN )); then
+    note "would: enable the status line in ~/.claude/settings.json"
+    return 0
+  fi
+  node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$HOME/.claude/settings.json" "$MANIFEST"
+  ok "enabled the status line"
+}
+
 merge_cursor_hooks() {
   local tmpl="$REPO/templates/cursor.hooks.snippet.json"
   local target="$HOME/.cursor/hooks.json"
   [[ -f "$tmpl" ]] || return 0
-  [[ -d "$HOME/.cursor" ]] || { note "no ~/.cursor -- skipping Cursor hooks"; return 0; }
 
   if (( DRY_RUN )); then
+    # install creates ~/.cursor/skills before reaching here, so ~/.cursor always exists by
+    # then. Reporting "skipping" on a machine without Cursor would make the dry run disagree
+    # with the install it is supposed to preview.
     note "would: merge Cursor hook entries into ~/.cursor/hooks.json"
     return 0
   fi
+  mkdir -p "$HOME/.cursor"
 
   local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)"
   [[ -f "$target" ]] && cp "$target" "$backup" && note "backup: ${backup/#$HOME/$TILDE}"
@@ -193,14 +232,19 @@ cmd_install() {
     removing the worktree would take every installed skill with it."
   fi
 
+  # Every settings merge and the manifest go through node. Failing partway leaves skills linked
+  # but no guardrails wired and no manifest to uninstall from, so check before changing anything.
+  command -v node >/dev/null || die "node is required (>= 18). Nothing has been changed."
+
   run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS"
 
   local n
   while read -r n; do [[ -n "$n" ]] && link_skill "$n"; done < <(skill_names)
   while read -r n; do [[ -n "$n" ]] && copy_hook  "$n"; done < <(hook_names)
 
-  (( PRUNE_SCRIPTS )) && prune_hooks
+  if (( PRUNE_SCRIPTS )); then prune_skills; prune_hooks; fi
   merge_settings
+  merge_statusline
   merge_cursor_hooks
   write_manifest
 
@@ -380,7 +424,9 @@ cmd_uninstall() {
 # ---------------------------------------------------------------- main
 
 usage() {
-  sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Print the header block up to its first bare '#' line, rather than a hardcoded range that
+  # silently drifts every time a flag is documented.
+  sed -n '2,/^#$/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -391,6 +437,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
     --prune-scripts) PRUNE_SCRIPTS=1 ;;
+    --statusline)    WITH_STATUSLINE=1 ;;
     -h|--help)       usage ;;
     *) die "unknown option: $arg" ;;
   esac

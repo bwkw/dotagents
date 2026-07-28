@@ -11,6 +11,10 @@ profiles are gitignored.
 
 日本語版: [README.ja.md](README.ja.md)
 
+**Why it is shaped this way, and how it is meant to be used: [docs/design.md](docs/design.md).**
+That covers the reasoning the ADRs sit underneath — what problem is being solved, where constraint
+earns its keep and where it does not, and what is still uncertain.
+
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
 cd ~/private/dotagents
@@ -123,12 +127,14 @@ own frontmatter, which is the sort of thing it is for.
 Context percentage earns permanent screen space because most of the discipline here is about
 spending it well — green under 50%, yellow past 67%, red past 85%.
 
-Not wired by default; a status line is a personal choice.
+Not wired by default; a status line is a visible personal choice.
 
 ```bash
-claude config set --global statusLine.type command
-claude config set --global statusLine.command '$HOME/.claude/hooks/dotagents-statusline.sh'
+./scripts/setup.sh install --statusline
 ```
+
+That merges the `statusLine` key into your agent settings the same way everything else is merged, so
+`./scripts/setup.sh uninstall` takes it back.
 
 Every field is optional and missing ones are omitted rather than rendered as "unknown". Field names
 vary across versions, and a status line reporting stale numbers is worse than a short one.

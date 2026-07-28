@@ -9,6 +9,10 @@
 
 English: [README.md](README.md)
 
+**なぜこの形なのか、どう使う想定かは [docs/design.ja.md](docs/design.ja.md)。**
+ADR の一段上の話 —— 何を解こうとしているのか、制約が働く場所と働かない場所、まだ未確定なことを
+書いてあります。
+
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
 cd ~/private/dotagents
@@ -93,12 +97,13 @@ npx skills add getsentry/skills -g -a claude-code -a cursor \
 
 `hooks/dotagents-statusline.sh` はコンテキスト使用率・モデル・worktree・ブランチ・セッション費用を表示します。このツールキットの規律はほぼコンテキストの使い方の話なので、使用率は常時表示する価値があります（50%未満で緑、67%超で黄、85%超で赤）。
 
-デフォルトでは配線しません。ステータスラインは個人の好みなので。
+デフォルトでは配線しません。ステータスラインは見た目に出る個人の好みなので。
 
 ```bash
-claude config set --global statusLine.type command
-claude config set --global statusLine.command '$HOME/.claude/hooks/dotagents-statusline.sh'
+./scripts/setup.sh install --statusline
 ```
+
+他のキーと同じ方式で `statusLine` を設定にマージするので、`./scripts/setup.sh uninstall` で元に戻ります。
 
 各フィールドは任意で、取得できないものは「unknown」と出さずに消えます。フィールド名はバージョンで変わるため、古い数字を出し続けるステータスラインは短いものより悪いからです。
 

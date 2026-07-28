@@ -6,6 +6,8 @@
   "required": ["match", "checks"],
   "additionalProperties": false,
   "properties": {
+    "$schema": { "type": "string" },
+    "$comment": {},
     "match": {
       "type": "object",
       "description": "How to recognise the repository this profile applies to.",
