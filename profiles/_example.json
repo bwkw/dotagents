@@ -3,7 +3,12 @@
   "$comment": [
     "Copy this to profiles/<repo>.json and edit. Your copy is gitignored -- profiles name real",
     "repositories and environments, so they stay on your machine.",
-    "The leading underscore keeps this example out of profile matching."
+    "The leading underscore keeps this example out of profile matching.",
+    "",
+    "delegate_reason must say why *this* command is yours to run rather than the agent's. It is shown",
+    "to you verbatim, so an unexplained request reads as arbitrary and gets ignored. Real reasons:",
+    "the repository's own docs forbid the agent running it, it needs credentials the session should",
+    "not spend, or it needs more memory than the session has."
   ],
 
   "match": { "remote": "owner/repo" },
@@ -29,7 +34,7 @@
       "cmd": "npm run typecheck",
       "gate": true,
       "agent_may_run": false,
-      "delegate_reason": "State the real reason here. It is shown to the user, and an unexplained request to run something by hand gets ignored. Typical reasons: the repository's own docs forbid the agent running it, it needs credentials the session should not spend, or it needs more memory than the session has."
+      "delegate_reason": "Needs more memory than the session has. Ask the user to run it and wait for their output."
     },
     {
       "id": "unit",
