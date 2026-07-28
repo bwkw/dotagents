@@ -149,10 +149,13 @@ shape are already decided.
 **While writing code**, the upstream skills do the work. `/verify` when you want the evidence rather
 than the assertion. The gate arms itself and will not let a turn end with checks red.
 
-**After writing code**, `/review-all` classifies the change by layer and reviews each in its own
-subagent, then looks specifically for the cross-layer risks — a contract change and its consumer
-shipping out of order, a config read live at startup meeting code that has not deployed yet. Then
-`/pr-describe`.
+**After writing code**, `/review-backend`, `/review-frontend`, and `/review-infra` each review one
+layer as a tech lead, and `/review-all` classifies the change and runs the ones that apply before
+looking specifically for the cross-layer risks — a contract change and its consumer shipping out of
+order, a config read live at startup meeting code that has not deployed yet. Then `/pr-describe`.
+
+The layer skills are the same skills whether you invoke them or the dispatcher does; see ADR 0004 for
+why they are skills rather than reference files the dispatcher hands to a subagent.
 
 **Periodically**, `/skills-audit`. The toolkit's own failure mode is accumulation: every installed
 description is resident in context permanently, so each new skill costs the selection accuracy of

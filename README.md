@@ -66,14 +66,20 @@ scripts/gate.sh disarm                     # once everything is green
 ### 3 — After writing code
 
 ```
-/review-all        layer-by-layer review in parallel subagents, plus the cross-layer risks
+/review-all        every layer the change touches, plus the risks between them
+/review-backend    server code, migrations, contracts, queues, dependencies
+/review-frontend   components, routes, hooks, stores, styling, i18n
+/review-infra      Terraform, CDK, k8s, IAM, networking, pipelines
 /pr-describe       a PR description a reviewer can read before opening the diff
 ```
 
-`/review-all` classifies the change by layer, reviews each in its own subagent, then looks for what no
-single-layer review can see: a contract change and its consumer shipping out of order, config read
-live at startup meeting code that has not deployed, a shared default whose correctness depends on
-compensating work in a **different** layer.
+Each layer is a skill you can invoke on its own. `/review-all` classifies the change, runs the layer
+skills that apply, and then does the part none of them can: a contract change and its consumer shipping
+out of order, config read live at startup meeting code that has not deployed, a shared default whose
+correctness depends on compensating work in a **different** layer.
+
+All four share one posture — *"clean" is a conclusion earned with evidence, not a default* — and one
+finding discipline, so a layer review and a cross-layer review calibrate severity the same way.
 
 **Which review?** Several things installed here can review a change, and their triggers overlap. Name
 the one you want rather than hoping the right one fires:
@@ -81,7 +87,8 @@ the one you want rather than hoping the right one fires:
 | Say this | When |
 |---|---|
 | `/review-all` | **The default.** A change touching more than one layer, or anything where irreversibility and deploy order matter. The only one that looks at what falls *between* layers. |
-| `/find-bugs` | One layer, and you want a fast bug and vulnerability sweep over the branch diff. Sentry's; maps the attack surface first. |
+| `/review-backend`, `/review-frontend`, `/review-infra` | You already know it is one layer. Same depth, none of the classification step. |
+| `/find-bugs` | A fast bug and vulnerability sweep over the branch diff. Sentry's; maps the attack surface first. |
 | `/security-review` | Security specifically — authorization, injection, secret handling. |
 | `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning — rather than a report. |
 | `/review`, `/code-review` | Claude Code's built-ins. `/review` takes a GitHub PR; `/code-review` takes your working diff. |
@@ -109,17 +116,39 @@ gate escalates its own message on the second failure for exactly this reason.
 
 ## What is in here
 
-Six skills. Everything else is installed from upstream, because methodology is better maintained by
+Nine skills. Everything else is installed from upstream, because methodology is better maintained by
 people who work on it full time.
 
 | Skill | What it does |
 |---|---|
-| `/review-all` | Layer detection, parallel per-layer review, cross-layer irreversibility |
+| `/review-all` | Layer detection, dispatch to the layer skills, cross-layer irreversibility |
+| `/review-backend` | Server-side review — migrations, contracts, tenancy, idempotency, concurrency |
+| `/review-frontend` | Client-side review — routes, persisted state, authorization theatre, a11y |
+| `/review-infra` | IaC review — replacement, state loss, IAM widening, deploy order |
 | `/design-review` | Plan review before code exists — one-way doors, migration order, omissions |
 | `/investigate` | A codebase question answered with `file:line`, under budget, gaps named |
 | `/verify` | Your repository's own checks, run and reported with evidence |
 | `/pr-describe` | PR title and description; publishes a visual summary where Artifacts exist |
 | `/skills-audit` | Description budget, overlapping triggers, Cursor incompatibility, disuse |
+
+### Why these are skills, and not "commands"
+
+There is no separate commands directory here, and that is deliberate rather than an omission.
+
+A **slash command** was a prompt template: you typed `/name`, it expanded, that was the whole
+mechanism. A **skill** is a directory — `SKILL.md` plus reference files it loads only when needed — and
+it can be reached three ways: you type `/name`, the model picks it from the `description` because the
+request matched, or another skill calls it by name. The first way is a strict subset of what a skill
+does, so anything written as a command is a skill with two capabilities switched off.
+
+That matters concretely for these four. `/review-backend` is one skill that has to work when **you**
+invoke it directly and when **`/review-all`** invokes it as one of several layers. As a command it
+would need to be two files that drift apart, which is exactly how this repository's predecessor
+decayed. The single reference set — posture, process, discipline, silent-failure patterns — is shared
+by symlink, so a change to the discipline reaches every layer and the cross-layer pass at once.
+
+Practically: **type `/` and everything is in one list.** Nothing here is invoked a second, different
+way.
 
 The line for what belongs here: **would this be equally useful to someone with different opinions?**
 If yes, it belongs upstream. What stays encodes a particular opinion — what counts as a finding worth
