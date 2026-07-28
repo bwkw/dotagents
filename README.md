@@ -75,6 +75,20 @@ single-layer review can see: a contract change and its consumer shipping out of 
 live at startup meeting code that has not deployed, a shared default whose correctness depends on
 compensating work in a **different** layer.
 
+**Which review?** Several things installed here can review a change, and their triggers overlap. Name
+the one you want rather than hoping the right one fires:
+
+| Say this | When |
+|---|---|
+| `/review-all` | **The default.** A change touching more than one layer, or anything where irreversibility and deploy order matter. The only one that looks at what falls *between* layers. |
+| `/find-bugs` | One layer, and you want a fast bug and vulnerability sweep over the branch diff. Sentry's; maps the attack surface first. |
+| `/security-review` | Security specifically — authorization, injection, secret handling. |
+| `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning — rather than a report. |
+| `/review`, `/code-review` | Claude Code's built-ins. `/review` takes a GitHub PR; `/code-review` takes your working diff. |
+
+`find-bugs` says "use when asked to review changes", which is the same ground `/review-all` claims, so
+a bare "review this" may pick either. Both are reasonable; naming it removes the coin flip.
+
 ### 4 — Periodically
 
 ```
