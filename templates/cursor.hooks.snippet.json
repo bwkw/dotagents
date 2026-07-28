@@ -1,0 +1,22 @@
+{
+  "$comment": [
+    "Merged into ~/.cursor/hooks.json alongside whatever is already there (rtk, etc.).",
+    "Cursor's schema differs from Claude Code's: camelCase events, a flat hooks object, and",
+    "entries of the shape { command, matcher }. The scripts detect which agent called them.",
+    "The 'stop' hook cannot block -- it can only auto-submit a follow-up message, bounded by",
+    "Cursor's loop_limit. That is weaker than Claude Code's Stop hook and is not parity."
+  ],
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "$HOME/.claude/hooks/dotagents-lint-skill-frontmatter.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": "$HOME/.claude/hooks/dotagents-verify-gate.sh"
+      }
+    ]
+  }
+}
