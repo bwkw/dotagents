@@ -2,6 +2,8 @@
 name: review-all
 description: Review a change as a tech lead. Use for code review, PR review, or checking work before shipping. Detects which layers a change touches (infra, backend, frontend), reviews each in parallel subagents, and surfaces the cross-layer irreversible risks no single-layer review sees. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff and its blast radius)"
+metadata:
+  source: bwkw/dotagents
 ---
 
 # /review-all — cross-layer review dispatcher

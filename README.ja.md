@@ -111,6 +111,8 @@ npx skills add getsentry/skills -g -a claude-code -a cursor \
 
 [`_template/SKILL.md`](_template/SKILL.md) から始めて `./scripts/verify-skills.sh` を走らせてください。
 
+ここのスキルは全て `metadata.source: bwkw/dotagents` を持ち、フックは出力に `[dotagents]` を付けます。グローバルに入れると20数個のサードパーティ製スキルと並ぶので、この目印が「どれが自分の管理対象か」に答えます —— `/skills` を見るあなたにとっても、`/skills-audit` が「何に手を入れて良いか」を判断するためにも。上流のスキルをその場で編集しても、次の `npx skills update` で無警告に失われます。
+
 **唯一重要なルール: Claude 固有の frontmatter を全部剥がしても、同じ挙動が成立すること。** Cursor が理解するのは `name` / `description` / `paths` / `disable-model-invocation` の4つだけで、残りは黙って無視されます。`allowed-tools` に書いた制約は Cursor には**存在しない**のに、何の警告も出ません。だから制約は本文に散文で書き、Claude 固有の frontmatter はその上の最適化に留めます。linter がこれを機械的に検査します。
 
 **`disable-model-invocation` は絶対に設定しないこと。** モデルの自動起動だけでなく、プログラムからの `Skill` 呼び出しとサブエージェントへの preload もブロックするので、他のスキルに委譲するスキルが**無警告で壊れます**。

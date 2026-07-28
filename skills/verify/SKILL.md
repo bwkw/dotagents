@@ -3,6 +3,8 @@ name: verify
 description: Run this repository's own verification commands and report with evidence. Use before claiming work is done, before committing, or before opening a PR. Resolves commands from the repo's profile rather than guessing, and refuses what the repo forbids.
 argument-hint: "[check-id] (default: every gating check)"
 allowed-tools: Bash, Read, Grep, Glob
+metadata:
+  source: bwkw/dotagents
 ---
 
 # /verify — run the checks, show the evidence

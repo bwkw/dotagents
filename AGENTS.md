@@ -59,7 +59,14 @@ These are load-bearing. Breaking one fails silently rather than loudly.
 5. **Product repositories are never modified.**
    Anything repo-specific lives in `profiles/`, keyed by git remote.
 
-6. **No secrets in this repository.**
+6. **Every skill carries `metadata.source: bwkw/dotagents`.**
+   Installed globally, ours sit among two dozen third-party skills, and the difference decides what
+   may be done to one: ours can be rewritten, an upstream skill can only be installed or removed —
+   editing it in place is lost on the next `npx skills update`, silently. `verify-skills.sh` requires
+   the marker; `skills-audit` partitions on it. Hooks prefix their output with `[dotagents]` for the
+   same reason: a turn refused with no attribution sends you looking through every installed tool.
+
+7. **No secrets in this repository.**
    `setup.sh` merges only the keys listed in `templates/`, and never reads or rewrites existing
    values it did not write.
 

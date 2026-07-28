@@ -171,6 +171,14 @@ check_skill() {
       || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/adr/0003)"
   fi
 
+  # --- provenance ------------------------------------------------------------
+  # Installed globally, ours sit among two dozen third-party skills. Without a marker there is no
+  # way to answer "which of these am I responsible for" -- not for a person reading /skills, and
+  # not for skills-audit deciding what it may propose removing.
+  local fm_block; fm_block="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill")"
+  grep -q 'source: bwkw/dotagents' <<<"$fm_block" \
+    || err "$id" "frontmatter is missing 'metadata.source: bwkw/dotagents' -- ours must be distinguishable from installed third-party skills"
+
   # --- symlinks must stay inside the repository -----------------------------
   # A skill's reference/ is read by an agent on instruction. A symlink there pointing outside the
   # tree turns "read my reference file" into "read whatever this points at" -- ~/.ssh/id_rsa, an

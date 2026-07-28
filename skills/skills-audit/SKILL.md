@@ -3,6 +3,8 @@ name: skills-audit
 description: Audit installed skills for bloat and breakage. Use before adding a skill, when skills stop firing automatically, or for periodic clean-up. Checks description budget, overlapping coverage, Cursor incompatibility, oversized bodies, and disuse.
 argument-hint: "[path] (default: ~/.agents/skills)"
 allowed-tools: Bash, Read, Grep, Glob
+metadata:
+  source: bwkw/dotagents
 ---
 
 # /skills-audit — keep the toolkit from rotting
@@ -45,6 +47,22 @@ selecting correctly, and nothing announces it.
 > here would cost more context than the audit saves.
 
 ---
+
+## Step 0. Separate ours from theirs
+
+```bash
+grep -l 'source: bwkw/dotagents' ~/.agents/skills/*/SKILL.md
+```
+
+Everything else was installed from a third party. The distinction changes what you may propose:
+
+- **Ours** — anything is on the table. Rewrite the description, split the body, delete it.
+- **Theirs** — the only levers are install or uninstall. Do not propose editing an upstream skill;
+  the edit is lost on the next `npx skills update`, and silently. If an upstream skill is the
+  problem, say so and propose removing it or raising it upstream.
+
+State the counts before going further. A budget report that does not say which half is yours cannot
+be acted on.
 
 ## Step 1. Static checks
 
@@ -101,8 +119,12 @@ Emit the queries for the user to run — do not attempt to query the backend you
 ```markdown
 ## Skills audit — N skills, M chars of descriptions
 
+### Ours / theirs
+N ours, M installed from upstream, of T total.
+
 ### Blocking
-(errors from Step 1: broken frontmatter, oversized bodies, Cursor-incompatible declarations)
+(errors from Step 1: broken frontmatter, oversized bodies, Cursor-incompatible declarations.
+Errors in upstream skills are reported but are not yours to fix in place.)
 
 ### Budget
 Total M chars against a target of 8,000. Worst offenders:
@@ -115,8 +137,8 @@ Total M chars against a target of 8,000. Worst offenders:
 (the queries, for the user to run)
 
 ### Proposed actions
-| Skill | Action | Why |
-| … | keep / rewrite description / consolidate into X / remove | … |
+| Skill | Ours? | Action | Why |
+| … | yes / upstream | keep / rewrite description / consolidate into X / remove | … |
 ```
 
 ## Done when

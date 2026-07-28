@@ -1,6 +1,8 @@
 ---
 name: skill-name
 description: What it does, in a verb phrase, leading with the words a user would actually type. Then when to use it, as 4-6 trigger nouns. Then inputs and outputs in one clause. Then what it refuses to do. Target 200-350 characters.
+metadata:
+  source: bwkw/dotagents
 ---
 
 # /skill-name — one-line role

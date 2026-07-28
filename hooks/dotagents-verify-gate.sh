@@ -53,7 +53,8 @@ active=("$GATE_DIR"/*/ACTIVE)
 # this repository, so "armed, but not ours, carry on" is not a conclusion it is entitled to draw.
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
   {
-    echo "The verification gate needs node and cannot find it on PATH, so it cannot check anything."
+    echo "[dotagents] The verification gate needs node and cannot find it on PATH, so it cannot"
+    echo "check anything."
     echo
     echo "A gate is armed, but without node this hook cannot even determine which repository it"
     echo "belongs to. This is a fault in the gate's environment, not in your work: fix PATH for the"
@@ -116,14 +117,14 @@ block() {
   # unreachable from inside a blocked turn. So on a re-entry, hand control back once, loudly.
   if [[ "$stop_active" == "1" ]]; then
     {
-      printf '%s\n' "$1"
+      printf '[dotagents] %s\n' "$1"
       echo
       echo "Releasing the gate for this turn so you can reach the user -- the checks above are"
       echo "still failing. The sentinel stays armed; say plainly what is red and what you need."
     } >&2
     exit 0
   fi
-  printf '%s\n' "$1" >&2
+  printf '[dotagents] %s\n' "$1" >&2
   exit 2
 }
 

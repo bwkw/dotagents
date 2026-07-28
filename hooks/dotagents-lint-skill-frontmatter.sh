@@ -28,9 +28,10 @@ process.stdin.on("end", () => {
   const allow = () => emit({});
   const decide = (decision, reason) =>
     emit(cursor
-      ? { permission: decision, user_message: `SKILL.md: ${decision}`, agent_message: reason }
-      : { hookSpecificOutput: { hookEventName: "PreToolUse",
-                                permissionDecision: decision, permissionDecisionReason: reason } });
+      ? { permission: decision, user_message: `[dotagents] SKILL.md ${decision}`,
+          agent_message: `[dotagents] ${reason}` }
+      : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision,
+                                permissionDecisionReason: `[dotagents] ${reason}` } });
   const deny = (r) => decide("deny", r);
   const ask = (r) => decide("ask", r);
 

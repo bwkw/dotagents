@@ -3,6 +3,8 @@ name: investigate
 description: Map what a change would touch, or trace how something actually works. Use when asked where something lives, what depends on it, or what would break. Answers with file:line evidence under a fixed exploration budget, and names what it could not confirm. Read-only.
 argument-hint: "the question to answer"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(rg:*), Bash(gh:*)
+metadata:
+  source: bwkw/dotagents
 ---
 
 # /investigate — answer the question, then stop

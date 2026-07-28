@@ -143,6 +143,12 @@ vary across versions, and a status line reporting stale numbers is worse than a 
 
 Start from [`_template/SKILL.md`](_template/SKILL.md), then run `./scripts/verify-skills.sh`.
 
+Every skill here carries `metadata.source: bwkw/dotagents`, and hooks prefix their output with
+`[dotagents]`. Installed globally, these sit among two dozen third-party skills, and the marker is
+what answers "which of these am I responsible for" — for you reading `/skills`, and for
+`/skills-audit` deciding what it may propose changing. Editing an upstream skill in place is lost on
+the next `npx skills update`, without warning.
+
 **The one rule that matters: strip every Claude-only frontmatter field and the skill must still
 behave the same.** Cursor understands `name`, `description`, `paths`, and
 `disable-model-invocation`, and silently ignores the rest. A constraint encoded in `allowed-tools`
