@@ -2,7 +2,7 @@
 name: pr-describe
 description: Write or update the current branch's PR title and description. Use when preparing a PR for review, or when the description is stale. Produces something a reviewer can read before opening the diff. Touches only the PR, never repository files.
 argument-hint: "[PR number] (default: the PR for the current branch)"
-allowed-tools: Bash(gh:*), Bash(git:*), Read, Grep, Glob
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(mktemp:*), Read, Grep, Glob, Write
 ---
 
 # /pr-describe — make the PR readable before the diff

@@ -157,6 +157,15 @@ check_skill() {
       || err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/adr/0003)"
   fi
 
+  # A skill whose body dispatches to subagents but whose allowed-tools omits Task has been
+  # forbidden from doing the thing it exists to do -- by an optimization, which ADR 0003 says must
+  # never be the mechanism. Silent in Cursor, and a permission prompt in Claude.
+  if has_frontmatter_key "$skill" allowed-tools \
+     && grep -qiE 'parallel subagents|dispatch (them|the)|Task tool|launch .*subagent' <<<"$body" \
+     && ! grep -qE '^allowed-tools:.*\bTask\b' <<<"$(frontmatter_value "$skill" allowed-tools | sed 's/^/allowed-tools: /')"; then
+    err "$id" "the body dispatches to subagents but 'allowed-tools' omits Task -- the skill cannot do what it describes"
+  fi
+
   if has_frontmatter_key "$skill" context; then
     grep -qiE 'subagent|sub-agent|Task tool|separate context|fresh context' <<<"$body" \
       || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/adr/0003)"

@@ -2,7 +2,7 @@
 name: design-review
 description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches what code review cannot fix later — one-way doors, migration order, rollback, and what the plan omitted. Read-only.
 argument-hint: "[path to plan/spec] (default: the most recent plan under docs/)"
-allowed-tools: Read, Grep, Glob, Bash(git:*), Bash(gh:*), WebFetch
+allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(gh:*), WebFetch
 ---
 
 # /design-review — catch it while it is still cheap
