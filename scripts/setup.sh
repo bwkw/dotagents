@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # dotagents installer.
 #
-#   install [--dry-run] [--prune-scripts]   link skills, copy hooks, merge settings
-#           [--statusline]                  ...and enable the status line (visible; opt-in)
+#   install [--dry-run] [--statusline]     link skills, copy hooks, merge settings, and remove
+#                                          anything we installed that the repo no longer ships
 #   status                                  what is installed and whether it is current
 #   doctor                                  diagnose drift and breakage
 #   uninstall [--dry-run]                   remove exactly what we installed
@@ -22,7 +22,6 @@ CLAUDE_HOOKS="$HOME/.claude/hooks"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
-PRUNE_SCRIPTS=0
 WITH_STATUSLINE=0
 
 # Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
@@ -137,6 +136,28 @@ prune_skills() {
       elif [[ -e "$q" ]]; then warn "${q/#$HOME/$TILDE} is not a symlink -- left in place"; fi
     done
   done
+
+  # The manifest is not enough on its own. write_manifest rewrites the skill list every install, so
+  # an orphan created before pruning became automatic is no longer recorded anywhere -- and a
+  # manifest-only reconcile can never reclaim it. Observed exactly that: a test skill left two
+  # dangling links that survived every subsequent install.
+  #
+  # So also sweep by shape, which needs no record: a *dangling* symlink whose target is spelled the
+  # way we spell ours. Both patterns are unambiguous and cannot match someone else's link.
+  local l t
+  shopt -s nullglob
+  for l in "$AGENTS_SKILLS"/*; do
+    [[ -L "$l" && ! -e "$l" ]] || continue
+    t="$(link_target "$l")"
+    [[ "$t" == "$REPO/skills/"* ]] || continue
+    run rm -f "$l"; did "prune orphaned ${l/#$HOME/$TILDE} (target gone from the repo)"
+  done
+  for l in "$CLAUDE_SKILLS"/* "$CURSOR_SKILLS"/*; do
+    [[ -L "$l" && ! -e "$l" ]] || continue
+    t="$(link_target "$l")"
+    [[ "$t" == "../../.agents/skills/"* ]] || continue
+    run rm -f "$l"; did "prune orphaned ${l/#$HOME/$TILDE} (chain is broken)"
+  done
 }
 
 prune_hooks() {
@@ -245,7 +266,11 @@ cmd_install() {
   while read -r n; do [[ -n "$n" ]] && link_skill "$n"; done < <(skill_names)
   while read -r n; do [[ -n "$n" ]] && copy_hook  "$n"; done < <(hook_names)
 
-  if (( PRUNE_SCRIPTS )); then prune_skills; prune_hooks; fi
+  # Always. install means "make the installed state match the repository", and that includes
+  # removing what the repository no longer ships. Both prune functions only touch what a previous
+  # run of ours recorded in the manifest, so nothing else is at risk.
+  prune_skills
+  prune_hooks
   merge_settings
   merge_statusline
   merge_cursor_hooks
@@ -438,7 +463,7 @@ cmd="$1"; shift
 for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
-    --prune-scripts) PRUNE_SCRIPTS=1 ;;
+    --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
     --statusline)    WITH_STATUSLINE=1 ;;
     -h|--help)       usage ;;
     *) die "unknown option: $arg" ;;

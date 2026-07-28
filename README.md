@@ -171,7 +171,8 @@ belongs in `reference/`, loaded on demand.
 
 ```bash
 ./scripts/verify-skills.sh      # skill lint
-./scripts/test-verify-gate.sh   # 38 tests for the verification gate
+./scripts/test-verify-gate.sh   # 42 tests for the verification gate
+./scripts/test-setup.sh         # 14 tests for the installer, against a fake HOME
 ```
 
 The gate has real tests because it is the one component that must fail *closed*. They cover staying
@@ -187,7 +188,12 @@ Nothing secret lives here, and the installer is built not to touch what it did n
 `~/.claude/.dotagents-managed.json`, backs up before editing, and never reads or rewrites an
 existing value it does not own — including any credentials already in your agent settings. Existing
 hooks are appended to rather than replaced. `./scripts/setup.sh uninstall` takes back precisely what
-was added, and the revert is verified byte-identical.
+was added.
+
+One caveat, stated because the earlier wording overclaimed it: the revert restores every key to its
+original **value**, not the file to its original **bytes**. Settings are rewritten with a fixed
+two-space layout, so a file formatted differently comes back reformatted. `scripts/test-setup.sh`
+asserts the values, which is what can actually be promised.
 
 CI runs gitleaks over full history.
 

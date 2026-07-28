@@ -39,6 +39,21 @@ const writeJson = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n");
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
+const HOME = process.env.HOME ?? "";
+// Whether an agent expands $HOME inside a hook command was never verified. An unexpanded path is a
+// command that does not exist, which is a hook that never starts, which is a guardrail that fails
+// open. Substitute here and stop depending on the answer.
+const resolveHome = (cmd) =>
+  typeof cmd === "string" ? cmd.replace(/\$\{?HOME\}?/g, HOME).replace(/^~(?=\/)/, HOME) : cmd;
+
+// Drop hook entries this toolkit registered before, whatever spelling they used. Without this,
+// changing a command string (a literal $HOME that is now resolved, a renamed script) leaves the old
+// entry in place and both fire -- one of them pointing at nothing.
+const dropOurs = (slots) =>
+  (slots ?? [])
+    .map((slot) => ({ ...slot, hooks: (slot.hooks ?? []).filter((h) => !/dotagents-/.test(h.command ?? "")) }))
+    .filter((slot) => (slot.hooks ?? []).length > 0);
+
 /**
  * Deep-merge `src` into `dst` for plain-object and scalar values, recording each leaf path we set.
  * Hook events are handled separately because they are arrays that must be appended to, not replaced.
@@ -77,7 +92,7 @@ function mergeHooks(dst, src, recorded) {
       console.error(`  skipped hooks.${event} -- not a known hook event`);
       continue;
     }
-    dst.hooks[event] ??= [];
+    dst.hooks[event] = dropOurs(dst.hooks[event]);
 
     for (const incoming of matchers) {
       const matcher = incoming.matcher ?? "";
@@ -89,9 +104,10 @@ function mergeHooks(dst, src, recorded) {
       slot.hooks ??= [];
 
       for (const hook of incoming.hooks ?? []) {
-        if (slot.hooks.some((h) => h.command === hook.command)) continue; // already present
-        slot.hooks.push(hook);
-        recorded.hooks.push({ event, matcher, command: hook.command });
+        const resolved = { ...hook, command: resolveHome(hook.command) };
+        if (slot.hooks.some((h) => h.command === resolved.command)) continue; // already present
+        slot.hooks.push(resolved);
+        recorded.hooks.push({ event, matcher, command: resolved.command });
       }
     }
   }
@@ -158,14 +174,17 @@ if (mode === "--cursor") {
   const added = [];
 
   for (const [event, entries] of Object.entries(snippet.hooks ?? {})) {
-    target.hooks[event] ??= [];
+    // Cursor's shape is a flat list of {command, matcher}, so ours are filtered directly.
+    target.hooks[event] = (target.hooks[event] ?? []).filter((h) => !/dotagents-/.test(h.command ?? ""));
     for (const entry of entries) {
+      const resolved = { ...entry, command: resolveHome(entry.command) };
       // Key on the command so re-running install is idempotent, and so hooks someone else
       // registered here -- rtk, for one -- are never disturbed.
-      if (target.hooks[event].some((h) => h.command === entry.command)) continue;
-      target.hooks[event].push(entry);
-      added.push({ event, command: entry.command });
+      if (target.hooks[event].some((h) => h.command === resolved.command)) continue;
+      target.hooks[event].push(resolved);
+      added.push({ event, command: resolved.command });
     }
+    if (target.hooks[event].length === 0) delete target.hooks[event];
   }
 
   writeJson(targetPath, target);

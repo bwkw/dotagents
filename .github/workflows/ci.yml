@@ -46,6 +46,12 @@ jobs:
       - name: Verify-gate tests
         run: ./scripts/test-verify-gate.sh
 
+      # The installer edits files it does not own -- agent settings holding credentials, hooks
+      # registered by other tools. It had syntax checks and nothing else while the gate had 42
+      # behavioural tests, which was the wrong way round. Runs against a fake HOME.
+      - name: Installer tests
+        run: ./scripts/test-setup.sh
+
       # printf, not echo: some shells expand the \n inside the JSON string literal and hand the
       # hook invalid JSON, which it correctly ignores -- making the test pass for the wrong reason.
       - name: Hooks answer in both dialects
