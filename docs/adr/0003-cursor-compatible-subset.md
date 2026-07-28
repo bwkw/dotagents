@@ -34,6 +34,16 @@ guarantees. `verify-skills.sh` flags any skill whose body does not restate its f
 preloading, and scheduled-task triggering — not just model auto-invocation. `review-all` dispatches to
 its layer references by name, so setting it converts the dispatcher into a silent no-op.
 
+> **Amended by ADR 0005 (2026-07-28).** The blanket ban was over-general, and the sentence above is the
+> second time this invariant's stated justification has been wrong — ADR 0004 corrected it once already.
+> Official guidance *recommends* the field for side-effectful workflows and for anything you always
+> invoke by name, and it is the only way to make a skill cost zero description budget.
+>
+> The rule is now **never on something reached by name**: `verify` (the only thing that arms the gate)
+> and `review-backend` / `review-frontend` / `review-infra` (dispatch targets). Everything else may set
+> it; `pr-describe` does. Note that this field is one of the four Cursor *does* understand, so unlike
+> the rest of this ADR's subject matter it behaves identically in both agents.
+
 ## Consequences
 
 - Skills read as prose rather than configuration. That is a feature: the agent is a reader, and a

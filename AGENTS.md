@@ -5,7 +5,8 @@ Code and Cursor**, installed once globally. `CLAUDE.md` symlinks here, because C
 read `AGENTS.md`.
 
 Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape
-is in `docs/design.md`. This file holds only what you cannot get by looking.
+is in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
+context — is in `docs/mechanisms.md`, with sources. This file holds only what you cannot get by looking.
 
 ## Invariants
 

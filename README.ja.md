@@ -66,18 +66,9 @@ scripts/gate.sh disarm                     # 全部緑になったら
 
 4本は**同じ姿勢**（*clean は既定値ではなく、証拠で勝ち取る結論*）と**同じ所見の規律**を共有します。だから層別レビューと層をまたぐレビューで重大度の基準がずれません。
 
-**どのレビューを使うか。** 変更をレビューできるものが複数入っていて、**トリガが重なっています**。期待するものが発火するのを祈らず、名前で指定してください:
+**どのレビューも報告の前に敵対的検証を1パス通します。** 上位2つの重大度の所見は、**視点の異なる3つの `review-verifier` サブエージェント**（到達可能か / 別の場所で既に守られていないか / 重大度は妥当か）に渡され、**2つが反証に失敗したものだけが生き残ります**。立証できなかった検証者は `uncertain` ではなく **`refuted`** を返します —— 直感の逆であり、レポートが短く保たれる理由です。
 
-| これを打つ | いつ |
-|---|---|
-| `/review-all` | **既定。** 複数の層に触れる変更、または不可逆性とデプロイ順序が問題になるもの。**層と層の間**に落ちるものを見るのはこれだけ |
-| `/review-backend`, `/review-frontend`, `/review-infra` | 単一層だと既に分かっているとき。**深さは同じで、分類ステップだけ無い** |
-| `/find-bugs` | ブランチ差分に対する素早いバグ・脆弱性スイープが欲しいとき。Sentry製で、先に攻撃面をマッピングします |
-| `/security-review` | セキュリティ専門 —— 認可、インジェクション、秘密の扱い |
-| `/requesting-code-review` | レポートではなく**手順**が欲しいとき —— あなたの推論を見ていないフレッシュな文脈のレビュアーを立てる |
-| `/review`, `/code-review` | Claude Code の組み込み。`/review` は GitHub PR、`/code-review` は作業差分 |
-
-`find-bugs` の description は「use when asked to review changes」と書いていて、`/review-all` が主張する土地と同じです。だから素の「レビューして」ではどちらが選ばれるか分かりません。どちらも妥当なので、**名前で指定すればコイントスが消えます**。
+24本全部の「これを打つ / いつ」表は[下にあります](#何が入っていて何と言えばいいか)。それとは別に Claude Code の組み込みが近い領域を覆っています: **`/review`** は GitHub PR、**`/code-review`** は作業差分、**`/security-review`** はセキュリティ専門。`/find-bugs` と `/review-all` はどちらも「review changes」を主張するので、素の「レビューして」ではどちらが選ばれるか分かりません。**名前で指定すればコイントスが消えます**。
 
 ### 4 — 定期的に
 
@@ -96,27 +87,59 @@ scripts/gate.sh disarm                     # 全部緑になったら
 
 ## 何が入っているか
 
-**自作は9スキルだけ。** 残りは上流から入れます —— 方法論はそれを本業にしている人たちが維持した方が良いので。
+**自作は9スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
 
-| スキル | 何をするか |
-|---|---|
-| `/review-all` | 層の判定、層別スキルへの委譲、層をまたぐ不可逆性 |
-| `/review-backend` | サーバ側 —— マイグレーション、契約、テナント境界、冪等性、並行性 |
-| `/review-frontend` | クライアント側 —— ルート、永続化された state、認可の見せかけ、a11y |
-| `/review-infra` | IaC —— リソース置換、state 喪失、IAM 拡大、デプロイ順序 |
-| `/design-review` | コードが存在しない段階での計画レビュー —— 一方通行の扉、移行順序、欠落 |
-| `/investigate` | コードベースへの問いに `file:line` で、予算内で、穴を名指しして答える |
-| `/verify` | そのリポジトリ自身のチェックを実行し、証拠付きで報告 |
-| `/pr-describe` | PR タイトルと説明。Artifact が使える環境ではビジュアルサマリも公開 |
-| `/skills-audit` | description 予算、トリガの重複、Cursor 非互換、未使用 |
+加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
+
+## 何が入っていて、何と言えばいいか
+
+**24スキル。** 開発ループの順に並べています。**●** が自作、他は上流です。
+
+| これを打つ | いつ | |
+|---|---|---|
+| **1. 何を作るか分かる前** | | |
+| `/grill-me` | 大まかな案があり、要件が本当に固まるまで質問攻めにしてほしいとき | |
+| `/brainstorming` | 何かを作り始める前に、意図と選択肢を発散させたいとき | |
+| `/investigate` | 「X はどこにある」「何が依存している」「この変更は何に触る」 —— `file:line` で予算内に答える | ● |
+| **2. コードを書く前** | | |
+| `/writing-plans` | 仕様があり、コードに触る前に計画をディスクに置きたいとき | |
+| `/design-review` | 計画・設計ドキュメントができたとき。**後のコードレビューでは直せないもの**を捕まえる —— 一方通行の扉、移行順序、ロールバック | ● |
+| `/executing-plans` | 書かれた計画を、レビューの節目付きで実行したいとき | |
+| `/using-git-worktrees` | 作業を今のワークスペースから隔離したいとき | |
+| **3. コードを書いている間** | | |
+| `/test-driven-development` | 実装の前。あらゆる機能追加・バグ修正で | |
+| `/systematic-debugging` | バグ・テスト失敗・説明できない挙動。**修正案を出す前に** | |
+| `/verify` | 主張ではなく証拠が欲しいとき。**そのリポジトリ**の設定済みチェックを実行し、**Stop ゲートを arm する**（arm するのはこれだけ） | ● |
+| `/verification-before-completion` | 完了を主張しようとしているが、`/verify` 用の profile が無いリポジトリのとき | |
+| `/resolving-merge-conflicts` | merge / rebase のコンフリクトが進行中のとき | |
+| **4. コードを書いた後** | | |
+| `/review-all` | **既定のレビュー。** 変更を分類し、該当する層別レビューを走らせ、**層と層の間**に落ちるものを見る | ● |
+| `/review-backend` | backend だと既に分かっているとき —— API、ドメイン、マイグレーション、契約、キュー、依存 | ● |
+| `/review-frontend` | frontend だと既に分かっているとき —— コンポーネント、ルート、hook、store、スタイル、i18n | ● |
+| `/review-infra` | インフラだと既に分かっているとき —— Terraform、CDK、k8s、IAM、パイプライン | ● |
+| `/find-bugs` | ブランチ差分への素早いバグ・脆弱性スイープ。先に攻撃面をマッピングする | |
+| `/requesting-code-review` | レポートではなく**手順**が欲しいとき —— 推論を見ていないフレッシュな文脈のレビュアーを立てる | |
+| `/receiving-code-review` | 指摘が来て、反射的に実装せず**評価したい**とき | |
+| `/pr-describe` | diff を開く前に読める PR 説明が必要なとき。**自分で打つ —— 自動では絶対に起動しません** | ● |
+| `/finishing-a-development-branch` | 実装が終わり、どう統合するか決めるとき | |
+| `/handoff` | この会話を別のエージェントが引き継げる形に圧縮する | |
+| **5. 定期的に** | | |
+| `/skills-audit` | スキルを追加する前、自動起動しなくなったとき、定期的な掃除 | ● |
+| `/skill-scanner` | 新しく入れた第三者スキルを信用する前。**bloat ではなくセキュリティ** | |
+
+トリガの重複は実在します: 素の「レビューして」は `/review-all` にも `/find-bugs` にも行きえるし、「終わった？」は `/verify` にも `/verification-before-completion` にも行きえます。どちらも妥当なので、**名前で指定すればコイントスが消えます**。
 
 ### なぜ「コマンド」ではなく全部スキルなのか
 
 **このリポジトリに commands ディレクトリはありません。**これは抜けているのではなく意図的です。
 
+[公式](https://code.claude.com/docs/en/skills)が明言しています: *「Custom commands have been merged into skills… Skills are recommended」*。素の `commands/*.md` が好ましいケースは公式に1つもありません。Cursor の commands ドキュメントページは現在 404 です。
+
 **スラッシュコマンド**はプロンプトのテンプレートでした。`/name` と打つと展開される、それが機構の全部です。**スキル**はディレクトリ（`SKILL.md` ＋ 必要になった時だけ読む reference 群）で、**3通りで到達できます**: `/name` と打つ、リクエストが `description` に一致してモデルが選ぶ、別のスキルが名前で呼ぶ。1つ目は3つ目までの機能の**部分集合**なので、コマンドとして書いたものは**機能を2つ切ったスキル**にすぎません。
 
 この4本では具体的に効いています。`/review-backend` は、**あなたが直接呼んだとき**と **`/review-all` が層の1つとして呼んだとき**の両方で動く必要があります。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セット（姿勢・プロセス・所見の規律・無音事故パターン）は symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
+
+プロンプトテンプレートの用途が消えたわけではなく、今は `disable-model-invocation: true` という綴りになりました。**description が context から完全に消えるので予算コストがゼロ**になります。`/pr-describe` がこれです（GitHub に書き込むので、タイミングはあなたのもの）。逆に **`/verify` と層別3本には絶対に付けません** —— 名前で到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。分類の全体像と出典は [`docs/mechanisms.md`](docs/mechanisms.md) にあります。
 
 実際の使い勝手: **`/` を打てば全部ひとつのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
 
@@ -167,30 +190,41 @@ dotagents/skills/<name>/
 npx skills add obra/superpowers -g -a claude-code -a cursor \
   -s brainstorming -s writing-plans -s executing-plans -s verification-before-completion \
   -s requesting-code-review -s receiving-code-review -s systematic-debugging \
-  -s test-driven-development -s subagent-driven-development -s dispatching-parallel-agents \
-  -s using-git-worktrees -s finishing-a-development-branch -s using-superpowers
+  -s test-driven-development -s using-git-worktrees -s finishing-a-development-branch
 
 # 実務 — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s handoff -s research -s codebase-design -s resolving-merge-conflicts \
-  -s improve-codebase-architecture -s domain-modeling
-
-# 運用 — addyosmani/agent-skills
-npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
-  -s performance-optimization -s observability-and-instrumentation \
-  -s documentation-and-adrs -s deprecation-and-migration
+  -s grill-me -s handoff -s resolving-merge-conflicts
 
 # セキュリティ — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
-  -s security-review -s find-bugs -s skill-scanner
+  -s find-bugs -s skill-scanner
 ```
 
 同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
 
+**アンインストールしても Cursor では生き残ります。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェント側のリンクを外して lockfile を更新しますが、**`~/.agents/skills/` の実体を残します** —— Cursor がネイティブに読むパスです。実体も消して、両者が一致することを確認してください:
+
+```bash
+diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
+```
+
 **測ってから削除したもの**（勘ではなく）。`/skills-audit` が description のトリガ語彙を総当たりで比較し、この2つが最高スコアで落ちました:
 
 - `getsentry/security-review` — `find-bugs` と **33% 重複**。`find-bugs` は同じブランチ差分に対してバグ**と**セキュリティ**と**品質を見ます。しかも Claude Code は自前の `security-review` を同梱していて、同名の個人スキルがそれを隠すので、**外すと組み込みが戻ってきます** —— 何も失いません。
-- `obra/subagent-driven-development` — **28KB**、サイズ上限の2倍以上。呼び出すとそれ全部がセッション中コンテキストに居座ります。`dispatching-parallel-agents` が同じ土地を 6KB でカバーします。
+- `obra/subagent-driven-development` — **28KB**、サイズ上限の2倍以上。呼び出すとそれ全部がセッション中コンテキストに居座ります。
+
+**2026-07-28 にさらに11本削除**し、35本 → 24本、resident な description は 6,905字 → 3,559字になりました。先に名指し参照を全数確認しています —— `brainstorming` と `using-git-worktrees` が残っているのは、**残す側のスキルがそれらを名指しで参照しているから**です。
+
+| 削除したもの | 理由 |
+|---|---|
+| `find-skills` | `npx skills add` を **`-s` 無し**で教えていた。このリポジトリが不変条件で禁じている内容 |
+| `using-superpowers` | 「明確化の質問を含むあらゆる応答の前にスキル起動」を強制。**`/investigate` と `/design-review` の前提条件と矛盾**（両方とも目的が言われていない依頼を拒否する） |
+| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | 専門的な助言スキル。開発ループの外 |
+| `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | 相互参照する3本セット。参照切れが出ないようまとめて削除 |
+| `research`, `dispatching-parallel-agents` | ハーネスが WebFetch と並列エージェントをネイティブに持つ |
+
+**この11本の削除に使用実績の裏付けはありません。**これは明記しておく価値があります: 35本のうち34本は同じ日にインストールされたので、「一度も起動されていない」は「数時間前に入れた」の意味しかありませんでした。根拠は**構造**です —— 参照切れ、挙動の衝突、ネイティブ機能との重複 —— 測定ではありません。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
 
 スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 

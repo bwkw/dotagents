@@ -81,20 +81,17 @@ correctness depends on compensating work in a **different** layer.
 All four share one posture — *"clean" is a conclusion earned with evidence, not a default* — and one
 finding discipline, so a layer review and a cross-layer review calibrate severity the same way.
 
-**Which review?** Several things installed here can review a change, and their triggers overlap. Name
-the one you want rather than hoping the right one fires:
+**Each review runs an adversarial pass** before it reports. Findings at the two highest severities go to
+three `review-verifier` subagents with different lenses — is this reachable, is it already guarded
+elsewhere, is the severity right — and two must fail to refute for the finding to survive. A verifier
+that cannot substantiate a claim returns `refuted`, not `uncertain`, which is the opposite of the
+default instinct and the reason the reports stay short.
 
-| Say this | When |
-|---|---|
-| `/review-all` | **The default.** A change touching more than one layer, or anything where irreversibility and deploy order matter. The only one that looks at what falls *between* layers. |
-| `/review-backend`, `/review-frontend`, `/review-infra` | You already know it is one layer. Same depth, none of the classification step. |
-| `/find-bugs` | A fast bug and vulnerability sweep over the branch diff. Sentry's; maps the attack surface first. |
-| `/security-review` | Security specifically — authorization, injection, secret handling. |
-| `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning — rather than a report. |
-| `/review`, `/code-review` | Claude Code's built-ins. `/review` takes a GitHub PR; `/code-review` takes your working diff. |
-
-`find-bugs` says "use when asked to review changes", which is the same ground `/review-all` claims, so
-a bare "review this" may pick either. Both are reasonable; naming it removes the coin flip.
+The full "say this / when" table for all twenty-four skills is [below](#everything-installed-and-when-to-say-it).
+Beyond it, Claude Code has its own built-ins that cover nearby ground: **`/review`** takes a GitHub PR,
+**`/code-review`** takes your working diff, and **`/security-review`** is security-only. `/find-bugs`
+and `/review-all` both claim "review changes", so a bare "review this" may pick either — naming it
+removes the coin flip.
 
 ### 4 — Periodically
 
@@ -116,30 +113,76 @@ gate escalates its own message on the second failure for exactly this reason.
 
 ## What is in here
 
-Nine skills. Everything else is installed from upstream, because methodology is better maintained by
-people who work on it full time.
+**Nine skills are written here**; the other fifteen are installed from upstream, because methodology is
+better maintained by people who work on it full time. Ours are the ones that encode an opinion —
+what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
+work is called done. They are marked **●** in the table below.
 
-| Skill | What it does |
-|---|---|
-| `/review-all` | Layer detection, dispatch to the layer skills, cross-layer irreversibility |
-| `/review-backend` | Server-side review — migrations, contracts, tenancy, idempotency, concurrency |
-| `/review-frontend` | Client-side review — routes, persisted state, authorization theatre, a11y |
-| `/review-infra` | IaC review — replacement, state loss, IAM widening, deploy order |
-| `/design-review` | Plan review before code exists — one-way doors, migration order, omissions |
-| `/investigate` | A codebase question answered with `file:line`, under budget, gaps named |
-| `/verify` | Your repository's own checks, run and reported with evidence |
-| `/pr-describe` | PR title and description; publishes a visual summary where Artifacts exist |
-| `/skills-audit` | Description budget, overlapping triggers, Cursor incompatibility, disuse |
+Plus two subagents in `agents/`, installed globally so they exist in every repository:
+**`review-verifier`** (adversarial, refutes by default, never took part in finding) and
+**`codebase-explorer`** (read-only tracing, `file:line` evidence, explicit budget). The review skills
+dispatch to them by name. Before they existed, five files said "prefer a purpose-built agent when the
+repository defines one" — and since this toolkit never adds a file to a product repository, that branch
+could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
+
+## Everything installed, and when to say it
+
+Twenty-four skills. The development loop, in order. Skills marked **●** are ours; the rest are upstream.
+
+| Say this | When | |
+|---|---|---|
+| **1. Before you know what to build** | | |
+| `/grill-me` | You have a rough idea and want it interrogated until the requirement is actually pinned down | |
+| `/brainstorming` | Exploring intent and options before any creative work | |
+| `/investigate` | "Where does X live", "what depends on this", "what would this change touch" — answered with `file:line` under a budget | ● |
+| **2. Before you write code** | | |
+| `/writing-plans` | You have a spec and want a plan on disk before touching code | |
+| `/design-review` | A plan or design doc is ready. Catches what code review cannot fix later — one-way doors, migration order, rollback | ● |
+| `/executing-plans` | You have a written plan and want it executed with review checkpoints | |
+| `/using-git-worktrees` | The work needs isolation from your current workspace | |
+| **3. While writing code** | | |
+| `/test-driven-development` | Implementing any feature or bugfix, before the implementation | |
+| `/systematic-debugging` | A bug, a test failure, or behaviour you cannot explain — before proposing a fix | |
+| `/verify` | You want evidence rather than an assertion. Runs *this repository's* configured checks, and **arms the Stop gate** | ● |
+| `/verification-before-completion` | About to claim something is done, in a repository with no profile for `/verify` | |
+| `/resolving-merge-conflicts` | A merge or rebase conflict is in progress | |
+| **4. After writing code** | | |
+| `/review-all` | **The default review.** Classifies the change, runs the layer reviews that apply, then finds what falls *between* layers | ● |
+| `/review-backend` | You already know it is backend — API, domain, migrations, contracts, queues, dependencies | ● |
+| `/review-frontend` | You already know it is frontend — components, routes, hooks, stores, styling, i18n | ● |
+| `/review-infra` | You already know it is infrastructure — Terraform, CDK, k8s, IAM, pipelines | ● |
+| `/find-bugs` | A fast bug and vulnerability sweep over the branch diff. Maps the attack surface first | |
+| `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning | |
+| `/receiving-code-review` | Feedback arrived and you want to evaluate it rather than implement it reflexively | |
+| `/pr-describe` | The PR needs a description a reviewer can read before opening the diff. **Type it — it never fires on its own** | ● |
+| `/finishing-a-development-branch` | Implementation is done and you need to decide how to integrate | |
+| `/handoff` | Compact this conversation so another agent can pick it up | |
+| **5. Periodically** | | |
+| `/skills-audit` | Before adding a skill, when skills stop firing automatically, or for a clean-up | ● |
+| `/skill-scanner` | Before trusting a newly installed third-party skill. Security, not bloat | |
+
+Overlapping triggers are real: a bare "review this" could reach `/review-all` or `/find-bugs`, and
+"am I done" could reach `/verify` or `/verification-before-completion`. Both pairs are reasonable —
+naming the one you want removes the coin flip.
 
 ### Why these are skills, and not "commands"
 
 There is no separate commands directory here, and that is deliberate rather than an omission.
+[Official guidance](https://code.claude.com/docs/en/skills) is explicit: *"Custom commands have been
+merged into skills… Skills are recommended."* There is no documented case where a bare
+`commands/*.md` is preferable. Cursor's commands documentation page is now a 404.
 
 A **slash command** was a prompt template: you typed `/name`, it expanded, that was the whole
 mechanism. A **skill** is a directory — `SKILL.md` plus reference files it loads only when needed — and
 it can be reached three ways: you type `/name`, the model picks it from the `description` because the
 request matched, or another skill calls it by name. The first way is a strict subset of what a skill
 does, so anything written as a command is a skill with two capabilities switched off.
+
+The prompt-template case has not disappeared; it is now spelled `disable-model-invocation: true`, which
+also drops the description from context entirely and so costs no budget. `/pr-describe` uses it — it
+writes to GitHub, so the timing is yours. `/verify` and the three layer reviews must never use it,
+because something reaches them by name; both the lint hook and the linter enforce that, with tests.
+[`docs/mechanisms.md`](docs/mechanisms.md) has the full taxonomy with sources.
 
 That matters concretely for these four. `/review-backend` is one skill that has to work when **you**
 invoke it directly and when **`/review-all`** invokes it as one of several layers. As a command it
@@ -220,27 +263,28 @@ whole repository costs the selection accuracy of everything else.
 npx skills add obra/superpowers -g -a claude-code -a cursor \
   -s brainstorming -s writing-plans -s executing-plans -s verification-before-completion \
   -s requesting-code-review -s receiving-code-review -s systematic-debugging \
-  -s test-driven-development -s subagent-driven-development -s dispatching-parallel-agents \
-  -s using-git-worktrees -s finishing-a-development-branch -s using-superpowers
+  -s test-driven-development -s using-git-worktrees -s finishing-a-development-branch
 
 # practice — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s handoff -s research -s codebase-design -s resolving-merge-conflicts \
-  -s improve-codebase-architecture -s domain-modeling
-
-# operations — addyosmani/agent-skills
-npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
-  -s performance-optimization -s observability-and-instrumentation \
-  -s documentation-and-adrs -s deprecation-and-migration
+  -s grill-me -s handoff -s resolving-merge-conflicts
 
 # security — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
-  -s security-review -s find-bugs -s skill-scanner
+  -s find-bugs -s skill-scanner
 ```
 
 Deliberately omitted, to avoid competing for the same triggers: `mattpocock/tdd` and
 `diagnosing-bugs` (superpowers covers both), `addyosmani/code-review-and-quality` and
 `spec-driven-development` (covered here and upstream), and anything platform-specific.
+
+**Uninstalling leaves the skill live in Cursor.** `npx skills remove <name> -g -a claude-code -a cursor`
+unlinks the agent directories and updates the lockfile, but leaves the real directory in
+`~/.agents/skills/` — the path Cursor reads natively. Delete it too, then check the two agree:
+
+```bash
+diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
+```
 
 **Removed after measuring**, not on a hunch. `/skills-audit` compares descriptions pairwise for
 shared trigger vocabulary; these two scored highest and lost:
@@ -250,8 +294,24 @@ shared trigger vocabulary; these two scored highest and lost:
   skill of that name shadows it, so removing this one gives the built-in back rather than losing
   anything.
 - `obra/subagent-driven-development` — 28 KB, more than twice the size limit, and invoking it parks
-  all of that in context for the session. `dispatching-parallel-agents` covers the same ground in
-  6 KB.
+  all of that in context for the session.
+
+**Eleven more removed on 2026-07-28**, taking the set from 35 skills to 24 and resident descriptions
+from 6,905 to 3,559 characters. Every by-name reference was checked first — the reason `brainstorming`
+and `using-git-worktrees` stayed is that other kept skills dispatch to them.
+
+| Removed | Why |
+|---|---|
+| `find-skills` | Taught `npx skills add` **without `-s`**, which this repository has an invariant against |
+| `using-superpowers` | Requires skill invocation "before ANY response including clarifying questions", which contradicts `/investigate` and `/design-review` — both refuse an unstated goal |
+| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | Specialist advisory, off the development loop |
+| `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set; removed together so nothing dangles |
+| `research`, `dispatching-parallel-agents` | The harness provides WebFetch and parallel agents natively |
+
+**These removals are not backed by usage data**, and it is worth saying so: 34 of the 35 were installed
+the same day, so "never invoked" meant "installed hours ago". They rest on structure — a dangling
+reference, a behavioural conflict, a duplicate of a native capability — not measurement. See
+[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
 
 Skills run with full agent permissions. `/skill-scanner` audits one for prompt injection and
 supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is

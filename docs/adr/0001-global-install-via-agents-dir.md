@@ -51,6 +51,12 @@ That inverts the reasoning that kept the link. It was retained because "a silent
 than a duplicate menu entry" — but there is no absence to guard against, so the link buys nothing and
 writes into a directory we have no reason to touch.
 
+> **Note, 2026-07-28.** `find-skills` and `codebase-design`, cited above as evidence, were uninstalled
+> later that day (ADR 0005). The observations stand — they were made while both were installed — but do
+> not expect to reproduce them with those two skills. The conclusion has a practical consequence worth
+> knowing: because `~/.agents/skills/` is what Cursor reads, `npx skills remove` leaving a directory
+> there means a skill can be gone from Claude Code and still live in Cursor.
+
 `setup.sh` no longer creates it, and removes any it created before, matching what the upstream
 `skills` CLI does. Only Claude Code gets a link, because Claude Code is the one that needs one.
 

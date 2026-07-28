@@ -4,7 +4,9 @@ Why this toolkit has the shape it has, what it is for, and how it is meant to be
 
 The ADRs in this directory cover individual mechanisms. This document covers the reasoning above
 them: what problem is being solved, what was deliberately left out, and where the design is
-uncertain.
+uncertain. For the narrower question of *which* mechanism a given thing should be — skill, hook,
+subagent, MCP server, always-loaded context — see [`mechanisms.md`](mechanisms.md), which records the
+official guidance with sources and the two places this toolkit deviates from it.
 
 ---
 
