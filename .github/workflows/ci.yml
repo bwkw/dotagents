@@ -140,15 +140,43 @@ jobs:
           done < <(find skills -type l)
           exit $bad
 
-      # Profiles name real repositories and environments and are gitignored. If one is ever
-      # committed, it should fail here rather than be noticed after it is public.
-      - name: No real profiles committed
+      # Profiles name real repositories and environments and are gitignored. This repository's own
+      # profile is the one exception -- public repo, public commands -- so it is allowlisted here
+      # rather than by loosening the pattern.
+      - name: No third-party profiles committed
         run: |
-          leaked="$(git ls-files 'profiles/*.json' | grep -v '^profiles/_' || true)"
+          leaked="$(git ls-files 'profiles/*.json' \
+            | grep -v '^profiles/_' \
+            | grep -v '^profiles/dotagents\.json$' || true)"
           if [ -n "$leaked" ]; then
             echo "::error::tracked profile(s) that should be local: $leaked"
             exit 1
           fi
+
+      # This profile gates the repository's own turns, so a break in it is felt only on a machine
+      # that has the gate armed. CI checks it independently -- including that every check the agent
+      # may run passes on a clean checkout, because a profile that always fails gets switched off.
+      - name: This repository's own profile holds up
+        run: |
+          node -e '
+            const { execSync } = require("child_process");
+            const p = JSON.parse(require("fs").readFileSync("profiles/dotagents.json", "utf8"));
+            if (!p.match || !String(p.match.remote).includes("dotagents")) {
+              console.error("::error::match.remote does not point at this repository"); process.exit(1);
+            }
+            const gating = (p.checks || []).filter((c) => c.gate);
+            if (!gating.length) { console.error("::error::no gating checks"); process.exit(1); }
+            let bad = 0;
+            for (const c of gating) {
+              if (!c.agent_may_run) {
+                if (!c.delegate_reason) { console.error(`::error::${c.id}: delegated without a reason`); bad = 1; }
+                continue;
+              }
+              try { execSync(c.cmd, { stdio: "pipe" }); console.log("pass " + c.id); }
+              catch (e) { console.error(`::error::profile check "${c.id}" fails on a clean checkout`); bad = 1; }
+            }
+            process.exit(bad);
+          '
 
   secrets:
     runs-on: ubuntu-latest

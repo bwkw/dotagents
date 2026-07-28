@@ -44,11 +44,51 @@ find_armed() {
   return 1
 }
 
+# Is there a profile for this repository? Arming one without a profile produces a gate that reports
+# "armed" and then passes every turn in silence -- the believing-you-are-protected state that
+# docs/adr/0002 exists to prevent. Found by arming this repository, which had no profile.
+warn_if_no_profile() {
+  local root="$1" remote profiles hit
+  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  profiles="$(node -e '
+    try { console.log(require(process.env.HOME + "/.claude/.dotagents-managed.json").repo + "/profiles") } catch {}
+  ' 2>/dev/null)"
+  [[ -n "$profiles" && -d "$profiles" ]] || profiles="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/profiles"
+
+  if [[ -z "$remote" ]]; then
+    echo "  warning: no git remote, so no profile can be matched -- the gate will pass silently."
+    return
+  fi
+  hit="$(node -e '
+    const fs = require("fs"), path = require("path");
+    const [dir, remote] = process.argv.slice(1);
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith(".json") || f.startsWith("_")) continue;
+        try {
+          const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+          if (p?.match?.remote && remote.includes(p.match.remote)) { console.log(f); break; }
+        } catch {}
+      }
+    } catch {}
+  ' "$profiles" "$remote" 2>/dev/null)"
+
+  if [[ -n "$hit" ]]; then
+    echo "  profile: $hit"
+  else
+    echo
+    echo "  WARNING: no profile matches $remote"
+    echo "  The gate is armed but has no commands to run, so it will pass every turn in silence."
+    echo "  Write $profiles/<name>.json before relying on this. /verify will walk you through it."
+  fi
+}
+
 cmd_arm() {
   local root; root="$(repo_root "${1:-}")"
   local dir
   if dir="$(find_armed "$root")"; then
     echo "already armed: $dir"
+    warn_if_no_profile "$root"
     return 0
   fi
   dir="$GATE_DIR/$(slug_for "$root")"
@@ -58,6 +98,7 @@ cmd_arm() {
   : > "$dir/delegated.json"
   echo "armed: $dir"
   echo "  the turn will not end while $(basename "$root")'s gating checks fail"
+  warn_if_no_profile "$root"
 }
 
 cmd_disarm() {

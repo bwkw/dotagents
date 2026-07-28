@@ -1,0 +1,56 @@
+{
+  "$schema": "./_schema.json",
+  "$comment": [
+    "This repository's own profile, so the toolkit is held to its own gate while being developed.",
+    "Tracked, unlike the others: it names only a public repo and public commands, and it doubles as",
+    "a worked example that actually runs -- unlike _example.json, which nothing executes."
+  ],
+
+  "match": { "remote": "bwkw/dotagents" },
+
+  "forbidden": [
+    "setup.sh uninstall",
+    "git push --force",
+    "git reset --hard"
+  ],
+
+  "checks": [
+    {
+      "id": "shell-syntax",
+      "cmd": "for f in scripts/*.sh hooks/*.sh; do bash -n \"$f\" || exit 1; done",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all"
+    },
+    {
+      "id": "skills-lint",
+      "cmd": "./scripts/verify-skills.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all"
+    },
+    {
+      "id": "gate-tests",
+      "cmd": "./scripts/test-verify-gate.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "when": "always -- the gate is the one component that must fail closed, so its tests gate every turn"
+    },
+    {
+      "id": "no-bash4",
+      "cmd": "! grep -rqE '^[^#]*\\b(mapfile|readarray)\\b|declare -A' scripts/ hooks/",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "when": "macOS ships bash 3.2; these pass on Linux and fail there"
+    },
+    {
+      "id": "templates-valid",
+      "cmd": "node -e 'const fs=require(\"fs\");for(const f of fs.readdirSync(\"templates\"))if(f.endsWith(\".json\"))JSON.parse(fs.readFileSync(\"templates/\"+f,\"utf8\"));for(const f of fs.readdirSync(\"profiles\"))if(f.endsWith(\".json\"))JSON.parse(fs.readFileSync(\"profiles/\"+f,\"utf8\"))'",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all"
+    }
+  ]
+}
