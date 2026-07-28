@@ -65,6 +65,7 @@ meeting code that still expects the old name is invisible from inside this layer
 | `reference/review-process.md` | the seven steps and the guardrails |
 | `reference/perspectives.md` | what to trace, and the perspective clusters |
 | `reference/silent-failure-patterns.md` | the cross-cutting patterns, in **both** phases |
+| `reference/llm-authored-code.md` | where the defects are when the diff is agent-authored -- assume it is |
 
 ### Read only if
 

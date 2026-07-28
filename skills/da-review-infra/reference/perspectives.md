@@ -71,8 +71,27 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
 - `RemovalPolicy`, `deletionProtection`, `prevent_destroy`, `lifecycle`: is a stateful resource set
   to DESTROY or otherwise deletable, and has RETAIN been removed unintentionally?
 - Backups, snapshots, PITR, snapshot-on-delete, and **whether a restore procedure actually exists
-  and can be exercised** (DR).
-- Effects on Terraform state or CDK context; drift.
+  and can be exercised** (DR). A backup nobody has restored from is a hypothesis. Ask when it was last
+  exercised, and mark 👤 if the answer is not in the repository.
+- **The state file is itself sensitive infrastructure**, and reviews routinely skip it:
+  - **Terraform state stores resource attributes in plaintext, including secrets** — generated
+    passwords, keys, connection strings. So read access to state is equivalent to read access to those
+    secrets. Who can read the bucket?
+  - Remote backend **encrypted at rest**, **versioned** so a corrupted state can be rolled back, and
+    **locked** (DynamoDB or the backend's native locking) so two applies cannot interleave. A missing
+    lock is a corruption risk that only shows up under concurrency, which is to say during an incident.
+  - Changes that move state — `moved` blocks, `terraform state mv`, refactoring a module path — are as
+    dangerous as changing a resource, because getting them wrong destroys and recreates.
+- **Drift**: does this change assume a state that matches reality? If the last apply was manual or
+  partial, the plan is computed against a lie.
+- **Provider and module versions pinned**, and the pin actually intended. An unpinned provider means the
+  next apply is a different apply, run by whoever happens to go next.
+
+> **Run the scanners rather than reading for these.** `checkov` and `trivy config` (formerly `tfsec`)
+> cover the mechanical CIS-style checks — public buckets, unencrypted volumes, open security groups,
+> missing logging — faster and more completely than a human pass. Report what they found, and spend your
+> own attention on blast radius, intent, and ordering, which they cannot see. If you cannot run them,
+> say so; do not silently substitute eyeballing for a scan.
 
 ### 3. IAM, permissions, exposure, networking ★security focus
 

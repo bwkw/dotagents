@@ -68,6 +68,14 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
 - Secrets reaching the client (private keys, full tokens, PII); where tokens and sessions are
   stored; CSRF; open redirect; `rel="noopener"` on external links; origin validation on `postMessage`
   and iframes.
+- **CSP.** Does the change need `unsafe-inline` or `unsafe-eval` to work? That is a finding, not a
+  configuration detail — prefer a nonce or a hash. **A new frontend dependency or embedded widget means
+  the policy needs re-reading**: an added allowlisted origin is a permanent hole and nobody goes back to
+  remove it. Count the allowlisted domains before and after.
+- **Third-party scripts are client-side supply chain.** An analytics tag, a chat widget, or a tag
+  manager runs with full page privileges and **can change after your review without a deploy**. Per
+  script added: what can it reach, is it pinned by integrity hash, and does it see PII it should not?
+  The dependency checks in `llm-authored-code.md` apply to client packages too.
 
 ### 3. State and data consistency
 
@@ -75,15 +83,41 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
   updates; guarding against discarding unsaved form input; multiple submission and race conditions;
   how a global state change ripples to other screens.
 
-### 4. Accessibility
+### 4. Accessibility — against WCAG 2.2
 
-- Keyboard operation and focus management; `aria-*` and roles; label association; contrast; focus
-  trapping in modals; image alt text.
+**2.2 is the current standard** and supersedes 2.1; it adds nine criteria aimed at low vision,
+cognitive and motor disability, and touch devices. Check against it rather than against a general sense
+of "accessible".
+
+- Keyboard operation and focus management; `aria-*` and roles; label association; focus trapping in
+  modals; image alt text.
+- **Contrast (1.4.3 text, 1.4.11 non-text)** — the most commonly failed criterion anywhere. New
+  brand colours, disabled states, placeholder text, and icons on coloured backgrounds are where it
+  breaks. A hex pair is checkable in seconds; do it rather than guessing.
+- **Accessible Authentication (3.3.8)** — a cognitive function test cannot be the *only* way to
+  authenticate. Concretely: **paste must work in password and one-time-code fields**, and autofill must
+  not be blocked. Disabling paste "for security" is now a conformance failure, and it is a common
+  regression because it looks like hardening.
+- **Focus not obscured (2.4.11)** — a sticky header, cookie banner, or floating action button covering
+  the focused element. Easy to introduce with a layout change, invisible to a mouse user.
+- **Target size (2.5.8)** — interactive targets at least 24×24 CSS pixels, or adequately spaced.
+- Respect `prefers-reduced-motion` on any new animation or transition.
 
 ### 5. Performance, bundle, UX
 
+Measure against the current Core Web Vitals thresholds rather than "feels fast": **LCP ≤ 2.5s,
+INP ≤ 200ms, CLS ≤ 0.1**.
+
+- **INP is the one that fails.** It replaced FID, and roughly 43% of sites miss the 200ms threshold. It
+  is almost always **JavaScript occupying the main thread while the user is interacting** — a long task
+  triggered by a click, an expensive synchronous handler, a large re-render on keystroke. Look for work
+  that should be chunked, deferred, or moved off the interaction path.
 - Unnecessary re-renders; heavy synchronous work; wrong `useEffect` dependency arrays (infinite
-  loops); fetch waterfalls and N+1; bundle size from a heavy new dependency; layout shift.
+  loops); fetch waterfalls and N+1.
+- **CLS**: images and embeds without reserved dimensions, late-injected banners, web fonts swapping
+  metrics.
+- Bundle size from a heavy new dependency — and whether it is tree-shakeable and actually needed on the
+  critical path.
 
 ### 6. Robustness, observability, compatibility
 

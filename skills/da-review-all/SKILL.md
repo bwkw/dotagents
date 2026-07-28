@@ -43,13 +43,14 @@ change and runs the ones that apply, then does the part none of them can.
 and the cross-layer report skeleton is inline in Step 4. Opening a reference here would park it in the
 main context for the rest of the session, which is the cost this split exists to avoid.
 
-Step 4 is the one exception, and it reads two files — **both listed here so each is one level from this
+Step 4 is the one exception, and it reads three files — **all listed here so each is one level from this
 file**, because a reference reached only through another reference gets partially read:
 
 | File | When |
 |---|---|
 | `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | Step 4, first — the five patterns in their single-layer form |
-| `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` | Step 4, then — the same five where cause and consequence sit in different layers, which no layer skill can reach |
+| `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` | Step 4, then — the same five where cause and consequence sit in different layers, plus the one that only exists across a boundary |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | Step 4, when the change looks agent-authored — for the cross-layer case where a model wrote **both** sides of a boundary and made them consistent with each other and wrong about the outside world |
 
 ---
 

@@ -113,6 +113,13 @@ Double-application and data corruption are irreversible — file them with `irre
   during migration.
 - Configuration and secret management; error-handling design (neverthrow `Result`, exhaustiveness,
   nothing swallowed, no assertion abuse).
+- **Graceful shutdown.** On SIGTERM, does in-flight work finish or get dropped? Does the readiness check
+  start failing *before* the process stops accepting connections? A new long-running handler, consumer,
+  or background task adds a way to lose work on **every** deploy — which happens daily, silently, and
+  presents as an intermittent data problem rather than as a shutdown bug.
+- **Capacity headroom this change consumes.** Connection pool size, worker concurrency, a per-tenant
+  quota, an upstream rate limit. The question is not "is it fast enough" but "what is now closer to its
+  ceiling, and what happens when it gets there".
 
 ### 7. Type design — do the types carry the invariants?
 

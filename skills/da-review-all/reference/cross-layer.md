@@ -90,6 +90,25 @@ Name which layer would have to change for the failure to be noticed. → 🟡
 > **Do not propose a new sweep or cron as the fix.** Prefer one passive monitor plus a documented manual
 > recovery; suggest a standing process only when recovery genuinely cannot wait for a human.
 
+## 6. A fabrication both layers agree on
+
+Specific to agent-authored change, and the cross-layer half of
+[`llm-authored-code.md`](llm-authored-code.md). A model writing both sides of a boundary in one pass makes
+them **consistent with each other and wrong about the outside world**:
+
+- The frontend calls an endpoint and the backend defines it — but the path, method, or field names are not
+  what the deployed contract or the generated client says. Each half reviews as correct because it matches
+  the other half.
+- Both sides adopt the same name for a value the upstream service actually calls something else.
+- A shared constant is introduced in two layers with the same plausible value, and the value is wrong.
+- Infrastructure provisions a resource under the name the application expects, and neither matches what the
+  platform actually assigns.
+
+The layer reviews structurally cannot catch this: internal consistency is precisely what each of them
+checks. **Check one side against something that is not the other side** — the generated client, the
+OpenAPI document, the deployed schema, the provider's documentation, a caller that predates this change.
+If both halves are new, there is no anchor inside the diff at all, and that is itself the finding. → 🔴
+
 ---
 
 ## Reporting these
