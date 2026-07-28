@@ -1,6 +1,6 @@
 ---
 name: skills-audit
-description: Audit installed skills for bloat and breakage. Use before adding a skill, when skills stop firing automatically, or for periodic clean-up. Checks description budget, overlapping coverage, Cursor incompatibility, oversized bodies, and disuse.
+description: Audit the whole set of installed skills for bloat and breakage. Use before adding a skill, when skills stop firing automatically, or for periodic clean-up. Not a security scan.
 argument-hint: "[path] (default: ~/.agents/skills)"
 allowed-tools: Bash, Read, Grep, Glob
 metadata:

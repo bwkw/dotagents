@@ -32,7 +32,7 @@ nudge, and running `/verify` explicitly is how you actually know. Do not assume 
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation, or a fix | `/verify` | commit, `/pr-describe`, `/review-all` |
+| implementation, or a fix | `/verify` | commit, `/review-all`; `/pr-describe` when the user types it |
 
 ## Files to read
 

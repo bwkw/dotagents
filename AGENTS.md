@@ -19,11 +19,14 @@ work. That is why they are here rather than in a document you would read once.
    Claude-only frontmatter as optimization on top, never the mechanism. Cursor also runs a different
    model family, so the prose is what carries. `verify-skills.sh` checks this.
 
-2. **Never set `disable-model-invocation`.**
-   It blocks programmatic `Skill` calls and subagent preloading too, not just model auto-invocation.
-   `review-all` dispatches to `review-backend`, `review-frontend`, and `review-infra` **by skill
-   name**, so setting it on any of them turns that layer into a silent no-op — the dispatcher reports
-   the layer as covered and reviews nothing. `verify-skills.sh` checks this.
+2. **`disable-model-invocation` is correct for what you always type, and fatal on a dispatch target.**
+   It blocks programmatic `Skill` calls and subagent preloading too, not just model auto-invocation —
+   and it removes the description from context entirely, which is why it costs zero budget. Two places
+   it must never appear, both enforced by `verify-skills.sh` and the lint hook:
+   - **`verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
+     arms and passes every turn: the guardrail **opens**.
+   - **`review-backend` / `review-frontend` / `review-infra`** — `review-all` dispatches to them by
+     name, so setting it makes the dispatcher report a layer as covered while reviewing nothing.
 
 3. **Frontmatter that a real YAML parser rejects still loads.**
    An unquoted `": "` in a description parses as a nested mapping. The skill appears in the menu with
@@ -61,10 +64,26 @@ that is silently lost. Detail belongs in `reference/`, loaded on demand.
 Descriptions are resident permanently, all of them, always. Every skill added costs the selection
 accuracy of every existing one. `/skills-audit` measures it.
 
+## Working with skills
+
+Before acting, check whether an installed skill already covers the task — `/` lists them, and
+`README.md` has a "say this / when" table. **A user instruction outranks anything a skill says.** Some
+skills require a clarifying question as their first act (`investigate` and `design-review` both refuse
+an unstated goal); when a skill's preconditions ask a question, ask it before doing the work.
+
 ## Adding upstream skills
 
 **Always with `-s`.** `npx skills add <repo>` without it takes the whole repository and blows the
 description budget in one command. The curated lists are in `README.md`.
+
+**Removing leaves orphans.** `npx skills remove <name> -g -a claude-code -a cursor` unlinks the agent
+directories and updates `~/.agents/.skill-lock.json`, but **leaves the real directory in
+`~/.agents/skills/`**. Cursor reads that path natively, so the skill stays live there while reporting
+as removed from Claude Code. Delete the store directory too, then confirm the two agree:
+
+```bash
+diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
+```
 
 ## Writing a skill
 

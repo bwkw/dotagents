@@ -147,7 +147,9 @@ review cannot fix later, because by the time a diff exists the migration strateg
 shape are already decided.
 
 **While writing code**, the upstream skills do the work. `/verify` when you want the evidence rather
-than the assertion. The gate arms itself and will not let a turn end with checks red.
+than the assertion — **and it is `/verify` that arms the gate, the only thing that does.** Once armed,
+the gate will not let a turn end with checks red. A session where `/verify` never ran is a session with
+no gate, which is why the skill's auto-invocation matters as much as typing it.
 
 **After writing code**, `/review-backend`, `/review-frontend`, and `/review-infra` each review one
 layer as a tech lead, and `/review-all` classifies the change and runs the ones that apply before
