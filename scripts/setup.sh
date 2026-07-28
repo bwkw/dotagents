@@ -23,6 +23,7 @@ MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
 WITH_STATUSLINE=0
+WITH_ADVISOR=0
 
 # Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
 TILDE="~"
@@ -212,6 +213,23 @@ merge_statusline() {
   ok "enabled the status line"
 }
 
+# The advisor lets a cheaper main model consult a stronger one at decision points, and subagents
+# inherit it. Opt-in rather than default: the docs mark it experimental, it is Anthropic-API-only, and
+# it spends extra tokens. Those are the user's calls to make, not this installer's.
+merge_advisor() {
+  (( WITH_ADVISOR )) || return 0
+  local tmpl="$REPO/templates/claude.advisor.snippet.json"
+  [[ -f "$tmpl" ]] || die "--advisor was requested but the snippet is missing: $tmpl"
+
+  if (( DRY_RUN )); then
+    note "would: set advisorModel in ~/.claude/settings.json"
+    return 0
+  fi
+  node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$HOME/.claude/settings.json" "$MANIFEST"
+  ok "paired the main model with an advisor"
+  note "experimental, Anthropic API only, and it spends extra tokens. /advisor off to stop."
+}
+
 merge_cursor_hooks() {
   local tmpl="$REPO/templates/cursor.hooks.snippet.json"
   local target="$HOME/.cursor/hooks.json"
@@ -273,6 +291,7 @@ cmd_install() {
   prune_hooks
   merge_settings
   merge_statusline
+  merge_advisor
   merge_cursor_hooks
   write_manifest
 
@@ -465,6 +484,7 @@ for arg in "$@"; do
     --dry-run)       DRY_RUN=1 ;;
     --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
     --statusline)    WITH_STATUSLINE=1 ;;
+    --advisor)       WITH_ADVISOR=1 ;;
     -h|--help)       usage ;;
     *) die "unknown option: $arg" ;;
   esac

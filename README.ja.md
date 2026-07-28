@@ -158,6 +158,20 @@ npx skills add getsentry/skills -g -a claude-code -a cursor \
 
 スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 
+## Advisor（オプトイン）
+
+メインモデルに、より強いモデルを**相談役**として組み合わせます。Claude が判断の分岐点で呼びます —— アプローチを決める前、同じエラーが繰り返すとき、完了を宣言する前。**subagent が継承する**ので、`/review-all` の層別サブエージェントも同じ advisor を得ます。
+
+```bash
+./scripts/setup.sh install --advisor      # advisorModel: opus を設定
+```
+
+オプトインにした理由は公式ドキュメントが明記している3点です: **experimental**、**Anthropic API 専用**（Bedrock / AWS / GCP Agent Platform / Foundry では使えない）、そして **advisor モデルのレートで追加トークンを消費する**。呼び出し回数の上限も強制もありません —— Claude が判断し、唯一の制御はプロンプトで「consult the advisor before you continue」と言うことです。
+
+止めるには `/advisor off`、ツール自体を無効化するなら `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`。切り替えてもメインモデルの prompt cache は無効化されません。
+
+**「オーケストレータ＋hot path 外の相談役」パターンの、公式に出荷された形**です。自分で似たものを作る前に知っておく価値があります。
+
 ## ステータスライン（オプトイン）
 
 コンテキスト使用率・モデル・worktree・ブランチ・セッション費用。使用率が常時表示に値するのは、ここの規律がほぼ**コンテキストの使い方**の話だからです（67%未満で緑、85%超で赤）。

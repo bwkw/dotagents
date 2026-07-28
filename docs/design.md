@@ -164,6 +164,27 @@ fails twice, stop patching**: write down what was tried, clear, and restart with
 Repeated correction accumulates failed approaches and each attempt gets worse. The gate escalates its
 own message at the second failure for this reason.
 
+## The largest known gap: nothing measures whether the skills work
+
+There are thirty-odd skills installed and no way to tell which ones help. `/skills-audit` is a
+*static* check — budget, duplication, compatibility, disuse — which is a different thing from an
+*eval*. The official `skill-creator` plugin runs paired with-skill / without-skill agents on the same
+prompt in the same turn and diffs pass rate, tokens, and duration; `mgechev/skillgrade` does the CI
+version of the same idea, failing the build below a pass-rate threshold.
+
+Until one of those is wired in, every claim in this repository about a skill improving anything is an
+opinion. That is worth stating plainly, because the rest of the design is built on refusing exactly
+that kind of unbacked claim elsewhere.
+
+Two smaller gaps in the same family:
+
+- **No cost observability.** OpenTelemetry is configured for skill-activation events but nothing
+  tracks tokens or spend. If the advisor or parallel subagents get used more heavily, there is no way
+  to tell "this is working" from "this is expensive".
+- **Skill supply-chain review is separate from what `/skills-audit` does.** That audit reads for
+  over-constraint; `/skill-scanner` reads for prompt injection. Neither reviews an MCP server or a
+  plugin before it is installed.
+
 ## What is uncertain
 
 Stated plainly, because a design document that only justifies is not useful:

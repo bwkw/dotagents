@@ -1,0 +1,10 @@
+{
+  "$comment": [
+    "Merged only when `setup.sh install --advisor` is passed. Opt-in for three reasons stated in the",
+    "official docs: the tool is experimental, it is Anthropic-API-only (not Bedrock, AWS, GCP, or",
+    "Foundry), and it costs additional tokens at the advisor model's rates.",
+    "Subagents inherit it, so review-all's per-layer subagents get the same advisor.",
+    "Turn it off with /advisor off, or CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 to disable the tool itself."
+  ],
+  "advisorModel": "opus"
+}

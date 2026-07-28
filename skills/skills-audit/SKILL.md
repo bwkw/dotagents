@@ -16,6 +16,17 @@ selecting correctly, and nothing announces it.
 
 **This skill never modifies anything.** It reports, and proposes. Removals are yours to approve.
 
+**This is not `/doctor`, and it is not an eval.** Three different things:
+
+| | Reads | Can see |
+|---|---|---|
+| `/doctor` | usage logs and settings | which skills were *never invoked*, slow hooks, CLAUDE.md duplication. **Run it too** — this skill cannot see usage. |
+| this skill | the files | over-constraint, budget, overlapping triggers, Cursor incompatibility |
+| an eval | with-skill versus without-skill runs | whether a skill actually *helps* |
+
+Nothing here measures whether a skill works. Say so when reporting, rather than letting a clean audit
+read as a clean bill of health.
+
 ## Preconditions
 
 | Condition | If unmet |

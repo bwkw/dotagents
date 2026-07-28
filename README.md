@@ -203,6 +203,27 @@ Skills run with full agent permissions. `/skill-scanner` audits one for prompt i
 supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is
 for.
 
+## Advisor (opt-in)
+
+Pairs your main model with a stronger one that Claude consults at decision points — before committing
+to an approach, when an error keeps recurring, before declaring a task done. **Subagents inherit it**,
+so `/review-all`'s per-layer subagents get the same advisor.
+
+```bash
+./scripts/setup.sh install --advisor      # sets advisorModel: opus
+```
+
+Opt-in for three reasons the official docs state plainly: it is **experimental**, it requires the
+**Anthropic API** (not Bedrock, AWS, GCP Agent Platform, or Foundry), and it **spends extra tokens** at
+the advisor model's rates. There is no setting to cap or force calls — Claude decides, and the only
+lever is saying "consult the advisor before you continue" in a prompt.
+
+`/advisor off` to stop, or `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` to disable the tool entirely.
+Toggling it does not invalidate the main model's prompt cache.
+
+This is the officially shipped form of the orchestrator-plus-consulted-critic pattern, and it is worth
+knowing about before building anything like it by hand.
+
 ## Status line (opt-in)
 
 Context percentage, model, worktree, branch, session cost. Context percentage earns permanent screen
