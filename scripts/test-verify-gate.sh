@@ -38,8 +38,12 @@ mkdir -p "$PROFILES"
 write_profile() { cat > "$PROFILES/scratch.json"; }
 
 GATE="$TMP/gate"
-arm()   { mkdir -p "$GATE/slug"; : > "$GATE/slug/ACTIVE"; }
-disarm(){ rm -rf "$GATE"; }
+GATE_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gate.sh"
+# Arm through the real script. A hand-rolled helper here is what let the gate ship with nothing
+# in the repository able to arm it: the tests passed by simulating the mechanism they were meant
+# to exercise.
+arm()   { DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$REPO" >/dev/null; }
+disarm(){ DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$REPO" >/dev/null 2>&1 || true; rm -rf "$GATE"; }
 
 invoke() {
   printf '{"cwd":"%s"}' "$REPO" \
@@ -118,7 +122,7 @@ grep -q "8GB of heap" "$TMP/stderr" \
   || { printf '%s✗%s   delegation reason missing from stderr\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 # 8. Once recorded, it stops blocking.
-echo '{"typecheck": "passed"}' > "$GATE/slug/delegated.json"
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$REPO" >/dev/null
 check "delegated check confirmed -> allows finish" 0 "$(invoke)"
 
 # 9. {files} with nothing changed is a no-op, not a failure.
@@ -141,6 +145,172 @@ check "scope:changed with a dirty tree -> runs and can block" 2 "$(invoke)"
 grep -q "files=a.txt" "$TMP/stderr" \
   && { printf '%s✓%s   substitutes the changed files\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
   || { printf '%s✗%s   {files} not substituted (stderr: %s)\n' "$c_red" "$c_off" "$(tr '\n' ' ' <"$TMP/stderr")"; fail=$((fail+1)); }
+
+echo
+echo "verify-gate — fail-closed on malfunction"
+echo
+
+# A repo whose path contains a space. Space-separated field passing truncated cwd here, git then
+# failed, and the gate opened -- with nothing printed.
+SPACED="$TMP/my project"
+mkdir -p "$SPACED"
+git -C "$SPACED" init -q
+git -C "$SPACED" remote add origin git@github.com:example/scratch.git
+echo x > "$SPACED/a.txt"
+git -C "$SPACED" add -A
+git -C "$SPACED" -c user.email=t@t -c user.name=t commit -qm init
+
+rm -rf "$GATE"
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$SPACED" >/dev/null
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+spaced_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$SPACED" \
+  | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>/dev/null; echo $?)"
+check "a repo path containing a space -> still blocks" 2 "$spaced_exit"
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$SPACED" >/dev/null
+
+# node missing must block, not pass. Empty PATH plus an absolute bash.
+rm -rf "$GATE"; arm
+# /usr/bin:/bin keeps cat, sed and git but not node, which lives under a package manager.
+if PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
+  printf '%s!%s node is on /usr/bin:/bin here -- skipping the node-missing case\n' "$c_red" "$c_off"
+else
+  node_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
+    | env PATH=/usr/bin:/bin DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
+      /bin/bash "$HOOK" 2>/dev/null; echo $?)"
+  check "node unavailable -> blocks (does not fail open)" 2 "$node_exit"
+fi
+
+# A profiles directory that has gone missing (repo moved) must block.
+moved_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
+  | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$TMP/gone" bash "$HOOK" 2>/dev/null; echo $?)"
+check "profiles directory missing -> blocks" 2 "$moved_exit"
+
+# A malformed profile used to abort the search loop, hiding every profile after it in readdir
+# order -- so the gate opened for repositories whose profile was perfectly fine.
+rm -rf "$GATE"; arm
+printf '{ "match": { "remote": "x" }, "checks": [ ,,, ] }' > "$PROFILES/aaa-broken.json"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a malformed profile does not hide the one that matches" 2 "$(invoke)"
+
+# ...but when nothing matches and something is unparseable, we cannot claim to have checked.
+write_profile <<'JSON'
+{ "match": { "remote": "nobody/else" },
+  "checks": [ { "id": "x", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+check "no match + a malformed profile -> blocks rather than assuming none applies" 2 "$(invoke)"
+grep -q 'aaa-broken.json' "$TMP/stderr" \
+  && { printf '%s✓%s   names the malformed file\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   did not name the malformed file\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+rm -f "$PROFILES/aaa-broken.json"
+
+# A filename with shell metacharacters must not execute. Unquoted {files} + eval ran it.
+rm -rf "$GATE"; arm
+evil='a;touch pwned-by-filename;b.ts'
+: > "$REPO/$evil" 2>/dev/null || evil=""
+if [[ -n "$evil" ]]; then
+  write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "unit", "cmd": "echo got={files}", "gate": true,
+                "agent_may_run": true, "scope": "changed" } ] }
+JSON
+  invoke >/dev/null
+  [ ! -f "$REPO/pwned-by-filename" ] \
+    && { printf '%s✓%s a filename with metacharacters is not executed\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+    || { printf '%s✗%s INJECTION: the filename executed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  rm -f "$REPO/$evil" "$REPO/pwned-by-filename"
+fi
+
+# An untracked new file must be checked, not skipped. This turn adds only new files.
+rm -rf "$GATE"; arm
+git -C "$REPO" checkout -q -- . 2>/dev/null || true
+echo 'brand new' > "$REPO/newfile.ts"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "unit", "cmd": "echo files={files}; false", "gate": true,
+                "agent_may_run": true, "scope": "changed" } ] }
+JSON
+check "an untracked new file -> is checked, not skipped" 2 "$(invoke)"
+grep -q 'newfile.ts' "$TMP/stderr" \
+  && { printf '%s✓%s   the new file reaches the command\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   new file missing from {files}\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+rm -f "$REPO/newfile.ts"
+
+# On re-entry (stop_hook_active) the gate must hand control back once, or the agent is trapped:
+# it cannot reach the user without ending a turn, and every turn is being blocked.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+reentry="$(printf '{"cwd":"%s","hook_event_name":"Stop","stop_hook_active":true}' "$REPO" \
+  | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr"; echo $?)"
+check "re-entry after a block -> releases once so the user is reachable" 0 "$reentry"
+grep -qi 'still failing' "$TMP/stderr" \
+  && { printf '%s✓%s   says the checks are still red while releasing\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   released without saying why\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+# The block message must not teach the agent how to forge the delegated result.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "typecheck", "cmd": "true", "gate": true, "agent_may_run": false,
+                "delegate_reason": "needs a lot of heap" } ] }
+JSON
+invoke >/dev/null
+grep -q 'delegated.json' "$TMP/stderr" \
+  && { printf '%s✗%s block message still hands out a way to forge the record\n' "$c_red" "$c_off"; fail=$((fail+1)); } \
+  || { printf '%s✓%s block message does not hand out a forgery recipe\n' "$c_green" "$c_off"; pass=$((pass+1)); }
+
+echo
+echo "gate.sh — the arming mechanism"
+echo
+
+g() { DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" "$@"; }
+
+rm -rf "$GATE"
+g status "$REPO" 2>/dev/null | grep -q '^not armed' \
+  && { printf '%s✓%s reports not-armed before anything is armed\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s status did not report not-armed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+g arm "$REPO" >/dev/null
+# The sentinel must carry the repo root, which is what decouples it from any slug derivation.
+sentinel="$(find "$GATE" -name ACTIVE | head -1)"
+[ -n "$sentinel" ] && [ "$(cat "$sentinel")" = "$(git -C "$REPO" rev-parse --show-toplevel)" ] \
+  && { printf '%s✓%s the sentinel records the repository root\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s sentinel missing or does not hold the repo root\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+# Arming twice must not create a second directory to reason about.
+g arm "$REPO" >/dev/null
+[ "$(find "$GATE" -name ACTIVE | wc -l | tr -d ' ')" = "1" ] \
+  && { printf '%s✓%s arming twice is idempotent\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s arming twice produced multiple sentinels\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+g record typecheck "$REPO" >/dev/null
+g status "$REPO" | grep -q typecheck \
+  && { printf '%s✓%s record lands where status can see it\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s recorded check not visible to status\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+# A gate armed for another repository must not hold this one.
+OTHER="$TMP/other"; mkdir -p "$OTHER"; git -C "$OTHER" init -q
+git -C "$OTHER" remote add origin git@github.com:example/other.git
+g arm "$OTHER" >/dev/null
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+g disarm "$REPO" >/dev/null    # only the other repo stays armed
+check "armed for another repo only -> does not hold this one" 0 "$(invoke)"
+
+g disarm "$OTHER" >/dev/null
+g status "$REPO" | grep -q '^not armed' \
+  && { printf '%s✓%s disarm removes the sentinel\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s disarm left the gate armed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 echo
 echo "verify-gate — Cursor dialect"

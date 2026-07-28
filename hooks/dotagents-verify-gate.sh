@@ -21,6 +21,12 @@
 
 set -uo pipefail
 
+# Every decision below goes through node. If it is absent -- a GUI-launched agent whose PATH lacks
+# a version-manager shim, most commonly -- the gate must say so rather than wave the turn through.
+# Checked before anything else so the message is about the real cause.
+GATE_NODE_MISSING=0
+command -v node >/dev/null 2>&1 || GATE_NODE_MISSING=1
+
 GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 
 # Installed copies live in ~/.claude/hooks, away from the repo, so the manifest records where the
@@ -41,22 +47,52 @@ shopt -s nullglob
 active=("$GATE_DIR"/*/ACTIVE)
 (( ${#active[@]} )) || exit 0
 
+# Something is armed. From here on the gate owes an answer, and every step that could produce one
+# goes through node -- including working out which repository the payload refers to. Checked here
+# rather than later because without node the hook cannot tell whether the armed sentinel belongs to
+# this repository, so "armed, but not ours, carry on" is not a conclusion it is entitled to draw.
+if [[ "$GATE_NODE_MISSING" == "1" ]]; then
+  {
+    echo "The verification gate needs node and cannot find it on PATH, so it cannot check anything."
+    echo
+    echo "A gate is armed, but without node this hook cannot even determine which repository it"
+    echo "belongs to. This is a fault in the gate's environment, not in your work: fix PATH for the"
+    echo "agent, or disarm the gate. Do not treat this as a pass."
+  } >&2
+  exit 2
+fi
+
 payload="$(cat)"
 
 # Tell the two agents apart by their payload. Cursor's stop hook sends {status, loop_count} and no
 # cwd; Claude Code's sends cwd and hook_event_name.
-read -r agent cwd loop_count <<<"$(printf '%s' "$payload" | node -e '
+# One field per line, not space-separated: a cwd containing a space would otherwise land in
+# loop_count, and `[[ "project 0" -ge 3 ]]` exits 127 under set -u -- a non-blocking exit, so the
+# gate would open on a path like ~/my project.
+_fields="$(printf '%s' "$payload" | node -e '
   let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
     let p = {}; try { p = JSON.parse(s) } catch {}
     const cursor = "loop_count" in p || ("status" in p && !("cwd" in p));
-    console.log([cursor ? "cursor" : "claude", p.cwd || "-", p.loop_count ?? 0].join(" "));
+    const n = Number(p.loop_count);
+    process.stdout.write([
+      cursor ? "cursor" : "claude",
+      p.cwd || "-",
+      Number.isFinite(n) ? String(Math.trunc(n)) : "0",
+      p.stop_hook_active ? "1" : "0",
+    ].join("\n") + "\n");
   });
-' 2>/dev/null || echo "claude - 0")"
+' 2>/dev/null)"
 
+agent="$(sed -n 1p <<<"$_fields")"
+cwd="$(sed -n 2p <<<"$_fields")"
+loop_count="$(sed -n 3p <<<"$_fields")"
+stop_active="$(sed -n 4p <<<"$_fields")"
+
+# Defaults, and a numeric guarantee for loop_count so the arithmetic below cannot explode.
+[[ -n "$agent" ]] || agent="claude"
+[[ "$loop_count" =~ ^[0-9]+$ ]] || loop_count=0
+[[ "$stop_active" == "1" ]] || stop_active=0
 [[ "$cwd" == "-" || -z "$cwd" ]] && cwd="$PWD"
-
-slug_dir="$(dirname "${active[0]}")"
-attempts_file="$slug_dir/attempts.json"
 
 # Emit a block, in whichever dialect this agent speaks, then exit.
 # $1 = message
@@ -75,12 +111,52 @@ block() {
     '
     exit 0
   fi
+  # Claude Code re-invokes this hook after a block, and the agent cannot reach the user without
+  # ending a turn. Blocking indefinitely would trap it: the instruction "ask the user" is
+  # unreachable from inside a blocked turn. So on a re-entry, hand control back once, loudly.
+  if [[ "$stop_active" == "1" ]]; then
+    {
+      printf '%s\n' "$1"
+      echo
+      echo "Releasing the gate for this turn so you can reach the user -- the checks above are"
+      echo "still failing. The sentinel stays armed; say plainly what is red and what you need."
+    } >&2
+    exit 0
+  fi
   printf '%s\n' "$1" >&2
   exit 2
 }
 
 # Let the turn end.
 pass() { [[ "$agent" == "cursor" ]] && printf '%s' '{}'; exit 0; }
+
+# Each sentinel records the repository root it belongs to. Match on that, not on position:
+# with two repositories armed, active[0] would check one and report against the other.
+gate_repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+slug_dir=""
+for _sentinel in "${active[@]}"; do
+  if [[ "$(cat "$_sentinel" 2>/dev/null)" == "$gate_repo_root" ]]; then
+    slug_dir="$(dirname "$_sentinel")"
+    break
+  fi
+done
+# Armed somewhere, but not for this repository. Not our business.
+[[ -n "$slug_dir" ]] || pass
+
+# Armed for this repo, so from here a malfunction must block rather than pass. See docs/adr/0002.
+if [[ "$GATE_NODE_MISSING" == "1" ]]; then
+  block "The verification gate needs node and cannot find it on PATH, so it cannot check anything.
+
+This is a fault in the gate's environment, not in your work. Fix PATH for the agent, or disarm the
+gate at $slug_dir -- do not treat this as a pass."
+fi
+if [[ -z "$PROFILES" || ! -d "$PROFILES" ]]; then
+  block "The verification gate cannot find its profiles directory (looked for: ${PROFILES:-<unset>}).
+
+The dotagents checkout may have moved. Re-run scripts/setup.sh install, or disarm the gate at
+$slug_dir -- do not treat this as a pass."
+fi
+attempts_file="$slug_dir/attempts.json"
 
 # ---------------------------------------------------------------- resolve the profile
 
@@ -93,19 +169,35 @@ fi
 profile="$(node -e '
   const fs=require("fs"), path=require("path");
   const [dir, remote] = process.argv.slice(1);
-  let hit=null;
-  try {
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith(".json") || f.startsWith("_")) continue;
-      const p = JSON.parse(fs.readFileSync(path.join(dir,f),"utf8"));
-      if (p?.match?.remote && remote.includes(p.match.remote)) { hit = path.join(dir,f); break; }
-    }
-  } catch {}
-  if (hit) console.log(hit);
+  let hit = null, broken = [];
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { process.stdout.write("ERR:unreadable\n"); process.exit(0); }
+  for (const f of names) {
+    if (!f.endsWith(".json") || f.startsWith("_")) continue;
+    // try/catch per file: with it around the loop, one malformed profile hid every profile after
+    // it in readdir order, and the gate opened for those repositories with no message.
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+      if (p?.match?.remote && remote.includes(p.match.remote)) { hit = path.join(dir, f); break; }
+    } catch { broken.push(f); }
+  }
+  if (hit) process.stdout.write(hit + "\n");
+  else if (broken.length) process.stdout.write("ERR:broken:" + broken.join(",") + "\n");
 ' "$PROFILES" "$remote" 2>/dev/null)"
 
-# No profile means we do not know how to verify this repository. Blocking on a guess would be
-# worse than not blocking: it would teach the user to ignore the gate.
+case "$profile" in
+  ERR:unreadable)
+    block "The verification gate could not read $PROFILES, so it cannot check anything.
+This is a fault in the gate, not in your work. Do not treat it as a pass." ;;
+  ERR:broken:*)
+    block "These profile files are not valid JSON, so the gate cannot tell whether one of them
+applies to this repository: ${profile#ERR:broken:}
+
+Fix the JSON in $PROFILES, or disarm the gate at $slug_dir. Do not treat this as a pass." ;;
+esac
+
+# No matching profile means we do not know how to verify this repository. Blocking on a guess would
+# be worse than not blocking: it would teach the user to ignore the gate.
 [[ -n "$profile" ]] || pass
 
 repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
@@ -147,15 +239,32 @@ while IFS=$'\t' read -r id cmd; do
 
   # {files} is a scope narrowing. With nothing changed there is nothing to check.
   if [[ "$cmd" == *"{files}"* ]]; then
-    files="$(git -C "$repo_root" diff --name-only --diff-filter=d HEAD 2>/dev/null | tr '\n' ' ')"
+    # NUL-separated with quotePath off, so paths with spaces or non-ASCII survive; each name is
+    # then shell-quoted before substitution because the result is handed to eval. Unquoted, a file
+    # called `a;touch pwned;b.ts` would execute -- and anything that can write to the work tree
+    # chooses that name.
+    #
+    # Untracked files are included: a turn that only adds new files produced an empty list, which
+    # skipped the check entirely -- and a new file is what most needs checking.
+    files=""
+    while IFS= read -r -d '' _f; do
+      [[ -n "$_f" ]] || continue
+      files="$files $(printf '%q' "$_f")"
+    done < <(
+      git -C "$repo_root" -c core.quotePath=false diff -z --name-only --diff-filter=d HEAD 2>/dev/null
+      git -C "$repo_root" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
+    )
     [[ -n "${files// /}" ]] || continue
-    cmd="${cmd//\{files\}/$files}"
+    cmd="${cmd//\{files\}/${files# }}"
   fi
 
   out="$(cd "$run_dir" && eval "$cmd" 2>&1)"
   code=$?
   if [[ $code -ne 0 ]]; then
-    # The loop body runs in a subshell when fed by a pipe, so hand the result out through a file.
+    # NOTE: this loop is fed by `done < "$work"` -- a file redirect, not a pipe -- so the body runs
+    # in this shell and `block`'s exit actually exits the script. Do not convert this to
+    # `node ... | while ...`: the body would become a subshell, `block` would exit only that
+    # subshell, and execution would fall through to the all-clear `pass` below. Silent fail-open.
     { printf '%s\n%s\n%s\n' "$id" "$cmd" "$code"; printf '%s' "$out"; } > "$work.fail"
     break
   fi
@@ -188,8 +297,9 @@ if [[ -z "$failed_id" ]]; then
         echo
         echo "$reason"
         echo
-        echo "Ask the user to run it, wait for their output, then record the result:"
-        echo "  echo '{\"$id\": \"passed\"}' >> \"$slug_dir/delegated.json\""
+        echo "Ask the user to run it and wait for their output. Once they report it, /verify"
+        echo "records the result. Do not write that record yourself -- the whole point of this"
+        echo "check is that the result came from them."
         echo
         echo "Do not end the turn claiming success while this is outstanding."
       )"

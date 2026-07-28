@@ -23,6 +23,7 @@ nudge, and running `/verify` explicitly is how you actually know. Do not assume 
 | Condition | If unmet |
 |---|---|
 | The working directory is inside a git repository with an `origin` remote | Stop and report it. The profile is resolved by remote. |
+| The dotagents checkout is locatable (`~/.claude/.dotagents-managed.json` → `repo`) | Report it, and run the checks without arming the gate. Say that the gate is not active. |
 | A profile matches this repository | **Stop.** Report that no profile exists, show the repository's remote, and offer to write one. **Never guess commands** — running an invented `npm test` in an unfamiliar repository is how a verification tool loses trust. |
 
 ## Position in the workflow
@@ -48,6 +49,21 @@ nudge, and running `/verify` explicitly is how you actually know. Do not assume 
 ---
 
 ## Steps
+
+### Step 0. Arm the gate
+
+```bash
+<dotagents>/scripts/gate.sh arm
+```
+
+This is what makes the end-of-turn gate active for this repository. **Without it the gate does
+nothing** — it is deliberately inert until a skill arms it, so that sessions which only answer
+questions never run a test suite on the way out.
+
+Arm it when the session is going to change code. For a read-only question, skip this step and just
+report; there is nothing to hold.
+
+The dotagents checkout is recorded in `~/.claude/.dotagents-managed.json` under `repo`.
 
 ### Step 1. Resolve the profile
 
@@ -88,11 +104,12 @@ For each check with `agent_may_run: false`:
 - Show the user the exact command and the `delegate_reason`, and ask them to run it.
 - **Wait for their output.** Do not proceed, and do not report success, while a gating check is
   outstanding. "I asked the user to run typecheck" is not a result.
-- When they report it, record it so the Stop gate can see it:
+- When they report it, record it so the gate can see it:
   ```bash
-  mkdir -p "$HOME/.claude/.dotagents-gate/<slug>"
-  echo '{"<check-id>": "passed"}' >> "$HOME/.claude/.dotagents-gate/<slug>/delegated.json"
+  <dotagents>/scripts/gate.sh record <check-id>
   ```
+  Do not write the file by hand. The gate finds the armed directory by the repository root stored
+  inside it, and a hand-written path can land somewhere the gate never looks.
 
 ### Step 5. Report with evidence
 
@@ -114,11 +131,24 @@ and its exit code, is the thing this skill exists to prevent.
 Write **"not run"** for anything you did not run. Never write "should pass" or "presumably fine" —
 if it was not executed, that is the finding.
 
+### Step 6. Release the gate when everything is green
+
+```bash
+<dotagents>/scripts/gate.sh disarm
+```
+
+Leave it armed while anything is still red — that is the point. Disarm once the checks pass, or when
+abandoning the work; an armed gate in a repository you are no longer changing blocks turns for no
+reason, and a gate that blocks for no reason gets switched off.
+
+`gate.sh status` shows whether this repository is armed and what has been recorded.
+
 ## Done when
 
 - [ ] Every gating check is either green with evidence, or explicitly reported as failing or not run
 - [ ] Nothing on the `forbidden` list was executed
 - [ ] No `agent_may_run: false` check is recorded as passing without the user's own output
+- [ ] The gate is disarmed if everything passed, still armed if anything is red
 
 ## Next
 
