@@ -118,7 +118,17 @@ run_dir="$repo_root${sub:+/$sub}"
 # Only checks that gate AND that we are permitted to run. Delegated ones are handled below.
 # Written to a file and read back with `while read` rather than mapfile, because macOS ships
 # bash 3.2 and this has to run under whatever shell the agent invokes.
-work="$(mktemp -t dotagents-gate)"
+# Pass a full template: BSD mktemp treats `-t x` as a prefix, GNU coreutils demands XXXXXX and
+# errors on anything else. A bare `-t dotagents-gate` works on macOS and fails on Linux.
+work="$(mktemp "${TMPDIR:-/tmp}/dotagents-gate.XXXXXX" 2>/dev/null)"
+if [[ -z "$work" || ! -f "$work" ]]; then
+  # The gate could not set itself up. It must not let the turn through on its own malfunction --
+  # a guardrail that fails open is worse than none (docs/adr/0002).
+  block "The verification gate could not create its scratch file, so it cannot check anything.
+
+This is a fault in the gate itself, not in your work. Either fix it or disarm the sentinel at
+$slug_dir before continuing -- do not treat this as a pass."
+fi
 trap 'rm -f "$work" "$work.fail"' EXIT
 
 node -e '

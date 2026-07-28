@@ -9,28 +9,30 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  # Behaviour of the shell scripts, on both operating systems. Breakage has gone in both
+  # directions: bash 4 constructs that pass on Linux and fail on macOS (which ships bash 3.2), and
+  # `mktemp -t` spellings that work on BSD and fail on GNU coreutils. One OS catches neither.
+  shell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # gitleaks scans history
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Shell syntax
+      - name: Report the shell actually in use
+        run: bash --version | head -1
+
+      - name: Syntax
         run: |
-          for f in scripts/*.sh hooks/*.sh; do
-            bash -n "$f" || exit 1
-          done
+          for f in scripts/*.sh hooks/*.sh; do bash -n "$f" || exit 1; done
+          node --check scripts/lib/merge-settings.mjs
 
-      - name: JS syntax
-        run: node --check scripts/lib/merge-settings.mjs
-
-      # The scripts and hooks run under whatever shell the agent invokes, and macOS ships bash 3.2.
-      # A bash-4-only construct works fine in CI and fails silently on the machine that matters.
       - name: No bash 4+ constructs
         run: |
           if grep -rnE '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/; then
@@ -38,12 +40,44 @@ jobs:
             exit 1
           fi
 
-      # verify-skills.sh checks frontmatter with targeted rules rather than a parser, which is fast
-      # but not authoritative. Run a real one here: an unquoted ": " in a description once shipped a
-      # skill whose frontmatter did not parse while every local check passed.
+      - name: Skills lint
+        run: ./scripts/verify-skills.sh
+
+      - name: Verify-gate tests
+        run: ./scripts/test-verify-gate.sh
+
+      # printf, not echo: some shells expand the \n inside the JSON string literal and hand the
+      # hook invalid JSON, which it correctly ignores -- making the test pass for the wrong reason.
+      - name: Hooks answer in both dialects
+        run: |
+          set -e
+          body='{"file_path":"/x/SKILL.md","content":"---\nname: no-description-here\n---\n"}'
+          printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":%s}' "$body" \
+            | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -q permissionDecision \
+            || { echo "::error::Claude dialect not emitted"; exit 1; }
+          printf '{"tool_name":"Write","tool_use_id":"a","tool_input":%s}' "$body" \
+            | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -q '"permission"' \
+            || { echo "::error::Cursor dialect not emitted"; exit 1; }
+          # Unparseable input must fall through open -- this hook only inspects.
+          printf 'not json' | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -qx '{}' \
+            || { echo "::error::lint hook did not fail open on garbage"; exit 1; }
+
+  # Content checks. Independent of the operating system, so they run once.
+  content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # verify-skills.sh validates frontmatter with targeted rules rather than a parser, which is
+      # fast but not authoritative. An unquoted ": " in a description once shipped a skill whose
+      # frontmatter did not parse while every local check passed.
       - name: Frontmatter parses as YAML
         run: |
-          python3 -m pip install --quiet pyyaml
+          pip install --quiet pyyaml
           python3 - <<'PY'
           import pathlib, sys, yaml
           bad = 0
@@ -62,29 +96,22 @@ jobs:
           sys.exit(bad)
           PY
 
-      - name: Skills lint
-        run: ./scripts/verify-skills.sh
-
-      - name: Verify-gate tests
-        run: ./scripts/test-verify-gate.sh
-
-      - name: Profiles are valid JSON and match the schema
+      - name: Profiles are valid and complete
         run: |
-          for f in profiles/*.json; do
-            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
-              || { echo "::error file=$f::invalid JSON"; exit 1; }
-          done
           node -e '
             const fs = require("fs");
             let bad = 0;
             for (const f of fs.readdirSync("profiles")) {
-              if (!f.endsWith(".json") || f.startsWith("_")) continue;
-              const p = JSON.parse(fs.readFileSync("profiles/" + f, "utf8"));
+              if (!f.endsWith(".json")) continue;
+              let p;
+              try { p = JSON.parse(fs.readFileSync("profiles/" + f, "utf8")); }
+              catch (e) { console.error(`${f}: invalid JSON -- ${e.message}`); bad = 1; continue; }
+              if (f.startsWith("_")) continue;   // schema and example are not profiles
               if (!p.match?.remote) { console.error(`${f}: missing match.remote`); bad = 1; }
               for (const c of p.checks ?? []) {
                 for (const k of ["id", "cmd", "gate", "agent_may_run"])
                   if (!(k in c)) { console.error(`${f}: check ${c.id ?? "?"} missing ${k}`); bad = 1; }
-                // An unexplained request to run something by hand reads as arbitrary and gets ignored.
+                // An unexplained request to run something by hand reads as arbitrary, and gets ignored.
                 if (c.agent_may_run === false && !c.delegate_reason) {
                   console.error(`${f}: check ${c.id} is delegated but has no delegate_reason`);
                   bad = 1;
@@ -94,8 +121,8 @@ jobs:
             process.exit(bad);
           '
 
-      # A dangling reference link makes the skill load but lose half its instructions, silently.
-      # A link pointing outside the tree is worse: reference/ is read on instruction, so it turns
+      # A dangling reference link makes a skill load but lose half its instructions, silently.
+      # A link leaving the tree is worse: reference/ is read on instruction, so it turns
       # "read my notes" into "read whatever this points at".
       - name: Symlinks resolve and stay in-tree
         run: |
@@ -113,7 +140,22 @@ jobs:
           done < <(find skills -type l)
           exit $bad
 
-      - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+      # Profiles name real repositories and environments and are gitignored. If one is ever
+      # committed, it should fail here rather than be noticed after it is public.
+      - name: No real profiles committed
+        run: |
+          leaked="$(git ls-files 'profiles/*.json' | grep -v '^profiles/_' || true)"
+          if [ -n "$leaked" ]; then
+            echo "::error::tracked profile(s) that should be local: $leaked"
+            exit 1
+          fi
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history
+      - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
