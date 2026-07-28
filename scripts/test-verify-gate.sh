@@ -241,6 +241,32 @@ grep -q 'newfile.ts' "$TMP/stderr" \
   || { printf '%s✗%s   new file missing from {files}\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 rm -f "$REPO/newfile.ts"
 
+# Cursor sends no cwd, and its process cwd is ~/.cursor rather than the workspace. With one
+# sentinel armed the gate must infer the repository instead of comparing against the wrong one --
+# without this it passed every Cursor turn in silence.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+noc="$(printf '{"status":"completed","loop_count":0}' \
+  | (cd "$TMP" && DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
+      bash "$HOOK" 2>/dev/null >"$TMP/stdout"); echo $?)"
+check "no cwd in payload, one armed -> infers the repo and applies the gate" 0 "$noc"
+grep -q followup_message "$TMP/stdout" \
+  && { printf '%s✓%s   still produces a follow-up rather than passing silently\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   passed silently (stdout: %s)\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+
+# Two armed and no cwd: guessing would check one repo and report against another.
+SECOND="$TMP/second"; mkdir -p "$SECOND"; git -C "$SECOND" init -q
+git -C "$SECOND" remote add origin git@github.com:example/second.git
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$SECOND" >/dev/null 2>&1 || true
+amb="$(printf '{"cwd":"","hook_event_name":"Stop"}' \
+  | (cd "$TMP" && DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
+      bash "$HOOK" 2>"$TMP/stderr"); echo $?)"
+check "no cwd, several armed -> blocks rather than guessing" 2 "$amb"
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$SECOND" >/dev/null 2>&1 || true
+
 # On re-entry (stop_hook_active) the gate must hand control back once, or the agent is trapped:
 # it cannot reach the user without ending a turn, and every turn is being blocked.
 rm -rf "$GATE"; arm
@@ -333,6 +359,13 @@ msg="$(json_field followup_message)"
 [ -n "$msg" ] && grep -q "boom" <<<"$msg" \
   && { printf '%s✓%s   emits a followup_message naming the check\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
   || { printf '%s✗%s   no usable followup_message (stdout: %s)\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+
+# The injected message arrives as a user message. Without attribution the agent cannot tell it from
+# the human, and may treat a hook's demand as the user's intent.
+msg="$(json_field followup_message)"
+grep -q 'dotagents' <<<"$msg" && grep -qi 'user did not write this' <<<"$msg" \
+  && { printf '%s✓%s   the follow-up says it is automated, not the user\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   follow-up is indistinguishable from a user message\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 # 12. Nothing may go to stderr on the Cursor path -- Cursor reads stdout, and stray stderr is noise.
 [ ! -s "$TMP/stderr" ] \

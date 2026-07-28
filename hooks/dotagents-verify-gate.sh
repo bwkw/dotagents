@@ -28,6 +28,19 @@ GATE_NODE_MISSING=0
 command -v node >/dev/null 2>&1 || GATE_NODE_MISSING=1
 
 GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
+TRACE="$GATE_DIR/trace.log"
+
+# One line per invocation, so "nothing happened" can be told apart from "never ran". Cheap: a turn
+# ends at most a few times a minute. Capped so it cannot grow without bound.
+trace() {
+  [[ -d "$GATE_DIR" ]] || return 0
+  printf '%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-?}" "${3:-}" >> "$TRACE" 2>/dev/null || true
+  # Keep the tail only; rewriting in place beats a second file to clean up.
+  if [[ "$(wc -l < "$TRACE" 2>/dev/null || echo 0)" -gt 200 ]]; then
+    tail -100 "$TRACE" > "$TRACE.trim" 2>/dev/null && mv "$TRACE.trim" "$TRACE" 2>/dev/null || true
+  fi
+}
 
 # Installed copies live in ~/.claude/hooks, away from the repo, so the manifest records where the
 # repo is. DOTAGENTS_PROFILES overrides both, which is how the test suite stays hermetic.
@@ -45,7 +58,10 @@ fi
 
 shopt -s nullglob
 active=("$GATE_DIR"/*/ACTIVE)
-(( ${#active[@]} )) || exit 0
+if (( ${#active[@]} == 0 )); then
+  trace "?" "$PWD" "invoked; nothing armed; passed"
+  exit 0
+fi
 
 # Something is armed. From here on the gate owes an answer, and every step that could produce one
 # goes through node -- including working out which repository the payload refers to. Checked here
@@ -93,7 +109,15 @@ stop_active="$(sed -n 4p <<<"$_fields")"
 [[ -n "$agent" ]] || agent="claude"
 [[ "$loop_count" =~ ^[0-9]+$ ]] || loop_count=0
 [[ "$stop_active" == "1" ]] || stop_active=0
-[[ "$cwd" == "-" || -z "$cwd" ]] && cwd="$PWD"
+
+# Cursor's stop payload carries no cwd, and this hook's process cwd there is ~/.cursor -- not the
+# workspace. Falling back to $PWD therefore compared the wrong repository and passed every turn,
+# silently. Observed in the trace: "cursor /Users/shota/.cursor passed: armed elsewhere".
+cwd_known=1
+if [[ "$cwd" == "-" || -z "$cwd" ]]; then
+  cwd_known=0
+  cwd="$PWD"
+fi
 
 # Emit a block, in whichever dialect this agent speaks, then exit.
 # $1 = message
@@ -102,12 +126,22 @@ block() {
     # Cursor cannot be blocked. Feed the failure back as the next user message instead, and stop
     # doing so before the loop_limit so the budget is not silently exhausted by us.
     if [[ "$loop_count" -ge 3 ]]; then
+      trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count"
       printf '%s' '{}'
       exit 0
     fi
-    printf '%s' "$1" | node -e '
+    trace "$agent" "$cwd" "injected a follow-up (cannot block in Cursor)"
+    # followup_message is auto-submitted *as a user message*, so without attribution the agent
+    # cannot tell this from the human typing it -- and may then treat a hook's demand as the
+    # user's stated intent, or attribute the interruption to them. Say what it is.
+    {
+      echo "[dotagents] Automated message from the verification gate. The user did not write this,"
+      echo "and did not ask you to stop -- a hook did, because a check is failing."
+      echo
+      printf '%s\n' "$1"
+    } | node -e '
       let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
-        process.stdout.write(JSON.stringify({ followup_message: s }));
+        process.stdout.write(JSON.stringify({ followup_message: s.trimEnd() }));
       });
     '
     exit 0
@@ -121,15 +155,21 @@ block() {
       echo
       echo "Releasing the gate for this turn so you can reach the user -- the checks above are"
       echo "still failing. The sentinel stays armed; say plainly what is red and what you need."
+      echo "This is a hook speaking, not the user."
     } >&2
     exit 0
   fi
+  trace "$agent" "$cwd" "BLOCKED"
   printf '[dotagents] %s\n' "$1" >&2
   exit 2
 }
 
 # Let the turn end.
-pass() { [[ "$agent" == "cursor" ]] && printf '%s' '{}'; exit 0; }
+pass() {
+  trace "$agent" "$cwd" "passed${1:+: $1}"
+  [[ "$agent" == "cursor" ]] && printf '%s' '{}'
+  exit 0
+}
 
 # Each sentinel records the repository root it belongs to. Match on that, not on position:
 # with two repositories armed, active[0] would check one and report against the other.
@@ -141,8 +181,29 @@ for _sentinel in "${active[@]}"; do
     break
   fi
 done
+
+# The agent gave no working directory and nothing matched. With exactly one sentinel armed there is
+# only one repository it could be about, so take that and record the inference. This is what makes
+# the gate work at all in Cursor.
+if [[ -z "$slug_dir" && "$cwd_known" == "0" && ${#active[@]} -eq 1 ]]; then
+  slug_dir="$(dirname "${active[0]}")"
+  gate_repo_root="$(cat "${active[0]}" 2>/dev/null)"
+  cwd="$gate_repo_root"
+  trace "$agent" "$cwd" "inferred the repository from the only armed sentinel"
+fi
+
+# Several armed and nothing to disambiguate with. Guessing would check one repository and report
+# against another, so say what happened rather than let it look like a pass.
+if [[ -z "$slug_dir" && "$cwd_known" == "0" && ${#active[@]} -gt 1 ]]; then
+  block "The verification gate could not tell which repository this turn was about.
+
+This agent reports no working directory, and ${#active[@]} repositories are armed. Disarm the ones
+you are not working in with 'scripts/gate.sh disarm' so there is a single answer. Nothing was
+checked -- do not treat this as a pass."
+fi
+
 # Armed somewhere, but not for this repository. Not our business.
-[[ -n "$slug_dir" ]] || pass
+[[ -n "$slug_dir" ]] || pass "armed elsewhere, not for $gate_repo_root"
 
 # Armed for this repo, so from here a malfunction must block rather than pass. See docs/adr/0002.
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
@@ -164,7 +225,7 @@ attempts_file="$slug_dir/attempts.json"
 remote="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
 if [[ -z "$remote" ]]; then
   # Not a git repo, or no origin. We have no basis for choosing commands, so we do not guess.
-  pass
+  pass "no git remote in $cwd"
 fi
 
 profile="$(node -e '
@@ -199,7 +260,7 @@ esac
 
 # No matching profile means we do not know how to verify this repository. Blocking on a guess would
 # be worse than not blocking: it would teach the user to ignore the gate.
-[[ -n "$profile" ]] || pass
+[[ -n "$profile" ]] || pass "no profile matches $remote"
 
 repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 sub="$(node -e 'try{console.log(require(process.argv[1]).cwd||"")}catch{}' "$profile")"
@@ -312,7 +373,7 @@ fi
 
 if [[ -z "$failed_id" ]]; then
   node -e 'require("fs").writeFileSync(process.argv[1],"{}\n")' "$attempts_file" 2>/dev/null || true
-  pass
+  pass "all gating checks green"
 fi
 
 # ---------------------------------------------------------------- blocked
