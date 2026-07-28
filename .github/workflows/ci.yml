@@ -46,6 +46,12 @@ jobs:
       - name: Verify-gate tests
         run: ./scripts/test-verify-gate.sh
 
+      # The disable-model-invocation scope is enforced in two places that must agree: the lint hook
+      # and the linter. A first attempt matched on the wrong variable in the linter and silently
+      # never fired -- installed, and enforcing nothing. Asserted here rather than assumed.
+      - name: Lint-hook tests
+        run: ./scripts/test-lint-hook.sh
+
       # The installer edits files it does not own -- agent settings holding credentials, hooks
       # registered by other tools. It had syntax checks and nothing else while the gate had 42
       # behavioural tests, which was the wrong way round. Runs against a fake HOME.

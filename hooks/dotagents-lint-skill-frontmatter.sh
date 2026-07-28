@@ -69,11 +69,39 @@ process.stdin.on("end", () => {
     );
   }
 
+  // `disable-model-invocation` is officially the right spelling for a user-invoked workflow, and it
+  // costs zero description budget. It is only wrong where something reaches this skill *by name*,
+  // because it also blocks programmatic Skill calls and subagent preloading -- silently.
   if (/^disable-model-invocation\s*:\s*(true|yes|on|1)\s*$/m.test(fm)) {
-    return deny(
-      "Do not set 'disable-model-invocation'. It blocks more than model auto-invocation: " +
-      "programmatic Skill calls, subagent preloading, and scheduled-task triggering all stop " +
-      "working. Any skill that dispatches to this one breaks with no error. See docs/adr/0003.",
+    const name = key("name") ?? String(path).replace(/.*\/([^/]+)\/SKILL\.md$/, "$1");
+
+    // /verify is the only thing in the toolkit that runs `gate.sh arm`. Without its auto-invocation
+    // the Stop gate never arms, so it passes every turn: the guardrail opens instead of closing.
+    if (name === "verify") {
+      return deny(
+        "Never set 'disable-model-invocation' on 'verify'. It is the only thing that runs " +
+        "'gate.sh arm', so disabling auto-invocation leaves the Stop gate unarmed and it passes " +
+        "every turn -- the guardrail fails OPEN with nothing reported. See docs/adr/0005.",
+      );
+    }
+
+    // review-all dispatches to these three by name via a subagent.
+    if (["review-backend", "review-frontend", "review-infra"].includes(name)) {
+      return deny(
+        `'${name}' is a by-name dispatch target of review-all, and ` +
+        "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +
+        "Setting it makes review-all report that layer as covered while reviewing nothing, with " +
+        "no error. See docs/adr/0004 and docs/adr/0005.",
+      );
+    }
+
+    // Anything else may set it. Warn once about the cost, because it is easy to set on a skill you
+    // later want another skill to call.
+    return ask(
+      `'${name}' will become user-invocable only: its description leaves Claude's context ` +
+      "entirely (zero budget cost), it will never fire automatically, and no other skill or " +
+      "subagent can reach it by name. Correct for side-effectful workflows you always type " +
+      "yourself. Continue only if nothing dispatches to it.",
     );
   }
 
