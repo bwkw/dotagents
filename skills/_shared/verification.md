@@ -85,6 +85,10 @@ Rules that make the diversity worth its cost:
   that escalates is no longer verifying.
 - **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
   of the report for findings nobody was going to act on urgently.
+- **Do not claim independence you do not have.** Three lenses reduce the chance of one bad run; they do
+  not remove bias shared by all three, because it is the same model each time. `finding-discipline.md`
+  has the measured numbers. Report it as "checked from three angles", not "three verifiers agreed", and
+  route the pass to a different or stronger model when one is available.
 
 **The infrastructure exception overrides the reachability lens.** For a destructive or
 permission-widening change — resource replacement, state loss, a delete that takes data with it, a

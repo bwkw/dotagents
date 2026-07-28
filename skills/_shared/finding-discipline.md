@@ -120,6 +120,38 @@ Score these below 80 by definition, however real they look:
 - "Consider adding" tests, logging, or error handling where no new failure mode was introduced
 - A failure requiring a state the code makes unreachable
 
+## The verifier is biased too — three measured ways
+
+Adversarial verification is the strongest tool here, and it is not neutral. When a model judges output,
+three biases are measured and reproducible. They matter because this toolkit's verification pass *is* a
+model judging output, and a bias you have not accounted for reads as a result.
+
+**Self-preference: a model rates its own output 10–25% higher.** Larger and more capable models show it
+*more*, not less. The standard advice is blunt — never use the same model as judge and candidate. Here
+that is only partly achievable: the verifier is a separate subagent with a separate context and never
+saw the reasoning, which removes the anchoring, but it is usually the **same model family** that
+produced the finding. So expect confirmations to be inflated.
+
+> This is the real reason `refuted` is the default when a claim cannot be substantiated. It is not
+> pessimism — it is a deliberate counterweight to a known, quantified bias pushing the other way. Where
+> a stronger or different model is available (this toolkit's `--advisor`), route the verify pass to it
+> and say so in 🔎.
+
+**Verbosity: a longer answer is judged 15–30 points more favourably.** An elaborate finding with three
+paragraphs of reasoning reads as more credible than a one-line one citing a real line of code. **Length
+is not evidence.** Judge the cited `file:line` and whether the path is reachable. If a finding's
+persuasiveness drops once you look only at what it points at, that is a refutation.
+
+**Position: order of presentation changes the verdict.** Do not judge findings in severity order and let
+the first ⛔ set the tone for the rest. Each finding is judged against the code, not against its
+neighbours.
+
+**What this means for the three-lens pass.** Running three lenses reduces *variance* — one verifier
+having an off run. It does **not** remove bias shared across the judge population, because the same
+systematic tilt appears in all three. So three agreeing lenses are not three independent opinions, and
+a report must not claim they are. Say "verified from three angles by the same model", never "three
+independent verifiers agreed".
+
 ## Return schema
 
 ```

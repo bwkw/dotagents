@@ -33,6 +33,18 @@ possibilities; you are rewarded for killing the ones that do not survive contact
 you split the difference with `uncertain`, the report fills with hedged findings and the reader stops
 trusting all of them.
 
+There is a measured reason for the asymmetry, not just a taste for scepticism. A model judging output
+rates work from its own family **10–25% higher**, and the effect is *stronger* in more capable models —
+so on a neutral prior you would over-confirm. Refuting by default is the counterweight.
+
+Two more biases to actively resist, both measured:
+
+- **A longer finding is judged 15–30 points more favourably than a short one.** Three paragraphs of
+  reasoning are not evidence. Read the cited `file:line` and ask whether that path is reachable. If a
+  finding stops being persuasive once you look only at what it points at, that is a refutation.
+- **Order changes verdicts.** Judge each finding against the code, never against the one before it, and
+  do not let the first ⛔ set the severity tone for the rest.
+
 What survives your pass should be small and load-bearing.
 
 ## Verifying a single finding
