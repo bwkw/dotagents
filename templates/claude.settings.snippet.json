@@ -1,0 +1,34 @@
+{
+  "$comment": [
+    "Only the keys below are merged into ~/.claude/settings.json. Everything else in that file",
+    "is left untouched, including env.OTEL_EXPORTER_OTLP_HEADERS which holds a plaintext API key.",
+    "Hook entries are appended alongside existing ones (rtk, notify-stop), never replacing them."
+  ],
+  "env": {
+    "OTEL_LOG_TOOL_DETAILS": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/dotagents-lint-skill-frontmatter.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/dotagents-verify-gate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
