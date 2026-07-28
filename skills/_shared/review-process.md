@@ -69,15 +69,19 @@ generic checks even when there is no project context to be found.
 ## Step 5. Fan out by perspective — the find phase
 
 Launch one subagent per perspective cluster, **all in a single message so they run in parallel**.
-Prefer a purpose-built agent when the repository defines one; otherwise `general-purpose`.
+
+Use **`codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
+go, what else touches this pattern. Use `general-purpose` for clusters that need judgement about the
+design. Pass every subagent its cluster's checklist from the layer file, and **never skip a cluster**
+because the ideal agent for it is unavailable.
+
+> `codebase-explorer` and `review-verifier` are installed globally by this toolkit, so they exist in
+> every repository. Do not wait for a repository to define an agent — by design this toolkit never
+> adds a file to a product repository, so a repository-local agent will never appear.
 
 > **Never run perspective review inline in the main context.** Dispatch to subagents and wait for
 > all of them before synthesising. The reason is not speed: a perspective read in the main context
 > stays in the main context, and crowds out the synthesis that follows.
-
-**If the repository has no purpose-built agent for a cluster, degrade gracefully**: launch
-`general-purpose` and pass it that cluster's checklist from the layer file. Never skip a cluster
-because a named agent is missing.
 
 Hand every subagent:
 

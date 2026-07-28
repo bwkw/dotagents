@@ -1,6 +1,6 @@
 ---
 name: review-frontend
-description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Prioritises what users cannot undo — public routes that break bookmarks, persisted state that no longer loads, and access controlled only by hiding UI. Read-only.
+description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
@@ -113,10 +113,13 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   verify only. The fail-open pattern is the one that bites hardest here: a permission check that
   throws and falls through to rendering, or a feature flag that defaults to enabled on a fetch error.
 
-Prefer a purpose-built agent when the repository defines one — a frontend architect, an accessibility
-specialist, a design-system owner. Otherwise `general-purpose` with the cluster checklist. **Give each
-subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it resolves
-inside the subagent, whose working directory is not yours.
+Dispatch the tracing-heavy clusters — which routes reach this, what reads this persisted key, where
+this component is mounted — to **`codebase-explorer`**, and the judgement clusters to
+`general-purpose` with the cluster checklist. The verify phase goes to **`review-verifier`**. Both are
+installed globally by this toolkit, so they exist in every repository.
+
+**Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
+resolves inside the subagent, whose working directory is not yours.
 
 ## Done when
 

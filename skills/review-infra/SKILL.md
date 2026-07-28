@@ -1,6 +1,6 @@
 ---
 name: review-infra
-description: Review infrastructure and IaC changes as a tech lead. Use when reviewing Terraform, CDK, CloudFormation, SAM, Kubernetes manifests, IAM, networking, pipelines, or CI permissions. Prioritises what cannot be undone — resource replacement, state loss, widened permissions, deletes that take data with them. Read-only.
+description: Review infrastructure and IaC changes as a tech lead. Use when reviewing Terraform, CDK, CloudFormation, SAM, Kubernetes manifests, IAM, networking, pipelines, or CI permissions. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
@@ -117,10 +117,15 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   parameter store value or a seeded catalog takes effect the moment it is written, not when the
   application rolls out.
 
-Prefer a purpose-built agent when the repository defines one — a cloud or platform architect, a
-security reviewer. Otherwise `general-purpose` with the cluster checklist. **Give each subagent the
-absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it resolves inside the
-subagent, whose working directory is not yours.
+Dispatch the tracing-heavy clusters — which stacks reference this resource, what reads this parameter,
+where this role is assumed — to **`codebase-explorer`**, and the judgement clusters to
+`general-purpose` with the cluster checklist. The verify phase goes to **`review-verifier`**, which for
+this layer carries a deliberate exception: it will not refute a destructive or permission-widening
+finding merely because the trigger looks improbable. Both agents are installed globally by this
+toolkit, so they exist in every repository.
+
+**Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
+resolves inside the subagent, whose working directory is not yours.
 
 ## Done when
 

@@ -1,6 +1,6 @@
 ---
 name: review-backend
-description: Review backend and server-side changes as a tech lead. Use when reviewing API, domain, use case or repository code, Prisma schema and migrations, contracts and DTOs, queues, jobs, or dependencies. Prioritises what cannot be taken back — data corruption, irreversible migrations, broken backward compatibility, cross-tenant leakage. Read-only.
+description: Review backend and server-side changes as a tech lead. Use when reviewing API, domain, use case or repository code, Prisma schema and migrations, contracts and DTOs, queues, jobs, or dependencies. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
 metadata:
   source: bwkw/dotagents
@@ -108,9 +108,12 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   verify only. A pattern found during find is a finding; the same pattern found during verify is a
   finding the find phase missed, which is also information about how much to trust the clean parts.
 
-Prefer a purpose-built agent when the repository defines one — `senior-architect`, `ddd-expert`,
-`database-specialist`, a domain expert. Otherwise `general-purpose` with the cluster checklist. **Give
-each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
+Dispatch the tracing-heavy clusters — the Step 2 blast radius, "who else writes this table", "what
+else uses this helper" — to **`codebase-explorer`**, and the judgement clusters to `general-purpose`
+with the cluster checklist. The verify phase goes to **`review-verifier`**. Both are installed
+globally by this toolkit, so they exist in every repository.
+
+**Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
 resolves inside the subagent, whose working directory is not yours.
 
 ## Done when

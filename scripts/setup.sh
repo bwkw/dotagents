@@ -19,6 +19,9 @@ AGENTS_SKILLS="$HOME/.agents/skills"
 CLAUDE_SKILLS="$HOME/.claude/skills"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CLAUDE_HOOKS="$HOME/.claude/hooks"
+# Cursor reads ~/.claude/agents/ as well as its own, so one link covers both agents. Verify in
+# Cursor after changing this -- see docs/adr/0005.
+CLAUDE_AGENTS="$HOME/.claude/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
@@ -57,6 +60,16 @@ hook_names() {
   for f in "$REPO"/hooks/*.sh; do
     [[ -f "$f" ]] || continue
     basename "$f"
+  done
+}
+
+agent_names() {
+  local f
+  for f in "$REPO"/agents/*.md; do
+    [[ -f "$f" ]] || continue
+    local n; n="$(basename "$f" .md)"
+    [[ "$n" == _* ]] && continue
+    printf '%s\n' "$n"
   done
 }
 
@@ -104,6 +117,51 @@ link_skill() {
     run rm -f "$CURSOR_SKILLS/$name"
     did "remove the now-redundant ~/.cursor/skills/$name"
   fi
+}
+
+link_agent() {
+  local name="$1"
+  local src="$REPO/agents/$name.md"
+  local dest="$CLAUDE_AGENTS/$name.md"
+
+  # Symlinked, not copied. Unlike hooks, a dangling agent link cannot fail open: the agent simply
+  # does not resolve and the caller falls back to general-purpose, which is visible in the
+  # transcript. Linking keeps edits here effective immediately.
+  if [[ -e "$dest" && ! -L "$dest" ]]; then
+    bad "$dest exists as a real file, not ours -- refusing to replace it"
+    return 1
+  fi
+  if points_at "$dest" "$src"; then
+    note "up to date: ~/.claude/agents/$name.md"
+  else
+    run ln -sfn "$src" "$dest"
+    did "link ~/.claude/agents/$name.md"
+  fi
+}
+
+# Agents dropped from the repository would otherwise stay linked and keep being dispatched to.
+prune_agents() {
+  [[ -d "$CLAUDE_AGENTS" ]] || return 0
+  local current recorded f name
+  current="$(agent_names | tr '\n' ' ')"
+  recorded="$(node -e '
+    const fs=require("fs");
+    try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+          console.log((m.agents||[]).join(" ")); } catch { console.log(""); }
+  ' "$MANIFEST" 2>/dev/null || true)"
+
+  for f in "$CLAUDE_AGENTS"/*.md; do
+    [[ -e "$f" ]] || continue
+    name="$(basename "$f" .md)"
+    # Ours by shape (a symlink into this repo's agents/) or by manifest record. Anything else is
+    # someone else's and is left alone.
+    if points_at "$f" "$REPO/agents/$name.md" || [[ " $recorded " == *" $name "* ]]; then
+      [[ " $current " == *" $name "* ]] && continue
+      [[ -L "$f" ]] || { warn "~/.claude/agents/$name.md is not a symlink -- leaving it"; continue; }
+      run rm -f "$f"
+      did "prune ~/.claude/agents/$name.md (no longer in the repository)"
+    fi
+  done
 }
 
 copy_hook() {
@@ -252,18 +310,20 @@ merge_cursor_hooks() {
 
 write_manifest() {
   (( DRY_RUN )) && return
-  local skills hooks
+  local skills hooks agents
   skills="$(skill_names | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
   hooks="$(hook_names  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
+  agents="$(agent_names | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
   node -e '
     const fs=require("fs"), p=process.argv[1];
     let m={}; try { m=JSON.parse(fs.readFileSync(p,"utf8")); } catch {}
     m.repo=process.argv[2];
     m.skills=JSON.parse(process.argv[3]);
     m.hooks=JSON.parse(process.argv[4]);
+    m.agents=JSON.parse(process.argv[5]);
     m.updatedAt=new Date().toISOString();
     fs.writeFileSync(p, JSON.stringify(m,null,2)+"\n");
-  ' "$MANIFEST" "$REPO" "$skills" "$hooks"
+  ' "$MANIFEST" "$REPO" "$skills" "$hooks" "$agents"
 }
 
 cmd_install() {
@@ -278,17 +338,19 @@ cmd_install() {
   # but no guardrails wired and no manifest to uninstall from, so check before changing anything.
   command -v node >/dev/null || die "node is required (>= 18). Nothing has been changed."
 
-  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS"
+  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS" "$CLAUDE_AGENTS"
 
   local n
   while read -r n; do [[ -n "$n" ]] && link_skill "$n"; done < <(skill_names)
   while read -r n; do [[ -n "$n" ]] && copy_hook  "$n"; done < <(hook_names)
+  while read -r n; do [[ -n "$n" ]] && link_agent "$n"; done < <(agent_names)
 
   # Always. install means "make the installed state match the repository", and that includes
   # removing what the repository no longer ships. Both prune functions only touch what a previous
   # run of ours recorded in the manifest, so nothing else is at risk.
   prune_skills
   prune_hooks
+  prune_agents
   merge_settings
   merge_statusline
   merge_advisor
@@ -331,6 +393,20 @@ cmd_status() {
       warn "$n  installed copy differs from source -- run: scripts/setup.sh install"
     fi
   done < <(hook_names)
+
+  echo
+  echo "agents"
+  while read -r n; do
+    [[ -n "$n" ]] || continue
+    total=$((total+1))
+    if points_at "$CLAUDE_AGENTS/$n.md" "$REPO/agents/$n.md"; then
+      ok "$n  ${c_dim}(~/.claude/agents; Cursor reads that path too)${c_off}"
+    elif [[ -e "$CLAUDE_AGENTS/$n.md" ]]; then
+      warn "$n  present but not our symlink -- left alone"
+    else
+      bad "$n  not installed"; missing=$((missing+1))
+    fi
+  done < <(agent_names)
 
   echo
   echo "hook wiring"
@@ -426,9 +502,10 @@ cmd_doctor() {
 cmd_uninstall() {
   [[ -f "$MANIFEST" ]] || die "no manifest at ${MANIFEST/#$HOME/$TILDE} -- nothing recorded as installed"
 
-  local skills hooks
+  local skills hooks agents
   skills="$(node -e 'const m=require(process.argv[1]);(m.skills||[]).forEach(s=>console.log(s))' "$MANIFEST")"
   hooks="$( node -e 'const m=require(process.argv[1]);(m.hooks ||[]).forEach(s=>console.log(s))' "$MANIFEST")"
+  agents="$(node -e 'const m=require(process.argv[1]);(m.agents||[]).forEach(s=>console.log(s))' "$MANIFEST")"
 
   local n
   for n in $skills; do
@@ -442,6 +519,12 @@ cmd_uninstall() {
 
   for n in $hooks; do
     [[ -f "$CLAUDE_HOOKS/$n" ]] && { run rm -f "$CLAUDE_HOOKS/$n"; did "remove ~/.claude/hooks/$n"; }
+  done
+
+  for n in $agents; do
+    local a="$CLAUDE_AGENTS/$n.md"
+    if [[ -L "$a" ]]; then run rm -f "$a"; did "remove ~/.claude/agents/$n.md"
+    elif [[ -e "$a" ]]; then warn "~/.claude/agents/$n.md is not a symlink -- left in place"; fi
   done
 
   if [[ -f "$REPO/templates/claude.settings.snippet.json" ]]; then
