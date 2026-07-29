@@ -42,6 +42,40 @@ trace() {
   fi
 }
 
+# >>> dotagents:gate-identity -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
+# Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
+# can go missing, and a lib under the repo can. scripts/verify-skills.sh asserts the copies match.
+#
+# Two levels of identity, because they answer different questions.
+#   Whether a repository is gated is a property of the *repository*, so it keys on the shared git
+#   directory -- which is what makes a linked worktree inherit its main checkout's gate.
+#   Attempts and delegated records are properties of a *working tree*, so they key per worktree.
+#   Inheriting a gate must not mean sharing its counters.
+gate_abs() { # <dir> <rev-parse-flag> -> absolute path, or empty when it cannot be determined
+  local d="$1" f="$2" p
+  p="$(git -C "$d" rev-parse --path-format=absolute "$f" 2>/dev/null || true)"
+  case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
+  # git < 2.31 has no --path-format, and a bare --git-common-dir answers relative to the directory it
+  # was asked from. Resolve by hand, refusing to guess when anything is empty: `cd ""` succeeds and
+  # would silently answer with $HOME.
+  p="$(git -C "$d" rev-parse "$f" 2>/dev/null || true)"
+  [[ -n "$p" ]] || return 0
+  case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
+  ( cd "$d" 2>/dev/null && cd "$p" 2>/dev/null && pwd ) || true
+}
+
+gate_common_dir() { gate_abs "$1" --git-common-dir; }
+
+# git already maintains a unique name per linked worktree, at <common>/worktrees/<name>. Reusing it
+# beats hashing the path: no crypto, no node, and the directory stays readable by a human.
+gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tree
+  local g c
+  g="$(gate_abs "$1" --git-dir)"
+  c="$(gate_abs "$1" --git-common-dir)"
+  if [[ -n "$g" && -n "$c" && "$g" != "$c" ]]; then basename "$g"; else printf 'main'; fi
+}
+# <<< dotagents:gate-identity
+
 # Installed copies live in ~/.claude/hooks, away from the repo, so the manifest records where the
 # repo is. DOTAGENTS_PROFILES overrides both, which is how the test suite stays hermetic.
 PROFILES="${DOTAGENTS_PROFILES:-}"
@@ -182,12 +216,31 @@ pass() {
 
 # Each sentinel records the repository root it belongs to. Match on that, not on position:
 # with two repositories armed, active[0] would check one and report against the other.
+#
+# The sentinel's contents are unchanged. What changed is the comparison: a linked worktree's toplevel
+# is its own path, so exact matching answered "armed elsewhere" for every worktree of an armed repo --
+# while `using-git-worktrees` is this toolkit's own recommended way to isolate parallel work. Falling
+# back to the shared git directory makes the worktree inherit the gate. Over-coverage is loud and
+# `disarm` fixes it; under-coverage was silent.
 gate_repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+gate_common="$(gate_common_dir "$cwd")"
 slug_dir=""
 for _sentinel in "${active[@]}"; do
-  if [[ "$(cat "$_sentinel" 2>/dev/null)" == "$gate_repo_root" ]]; then
+  _armed="$(cat "$_sentinel" 2>/dev/null)"
+  [[ -n "$_armed" ]] || continue
+  if [[ "$_armed" == "$gate_repo_root" ]]; then
     slug_dir="$(dirname "$_sentinel")"
     break
+  fi
+  # Only while the armed path still resolves. If the repository moved, the exact match above is the
+  # only claim this hook is entitled to make -- and claiming a gate that is not ours would report
+  # against the wrong repository, which is the failure the content-matching design removed once.
+  if [[ -n "$gate_common" && -d "$_armed" ]]; then
+    _armed_common="$(gate_common_dir "$_armed")"
+    if [[ -n "$_armed_common" && "$_armed_common" == "$gate_common" ]]; then
+      slug_dir="$(dirname "$_sentinel")"
+      break
+    fi
   fi
 done
 
@@ -227,7 +280,19 @@ if [[ -z "$PROFILES" || ! -d "$PROFILES" ]]; then
 The dotagents checkout may have moved. Re-run scripts/setup.sh install, or disarm the gate at
 $slug_dir -- do not treat this as a pass."
 fi
-attempts_file="$slug_dir/attempts.json"
+# Counters belong to a working tree, not to the repository: two worktrees are two pieces of work, and
+# carrying a count between them would escalate at a tree whose own first attempt had not happened.
+state_dir="$slug_dir/wt/$(gate_worktree_key "$cwd")"
+mkdir -p "$state_dir" 2>/dev/null || true
+attempts_file="$state_dir/attempts.json"
+
+# The pre-worktree layout kept the records beside the sentinel. Read a delegated file from there when
+# this tree has none: losing a delegated result means re-asking a human, which is a worse default than
+# reading a file we wrote ourselves one version ago.
+delegated_file="$state_dir/delegated.json"
+if [[ ! -e "$delegated_file" && -e "$slug_dir/delegated.json" ]]; then
+  delegated_file="$slug_dir/delegated.json"
+fi
 
 # ---------------------------------------------------------------- resolve the profile
 
@@ -362,7 +427,7 @@ if [[ -z "$failed_id" ]]; then
 
   while IFS=$'\t' read -r id reason; do
     [[ -n "$id" ]] || continue
-    if ! grep -qs "\"$id\"" "$slug_dir/delegated.json" 2>/dev/null; then
+    if ! grep -qs "\"$id\"" "$delegated_file" 2>/dev/null; then
       block "$(
         echo "Cannot finish: the '$id' check has not been confirmed."
         echo
