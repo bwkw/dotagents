@@ -19,9 +19,13 @@ AGENTS_SKILLS="$HOME/.agents/skills"
 CLAUDE_SKILLS="$HOME/.claude/skills"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CLAUDE_HOOKS="$HOME/.claude/hooks"
-# Cursor reads ~/.claude/agents/ as well as its own, so one link covers both agents. Verify in
-# Cursor after changing this -- see docs/decisions.md.
+# Linked into BOTH agent directories. The comment here used to say "Cursor reads ~/.claude/agents/ as
+# well as its own, so one link covers both" -- that is not in Cursor's documentation, which names
+# .cursor/agents/ for a project and ~/.cursor/agents/ for global definitions. And ~/.cursor/agents/ was
+# empty on this machine, so both subagents were simply absent in Cursor while the README claimed they
+# existed everywhere. An unverified claim that happened to be convenient.
 CLAUDE_AGENTS="$HOME/.claude/agents"
+CURSOR_AGENTS="$HOME/.cursor/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
@@ -120,27 +124,31 @@ link_skill() {
 link_agent() {
   local name="$1"
   local src="$REPO/agents/$name.md"
-  local dest="$CLAUDE_AGENTS/$name.md"
+  local d dir label
 
   # Symlinked, not copied. Unlike hooks, a dangling agent link cannot fail open: the agent simply
   # does not resolve and the caller falls back to general-purpose, which is visible in the
   # transcript. Linking keeps edits here effective immediately.
-  if [[ -e "$dest" && ! -L "$dest" ]]; then
-    bad "$dest exists as a real file, not ours -- refusing to replace it"
-    return 1
-  fi
-  if points_at "$dest" "$src"; then
-    note "up to date: ~/.claude/agents/$name.md"
-  else
-    run ln -sfn "$src" "$dest"
-    did "link ~/.claude/agents/$name.md"
-  fi
+  for dir in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
+    d="$dir/$name.md"
+    label="${dir/#$HOME/$TILDE}/$name.md"
+    if [[ -e "$d" && ! -L "$d" ]]; then
+      bad "$d exists as a real file, not ours -- refusing to replace it"
+      return 1
+    fi
+    if points_at "$d" "$src"; then
+      note "up to date: $label"
+    else
+      run ln -sfn "$src" "$d"
+      did "link $label"
+    fi
+  done
 }
 
 # Agents dropped from the repository would otherwise stay linked and keep being dispatched to.
 prune_agents() {
-  [[ -d "$CLAUDE_AGENTS" ]] || return 0
-  local current recorded f name
+  local current recorded f name dir label
+  local dirs=("$CLAUDE_AGENTS" "$CURSOR_AGENTS")
   current="$(agent_names | tr '\n' ' ')"
   recorded="$(node -e '
     const fs=require("fs");
@@ -148,7 +156,10 @@ prune_agents() {
           console.log((m.agents||[]).join(" ")); } catch { console.log(""); }
   ' "$MANIFEST" 2>/dev/null || true)"
 
-  for f in "$CLAUDE_AGENTS"/*.md; do
+  for dir in "${dirs[@]}"; do
+   [[ -d "$dir" ]] || continue
+   label="${dir/#$HOME/$TILDE}"
+   for f in "$dir"/*.md; do
     # `-e` follows the symlink, so it is false for exactly the links that most need pruning: the ones
     # whose target was renamed or deleted. Test `-L` as well or a rename leaves a dangling link behind
     # and the agent silently resolves to nothing.
@@ -158,20 +169,21 @@ prune_agents() {
     # someone else's and is left alone.
     if points_at "$f" "$REPO/agents/$name.md" || [[ " $recorded " == *" $name "* ]]; then
       [[ " $current " == *" $name "* ]] && continue
-      [[ -L "$f" ]] || { warn "~/.claude/agents/$name.md is not a symlink -- leaving it"; continue; }
+      [[ -L "$f" ]] || { warn "$label/$name.md is not a symlink -- leaving it"; continue; }
       run rm -f "$f"
-      did "prune ~/.claude/agents/$name.md (no longer in the repository)"
+      did "prune $label/$name.md (no longer in the repository)"
     fi
-  done
+   done
 
   # Sweep dangling links into this repo's agents/ even when the name was never recorded -- a rename
   # between two installs leaves one behind under the old name, which the loop above cannot match by
   # manifest and which `points_at` alone would not reach if the manifest was rewritten first.
-  for f in "$CLAUDE_AGENTS"/*.md; do
+   for f in "$dir"/*.md; do
     [[ -L "$f" && ! -e "$f" ]] || continue
     [[ "$(link_target "$f")" == "$REPO/agents/"* ]] || continue
     run rm -f "$f"
-    did "prune ~/.claude/agents/$(basename "$f") (dangling -- its target is gone)"
+    did "prune $label/$(basename "$f") (dangling -- its target is gone)"
+   done
   done
 }
 
@@ -316,7 +328,8 @@ cmd_install() {
   # but no guardrails wired and no manifest to uninstall from, so check before changing anything.
   command -v node >/dev/null || die "node is required (>= 18). Nothing has been changed."
 
-  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS" "$CLAUDE_AGENTS"
+  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS" \
+    "$CLAUDE_AGENTS" "$CURSOR_AGENTS"
 
   local n
   while read -r n; do [[ -n "$n" ]] && link_skill "$n"; done < <(skill_names)
@@ -375,9 +388,14 @@ cmd_status() {
   while read -r n; do
     [[ -n "$n" ]] || continue
     total=$((total+1))
-    if points_at "$CLAUDE_AGENTS/$n.md" "$REPO/agents/$n.md"; then
-      ok "$n  ${c_dim}(~/.claude/agents; Cursor reads that path too)${c_off}"
-    elif [[ -e "$CLAUDE_AGENTS/$n.md" ]]; then
+    local where=""
+    points_at "$CLAUDE_AGENTS/$n.md" "$REPO/agents/$n.md" && where="claude"
+    points_at "$CURSOR_AGENTS/$n.md" "$REPO/agents/$n.md" && where="${where:+$where+}cursor"
+    if [[ "$where" == "claude+cursor" ]]; then
+      ok "$n  ${c_dim}(~/.claude/agents and ~/.cursor/agents)${c_off}"
+    elif [[ -n "$where" ]]; then
+      warn "$n  only in $where -- the other agent cannot reach it"; missing=$((missing+1))
+    elif [[ -e "$CLAUDE_AGENTS/$n.md" || -e "$CURSOR_AGENTS/$n.md" ]]; then
       warn "$n  present but not our symlink -- left alone"
     else
       bad "$n  not installed"; missing=$((missing+1))
@@ -498,9 +516,12 @@ cmd_uninstall() {
   done
 
   for n in $agents; do
-    local a="$CLAUDE_AGENTS/$n.md"
-    if [[ -L "$a" ]]; then run rm -f "$a"; did "remove ~/.claude/agents/$n.md"
-    elif [[ -e "$a" ]]; then warn "~/.claude/agents/$n.md is not a symlink -- left in place"; fi
+    local a d
+    for d in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
+      a="$d/$n.md"
+      if [[ -L "$a" ]]; then run rm -f "$a"; did "remove ${d/#$HOME/$TILDE}/$n.md"
+      elif [[ -e "$a" ]]; then warn "${d/#$HOME/$TILDE}/$n.md is not a symlink -- left in place"; fi
+    done
   done
 
   if [[ -f "$REPO/templates/claude.settings.snippet.json" ]]; then

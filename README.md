@@ -8,7 +8,8 @@
 English: [README.en.md](README.en.md)
 
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
-[docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md)
+[docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
+ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md)
 
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
@@ -122,7 +123,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 **自作は10スキル**、残り11本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
-加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
+加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` の**両方**に入るので、どちらのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
 ## 面の全体と、何を抑制しているか
 
