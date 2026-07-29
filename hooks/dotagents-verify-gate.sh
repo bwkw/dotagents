@@ -495,13 +495,69 @@ if [[ -z "$work" || ! -f "$work" ]]; then
 This is a fault in the gate itself, not in your work. Either fix it or disarm the sentinel at
 $slug_dir before continuing -- do not treat this as a pass."
 fi
-trap 'rm -f "$work" "$work.fail"' EXIT
+trap 'rm -f "$work" "$work.fail" "$work.out" "$work.timeout"' EXIT
 
+# Defaults, not measurements. They have to be generous enough for a real suite and finite enough that
+# a hung check cannot hold a turn open indefinitely.
+GATE_CHECK_TIMEOUT_DEFAULT=120
+GATE_TOTAL_TIMEOUT_DEFAULT=300
+
+budget_total="$(node -e '
+  try { const v = require(process.argv[1]).timeout_total;
+        console.log(Number.isInteger(v) && v > 0 ? v : "") } catch {}
+' "$profile" 2>/dev/null)"
+case "$budget_total" in ''|*[!0-9]*|0) budget_total=$GATE_TOTAL_TIMEOUT_DEFAULT ;; esac
+
+# id first, timeout second, command last: the command is the only field that can contain a tab, and
+# `read` gives the remainder of the line to the last variable.
 node -e '
   const p = require(process.argv[1]);
+  const dflt = Number(process.argv[2]);
   for (const c of p.checks || [])
-    if (c.gate && c.agent_may_run) console.log([c.id, c.cmd].join("\t"));
-' "$profile" > "$work"
+    if (c.gate && c.agent_may_run) {
+      const t = Number.isInteger(c.timeout) && c.timeout > 0 ? c.timeout : dflt;
+      console.log([c.id, t, c.cmd].join("\t"));
+    }
+' "$profile" "$GATE_CHECK_TIMEOUT_DEFAULT" > "$work"
+
+# macOS ships no `timeout` and no `gtimeout`, so the wall clock is built here rather than depended on.
+# Real seconds, deliberately not gate_now(): this measures how long a command actually took, and a
+# clock the environment can move would be a way to defeat the budget.
+#
+# The kill reaches the subshell running `eval`, not its grandchildren, so a `pnpm test` that spawned
+# node may leave one behind. That is the right trade for now: the requirement is that the hook -- and
+# therefore the turn, and therefore the loop -- is released. A lingering child is the lesser evil, and
+# a real tree kill means moving execution into node's spawn(), which moves the {files}+eval injection
+# boundary that exactly one test stands on. Separate change, separately reviewed.
+run_check() { # <seconds> <command>  -> sets check_out and check_code; touches $work.timeout on a kill
+  local secs="$1" c="$2" pid dog waited
+  rm -f "$work.timeout" "$work.out"
+  ( cd "$run_dir" && eval "$c" ) > "$work.out" 2>&1 &
+  pid=$!
+  (
+    waited=0
+    while [[ $waited -lt $secs ]]; do
+      kill -0 "$pid" 2>/dev/null || exit 0
+      sleep 1
+      waited=$((waited+1))
+    done
+    kill -0 "$pid" 2>/dev/null || exit 0
+    # Touched BEFORE the kill. Without it, `wait` returning 143 because the watchdog fired is
+    # indistinguishable from 143 for any other reason -- and "the gate timed out" would get reported
+    # as "your check failed", which is a different claim about different code.
+    : > "$work.timeout"
+    kill -TERM "$pid" 2>/dev/null
+    sleep 2
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+  ) 2>/dev/null &
+  dog=$!
+  wait "$pid" 2>/dev/null
+  check_code=$?
+  kill "$dog" 2>/dev/null
+  wait "$dog" 2>/dev/null
+  check_out="$(cat "$work.out" 2>/dev/null)"
+  rm -f "$work.out"
+}
 
 failed_id=""
 failed_cmd=""
@@ -523,8 +579,12 @@ if [[ -z "$max_attempts" ]]; then
 fi
 case "$max_attempts" in ''|*[!0-9]*|0) max_attempts=3 ;; esac
 
-while IFS=$'\t' read -r id cmd; do
+gate_started="$(date +%s)"
+unrun=""
+
+while IFS=$'\t' read -r id secs cmd; do
   [[ -n "$id" ]] || continue
+  case "$secs" in ''|*[!0-9]*|0) secs=$GATE_CHECK_TIMEOUT_DEFAULT ;; esac
 
   # {files} is a scope narrowing. With nothing changed there is nothing to check.
   if [[ "$cmd" == *"{files}"* ]]; then
@@ -547,8 +607,27 @@ while IFS=$'\t' read -r id cmd; do
     cmd="${cmd//\{files\}/${files# }}"
   fi
 
-  out="$(cd "$run_dir" && eval "$cmd" 2>&1)"
-  code=$?
+  # Nothing new is started once the total budget is gone. Overrunning the harness's own hook timeout
+  # is the one failure the gate cannot observe -- it exits with neither 0 nor 2, which is
+  # non-blocking, so the turn ends looking clean.
+  # Checked before starting, and deliberately not used to shorten a check that is already allowed to
+  # run. Clamping a check to the remaining budget would report it as a timeout for a reason that has
+  # nothing to do with that check -- and it would make this branch nearly unreachable, since the
+  # budget could then only ever run out by killing something. The cost is that the total can overshoot
+  # by at most one check's timeout, which is why the hook entry in templates/ allows for both.
+  if (( budget_total - ( $(date +%s) - gate_started ) <= 0 )); then
+    unrun="${unrun:+$unrun }$id"
+    continue
+  fi
+
+  run_check "$secs" "$cmd"
+  out="$check_out"
+  code="$check_code"
+
+  if [[ -f "$work.timeout" ]]; then
+    { printf '%s\n%s\n%s\n' "$id" "$cmd" "timeout"; printf '%s' "$out"; } > "$work.fail"
+    break
+  fi
   if [[ $code -ne 0 ]]; then
     # NOTE: this loop is fed by `done < "$work"` -- a file redirect, not a pipe -- so the body runs
     # in this shell and `block`'s exit actually exits the script. Do not convert this to
@@ -564,6 +643,35 @@ if [[ -f "$work.fail" ]]; then
   failed_cmd="$(sed -n 2p "$work.fail")"
   failed_code="$(sed -n 3p "$work.fail")"
   failed_out="$(tail -n +4 "$work.fail")"
+  if [[ -f "$work.timeout" ]]; then
+    # A timeout is a malfunction of the gate, not a finding about the code. Recorded as its own reason
+    # so a verdict read a day later does not claim the check failed when it never finished.
+    failed_kind="timeout"
+    failed_out="The gate killed this check: it timed out after ${secs}s.
+It says nothing about whether the code is correct -- only that the gate could not
+finish checking within its budget. Raise 'timeout' for this check in the profile,
+or make the check faster.
+
+Output captured before the kill:
+$failed_out"
+  fi
+fi
+
+# Checks the budget never reached. Not a pass: reporting green for something that did not run is the
+# failure this whole section exists to prevent.
+if [[ -z "$failed_id" && -n "$unrun" ]]; then
+  failed_id="gate-budget"
+  failed_kind="timeout"
+  failed_cmd="(the gate ran out of its total budget)"
+  failed_code="-"
+  failed_out="These gating checks were not run: $unrun
+
+The gate spends at most ${budget_total}s per turn end (timeout_total). It stopped starting
+checks rather than risk being killed by the agent's own hook timeout, which exits
+non-blocking and would have let this turn end looking green.
+
+Raise 'timeout_total' in the profile, narrow the checks with scope: changed, or move
+the slow ones out of the gate."
 fi
 
 # ---------------------------------------------------------------- delegated checks

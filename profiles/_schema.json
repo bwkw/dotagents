@@ -29,6 +29,11 @@
       "minimum": 1,
       "description": "Consecutive failures of the same check before the gate stops blocking and records that it gave up. Default 3. Blocking forever is not a guardrail: the escalation it used to print told the agent to run /clear, which nothing running unattended can do. Giving up is recorded in a VERDICT file so it cannot be mistaken for a pass."
     },
+    "timeout_total": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds the gate may spend on all checks in one turn end. Default 300. Not decoration: N checks times their individual timeouts can exceed the agent harness's own hook timeout, and being killed by THAT is the one failure the gate cannot observe -- the process exits with neither 0 nor 2, which is non-blocking, so a slow suite becomes a silent pass. The hook entry in templates/ declares a timeout strictly larger than this so our clock is always the one that fires. When the budget runs out the gate reports which checks it never started and blocks: an unrun gating check is not a pass."
+    },
     "forbidden": {
       "type": "array",
       "items": { "type": "string" },
@@ -73,6 +78,11 @@
           "scope": {
             "enum": ["all", "changed"],
             "description": "'changed' narrows the command to files touched in the working tree."
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Seconds this check may run before the gate kills it. Default 120. A timeout is treated as a malfunction of the gate rather than a finding about the code -- it blocks, and it is recorded as reason 'timeout' rather than 'red', because it says nothing about whether the code is correct. It counts toward max_attempts, or a genuinely hanging check would block every turn forever."
           },
           "when": {
             "type": "string",
