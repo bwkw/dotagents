@@ -5,6 +5,7 @@
 #   gate.sh disarm [dir]         release it
 #   gate.sh record <check> [dir] note that the user ran a delegated check themselves
 #   gate.sh status [dir]         is it armed, how idle, and what has been recorded
+#   gate.sh status --json [dir]  the same, for a driver rather than a human
 #   gate.sh gc                   reclaim gates left armed by sessions that ended
 #
 # The gate hook does nothing unless armed. Skills call this; nothing else needs to.
@@ -365,7 +366,50 @@ Run 'gate.sh arm' first, or let /da-verify do it."
   echo "recorded: $check"
 }
 
+# The one machine-readable surface. A driver that had to parse the prose above would break the first
+# time a sentence was reworded, and new exit codes would mean litigating what each one means -- so this
+# is JSON, built by node so the escaping is not ours to get wrong. Read-only, like `status` itself.
+cmd_status_json() {
+  local root dir state ended
+  root="$(repo_root "${1:-}")"
+  dir="$(find_armed "$root" || true)"
+  ended=""
+  [[ -n "$dir" ]] || ended="$(find_ended "$root" || true)"
+  state=""
+  [[ -n "$dir" ]] && state="$(state_dir_for "$dir" "$root")"
+  node -e '
+    const fs = require("fs");
+    const [root, dir, state, ended, idle, ttl] = process.argv.slice(1);
+    const read = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return "" } };
+    const verdict = (p) => {
+      const raw = read(p);
+      if (!raw) return null;
+      const l = raw.split("\n");
+      return { at: l[0] ?? "", reason: l[1] ?? "", check: l[2] ?? "", attempts: Number(l[3]) || 0,
+               exit: l[4] ?? "", agent: l[5] ?? "", command: l[6] ?? "" };
+    };
+    let attempts = {};
+    try { attempts = JSON.parse(read(state + "/attempts.json") || "{}") } catch {}
+    const recorded = read(state + "/delegated.json").split("\n").filter(Boolean)
+      .map((l) => { try { return Object.keys(JSON.parse(l))[0] } catch { return null } }).filter(Boolean);
+    const gaveUp = verdict(state + "/VERDICT");
+    process.stdout.write(JSON.stringify({
+      repo: root,
+      armed: Boolean(dir),
+      dir: dir || null,
+      state_dir: state || null,
+      idle_seconds: idle === "" ? null : Number(idle),
+      ttl_seconds: Number(ttl),
+      gave_up: Boolean(gaveUp),
+      verdict: gaveUp || verdict(ended + "/VERDICT"),
+      attempts,
+      recorded,
+    }, null, 2) + "\n");
+  ' "$root" "$dir" "$state" "$ended" "$( [[ -n "$dir" ]] && gate_idle_seconds "$dir" )" "$(gate_ttl_seconds)"
+}
+
 cmd_status() {
+  if [[ "${1:-}" == "--json" ]]; then cmd_status_json "${2:-}"; return 0; fi
   local root; root="$(repo_root "${1:-}")"
   local dir state deleg attempts ended
   if ! dir="$(find_armed "$root")"; then
@@ -409,7 +453,9 @@ cmd_status() {
   fi
 }
 
-usage() { sed -n '3,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Matched, not addressed by line number: adding a subcommand to the header above used to silently
+# push one out of the range and `gate.sh -h` stopped listing it.
+usage() { grep -E '^#   gate\.sh ' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [[ $# -gt 0 ]] || usage 1
 cmd="$1"; shift
@@ -417,7 +463,7 @@ case "$cmd" in
   arm)       cmd_arm    "${1:-}" ;;
   disarm)    cmd_disarm "${1:-}" ;;
   record)    cmd_record "${1:-}" "${2:-}" ;;
-  status)    cmd_status "${1:-}" ;;
+  status)    cmd_status "${1:-}" "${2:-}" ;;
   gc)        cmd_gc ;;
   -h|--help) usage ;;
   *) die "unknown command: $cmd" ;;

@@ -128,6 +128,10 @@ check_skill() {
     warn "$id" "description is ${dlen} chars (target <= ${MAX_DESC_ONE})"
   fi
   # Auto-invocation depends on trigger words the model can match against a request.
+  # dotagents:when-clause-tokens use (this|it|when)|when |after |before |時|する場合
+  # Kept identical to the list in hooks/dotagents-lint-skill-frontmatter.sh; the check below asserts
+  # it. They disagreed once, and the hook was the stricter one -- so a Japanese description passed
+  # here and then met a permission prompt from the hook, which is a stall, not a lint failure.
   if ! grep -qiE 'use (this|it|when)|when |after |before |時|する場合' <<<"$desc"; then
     warn "$id" "description has no 'when to use' clause -- auto-invocation will be unreliable"
   fi
@@ -339,6 +343,30 @@ if [[ -f "$gate_sh" && -f "$gate_hook" ]]; then
   else
     printf '%s✓%s the shared gate block is byte-identical in gate.sh and the hook (%s lines)\n' \
       "$c_green" "$c_off" "$(printf '%s\n' "$ident_a" | wc -l | tr -d ' ')"
+  fi
+fi
+
+# --- the two 'when to use' enforcers must agree -----------------------------
+# This file warns when a description has no when-clause; the lint hook says the same thing to whoever
+# is writing the file. They disagreed, and the hook was the stricter one: it did not accept a Japanese
+# clause that this file did. So a Japanese description passed the lint and then met a permission prompt
+# from the hook -- a stalled write rather than a reported problem, and worse for anything unattended.
+# One list, two languages, checked mechanically because prose asking for it is how they drifted.
+lint_hook="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
+if [[ -f "$lint_hook" ]]; then
+  echo
+  echo "checking the 'when to use' token list"
+  tok_line() { grep -o 'dotagents:when-clause-tokens.*' "$1" | head -1 | sed 's/^dotagents:when-clause-tokens *//'; }
+  tok_a="$(tok_line "$0")"
+  tok_b="$(tok_line "$lint_hook")"
+  if [[ -z "$tok_a" || -z "$tok_b" ]]; then
+    err "when-tokens" "the 'dotagents:when-clause-tokens' marker is missing from $( [[ -z "$tok_a" ]] && echo verify-skills.sh || echo the lint hook ) -- the marker is what makes the two lists comparable"
+  elif [[ "$tok_a" != "$tok_b" ]]; then
+    err "when-tokens" "the linter and the lint hook accept different 'when to use' tokens, so a description can pass one and be stopped by the other"
+    printf '%s  linter: %s%s\n' "$c_dim" "$tok_a" "$c_off"
+    printf '%s  hook:   %s%s\n' "$c_dim" "$tok_b" "$c_off"
+  else
+    printf '%s✓%s both enforcers accept the same trigger tokens: %s\n' "$c_green" "$c_off" "$tok_a"
   fi
 fi
 
