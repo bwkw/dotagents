@@ -573,6 +573,75 @@ crash_code="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
   || no "a crash exited $crash_code, which Claude Code treats as non-blocking: the turn ends unchecked"
 
 echo
+echo "verify-gate — a killed check leaves nothing behind"
+echo
+
+# The watchdog kills the subshell running `eval`, not its descendants. A check that backgrounds work --
+# `pnpm test` spawning node, a dev server, a docker run -- left it alive after the timeout, holding
+# ports and CPU for as long as it felt like. Written before the fix, because the fix moves the
+# {files} + eval execution boundary and this is what says the move was worth making.
+rm -rf "$GATE"; arm
+rm -f "$TMP/orphan.pid"
+cat > "$PROFILES/scratch.json" <<JSON
+{ "match": { "remote": "example/scratch" },
+  "max_attempts": 1,
+  "checks": [ { "id": "spawns", "timeout": 1, "gate": true, "agent_may_run": true,
+                "cmd": "sh -c 'sleep 60 & echo \$! > $TMP/orphan.pid; sleep 60'" } ] }
+JSON
+invoke >/dev/null
+orphan="$(cat "$TMP/orphan.pid" 2>/dev/null || true)"
+if [[ -z "$orphan" ]]; then
+  no "the probe never recorded a child pid -- the orphan case did NOT run"
+else
+  # A moment for the kill to propagate before deciding.
+  sleep 1
+  if kill -0 "$orphan" 2>/dev/null; then
+    no "a backgrounded child survived the timeout (pid $orphan) -- it holds ports and CPU after the gate gave up"
+    kill -9 "$orphan" 2>/dev/null || true
+  else
+    ok "a backgrounded child is killed along with the check"
+  fi
+fi
+
+echo
+echo "verify-gate — {files} is data, never code"
+echo
+
+# One assertion used to stand between `{files}` + eval and remote code execution by anything that can
+# write a filename into the work tree. Widened before the execution path moves, because that is the
+# boundary being moved.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "unit", "cmd": "echo got={files}", "gate": true,
+                "agent_may_run": true, "scope": "changed" } ] }
+JSON
+git -C "$REPO" checkout -q -- . 2>/dev/null || true
+rm -f "$REPO"/pwned-* 2>/dev/null || true
+made=0
+for evil in 'a;touch pwned-semi;b.ts' \
+            'a`touch pwned-backtick`b.ts' \
+            'a$(touch pwned-dollar)b.ts' \
+            "a'; touch pwned-quote; 'b.ts" \
+            'a|touch pwned-pipe|b.ts' \
+            'a&&touch pwned-and&&b.ts' \
+            '--touch=pwned-dash.ts'; do
+  : > "$REPO/$evil" 2>/dev/null && made=$((made+1))
+done
+if (( made == 0 )); then
+  no "could not create any adversarial filename -- the injection cases did NOT run"
+else
+  invoke >/dev/null
+  hits="$(ls -1 "$REPO" 2>/dev/null | grep '^pwned-' | tr '\n' ' ' || true)"
+  [[ -z "${hits// /}" ]] \
+    && ok "$made adversarial filenames reach the command as data ($(basename "$REPO") is clean)" \
+    || no "INJECTION: a filename executed -- $hits"
+fi
+rm -f "$REPO"/pwned-* 2>/dev/null || true
+git -C "$REPO" clean -qfd 2>/dev/null || true
+git -C "$REPO" checkout -q -- . 2>/dev/null || true
+
+echo
 echo "verify-gate — the gate owns its own clock"
 echo
 

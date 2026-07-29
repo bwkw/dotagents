@@ -672,37 +672,58 @@ tree_fingerprint() {
 # a real tree kill means moving execution into node's spawn(), which moves the {files}+eval injection
 # boundary that exactly one test stands on. Separate change, separately reviewed.
 run_check() { # <seconds> <command>  -> sets check_out and check_code; touches $work.timeout on a kill
-  local secs="$1" c="$2" pid dog waited
+  local secs="$1" c="$2"
   rm -f "$work.timeout" "$work.out"
-  # The gate's own control variables are unset for the child. A check is repository code, not gate
-  # internals, and leaking them changes what it does: `gate.sh verify` sets DOTAGENTS_GATE_DRY=1, the
-  # profile gates ./scripts/test-verify-gate.sh, and that suite then ran every one of its hook
-  # invocations in dry mode -- so verifying this repository reported its own gate suite as failing.
-  ( cd "$run_dir" \
-    && unset DOTAGENTS_GATE_DRY DOTAGENTS_GATE_NOW DOTAGENTS_GATE_TTL_HOURS DOTAGENTS_GATE_MAX_ATTEMPTS \
-    && eval "$c" ) > "$work.out" 2>&1 &
-  pid=$!
-  (
-    waited=0
-    while [[ $waited -lt $secs ]]; do
-      kill -0 "$pid" 2>/dev/null || exit 0
-      sleep 1
-      waited=$((waited+1))
-    done
-    kill -0 "$pid" 2>/dev/null || exit 0
-    # Touched BEFORE the kill. Without it, `wait` returning 143 because the watchdog fired is
-    # indistinguishable from 143 for any other reason -- and "the gate timed out" would get reported
-    # as "your check failed", which is a different claim about different code.
-    : > "$work.timeout"
-    kill -TERM "$pid" 2>/dev/null
-    sleep 2
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
-  ) 2>/dev/null &
-  dog=$!
-  wait "$pid" 2>/dev/null
+
+  # Executed through node's spawn in its own process group, so a timeout kills the whole tree.
+  #
+  # The previous watchdog killed the bash subshell running `eval` and nothing below it. A check that
+  # backgrounded work -- `pnpm test` spawning node, a dev server, a container -- survived the timeout
+  # and went on holding ports and CPU after the gate had already given up. There is a test that starts
+  # a background child and requires it to be dead.
+  #
+  # What did NOT change: the command still reaches `bash -c` verbatim, exactly as `eval` received it,
+  # and `{files}` is still shell-quoted one filename at a time before substitution. The quoting
+  # boundary is untouched -- only the process that gets killed is different. The injection suite was
+  # widened to seven adversarial filenames before this moved, because this is the boundary it guards.
+  #
+  # The gate's own control variables are stripped from the child's environment. A check is repository
+  # code, not gate internals: `gate.sh verify` sets DOTAGENTS_GATE_DRY=1, this repository's profile
+  # gates ./scripts/test-verify-gate.sh, and that suite then ran every hook invocation in dry mode --
+  # so verifying this repository reported its own gate suite as failing.
+  node -e '
+    const { spawn } = require("node:child_process");
+    const fs = require("node:fs");
+    const [cwd, cmd, secsRaw, outPath, markPath] = process.argv.slice(1);
+    const out = fs.openSync(outPath, "w");
+    const env = { ...process.env };
+    for (const k of ["DOTAGENTS_GATE_DRY", "DOTAGENTS_GATE_NOW",
+                     "DOTAGENTS_GATE_TTL_HOURS", "DOTAGENTS_GATE_MAX_ATTEMPTS"]) delete env[k];
+
+    const child = spawn("bash", ["-c", cmd], { cwd, env, stdio: ["ignore", out, out], detached: true });
+    let timedOut = false;
+    let hardKill;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // Written BEFORE the kill. Otherwise a non-zero status from a killed child is
+      // indistinguishable from the check having failed on its own, and "the gate ran out of time"
+      // would be reported as "your check is broken" -- a claim about different code.
+      try { fs.writeFileSync(markPath, "") } catch {}
+      try { process.kill(-child.pid, "SIGTERM") } catch {}
+      hardKill = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL") } catch {} }, 2000);
+    }, Number(secsRaw) * 1000);
+
+    child.on("error", () => { clearTimeout(timer); process.exit(127) });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      if (hardKill) clearTimeout(hardKill);
+      try { fs.closeSync(out) } catch {}
+      process.exit(timedOut ? 124 : (code === null ? 128 : code));
+    });
+  ' "$run_dir" "$c" "$secs" "$work.out" "$work.timeout"
   check_code=$?
-  kill "$dog" 2>/dev/null
-  wait "$dog" 2>/dev/null
+
   check_out="$(cat "$work.out" 2>/dev/null)"
   rm -f "$work.out"
 }
