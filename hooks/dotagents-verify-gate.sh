@@ -121,16 +121,19 @@ fi
 
 # Emit a block, in whichever dialect this agent speaks, then exit.
 # $1 = message
+# $2 = what is red, for the trace. Passed explicitly rather than read from a global because block()
+#      is reached from several places, and the earliest of them run before any check has an id.
 block() {
+  local _what="${2:-the gate}"
   if [[ "$agent" == "cursor" ]]; then
     # Cursor cannot be blocked. Feed the failure back as the next user message instead, and stop
     # doing so before the loop_limit so the budget is not silently exhausted by us.
     if [[ "$loop_count" -ge 3 ]]; then
-      trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count"
+      trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count while $_what red"
       printf '%s' '{}'
       exit 0
     fi
-    trace "$agent" "$cwd" "injected a follow-up (cannot block in Cursor)"
+    trace "$agent" "$cwd" "injected a follow-up while $_what red (cannot block in Cursor)"
     # followup_message is auto-submitted *as a user message*, so without attribution the agent
     # cannot tell this from the human typing it -- and may then treat a hook's demand as the
     # user's stated intent, or attribute the interruption to them. Say what it is.
@@ -150,6 +153,12 @@ block() {
   # ending a turn. Blocking indefinitely would trap it: the instruction "ask the user" is
   # unreachable from inside a blocked turn. So on a re-entry, hand control back once, loudly.
   if [[ "$stop_active" == "1" ]]; then
+    # Traced, because this -- not the block -- is what decides whether a red turn ends. A trace that
+    # records only blocks is silent about the gate's most frequent and most consequential event, so
+    # "nothing happened" could not be told apart from "never ran" in the one file built to tell them
+    # apart. On Claude Code the harness's own 8-consecutive-block release is never reached: this
+    # releases at the first re-entry, so every turn cycle blocks exactly once.
+    trace "$agent" "$cwd" "RELEASED while $_what red -- handed control back with checks failing"
     {
       printf '[dotagents] %s\n' "$1"
       echo
@@ -159,7 +168,7 @@ block() {
     } >&2
     exit 0
   fi
-  trace "$agent" "$cwd" "BLOCKED"
+  trace "$agent" "$cwd" "BLOCKED ($_what)"
   printf '[dotagents] %s\n' "$1" >&2
   exit 2
 }
@@ -364,7 +373,7 @@ if [[ -z "$failed_id" ]]; then
         echo "check is that the result came from them."
         echo
         echo "Do not end the turn claiming success while this is outstanding."
-      )"
+      )" "$id (delegated, unconfirmed)"
     fi
   done < "$work"
 fi
@@ -404,4 +413,4 @@ block "$(
   echo
   echo "last 20 lines of output:"
   tail -20 <<<"$failed_out" | sed 's/^/  /'
-)"
+)" "$failed_id"
