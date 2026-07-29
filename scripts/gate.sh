@@ -239,6 +239,23 @@ warn_if_no_profile() {
   fi
 }
 
+# Surface a verdict left behind by whoever was here before, and move it aside so the gate can hold
+# again. Returns 0 when there was one, so the caller knows to reset the budget with it.
+report_prior_verdict() { # <dir holding VERDICT>
+  local d="$1"
+  [[ -f "$d/VERDICT" ]] || return 1
+  mv -f "$d/VERDICT" "$d/VERDICT.prev" 2>/dev/null || return 1
+  echo
+  echo "  NOTE: the gate here ended with a verdict rather than being disarmed:"
+  printf '    reason  %s\n' "$(sed -n 2p "$d/VERDICT.prev" 2>/dev/null)"
+  printf '    check   %s\n' "$(sed -n 3p "$d/VERDICT.prev" 2>/dev/null)"
+  printf '    at      %s after %s attempt(s)\n' \
+    "$(sed -n 1p "$d/VERDICT.prev" 2>/dev/null)" "$(sed -n 4p "$d/VERDICT.prev" 2>/dev/null)"
+  echo "  That work was NOT verified. Read $d/VERDICT.prev before treating it as done."
+  echo "  The attempt budget restarts now."
+  return 0
+}
+
 cmd_arm() {
   local root; root="$(repo_root "${1:-}")"
   local dir state
@@ -248,6 +265,10 @@ cmd_arm() {
     state="$(state_dir_for "$dir" "$root")"
     mkdir -p "$state" 2>/dev/null || true
     echo "already armed: $dir"
+    # Re-arming is the one code path a new session is guaranteed to reach, via /da-verify. So it is
+    # where a verdict left by the previous session has to surface -- and where the budget restarts,
+    # since a gate that gave up would otherwise never hold again however many times it was re-armed.
+    report_prior_verdict "$state" && printf '{}\n' > "$state/attempts.json"
     warn_if_no_profile "$root"
     return 0
   fi
@@ -270,9 +291,6 @@ cmd_arm() {
   printf '%s' "$root" > "$dir/ROOT"
   gate_now > "$dir/ARMED_AT"
   gate_touch_heartbeat "$dir"
-  # A stale verdict from a previous session would otherwise make this freshly armed gate look like one
-  # that had already given up -- and it would not block. Kept as VERDICT.prev so it is still reportable.
-  [[ -f "$dir/VERDICT" ]] && mv -f "$dir/VERDICT" "$dir/VERDICT.prev" 2>/dev/null
   state="$(state_dir_for "$dir" "$root")"
   mkdir -p "$state" || die "could not create $state"
   printf '{}\n' > "$state/attempts.json"
@@ -281,12 +299,10 @@ cmd_arm() {
   echo "  the turn will not end while $(basename "$root")'s gating checks fail"
   echo "  worktrees of this repository inherit it, each with its own attempt count"
   echo "  reclaimed automatically after $(( $(gate_ttl_seconds) / 3600 ))h with no turn ending here"
-  if [[ -f "$dir/VERDICT.prev" ]]; then
-    echo
-    echo "  NOTE: the previous gate here ended with a verdict rather than being disarmed:"
-    sed -n '2p;3p' "$dir/VERDICT.prev" 2>/dev/null | sed 's/^/    /'
-    echo "  Read $dir/VERDICT.prev before treating that work as verified."
-  fi
+  # Two places a verdict can be waiting: beside the sentinel if this gate was reclaimed for idleness,
+  # and beside this tree's counters if it gave up. Both mean the same thing to whoever is re-arming.
+  report_prior_verdict "$dir"   || true
+  report_prior_verdict "$state" || true
   warn_if_no_profile "$root"
 }
 
