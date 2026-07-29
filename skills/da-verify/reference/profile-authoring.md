@@ -3,7 +3,8 @@
 A profile tells `/da-verify` and the Stop gate how to check *this* repository. It lives in the dotagents
 repo, not in the product repo — that is what keeps product repositories unmodified.
 
-File: `<dotagents>/profiles/<repo-name>.json`. Schema: `_schema.json`. Start from `_example.json`.
+File: `<dotagents>/profiles/<repo-name>.json`. Schema: `_schema.json`. Start from `dotagents.json` --
+the only profile in the repository that actually runs, which is why it is the one to copy.
 
 **Profiles are gitignored.** They name real repositories, real environments, and sometimes an
 employer's internal rules, so they stay on the machine that wrote them. Only the schema and the

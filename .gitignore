@@ -6,7 +6,6 @@
 # than tracked unless someone remembers to exclude it.
 profiles/*.json
 !profiles/_schema.json
-!profiles/_example.json
 # This repository's own profile is tracked: it names only a public repo and public commands, and it
 # is the one worked example that actually gets executed.
 !profiles/dotagents.json

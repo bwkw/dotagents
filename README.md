@@ -221,7 +221,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 ### プロファイル
 
-[`profiles/dotagents.json`](profiles/dotagents.json)（このリポジトリ自身のもので、**実際に動いている唯一の例**）か [`profiles/_example.json`](profiles/_example.json) を `profiles/<repo>.json` にコピーします。
+[`profiles/dotagents.json`](profiles/dotagents.json) を `profiles/<repo>.json` にコピーして書き換えます。**注釈だけの `_example.json` は削除しました** —— `docs/design.md`「未確定なこと」自身が「example は書き始めを助ける以上に書き方を狭めているかもしれない」と挙げていたもので、しかも**何も実行しない例**でした。残したのは schema と、**このリポジトリ自身のゲートが毎ターン実行している唯一の実例**だけです。
 
 **あなたのコピーは gitignore されます。** profile は実在のリポジトリ名・環境名、場合によっては勤務先の社内ルールを含むので、書いたマシンに留まります。`.gitignore` は許可リスト方式なので、新しい profile は**デフォルトで untracked** です（「除外し忘れるまで追跡される」の逆）。`/da-verify` が書き方を案内します。
 

@@ -3,7 +3,7 @@
   "$comment": [
     "This repository's own profile, so the toolkit is held to its own gate while being developed.",
     "Tracked, unlike the others: it names only a public repo and public commands, and it doubles as",
-    "a worked example that actually runs -- unlike _example.json, which nothing executes."
+    "the one worked example in the repository, and the only profile here that actually runs."
   ],
 
   "match": { "remote": "bwkw/dotagents" },

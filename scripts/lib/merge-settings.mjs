@@ -39,6 +39,13 @@ const writeJson = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n");
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
+// A manifest record is ours when its command names one of our hooks -- the same test `dropOurs` below
+// applies to settings.json itself. Anything else on the record was put there by something we do not
+// own and has to survive: the manifest is what `uninstall` reads, so dropping a foreign entry would
+// make uninstall remove somebody else's hook.
+const keepForeignHooks = (records) =>
+  (records ?? []).filter((r) => !/dotagents-/.test(r.command ?? ""));
+
 const HOME = process.env.HOME ?? "";
 // Whether an agent expands $HOME inside a hook command was never verified. An unexpanded path is a
 // command that does not exist, which is a hook that never starts, which is a guardrail that fails
@@ -188,12 +195,8 @@ if (mode === "--cursor") {
   }
 
   writeJson(targetPath, target);
-  manifest.cursorHooks = [
-    ...(manifest.cursorHooks ?? []),
-    ...added.filter(
-      (a) => !(manifest.cursorHooks ?? []).some((e) => e.event === a.event && e.command === a.command),
-    ),
-  ];
+  // Replaced, not appended -- see the note on manifest.settingsHooks below.
+  manifest.cursorHooks = keepForeignHooks(manifest.cursorHooks).concat(added);
   writeJson(manifestPath, manifest);
 
   for (const a of added) console.error(`  added cursor hooks.${a.event}: ${a.command}`);
@@ -259,12 +262,14 @@ if (snippetHooks) mergeHooks(target, snippetHooks, recorded);
 writeJson(targetPath, target);
 
 manifest.settingsKeys = [...new Set([...(manifest.settingsKeys ?? []), ...recorded.keys])];
-manifest.settingsHooks = [
-  ...(manifest.settingsHooks ?? []),
-  ...recorded.hooks.filter(
-    (h) => !(manifest.settingsHooks ?? []).some((e) => e.event === h.event && e.command === h.command),
-  ),
-];
+
+// Replaced, not appended. `dropOurs` above clears every spelling of our hooks out of settings.json
+// before rewriting them, so "what we just wrote" is the complete truth about what is installed --
+// but the manifest side only ever appended entries it had not seen, which meant an old spelling
+// (a literal $HOME from a version that did not resolve it, a renamed script) stayed on the record
+// forever. Measured: four records for two hooks. The manifest is the only thing `uninstall` has to
+// go on, so a stale entry is a request to remove something that is not there.
+manifest.settingsHooks = keepForeignHooks(manifest.settingsHooks).concat(recorded.hooks);
 writeJson(manifestPath, manifest);
 
 for (const k of recorded.keys) console.error(`  set ${k}`);

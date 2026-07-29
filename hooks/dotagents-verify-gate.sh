@@ -31,17 +31,8 @@ command -v node >/dev/null 2>&1 || GATE_NODE_MISSING=1
 GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 TRACE="$GATE_DIR/trace.log"
 
-# One line per invocation, so "nothing happened" can be told apart from "never ran". Cheap: a turn
-# ends at most a few times a minute. Capped so it cannot grow without bound.
-trace() {
-  [[ -d "$GATE_DIR" ]] || return 0
-  printf '%s\t%s\t%s\t%s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-?}" "${3:-}" >> "$TRACE" 2>/dev/null || true
-  # Keep the tail only; rewriting in place beats a second file to clean up.
-  if [[ "$(wc -l < "$TRACE" 2>/dev/null || echo 0)" -gt 200 ]]; then
-    tail -100 "$TRACE" > "$TRACE.trim" 2>/dev/null && mv "$TRACE.trim" "$TRACE" 2>/dev/null || true
-  fi
-}
+# Defined in the shared block below, so gate.sh records arm / disarm / record in the same log.
+trace() { gate_trace "$@"; }
 
 # >>> dotagents:gate-shared -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
 # Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
@@ -81,6 +72,28 @@ gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tre
 # several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
 state_dir_for() { # <armed-dir> <dir>
   printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
+}
+
+# --- the trace --------------------------------------------------------------
+# One line per event, so "nothing happened" can be told apart from "never ran". Capped, because an
+# unbounded log under $HOME is the same failure as the unbounded backups.
+#
+# Shared so that `gate.sh` writes here too, not only the hook. Without it, arm / disarm / record left
+# no trace at all -- and the whole reason this file exists is to explain a gate nobody remembers
+# arming, which is precisely an arm nobody recorded.
+gate_trace() { # <who> <where> <what>
+  [[ -d "$GATE_DIR" ]] || return 0
+  local trace="$GATE_DIR/trace.log" tmp
+  printf '%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-?}" "${3:-}" >> "$trace" 2>/dev/null || true
+  # Trimmed through a temp file and renamed. `tail > f.trim && mv f.trim f` is two steps with a window
+  # between them, so two turns ending at once could lose lines -- in the one file that exists to say
+  # what happened.
+  if [[ "$(wc -l < "$trace" 2>/dev/null || echo 0)" -gt 200 ]]; then
+    tmp="$trace.trim.$$"
+    tail -100 "$trace" > "$tmp" 2>/dev/null && mv -f "$tmp" "$trace" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  fi
+  return 0
 }
 
 # --- the clock --------------------------------------------------------------
