@@ -341,6 +341,25 @@ if [[ -d "$REPO/agents" ]]; then
     err "placeholder" "'$ph' names a dispatch target with the wrong prefix -- internal skills are x-*, so a sweep over real names will never fix it"
   done < <(grep -rhoE '`da-review-<[a-z]+>`' "$REPO"/skills/*/SKILL.md 2>/dev/null | sort -u)
 
+  # Anything with a counterpart in _shared/ must be a symlink to it. These were copies for a long time,
+  # and the copies drifted: the four mandatory review requirements and the verifier-bias section were
+  # written into _shared/ and reached none of the five review skills. Nothing reported it, because a
+  # stale copy is a perfectly valid file. Assert the mechanism, not the content -- copies that happen to
+  # match today drift tomorrow.
+  for shared in "$REPO"/skills/_shared/*.md; do
+    [[ -f "$shared" ]] || continue
+    sname="$(basename "$shared")"
+    for user in "$REPO"/skills/*/reference/"$sname"; do
+      [[ -e "$user" || -L "$user" ]] || continue
+      rel="${user#"$REPO"/skills/}"
+      if [[ ! -L "$user" ]]; then
+        err "_shared" "$rel is a copy of _shared/$sname, not a symlink -- an edit to _shared/ will not reach it, and nothing reports that"
+      elif [[ "$(readlink "$user")" != "../../_shared/$sname" ]]; then
+        err "_shared" "$rel points at '$(readlink "$user")' instead of ../../_shared/$sname"
+      fi
+    done
+  done
+
   # Every agent named by a skill must exist, or the dispatch degrades with no error.
   while read -r ref; do
     [[ -n "$ref" ]] || continue
