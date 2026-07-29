@@ -1,5 +1,24 @@
 # Report format
 
+## The four things every review must contain
+
+Not a template to fill in — the four things a review is *for*. A report missing any of them is
+incomplete regardless of how many findings it has, and the last row is the one usually skipped.
+
+| | Required | Where |
+|---|---|---|
+| **1** | **What actually changed.** The units, the observable difference for someone else, the mechanism, and the blast radius. **Written first, and written even when nothing was found.** | [Change summary](#change-summary--always-first-always-present) |
+| **2** | **A critical multi-perspective review as a tech lead for that domain**, with **architecture, aggregate and transaction boundaries, and security weighted highest** and never collapsed away. | The layer's perspective clusters; the four that survive every collapse are listed in `review-process.md` |
+| **3** | **For every finding: why this implementation is wrong, in detail** — mechanism, the concrete failure, the path that reaches it, and whether the *shape* causes it — **plus the exact line and the comment to leave there.** | [How each finding is presented](#how-each-finding-is-presented) |
+| **4** | **Severity as levels, with the criteria stated**, so the reader knows what blocks and what does not. | [Bucketing](#bucketing) |
+
+Two more that are not negotiable either, because without them the four above can be quietly hollow:
+
+| | Required | Where |
+|---|---|---|
+| **5** | **What was read versus assumed**, and what was not checked at all. A clean result means "not detected at this depth", never "safe". | 🔎 in the skeleton |
+| **6** | **The refutation count.** How many findings were raised and killed. Zero refutations means the pass was not calibrated — say which it was. | 🔬 in the skeleton |
+
 ## Merging duplicates
 
 Findings on the same `file` within roughly ±5 lines, or sharing a root cause, **merge into one**:
@@ -10,14 +29,18 @@ same problem must not appear once per perspective that noticed it.
 
 Each finding is counted in **exactly one** bucket.
 
-| Bucket | Contents |
-|---|---|
-| ⛔ | `irreversible=true`. Never also counted under 🔴. |
-| 🔴 | `critical` that is not irreversible. |
-| 🟡 | warning |
-| 💡 | info |
-| 🧭 | Design soundness, system-wide and propagation risk, upgraded unverified clears. Things a senior would ask about but cannot call defects. **Exempt from noise caps.** When the harm is legible, it belongs in 🔴/⛔ instead. |
-| 👤 | Needs a human: unverified clears, unresolved reachability. |
+**State the criteria in the report itself**, as a one-line legend under the summary table. A reader who
+does not know what separates 🔴 from 🟡 cannot act on either, and "critical" means something different in
+every review they have read before this one.
+
+| Bucket | Contents | What it means for the reader |
+|---|---|---|
+| ⛔ | `irreversible=true`. Never also counted under 🔴. | **Do not merge.** Shipping it cannot be taken back: data loss, a destructive migration, a broken contract for a consumer you do not control, a permission already used. |
+| 🔴 | `critical` that is not irreversible. | **Fix before merge.** A reachable correctness, security or tenancy defect — with the path written out, not assumed. |
+| 🟡 | warning | **Should fix, does not block.** Real but bounded: recoverable, or reachable only in a state you can accept for now. |
+| 💡 | info | **Optional.** Prefix the comment `Nit:` so the author can see it does not block. |
+| 🧭 | Design soundness, system-wide and propagation risk, upgraded unverified clears. Things a senior would ask about but cannot call defects. **Exempt from noise caps.** | **A judgement call, not a defect.** "This shape will cost us" — worth a decision, not a fix. When the harm becomes legible it belongs in 🔴/⛔ instead. |
+| 👤 | Needs a human: unverified clears, unresolved reachability. | **Blocked on someone.** Says what to look at or whom to ask to settle it. |
 
 Summary-table totals must equal the post-merge finding count.
 
@@ -27,22 +50,45 @@ or 🧭.
 
 ## How each finding is presented
 
-⛔, 🔴, and 🟡 findings are written as a three-part set, optimised for "comprehensible with no prior
-context, and pasteable straight into the PR". 💡 may collapse to a one-line summary.
+Every ⛔ and 🔴 finding carries **four parts, all required**. 🟡 carries all four but may be terser. 💡
+may collapse to a one-line summary.
 
-- **📍 Location** — `path/to/file.ts:123`, the **exact line** the inline comment attaches to. Ranges
-  as `:120-135`.
-- **Plain explanation** — two to four sentences, avoiding jargon and abbreviations (gloss them if
-  unavoidable): what the situation is now, what is wrong with it, and whose problem it becomes if
-  left alone. This is context for the person reading the report.
-- **💬 Suggested comment**, as a block quote, ready to paste on that line:
-  > **[🔴/🟡] One-line summary.** What the problem is (concrete input and state → result) → why it
-  > matters → the recommended fix (the relevant API, the direction of the smallest diff,
-  > pseudocode if useful). When confidence is low, say "needs confirming: X".
+**1. 📍 Location** — `path/to/file.ts:123`, the **exact line** the inline comment attaches to. Ranges as
+`:120-135`. A finding without a line is not a finding; it is an impression.
+
+**2. Why this implementation is wrong** — the technical rationale, and **the part that must not be
+short.** Four things, in this order:
+
+- **What the code does now.** The actual mechanism, read from the file rather than inferred from the
+  name. Quote the two or three lines that matter.
+- **The concrete failure.** A specific input and state → the specific wrong result. Not "may cause
+  inconsistency" but "two requests arriving inside the same transaction window both read version 3, both
+  write version 4, and the second silently discards the first's line items".
+- **The path that reaches it.** Which caller, which permission, which timing. This is what separates a
+  branch that exists in the code from a branch that runs in production, and it is why the severity is
+  what it is.
+- **Why the shape causes it, not just this line.** Is this a slip, or does the structure make the slip
+  likely — an invariant no guard enforces, a default whose correctness depends on every caller
+  compensating, a type that permits the invalid state? A finding that only fixes the line leaves the next
+  one to be written.
+
+> **This part is never dropped for being long.** It is the part that makes a finding actionable by
+> someone who did not do the review, and the part a reader uses to decide whether to believe it. If it
+> cannot be written, the finding is not understood well enough to report — say so and move it to 👤.
+
+**3. Plain explanation** — two to four sentences, no jargon (gloss it if unavoidable): what the situation
+is now, what is wrong, and **whose problem it becomes if left alone**. This is for the person reading the
+report, not the person fixing the code. It may be brief; it may not be absent.
+
+**4. 💬 Suggested comment**, as a block quote, ready to paste on that line:
+
+> **[🔴/🟡] One-line summary.** What the problem is (concrete input and state → result) → why it
+> matters → the recommended fix (the relevant API, the direction of the smallest diff, pseudocode if
+> useful). When confidence is low, say "needs confirming: X".
 
 The comment must **stand on its own when displayed as a single line**, since the review UI shows it
-attached to a line with nothing around it. **When the plain explanation and the comment would say
-the same thing, keep only the comment** — do not pad.
+attached to a line with nothing around it. It is a compression of part 2, not a replacement for it —
+**the comment is what the author reads at the line; part 2 is what makes the report reviewable.**
 
 Each ⛔ row gets one 💬 suggested comment with its line. Each 👤 item must state, in the comment,
 **what to look at or whom to ask** to settle it.
@@ -69,9 +115,21 @@ Replace `<Layer>` with Backend, Frontend, or Infra.
 ```markdown
 ## <Layer> Review Report
 
-### Change summary
-- What / why / how it works
-- Blast radius (the related domains, modules, screens, or stacks)
+### Change summary — always first, always present
+
+**Written before any finding, and written even when there are no findings.** A reader who does not
+already know the diff cannot judge a single severity without it, and a review that opens with problems
+has skipped establishing what is being reviewed.
+
+- **What changed**, concretely: the units added, changed or removed — functions, classes, types, tables,
+  contracts, endpoints, resources, components. Names, not adjectives.
+- **What it changes for someone else**: the observable difference in behaviour, contract, or output. If
+  there is none — a pure refactor — say that explicitly, because it changes what the review is looking
+  for.
+- **How it works**: the mechanism, in two or three sentences. If you cannot describe the mechanism, you
+  are not ready to review it.
+- **Blast radius**: the related domains, modules, screens, or stacks the Step 2 trace turned up — and
+  anything in that list you did **not** read.
 
 ### ⛔ Irreversibility hotspots (highest priority, verified)
 | Location | Kind | Why it cannot be undone | Must confirm before release |

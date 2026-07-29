@@ -137,8 +137,13 @@ resolves inside the subagent, whose working directory is not yours.
 - [ ] Cluster 0 ran, and every resource whose identity-forming attributes changed is named
 - [ ] `silent-failure-patterns.md` was applied in both phases
 - [ ] Every possible replacement or state loss is listed under ⛔ with the command that would confirm it
+- [ ] **The change summary is first**, names what changed and the mechanism, and is present even with no findings
+- [ ] **Architecture, aggregate/transaction boundaries, and security were each covered** — not collapsed away, and the report says how the fan-out was shaped
+- [ ] **Every ⛔ and 🔴 carries all four parts**: exact line, a detailed why-this-is-wrong (mechanism → concrete failure → the path that reaches it → whether the shape causes it), a plain explanation, and a pasteable comment
+- [ ] **The severity legend is in the report**, so 🔴 versus 🟡 is not left to the reader to guess
 - [ ] No destructive or permission-widening finding was downgraded for being merely improbable
 - [ ] 🔎 states what was read versus assumed, and says plainly that no plan output was seen
+- [ ] 🔬 reports the refutation count; zero refutations is stated as such rather than left implicit
 
 ## Guardrails
 

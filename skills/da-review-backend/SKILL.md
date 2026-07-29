@@ -125,8 +125,13 @@ resolves inside the subagent, whose working directory is not yours.
 - [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
 - [ ] Cluster 0 ran, and the foundation this change depends on was opened and cited, or marked 👤
 - [ ] `silent-failure-patterns.md` was applied in both phases
+- [ ] **The change summary is first**, names what changed and the mechanism, and is present even with no findings
+- [ ] **Architecture, aggregate/transaction boundaries, and security were each covered** — not collapsed away, and the report says how the fan-out was shaped
+- [ ] **Every ⛔ and 🔴 carries all four parts**: exact line, a detailed why-this-is-wrong (mechanism → concrete failure → the path that reaches it → whether the shape causes it), a plain explanation, and a pasteable comment
+- [ ] **The severity legend is in the report**, so 🔴 versus 🟡 is not left to the reader to guess
 - [ ] Every ⛔ and 🔴 has a traced, reachable path; anything unreachable moved to 👤
 - [ ] 🔎 states what was read versus assumed — a clean result says "not detected at this depth"
+- [ ] 🔬 reports the refutation count; zero refutations is stated as such rather than left implicit
 
 ## Guardrails
 

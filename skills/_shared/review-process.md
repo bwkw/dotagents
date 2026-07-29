@@ -94,9 +94,22 @@ Hand every subagent:
 - the contents of `finding-discipline.md`, including the return schema
 
 **Scale the fan-out to the change.** For a small or narrow diff, collapse adjacent clusters into two
-or three subagents; expand to every cluster only when the impact map is wide. **Even when collapsed,
-cluster 0 — design soundness and the question one level up — must land in one of them.** Keep
-concurrency at about eight; queue the rest.
+or three subagents; expand to every cluster only when the impact map is wide. Keep concurrency at about
+eight and queue the rest.
+
+**Four clusters survive every collapse.** They are the ones where a miss is expensive and a late catch is
+a rewrite, so they are never merged away, never sampled, and never dropped for a "small" diff:
+
+| Always covered | Why it cannot wait |
+|---|---|
+| **0. Design soundness / the question one level up** | The only cluster that can conclude "this should not be built this way". No amount of per-file scrutiny reaches it. |
+| **Architecture and boundaries** | Layer direction, module and context boundaries, where responsibility sits. Wrong here and every later change pays for it. |
+| **Aggregates and transaction boundaries (DDD)** | Aggregate granularity, cross-aggregate invariants, what a single transaction is allowed to span. These are decided once and inherited by everything after. |
+| **Security, authorization and tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The only category where being wrong once is already the incident. |
+
+For a one-line diff that means one subagent still carries all four. Say in the report which clusters were
+collapsed together and which ran alone — a reader cannot calibrate a clean result without knowing how the
+fan-out was shaped.
 
 ## Step 6. Verify
 

@@ -43,12 +43,11 @@ This skill classifies the change and runs the layers that apply, then does the p
 | `da-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
 | `da-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
 
-**The dispatcher reads no reference files.** Each layer skill tells its own subagents what to load,
-and the cross-layer report skeleton is inline in Step 4. Opening a reference here would park it in the
-main context for the rest of the session, which is the cost this split exists to avoid.
+**The dispatcher reads no reference files** until Step 4. Each layer skill tells its own subagents what
+to load, and opening a reference here would park it in the main context for the whole session.
 
-Step 4 is the one exception, and it reads three files — **all listed here so each is one level from this
-file**, because a reference reached only through another reference gets partially read:
+Step 4 reads three, **all listed here so each is one level from this file** — a reference reached only
+through another reference gets partially read:
 
 | File | When |
 |---|---|
@@ -164,39 +163,32 @@ comment per finding. **Do not restate them.** Attach the same three-part set onl
 cross-layer findings you raise here — and for a backend ↔ frontend contract issue, give the line on
 *both* sides.
 
-```markdown
-## Cross-Layer Review Summary
+**The report skeleton is in `${CLAUDE_SKILL_DIR}/reference/cross-layer.md`**, which this step
+already reads. It lives there rather than here because it is only needed once the layer reports
+are in, and a template parked in this context from the first turn is the cost the split avoids.
 
-### Layers touched
-- infra: N files / backend: M files / frontend: K files (unclassified: L)
+## Done when
 
-### Layer reports
-- 🏗️ Infra / ⚙️ Backend / 🖥️ Frontend — see each report for detail
-- Counts are consolidated in 📊 below; not repeated here
-- Each report carries 📍 location, plain explanation, and 💬 suggested comment per finding
+The four requirements in `report-format.md` apply to the layer reports; these are the dispatcher's own,
+and it is the only place they can be checked because no layer can see them.
 
-### 🔗 Cross-layer irreversibility and consistency risks (highest priority)
-| Risk | Layers | What breaks | Ship order / must confirm |
-|---|---|---|---|
-| e.g. contract field made required, backend deployed first | backend→frontend | old frontend fails validation | ship frontend first, or accept both during a staged migration |
-
-Follow each 🔗 row with one 📍 location and one 💬 suggested comment.
-
-### 🧭 Design and system-wide doubts / unverified clears (pulled up from every layer)
-- Which layer, and what would settle it.
-
-### 🔎 Confidence of this review
-- What each layer actually read versus assumed, in one or two lines. State plainly that a clean
-  result means "not detected at this depth", not a design sign-off.
-
-### 📊 Summary
-| Layer | ⛔ | 🔴 | 🟡 | 💡 | 🧭 | 👤 |
-|---|---|---|---|---|---|---|
-| infra | | | | | | |
-| backend | | | | | | |
-| frontend | | | | | | |
-| 🔗 cross-layer | | | | | | |
-```
+- [ ] The layer classification was shown **before** any review ran, and every file is in a layer or listed
+      as unclassified
+- [ ] Every layer with files was dispatched to **by skill name**, and the transcript shows it ran — a
+      layer reported as covered with no subagent behind it is the failure this dispatcher exists to avoid
+- [ ] **The change summary spans layers**: what changed in each, and what the change is *as one thing*
+      rather than three unrelated diffs
+- [ ] **All six cross-layer forms were applied**, not just the four structural ones — including the
+      agent-authored case where both sides of a boundary agree with each other and are wrong about the
+      outside world
+- [ ] Every 🔗 finding names **both** layers and carries a 📍 on **each** side, plus the detailed
+      why-this-is-wrong and a pasteable comment
+- [ ] Every layer's 🧭 and 👤 were **pulled up**, not left inside a sub-report
+- [ ] Duplicates across layers were merged and the summary counts them **once**
+- [ ] 🔎 says which layers were reviewed at what depth, and states plainly that a clean cross-layer result
+      is not a sign-off
+- [ ] If only one layer was touched, the report says explicitly that there is **no cross-layer impact** —
+      rather than implying a synthesis happened
 
 ## Guardrails
 

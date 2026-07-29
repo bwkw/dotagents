@@ -118,3 +118,41 @@ layers. Follow each with one 📍 location per side — for a backend ↔ fronte
 line in each repository or directory — and one 💬 suggested comment.
 
 A cross-layer finding whose 📍 points at only one layer has not been traced across the boundary yet.
+
+---
+
+## The report skeleton
+
+```markdown
+## Cross-Layer Review Summary
+
+### Layers touched
+- infra: N files / backend: M files / frontend: K files (unclassified: L)
+
+### Layer reports
+- 🏗️ Infra / ⚙️ Backend / 🖥️ Frontend — see each report for detail
+- Counts are consolidated in 📊 below; not repeated here
+- Each report carries, per ⛔/🔴 finding: 📍 exact line, the detailed why-this-is-wrong, a plain explanation, and 💬 a pasteable comment
+
+### 🔗 Cross-layer irreversibility and consistency risks (highest priority)
+| Risk | Layers | What breaks | Ship order / must confirm |
+|---|---|---|---|
+| e.g. contract field made required, backend deployed first | backend→frontend | old frontend fails validation | ship frontend first, or accept both during a staged migration |
+
+Follow each 🔗 row with **one 📍 per side**, the detailed why-this-is-wrong, and one 💬 pasteable comment.
+
+### 🧭 Design and system-wide doubts / unverified clears (pulled up from every layer)
+- Which layer, and what would settle it.
+
+### 🔎 Confidence of this review
+- What each layer actually read versus assumed, in one or two lines. State plainly that a clean
+  result means "not detected at this depth", not a design sign-off.
+
+### 📊 Summary
+| Layer | ⛔ | 🔴 | 🟡 | 💡 | 🧭 | 👤 |
+|---|---|---|---|---|---|---|
+| infra | | | | | | |
+| backend | | | | | | |
+| frontend | | | | | | |
+| 🔗 cross-layer | | | | | | |
+```

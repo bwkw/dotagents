@@ -158,6 +158,20 @@ substitutions:
 - 📍 Location points at a **section of the plan**, plus the `file:line` in the code it conflicts with
   when there is one.
 
+**The four required parts still apply, read for a plan rather than a diff.** They are what makes a design
+review actionable instead of a list of misgivings:
+
+| Part | Here it means |
+|---|---|
+| **1. What changed** | *What the plan proposes to do*, restated from Step 1 and confirmed. First, and present even when nothing is found. |
+| **2. Why this is wrong, in detail** | The mechanism the plan implies → the concrete failure it produces → **when** it produces it (which deploy step, which migration, which load) → and whether the *shape* of the plan causes it rather than one sentence in it. "This will be slow" is not this part; "the backfill locks the orders table for the duration and the plan runs it before the read path moves off it" is. |
+| **3. Plain explanation** | Two to four sentences for whoever has to decide, jargon glossed. |
+| **4. 💬 Suggested comment** | Pasteable onto that plan section, or onto the PR that will implement it. |
+
+**Architecture, aggregate and transaction boundaries, and security are weighted highest here too** —
+more so than in code review, because at plan stage they are still cheap to move and afterwards they are a
+rewrite. If a plan is silent on any of the three, that silence is a ❓, not a pass.
+
 ```markdown
 ## Design Review — <plan name>
 
