@@ -508,17 +508,22 @@ budget_total="$(node -e '
 ' "$profile" 2>/dev/null)"
 case "$budget_total" in ''|*[!0-9]*|0) budget_total=$GATE_TOTAL_TIMEOUT_DEFAULT ;; esac
 
-# id first, timeout second, command last: the command is the only field that can contain a tab, and
-# `read` gives the remainder of the line to the last variable.
+# id, timeout and the mutates flag first, command last: the command is the only field that can contain
+# a tab, and `read` gives the remainder of the line to the last variable.
 node -e '
   const p = require(process.argv[1]);
   const dflt = Number(process.argv[2]);
   for (const c of p.checks || [])
     if (c.gate && c.agent_may_run) {
       const t = Number.isInteger(c.timeout) && c.timeout > 0 ? c.timeout : dflt;
-      console.log([c.id, t, c.cmd].join("\t"));
+      console.log([c.id, t, c.mutates ? "1" : "0", c.cmd].join("\t"));
     }
 ' "$profile" "$GATE_CHECK_TIMEOUT_DEFAULT" > "$work"
+
+# What the working tree looks like, cheaply, so a check that declares `mutates` can be held to it.
+tree_fingerprint() {
+  git -C "$repo_root" -c core.quotePath=false status --porcelain 2>/dev/null
+}
 
 # macOS ships no `timeout` and no `gtimeout`, so the wall clock is built here rather than depended on.
 # Real seconds, deliberately not gate_now(): this measures how long a command actually took, and a
@@ -582,7 +587,7 @@ case "$max_attempts" in ''|*[!0-9]*|0) max_attempts=3 ;; esac
 gate_started="$(date +%s)"
 unrun=""
 
-while IFS=$'\t' read -r id secs cmd; do
+while IFS=$'\t' read -r id secs mutates cmd; do
   [[ -n "$id" ]] || continue
   case "$secs" in ''|*[!0-9]*|0) secs=$GATE_CHECK_TIMEOUT_DEFAULT ;; esac
 
@@ -595,13 +600,20 @@ while IFS=$'\t' read -r id secs cmd; do
     #
     # Untracked files are included: a turn that only adds new files produced an empty list, which
     # skipped the check entirely -- and a new file is what most needs checking.
+    #
+    # Listed from $run_dir, not from the repository root. The command runs in
+    # repo_root/<profile.cwd>, so root-relative paths were being handed to a runner that could not
+    # open them: dresscode-backend.json sets "cwd": "v2" with `vitest run {files}`, and a changed file
+    # arrived as `v2/src/foo.ts` for a vitest already inside `v2/`. Depending on passWithNoTests that
+    # is a permanent false failure or a vacuous pass. `--relative` also scopes the list to that
+    # subtree, which is the right answer too: a check that runs in v2/ is about v2/'s files.
     files=""
     while IFS= read -r -d '' _f; do
       [[ -n "$_f" ]] || continue
       files="$files $(printf '%q' "$_f")"
     done < <(
-      git -C "$repo_root" -c core.quotePath=false diff -z --name-only --diff-filter=d HEAD 2>/dev/null
-      git -C "$repo_root" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
+      git -C "$run_dir" -c core.quotePath=false diff -z --relative --name-only --diff-filter=d HEAD 2>/dev/null
+      git -C "$run_dir" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
     )
     [[ -n "${files// /}" ]] || continue
     cmd="${cmd//\{files\}/${files# }}"
@@ -620,9 +632,35 @@ while IFS=$'\t' read -r id secs cmd; do
     continue
   fi
 
+  before=""
+  [[ "$mutates" == "1" ]] && before="$(tree_fingerprint)"
+
   run_check "$secs" "$cmd"
   out="$check_out"
   code="$check_code"
+
+  # A check declaring `mutates` is an auto-fixer, and both dresscode profiles gate on two of them
+  # (`lint:fix`, `format:fix`, scope: all). Succeeding is not enough to report green: the hook has
+  # just rewritten the tree after the agent decided it was done, and in a loop the next iteration
+  # would read files it did not write. So the change is surfaced and the turn is held once. Nothing is
+  # reverted -- the fix is wanted, the silence is not -- and the next turn passes with nothing left to
+  # fix. A gate that repairs things quietly is a gate whose green cannot be trusted.
+  if [[ "$mutates" == "1" && $code -eq 0 && "$(tree_fingerprint)" != "$before" ]]; then
+    { printf '%s\n%s\n%s\n' "$id" "$cmd" "mutated"
+      printf '%s' "The '$id' check changed the working tree while running.
+
+It succeeded, so nothing is broken -- but the files you were about to finish with are
+not the files you wrote. Review the changes it made, then end the turn again; with
+nothing left to fix this check passes and the gate gets out of the way.
+
+Working tree now:
+$(tree_fingerprint)
+
+Its own output:
+$out"
+    } > "$work.fail"
+    break
+  fi
 
   if [[ -f "$work.timeout" ]]; then
     { printf '%s\n%s\n%s\n' "$id" "$cmd" "timeout"; printf '%s' "$out"; } > "$work.fail"

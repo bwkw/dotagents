@@ -410,6 +410,63 @@ JSON
 check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
+echo "verify-gate — {files} is relative to where the command runs"
+echo
+
+# {files} came from `git -C "$repo_root"`, so the paths were repo-root-relative -- but the command runs
+# in repo_root/<profile.cwd>. dresscode-backend.json sets "cwd": "v2" and "pnpm exec vitest run
+# {files}", so a changed file arrived as `v2/src/foo.ts` and was handed to a vitest running inside
+# `v2/`. Depending on passWithNoTests that is either a permanent false failure or a vacuous pass.
+# No existing case combined cwd with {files}, which is why it survived.
+rm -rf "$GATE"
+SUBREPO="$TMP/subrepo"; mkdir -p "$SUBREPO/pkg/src"
+git -C "$SUBREPO" init -q
+git -C "$SUBREPO" remote add origin git@github.com:example/sub.git
+echo base > "$SUBREPO/pkg/src/a.ts"
+git -C "$SUBREPO" add -A
+git -C "$SUBREPO" -c user.email=t@t -c user.name=t commit -qm init
+echo changed >> "$SUBREPO/pkg/src/a.ts"
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$SUBREPO" >/dev/null
+cat > "$PROFILES/sub.json" <<'JSON'
+{ "match": { "remote": "example/sub" },
+  "cwd": "pkg",
+  "checks": [ { "id": "unit", "cmd": "echo files={files}; false", "gate": true,
+                "agent_may_run": true, "scope": "changed" } ] }
+JSON
+check "a profile with cwd + scope:changed -> runs and can block" 2 "$(invoke_at "$SUBREPO")"
+grep -q 'files=src/a.ts' "$TMP/stderr" \
+  && ok "   the path is relative to cwd, so the runner in pkg/ can open it" \
+  || no "   wrong base directory: $(grep -o 'files=[^ ]*' "$TMP/stderr" | head -1)"
+rm -f "$PROFILES/sub.json"
+
+echo
+echo "verify-gate — a check that rewrites the tree cannot report green"
+echo
+
+# Both dresscode profiles gate on `pnpm run lint:fix` and `pnpm run format:fix`, scope: all. So the
+# hook rewrites the working tree after the agent has decided it is done -- and if the fixer succeeds
+# the gate goes green, hiding the fact that it changed code. In a loop the next iteration then reads a
+# tree it did not write. The gate reports; it does not repair silently.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "fixer", "cmd": "echo autofixed >> touched-by-the-gate.txt", "gate": true,
+                "agent_may_run": true, "mutates": true } ] }
+JSON
+check "a mutating check that changes the tree -> blocks instead of going green" 2 "$(invoke)"
+grep -qi 'changed the working tree' "$TMP/stderr" \
+  && ok "   says the gate itself changed files" \
+  || no "   silent about the modification: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+
+# ...and once there is nothing left to fix, it must get out of the way.
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "fixer", "cmd": "true", "gate": true, "agent_may_run": true, "mutates": true } ] }
+JSON
+check "   a mutating check that changes nothing -> passes" 0 "$(invoke)"
+rm -f "$REPO/touched-by-the-gate.txt"
+
+echo
 echo "verify-gate — the gate owns its own clock"
 echo
 
