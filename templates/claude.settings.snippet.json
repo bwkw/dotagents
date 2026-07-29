@@ -7,6 +7,36 @@
   "env": {
     "OTEL_LOG_TOOL_DETAILS": "1"
   },
+
+  "$comment-skillOverrides": [
+    "Claude Code ships ~40 skills compiled into its own binary, and an Anthropic-managed plugin adds",
+    "~11 more. None of those exist on disk, so 75 names are reachable -- not the 24 in ~/.agents/skills.",
+    "These entries either collide with something here on nearly identical triggers, or spend listing",
+    "budget on work outside the development loop.",
+    "",
+    "'name-only' keeps the skill listed and still invocable but drops the description -- the part that",
+    "competes for auto-invocation. 'off' hides it from both the model and the menu.",
+    "",
+    "Nothing here targets our own skills. Those live in Cursor too, and this file does not, so hiding",
+    "one here would make the two agents disagree; ours are managed by frontmatter instead. Bundled and",
+    "plugin skills do not exist in Cursor at all, so there is nothing to diverge from.",
+    "",
+    "disableBundledSkills is deliberately NOT used: it drops all ~40 at once, including code-review and",
+    "review which the usage log shows in real use, and it exists only in CLI 2.1.219+ -- an older",
+    "`claude` on $PATH ignores it silently. See docs/adr/0006."
+  ],
+  "skillOverrides": {
+    "verification-before-completion": "name-only",
+    "claude-api": "name-only",
+    "anthropic-skills:schedule": "off",
+    "docx": "name-only",
+    "pptx": "name-only",
+    "xlsx": "name-only",
+    "pdf": "name-only",
+    "morning": "off",
+    "setup-cowork": "off"
+  },
+
   "hooks": {
     "PreToolUse": [
       {

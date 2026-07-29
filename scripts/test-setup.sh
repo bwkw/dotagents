@@ -25,6 +25,7 @@ cat > "$FAKE/.claude/settings.json" <<'JSON'
 {
   "model": "opus",
   "env": { "SECRET_TOKEN": "do-not-touch-me" },
+  "skillOverrides": { "pdf": "on", "someone-elses-skill": "off" },
   "hooks": {
     "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "other-tool hook" } ] } ],
     "Stop": [ { "matcher": "", "hooks": [ { "type": "command", "command": "~/notify.sh" } ] } ]
@@ -48,6 +49,15 @@ check "install links every shipped skill" \
 
 grep -q 'do-not-touch-me' "$FAKE/.claude/settings.json" \
   && ok "a secret we did not write is untouched" || no "THE SECRET WAS ALTERED"
+
+# skillOverrides is a map we share with the user: we add entries, we must not rewrite theirs. `pdf`
+# is deliberately set to a DIFFERENT value than our snippet asks for, so it exercises the
+# "already set to something else -- not ours to change" branch rather than a no-op.
+so() { node -e 'const f=process.argv[1];try{const s=require(f).skillOverrides||{};console.log(s[process.argv[2]]??"absent")}catch{console.log("absent")}' "$FAKE/.claude/settings.json" "$1"; }
+check "an override the user set to a different value is left alone" "on"  "$(so pdf)"
+check "an override for a skill we know nothing about survives"     "off" "$(so someone-elses-skill)"
+check "our own override is applied"      "name-only" "$(so claude-api)"
+check "an 'off' override is applied"     "off"       "$(so 'anthropic-skills:schedule')"
 
 grep -q 'other-tool hook' "$FAKE/.claude/settings.json" \
   && ok "another tool's PreToolUse hook survives" || no "another tool's hook was dropped"
