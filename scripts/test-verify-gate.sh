@@ -757,6 +757,57 @@ grep -qi 'expired' <<<"$st" \
   || no "status hides the expiry: $(tr '\n' '|' <<<"$st")"
 
 echo
+echo "gate.sh — the machine-readable surface"
+echo
+
+# One surface a driver may parse. Prose gets reworded; new exit codes mean litigating what each one
+# means. Read-only, like `status` itself -- reading state must never be what changes it.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "typecheck", "cmd": "true", "gate": true, "agent_may_run": false,
+                "delegate_reason": "needs heap" } ] }
+JSON
+DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$REPO" >/dev/null
+js="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status --json "$REPO" 2>/dev/null)"
+jf() { node -e '
+  let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try { const v = process.argv[1].split(".").reduce((o,k)=>o?.[k], JSON.parse(s));
+          console.log(typeof v === "object" ? JSON.stringify(v) : String(v)); }
+    catch { console.log("parse-error"); }
+  });' "$1" <<<"$js"; }
+[[ "$(jf armed)" == "true" ]] \
+  && ok "status --json reports armed" \
+  || no "status --json armed=$(jf armed) (raw: $(head -c 120 <<<"$js"))"
+[[ "$(jf gave_up)" == "false" ]] && ok "   gave_up is false while it is still holding" \
+                                 || no "   gave_up=$(jf gave_up)"
+grep -q typecheck <<<"$(jf recorded)" && ok "   the delegated record is listed" \
+                                      || no "   recorded=$(jf recorded)"
+[[ "$(jf ttl_seconds)" == "43200" ]] && ok "   the reclaim window is stated, not implied" \
+                                     || no "   ttl_seconds=$(jf ttl_seconds)"
+
+# ...and after giving up, a driver can see that without reading any prose.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke >/dev/null
+js="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status --json "$REPO" 2>/dev/null)"
+[[ "$(jf gave_up)" == "true" ]] && ok "status --json reports the give-up" \
+                                || no "   gave_up=$(jf gave_up) after the gate gave up"
+[[ "$(jf verdict.reason)" == "red" ]] && ok "   ...with the reason" \
+                                      || no "   verdict.reason=$(jf verdict.reason)"
+[[ "$(jf verdict.check)" == "boom" ]] && ok "   ...and the check" \
+                                      || no "   verdict.check=$(jf verdict.check)"
+
+# Not armed at all must still be valid JSON, or a driver has to special-case it.
+disarm
+js="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status --json "$REPO" 2>/dev/null)"
+[[ "$(jf armed)" == "false" ]] && ok "an unarmed repo still answers with valid JSON" \
+                               || no "   armed=$(jf armed) (raw: $(head -c 120 <<<"$js"))"
+
+echo
 echo "gate.sh — the arming mechanism"
 echo
 

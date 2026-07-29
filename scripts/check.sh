@@ -14,20 +14,40 @@ cd "$REPO"
 FAST=0
 [[ "${1:-}" == "--fast" ]] && FAST=1
 
-c_green=$'\033[32m'; c_red=$'\033[31m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
+# Colour only when someone is looking. Unconditional ANSI is noise in an unattended log and corruption
+# in anything that captures this output into a file.
+if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+  c_green=''; c_red=''; c_dim=''; c_off=''
+else
+  c_green=$'\033[32m'; c_red=$'\033[31m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
+fi
 failed=()
+
+# $TMPDIR is honoured -- the gate hook does this and documents why, and a hardcoded /tmp path ignored
+# it. A predictable name under a world-writable directory is also a symlink-follow target for `>`.
+# Full template because BSD mktemp treats `-t x` as a prefix and GNU coreutils demands XXXXXX.
+LOG="$(mktemp "${TMPDIR:-/tmp}/dotagents-check.XXXXXX")" || { echo "mktemp failed" >&2; exit 1; }
+trap 'rm -f "$LOG"' EXIT INT TERM
 
 step() { # step <label> <command...>
   local label="$1"; shift
   printf '%s── %s%s\n' "$c_dim" "$label" "$c_off"
-  if "$@" >/tmp/dotagents-check.$$ 2>&1; then
+  if "$@" >"$LOG" 2>&1; then
     printf '%s✓%s %s\n' "$c_green" "$c_off" "$label"
   else
     printf '%s✗%s %s\n' "$c_red" "$c_off" "$label"
-    sed 's/^/    /' /tmp/dotagents-check.$$ | tail -25
+    # Head and tail, not `tail -25`. The first error of a long verify-skills.sh run was being cut off,
+    # which is the one you actually need: the rest are usually consequences of it.
+    if [[ "$(wc -l < "$LOG")" -gt 40 ]]; then
+      head -20 "$LOG" | sed 's/^/    /'
+      printf '    %s... (%s lines omitted) ...%s\n' "$c_dim" "$(( $(wc -l < "$LOG") - 40 ))" "$c_off"
+      tail -20 "$LOG" | sed 's/^/    /'
+    else
+      sed 's/^/    /' "$LOG"
+    fi
     failed+=("$label")
   fi
-  rm -f /tmp/dotagents-check.$$
+  : > "$LOG"
 }
 
 syntax() {
@@ -59,9 +79,18 @@ step "CLAUDE.md is still a symlink to AGENTS.md" symlink_intact
 step "skills lint (invariants, budget, agents, override scope)" ./scripts/verify-skills.sh
 
 if (( ! FAST )); then
+  # The installer suite has to create and delete a skill inside this repository, because pruning is
+  # what it exercises. So the tree is compared before and after: a suite that leaves something behind
+  # is a suite that gets its droppings committed by the next loop iteration.
+  tree_before="$(git status --porcelain 2>/dev/null)"
+
   step "verify-gate behaviour"    ./scripts/test-verify-gate.sh
   step "lint-hook and lint scope" ./scripts/test-lint-hook.sh
   step "installer behaviour"      ./scripts/test-setup.sh
+  step "nothing waits for a human" ./scripts/test-non-interactive.sh
+
+  tree_clean() { [[ "$(git status --porcelain 2>/dev/null)" == "$tree_before" ]]; }
+  step "the suites left the working tree as they found it" tree_clean
 fi
 
 echo

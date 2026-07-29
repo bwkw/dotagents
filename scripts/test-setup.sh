@@ -9,7 +9,15 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+
+# One probe is created inside the repository under test, because pruning is what it exercises: the
+# installer only prunes what the repo has stopped shipping, so the repo has to stop shipping
+# something. It is removed inline, and named in the trap as well -- without that, an abort between
+# creating and removing it leaves skills/ephemeral-probe in the working tree, and a loop that runs
+# check.sh and then commits would commit it.
+PROBE_STAGED="$REPO/skills/_ephemeral-probe"
+PROBE_LIVE="$REPO/skills/ephemeral-probe"
+trap 'rm -rf "$TMP" "$PROBE_STAGED" "$PROBE_LIVE"' EXIT INT TERM
 
 pass=0; fail=0
 c_red=$'\033[31m'; c_green=$'\033[32m'; c_off=$'\033[0m'
@@ -101,8 +109,8 @@ cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
   && ok "install is idempotent" || no "a second install changed settings again"
 
 # The reason this file exists: a skill removed from the repo must stop being installed, with no flag.
-mkdir -p "$REPO/skills/_ephemeral-probe"
-cat > "$REPO/skills/_ephemeral-probe/SKILL.md" <<'SK'
+mkdir -p "$PROBE_STAGED"
+cat > "$PROBE_STAGED/SKILL.md" <<'SK'
 ---
 name: ephemeral-probe
 description: Temporary. Use when testing the installer.
@@ -112,10 +120,10 @@ metadata:
 ## Preconditions
 none
 SK
-mv "$REPO/skills/_ephemeral-probe" "$REPO/skills/ephemeral-probe"
+mv "$PROBE_STAGED" "$PROBE_LIVE"
 run_setup install >/dev/null
 [ -e "$FAKE/.claude/skills/ephemeral-probe" ] && ok "a new skill is picked up" || no "new skill not linked"
-rm -r "$REPO/skills/ephemeral-probe"
+rm -r "$PROBE_LIVE"
 run_setup install >/dev/null
 [ -e "$FAKE/.claude/skills/ephemeral-probe" ] \
   && no "a deleted skill is still installed -- pruning is not automatic" \

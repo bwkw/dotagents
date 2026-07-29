@@ -199,7 +199,28 @@ if [[ "$GATE_NODE_MISSING" == "1" ]]; then
   exit 2
 fi
 
-payload="$(cat)"
+# Read the payload through an explicit descriptor, never bare stdin.
+#
+# With fd 0 *closed* -- not empty, closed, which is what a caller that has already exited leaves
+# behind -- bash assigns the lowest free descriptor when it builds the pipe for a command
+# substitution. That is fd 0. So `payload="$(cat)"` had `cat` reading the read end of its own output
+# pipe, and it blocked forever. The harness then killed the hook on its timeout, and a killed hook
+# exits with neither 0 nor 2: non-blocking. The gate failed open because stdin was missing.
+#
+# Duplicating fd 0 to fd 3 first fixes it two ways: the duplication fails loudly when there is no
+# stdin, and nothing afterwards can be handed fd 0 by accident.
+# The probe runs in a subshell. `exec` with a redirection and no command applies that redirection to
+# the shell permanently -- so `exec 3<&0 2>/dev/null` silently sent every later stderr write to
+# /dev/null, and the block message stopped reaching the model at all. A worse fail-open than the one
+# being fixed, and the suite caught it on the next run.
+if ( exec 3<&0 ) 2>/dev/null; then
+  exec 3<&0
+else
+  trace "?" "$PWD" "no readable stdin; treating the payload as empty"
+  exec 3</dev/null
+fi
+payload="$(cat <&3)"
+exec 3<&-
 
 # Tell the two agents apart by their payload. Cursor's stop hook sends {status, loop_count} and no
 # cwd; Claude Code's sends cwd and hook_event_name.

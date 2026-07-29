@@ -62,11 +62,13 @@ for d in claude cursor; do
   probe_dmi x-review-infra    deny "$d"
 done
 
-# Allowed with a warning: legitimate for a user-invoked workflow. Officially recommended, and free.
+# Allowed: legitimate for a user-invoked workflow. Officially recommended, and free. This used to be
+# `ask`, which waits for a human -- so any unattended run that touched one of these SKILL.md files
+# stalled on a permission prompt. This hook only inspects; the one that must stop is the Stop gate.
 for d in claude cursor; do
-  probe_dmi da-pr-describe  ask "$d"
-  probe_dmi da-skills-audit ask "$d"
-  probe_dmi anything-else ask "$d"
+  probe_dmi da-pr-describe  allow "$d"
+  probe_dmi da-skills-audit allow "$d"
+  probe_dmi anything-else allow "$d"
 done
 
 echo
@@ -94,7 +96,32 @@ got="$(payload foo claude "---" "description: Use when x." "---" "b" | bash "$HO
 
 got="$(payload foo claude "---" "name: foo" "description: Formats spreadsheets." "---" "b" \
   | bash "$HOOK" 2>/dev/null | decision)"
-[[ "$got" == "ask" ]] && ok "a description with no 'when' asks" || bad "a description with no 'when' -> $got"
+[[ "$got" == "allow" ]] && ok "a description with no 'when' is allowed, with a warning" \
+                        || bad "a description with no 'when' -> $got"
+
+# The warning still has to be said, or dropping the prompt would just drop the signal.
+warn_reason="$(payload foo claude "---" "name: foo" "description: Formats spreadsheets." "---" "b" \
+  | bash "$HOOK" 2>/dev/null \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);
+      process.stdout.write(j.hookSpecificOutput?.permissionDecisionReason ?? "");}catch{}})')"
+grep -qi 'when to use' <<<"$warn_reason" \
+  && ok "   ...and the warning still names the problem" \
+  || bad "   the warning is gone along with the prompt: $warn_reason"
+
+# verify-skills.sh:131 accepts a Japanese 'when' clause and the hook did not, so a Japanese
+# description passed the linter and then hit a permission prompt from the hook. Two enforcers
+# disagreeing, and the one that stalls a loop was the stricter one.
+got="$(payload foo claude "---" "name: foo" \
+  "description: \u8a2d\u8a08\u6587\u66f8\u3092\u30ec\u30d3\u30e5\u30fc\u3059\u308b\u3002\u5b9f\u88c5\u524d\u306b\u4f7f\u3046\u5834\u5408\u306b\u547c\u3076\u3002" "---" "b" \
+  | bash "$HOOK" 2>/dev/null | decision)"
+[[ "$got" == "allow" ]] && ok "a Japanese-only description is allowed, like the linter already did" \
+                        || bad "a Japanese-only description -> $got (the linter accepts it)"
+
+# Structural: no reachable path may return `ask`. A single one is enough to hang an unattended run,
+# and the next person adding a rule needs the constraint stated where they will trip over it.
+grep -qE '\bask\(' "$HOOK" \
+  && bad "the hook still has an ask() path -- any of them stalls an unattended run" \
+  || ok "the hook has no ask() path at all"
 
 got="$(node -e 'process.stdout.write(JSON.stringify({hook_event_name:"PreToolUse",
   tool_input:{file_path:"/probe/src/index.ts",content:"---\nname: x\n---\n"}}))' \

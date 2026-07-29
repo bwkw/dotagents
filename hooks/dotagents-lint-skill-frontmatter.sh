@@ -33,7 +33,11 @@ process.stdin.on("end", () => {
       : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision,
                                 permissionDecisionReason: `[dotagents] ${reason}` } });
   const deny = (r) => decide("deny", r);
-  const ask = (r) => decide("ask", r);
+  // Allowed, but with something said. This used to be `ask`, which waits for a human -- so any
+  // unattended run that wrote a SKILL.md with a weak description stalled on a permission prompt.
+  // This hook only inspects; the one that is allowed to stop a turn is the Stop gate. Anything that
+  // is genuinely broken is denied below, and everything else is a warning.
+  const warn = (r) => decide("allow", r);
 
   const input = ev.tool_input || {};
 
@@ -95,22 +99,26 @@ process.stdin.on("end", () => {
       );
     }
 
-    // Anything else may set it. Warn once about the cost, because it is easy to set on a skill you
-    // later want another skill to call.
-    return ask(
+    // Anything else may set it. Warn about the cost, because it is easy to set on a skill you later
+    // want another skill to call.
+    return warn(
       `'${name}' will become user-invocable only: its description leaves Claude's context ` +
       "entirely (zero budget cost), it will never fire automatically, and no other skill or " +
       "subagent can reach it by name. Correct for side-effectful workflows you always type " +
-      "yourself. Continue only if nothing dispatches to it.",
+      "yourself. Wrong if anything dispatches to it by name.",
     );
   }
 
   // A description with no sense of *when* to use the skill cannot be matched against a request.
-  if (!/\buse (this|it|when)\b|\bwhen \b|\bafter \b|\bbefore \b/i.test(desc)) {
-    return ask(
+  // dotagents:when-clause-tokens use (this|it|when)|when |after |before |時|する場合
+  // Kept identical to the list in scripts/verify-skills.sh, which verify-skills.sh itself checks.
+  // They disagreed: the linter accepted a Japanese clause and this hook did not, so a Japanese
+  // description passed the lint and then met a permission prompt from the hook.
+  if (!/use (this|it|when)|when |after |before |時|する場合/i.test(desc)) {
+    return warn(
       "This description says what the skill does but not when to use it, so auto-invocation " +
       "will be unreliable. Add a clause naming the situations that should trigger it " +
-      '("use when ..."), or continue if it is meant to be invoked only by name.',
+      '("use when ..."), unless it is meant to be invoked only by name.',
     );
   }
 
@@ -118,7 +126,16 @@ process.stdin.on("end", () => {
 });
 NODE
 
+# Read through an explicit descriptor rather than bare stdin. With fd 0 closed, bash hands the lowest
+# free descriptor to the next pipe it builds -- fd 0 -- and a reader then blocks on its own output
+# pipe. The gate hook hung exactly that way. Here the consequence is a stalled Write rather than a gate
+# that fails open, but a hook that can hang is a hook that can stop an unattended run either way.
+# Probed in a subshell: `exec` with a redirection and no command applies it to the shell for good, so
+# testing with `exec 3<&0 2>/dev/null` would silence this hook's own stderr from then on.
+if ( exec 3<&0 ) 2>/dev/null; then exec 3<&0; else exec 3</dev/null; fi
+
 # A hook that crashes must not block ordinary edits, so anything unexpected falls through open.
 # This one only inspects; the gate that must fail closed is dotagents-verify-gate.sh.
-node -e "$LINTER" 2>/dev/null || true
+node -e "$LINTER" <&3 2>/dev/null || true
+exec 3<&-
 exit 0
