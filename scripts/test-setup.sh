@@ -95,8 +95,8 @@ hook_timeout() { # <event> <substring>
   ' "$FAKE/.claude/settings.json" "$1" "$2"
 }
 st="$(hook_timeout Stop dotagents-verify-gate)"
-[[ "$st" != "absent" ]] && (( st > 420 )) \
-  && ok "the Stop hook timeout exceeds the gate's worst case (300+120) (${st}s)" \
+[[ "$st" != "absent" ]] && (( st > 780 )) \
+  && ok "the Stop hook timeout exceeds the gate's worst case (600+180) (${st}s)" \
   || no "the Stop hook timeout is $st -- a harness kill is non-blocking, so this fails open"
 [[ "$(hook_timeout PreToolUse dotagents-lint-skill-frontmatter)" != "absent" ]] \
   && ok "the lint hook declares a timeout too" \

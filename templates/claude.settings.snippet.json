@@ -43,16 +43,16 @@
     "harness exits with neither 0 nor 2 -- and that is non-blocking. A slow suite would turn the",
     "gate into a silent pass, which is the one failure mode the gate exists to prevent.",
     "",
-    "600 is the documented default for a command hook, and it is what we want: the gate's own worst",
-    "case is timeout_total (300s) plus one check overshooting (120s) = 420s, because the budget is",
-    "checked before starting a check rather than cutting one short. 600 is strictly larger, so our",
-    "clock is always the one that fires -- and a timeout we cause is an event we can observe, record",
-    "and block on.",
+    "900 because this repository's own profile now budgets 600s (it gates every suite check.sh runs)",
+    "and a single check may overshoot by its own timeout, the largest being 180s. 600 + 180 = 780, so",
+    "900 is strictly larger with room. Our clock has to be the one that fires -- a timeout we cause is",
+    "an event we can observe, record and block on; one the harness causes exits non-blocking and says",
+    "nothing.",
     "",
-    "It is stated rather than left implicit because the default is a documented default, not a",
-    "guarantee. An earlier version of this file set 420, which was both below the default (tightening",
-    "the harness clock rather than staying under it) and exactly equal to the gate's worst case, so the",
-    "two could fire together. Raising timeout_total in a profile means raising this to match.",
+    "It is stated rather than left implicit because the documented default (600s for a command hook) is",
+    "a default, not a guarantee. An earlier version set 420, which was both below that default and",
+    "exactly equal to the gate's worst case at the time, so the two could fire together. Raising",
+    "timeout_total in any profile means raising this to match -- scripts/test-setup.sh asserts the gap.",
     "",
     "The lint hook only reads frontmatter through node, so 15s is already far more than it needs."
   ],
@@ -76,7 +76,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/dotagents-verify-gate.sh",
-            "timeout": 600
+            "timeout": 900
           }
         ]
       }
