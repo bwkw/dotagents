@@ -48,7 +48,7 @@ loop and the easiest to get wrong in the expensive direction.
 
 The point of this phase is to *narrow* before context fills. The named failure here is **infinite
 exploration** — reading to feel thorough. `da-investigate` exists with a budget for exactly that reason,
-and it fans out to `da-codebase-explorer` subagents so the reading stays in their context, not yours.
+and it fans out to `x-codebase-explorer` subagents so the reading stays in their context, not yours.
 
 ## Phase 2 — Plan, and write it to disk
 

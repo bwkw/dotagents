@@ -22,7 +22,7 @@ Every verifier is a **fresh subagent that did not take part in the find phase**.
 and the findings, not the reasoning that produced them — that is the whole point. A reviewer who
 watched the work get done evaluates the reasoning; a reviewer who did not evaluates the result.
 
-**Use the `da-review-verifier` agent.** It carries the refute-by-default asymmetry and the read-only
+**Use the `x-review-verifier` agent.** It carries the refute-by-default asymmetry and the read-only
 constraint in its own definition, which means those hold *before* it reads anything — passing them in
 a prompt to `general-purpose` makes them a request instead. It is installed globally by this toolkit,
 so it exists in every repository.
@@ -89,7 +89,7 @@ Rules that make the diversity worth its cost:
 **The infrastructure exception overrides the reachability lens.** For a destructive or
 permission-widening change — resource replacement, state loss, a delete that takes data with it, a
 widened IAM grant — improbability is not a refutation. Refute only by showing the guard exists or that
-the change is not in fact destructive. `da-review-verifier` carries this exception in its own definition.
+the change is not in fact destructive. `x-review-verifier` carries this exception in its own definition.
 
 ---
 

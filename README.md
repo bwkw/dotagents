@@ -57,7 +57,7 @@ Two different questions, two different tools. Reaching for the wrong one is the 
 | "How does the world do this?" | ○ `/research` | External sources. Writes findings to a file, and can run in a background agent |
 | "Where does X live / what depends on it / what would break?" | ● `/da-investigate` | **This** codebase. 25 file reads, 3 search rounds, then it **stops and says what it did not check**. Reports Confirmed / Inferred / Unconfirmed as three distinct things, and retries a negative result with different vocabulary before asserting it |
 
-`/da-investigate` fans out to ● `da-codebase-explorer` subagents, so the reading stays in their context
+`/da-investigate` fans out to ● `x-codebase-explorer` subagents, so the reading stays in their context
 rather than yours.
 
 ### 3. Fix a bug
@@ -82,7 +82,7 @@ rather than yours.
 | | ● `/da-review-all <base>` | For depth. **Reconstructs the intent from the description, issue and commits before producing a single finding** — a difference in approach is not a defect, and pre-existing problems are labelled and do not block |
 | **Narrower passes** | ◆ `/security-review` · ◆ `/simplify` | Security only; quality only and explicitly not a bug hunt |
 
-`da-review-backend` / `-frontend` / `-infra` are full skills but **not in the `/` menu** — the dispatcher
+`x-review-backend` / `-frontend` / `-infra` are full skills but **not in the `/` menu** — the dispatcher
 reaches them, and so does naming a layer ("review the backend"). One thing to type, three layers of depth.
 
 ### 5. Maintain the toolkit
@@ -131,16 +131,23 @@ what counts as a finding worth reporting, what makes a review trustworthy, what 
 work is called done. They are marked **●** throughout.
 
 Plus two subagents in `agents/`, installed globally so they exist in every repository:
-**`da-review-verifier`** (adversarial, refutes by default, never took part in finding) and
-**`da-codebase-explorer`** (read-only tracing, `file:line` evidence, explicit budget). The review skills
+**`x-review-verifier`** (adversarial, refutes by default, never took part in finding) and
+**`x-codebase-explorer`** (read-only tracing, `file:line` evidence, explicit budget). The review skills
 dispatch to them by name. Before they existed, five files said "prefer a purpose-built agent when the
 repository defines one" — and since this toolkit never adds a file to a product repository, that branch
 could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
 
 ## The whole surface, and what is suppressed
 
-**Type `/da` and you have exactly this repository's set.** Everything shipped here is prefixed `da-`
-(for dotagents) — ten skills and two subagents. That solves two problems at once: at the `/` menu
+**Type `/da` and you get the seven things you type — the same seven in Claude Code and in Cursor.**
+
+Two prefixes, and the split is the point. **`da-` is what you type** (7). **`x-` is internal** (3 layer
+reviews, 2 subagents) — reached by the dispatcher or by naming a layer, never typed.
+
+The split exists because hiding by field does not work in both agents: `user-invocable: false` is
+Claude-only, and **Cursor puts subagents in its command picker**, so `/da` there was returning 12 entries
+where Claude returned 7 — five of them dispatch targets nobody should type. Not sharing the prefix fixes
+it in both, without depending on a field either agent may ignore. That solves two problems at once: at the `/` menu
 there is otherwise no way to tell ours from everything else, and an unprefixed name can shadow a built-in
 silently, which already happened once when a skill called `review` hid Claude Code's own `/review`.
 
@@ -200,7 +207,7 @@ writes to GitHub, so the timing is yours. `/da-verify` and the three layer revie
 because something reaches them by name; both the lint hook and the linter enforce that, with tests.
 [`docs/mechanisms.md`](docs/mechanisms.md) has the full taxonomy with sources.
 
-That matters concretely for these four. `/da-review-backend` is one skill that has to work when **you**
+That matters concretely for these four. `/x-review-backend` is one skill that has to work when **you**
 invoke it directly and when **`/da-review-all`** invokes it as one of several layers. As a command it
 would need to be two files that drift apart, which is exactly how this repository's predecessor
 decayed. The single reference set — posture, process, discipline, silent-failure patterns — is shared

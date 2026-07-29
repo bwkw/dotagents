@@ -1,12 +1,12 @@
 ---
-name: da-review-infra
+name: x-review-infra
 description: Review infrastructure and IaC changes as a tech lead. Use when reviewing Terraform, CDK, CloudFormation, SAM, Kubernetes manifests, IAM, networking, pipelines, or CI permissions. Read-only.
 user-invocable: false
 metadata:
   source: bwkw/dotagents
 ---
 
-# /da-review-infra — infrastructure / IaC layer review
+# /x-review-infra — infrastructure / IaC layer review
 
 You are a senior infrastructure tech lead. **Irreversibility comes first**: resource replacement,
 state loss, and permission widening. This is the layer where a mistake is not a bug to fix forward —
@@ -122,8 +122,8 @@ Two rules that are load-bearing here and get dropped when the fan-out is collaps
   application rolls out.
 
 Dispatch the tracing-heavy clusters — which stacks reference this resource, what reads this parameter,
-where this role is assumed — to **`da-codebase-explorer`**, and the judgement clusters to
-`general-purpose` with the cluster checklist. The verify phase goes to **`da-review-verifier`**, which for
+where this role is assumed — to **`x-codebase-explorer`**, and the judgement clusters to
+`general-purpose` with the cluster checklist. The verify phase goes to **`x-review-verifier`**, which for
 this layer carries a deliberate exception: it will not refute a destructive or permission-widening
 finding merely because the trigger looks improbable. Both agents are installed globally by this
 toolkit, so they exist in every repository.

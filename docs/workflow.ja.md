@@ -36,7 +36,7 @@ English: [workflow.md](workflow.md)
 | `/grill-me` | 大まかな案があり、要件が固まるまで質問攻めにしてほしいとき |
 | `/da-investigate` | 「X はどこ」「何が依存している」「何に触る」 —— `file:line` で、固定予算内で、**確認できなかったことを名指しして**答える |
 
-この段階の目的は、context が埋まる前に**狭めること**です。ここでの名前の付いた失敗は **infinite exploration** —— 徹底した気分になるために読む、というもの。`da-investigate` に予算があるのはまさにこのためで、`da-codebase-explorer` サブエージェントに展開するので**読んだ内容は彼らの context に留まり、あなたの context には戻りません**。
+この段階の目的は、context が埋まる前に**狭めること**です。ここでの名前の付いた失敗は **infinite exploration** —— 徹底した気分になるために読む、というもの。`da-investigate` に予算があるのはまさにこのためで、`x-codebase-explorer` サブエージェントに展開するので**読んだ内容は彼らの context に留まり、あなたの context には戻りません**。
 
 ## 段階2 —— Plan、そしてディスクに書く
 

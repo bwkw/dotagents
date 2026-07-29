@@ -123,7 +123,7 @@ enforce it (see ADR 0005):
 
 - **`da-verify`** — the only thing that runs `gate.sh arm`. Without automatic invocation the Stop gate
   never arms and passes every turn: the guardrail opens.
-- **`da-review-backend` / `da-review-frontend` / `da-review-infra`** — `da-review-all` dispatches to them by name.
+- **`x-review-backend` / `x-review-frontend` / `x-review-infra`** — `da-review-all` dispatches to them by name.
 
 ### Hiding from the menu is a different field
 

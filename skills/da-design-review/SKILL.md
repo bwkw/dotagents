@@ -126,7 +126,7 @@ risk** — do not drop a cause because it did not fit a bucket.
 **Mandatory, and it applies to 🚪 one-way doors and 🔴 findings.** Read
 `${CLAUDE_SKILL_DIR}/reference/verification.md` for the general shape — the refute-by-default
 asymmetry, the ⛔/🔴 three-lens pass, and the disposition table all apply here unchanged. Dispatch to
-**`da-review-verifier`**, which did not take part in Steps 1–4.
+**`x-review-verifier`**, which did not take part in Steps 1–4.
 
 Design review has a specific failure mode that code review does not, and it is what this step exists
 to catch: **a plan is a document, so anything not written down looks missing.** The find phase is
@@ -198,7 +198,7 @@ rewrite. If a plan is silent on any of the three, that silence is a ❓, not a p
 - [ ] Every load-bearing claim is either grounded with `file:line` or listed as unverified
 - [ ] One-way doors are separated from ordinary findings
 - [ ] Step 4 ran — absences, not just errors
-- [ ] **Step 5 ran in `da-review-verifier`**, and every 🚪 names the moment the door closes
+- [ ] **Step 5 ran in `x-review-verifier`**, and every 🚪 names the moment the door closes
 - [ ] **Some findings were rejected**, and the count is reported. A review that refuted nothing either
       skipped Step 5 or reported everything it thought of — say which in 🔎.
 

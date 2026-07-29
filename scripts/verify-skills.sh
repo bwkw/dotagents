@@ -157,7 +157,7 @@ check_skill() {
       da-verify)
         err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)" ;;
       # da-review-all dispatches to these three by name via a subagent.
-      da-review-backend|da-review-frontend|da-review-infra)
+      x-review-backend|x-review-frontend|x-review-infra)
         err "$id" "is a by-name dispatch target of da-review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so da-review-all would report this layer as covered while reviewing nothing" ;;
       *)
         : ;;  # legitimate: user-invocable only, zero budget cost, nothing dispatches to it
@@ -252,7 +252,7 @@ check_skill() {
           | sed -n 's/^user-invocable:[[:space:]]*//p' | tr -d '"'"'"' ')"
     if [[ "$ui" == "false" ]]; then
       case "$name" in
-        da-review-backend|da-review-frontend|da-review-infra) : ;;  # dispatched by da-review-all
+        x-review-backend|x-review-frontend|x-review-infra) : ;;  # dispatched by da-review-all
         *)
           err "$id" "sets 'user-invocable: false' but nothing dispatches to it -- gone from the / menu and reachable only by description match. Add it to the dispatch-target list in this check, or drop the field." ;;
       esac
@@ -334,12 +334,19 @@ if [[ -d "$REPO/agents" ]]; then
         || warn "agents/$aid" "declares 'tools:' but the body never states the restriction -- Cursor ignores 'tools:'"
     fi
   done
+  # Template placeholders are the rename trap: `x-review-<layer>` is a real dispatch instruction that
+  # no name-based sweep matches, and it broke twice. Assert the prefix any such placeholder uses.
+  while read -r ph; do
+    [[ -n "$ph" ]] || continue
+    err "placeholder" "'$ph' names a dispatch target with the wrong prefix -- internal skills are x-*, so a sweep over real names will never fix it"
+  done < <(grep -rhoE '`da-review-<[a-z]+>`' "$REPO"/skills/*/SKILL.md 2>/dev/null | sort -u)
+
   # Every agent named by a skill must exist, or the dispatch degrades with no error.
   while read -r ref; do
     [[ -n "$ref" ]] || continue
     [[ " $agent_defs " == *" $ref "* ]] && continue
     err "agents" "skills dispatch to '$ref' but agents/$ref.md does not exist -- the caller silently falls back to general-purpose"
-  done < <(grep -rhoE '\b(da-review-verifier|da-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
+  done < <(grep -rhoE '\b(x-review-verifier|x-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
   printf '%s✓%s %s agent(s) defined:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
 fi
 

@@ -26,7 +26,7 @@ work. That is why they are here rather than in a document you would read once.
    it must never appear, both enforced by `verify-skills.sh` and the lint hook:
    - **`da-verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
      arms and passes every turn: the guardrail **opens**.
-   - **`da-review-backend` / `da-review-frontend` / `da-review-infra`** — `da-review-all` dispatches to them by
+   - **`x-review-backend` / `x-review-frontend` / `x-review-infra`** — `da-review-all` dispatches to them by
      name, so setting it makes the dispatcher report a layer as covered while reviewing nothing.
 
 3. **Frontmatter that a real YAML parser rejects still loads.**
@@ -47,13 +47,18 @@ work. That is why they are here rather than in a document you would read once.
    warns about that. `~/.claude/.dotagents-gate/trace.log` records every invocation and why it
    passed — read it before believing the gate did nothing.
 
-7. **Everything shipped here is named `da-*`, and the name is load-bearing.**
-   It is how you tell ours apart at the `/` menu, and it keeps us from shadowing a built-in — a skill
-   once named `review` hid Claude Code's own `/review` with no warning. **Renaming one breaks two
-   hardcoded lists**: the `disable-model-invocation` scope in `verify-skills.sh` and the same list in
-   the lint hook. Rename without updating both and the guardrail stays installed while enforcing
-   nothing — that happened when the prefix was introduced. `verify-skills.sh` now cross-checks that
-   every protected name still exists and that the two enforcers agree, so it fails loudly instead.
+7. **Two prefixes, and the split is what keeps the menu honest.**
+   **`da-*` is what you type.** **`x-*` is internal** — dispatch targets and subagents, never typed.
+   The split exists because `user-invocable: false` is Claude-only and Cursor puts subagents in its
+   command picker, so *hiding* by field does not work in both agents. Not sharing the `da` prefix does:
+   `/da` returns the same seven entries in Claude Code and in Cursor.
+
+   Renaming any of them breaks **three** places, and all three fail silently: the
+   `disable-model-invocation` scope in `verify-skills.sh`, the same list in the lint hook, and **template
+   placeholders like `` `x-review-<layer>` `` that no name-based sweep matches.** The first two broke on
+   the `da-` rename and the third broke on the `x-` rename, in the same session. `verify-skills.sh` now
+   cross-checks that every protected name resolves, that the two enforcers agree, and that no placeholder
+   carries the wrong prefix.
 
 8. **Every skill carries `metadata.source: bwkw/dotagents`.**
    Ours sit among two dozen third-party skills, and the difference decides what may be done: ours can

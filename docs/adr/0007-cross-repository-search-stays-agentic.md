@@ -3,7 +3,7 @@
 - **Status**: accepted, 2026-07-29
 - **決定**: 複数リポジトリ横断の調査に**ベクトルDB（Milvus × Ollama + claude-context MCP）を採用しない**。virtual monorepo ディレクトリ＋エージェント検索で回す。`codegraph` は未検証のまま残す。
 
-> **日本語の要約** — 横断調査の候補として Milvus×Ollama のローカルベクトルDBを claude-context MCP から引く構成を検討したが、採用しない。理由は4つ: ① 上流のメンテが停滞（直近30日で3コミット）② **インデックスが絶対パス単位**なので symlink で作る virtual monorepo は実体パスと別インデックスになり二重化・鮮度不整合を起こす（公式FAQに明記）③ Milvus Lite 非対応で docker 常駐（etcd＋MinIO＋Milvus）が必須、対価は自己申告の「40%トークン削減」④ **Claude Code 自身が初期の RAG＋ベクトルDB を agentic search に置き換えている**（作者が security / privacy / **staleness** / reliability を理由に挙げている）。代わりに virtual monorepo のディレクトリ、`rg` → `ast-grep` → LSP → 通読の段階的探索、そして `da-investigate` の予算と `da-codebase-explorer` の並列展開で回す。**この判断は計画ファイルにしか書かれておらず、リポジトリには残っていなかった** —— それがこの ADR を書いた理由。
+> **日本語の要約** — 横断調査の候補として Milvus×Ollama のローカルベクトルDBを claude-context MCP から引く構成を検討したが、採用しない。理由は4つ: ① 上流のメンテが停滞（直近30日で3コミット）② **インデックスが絶対パス単位**なので symlink で作る virtual monorepo は実体パスと別インデックスになり二重化・鮮度不整合を起こす（公式FAQに明記）③ Milvus Lite 非対応で docker 常駐（etcd＋MinIO＋Milvus）が必須、対価は自己申告の「40%トークン削減」④ **Claude Code 自身が初期の RAG＋ベクトルDB を agentic search に置き換えている**（作者が security / privacy / **staleness** / reliability を理由に挙げている）。代わりに virtual monorepo のディレクトリ、`rg` → `ast-grep` → LSP → 通読の段階的探索、そして `da-investigate` の予算と `x-codebase-explorer` の並列展開で回す。**この判断は計画ファイルにしか書かれておらず、リポジトリには残っていなかった** —— それがこの ADR を書いた理由。
 
 ## Context
 
@@ -59,7 +59,7 @@ dependency that will eventually break silently.
 | **Virtual monorepo** | A plain directory of symlinks to each checkout. It costs nothing, needs no daemon, and works with every tool below. Keep it; it was never the problematic part. |
 | **Staged search** | `rg` for exact strings → `ast-grep` for structural patterns → LSP for real call graphs → reading whole files. `da-investigate` encodes this ladder, cheapest rung first, and treats reading files as the *last* rung. |
 | **A budget instead of an index** | 25 file reads, 3 rounds of search refinement, then **stop and report what remains unverified**. A vector index is one way to avoid reading too much; a stated budget with an honest boundary is another, and it cannot go stale. |
-| **Parallel exploration** | `da-codebase-explorer` subagents, one per independent part. The reading stays in their context and only the conclusion returns — which is the context-protection benefit an index was supposed to provide. |
+| **Parallel exploration** | `x-codebase-explorer` subagents, one per independent part. The reading stays in their context and only the conclusion returns — which is the context-protection benefit an index was supposed to provide. |
 
 The thing an index would genuinely add is *semantic* recall: finding code that is about a concept without
 sharing its vocabulary. The staged ladder does not do that well, and this decision accepts the gap

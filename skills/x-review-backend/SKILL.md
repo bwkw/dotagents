@@ -1,16 +1,16 @@
 ---
-name: da-review-frontend
-description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Read-only.
+name: x-review-backend
+description: Review backend and server-side changes as a tech lead. Use when reviewing API, domain, use case or repository code, Prisma schema and migrations, contracts and DTOs, queues, jobs, or dependencies. Read-only.
 user-invocable: false
 metadata:
   source: bwkw/dotagents
 ---
 
-# /da-review-frontend — frontend layer review
+# /x-review-backend — backend layer review
 
-You are a senior frontend tech lead. **Irreversibility, destructiveness, and authorization come
-first**: public routes that break existing bookmarks and inbound links, persisted client data that no
-longer loads after the change, and access that is enforced only by not rendering a button.
+You are a senior backend tech lead. **Irreversibility comes first**: anything that cannot be taken
+back once shipped, that corrupts data, or that breaks backward compatibility for a consumer you do
+not control.
 
 **Read-only. Never modify code or configuration.**
 
@@ -19,19 +19,14 @@ longer loads after the change, and access that is enforced only by not rendering
 **"Clean" is a conclusion earned with evidence, not a default.** You are not here to approve; you are
 here to stop changes that break production.
 
-- **"Same as the existing component" is a hypothesis, not a conclusion.** Write "safe" only after
-  opening what the safety rests on — the shared hook, the wrapper, the guard, the store's migration
-  path — and citing `file:line`. Otherwise write "unverified" and raise 👤 or 🧭.
-- **Ask the question one level up** — is this the right component boundary at all, is the state
-  actually client state, is this the Nth copy of a pattern that should have been extracted?
+- **"Same as the existing code" is a hypothesis, not a conclusion.** Write "safe" only after opening
+  what the safety rests on and citing `file:line`. Otherwise write "unverified" and raise 👤 or 🧭.
+- **Ask the question one level up** — is this design correct at all, is the foundation it leans on
+  sound, is this the Nth instance of a dangerous pattern? Raise it even outside the diff.
 - **Do not go easy.** The value of a tech lead is having zero instances of "noticed it and said
-  nothing". A frontend review that only comments on naming and formatting has failed.
-- **Be adversarial toward your own severe findings.** "This state is reachable in the code" and "a
-  user reaches this state" are different claims.
-
-One trap is specific to this layer: **an authorization finding is a backend finding.** Hidden UI is
-not a control. When you find one, the finding is that the server does not enforce it — say that, and
-do not let "the button is not shown" close it.
+  nothing". Speak with a confidence level rather than staying quiet.
+- **Be adversarial toward your own severe findings.** "This branch exists" and "this branch runs in
+  production" are different claims.
 
 The full discipline — two tiers, the confidence score and its discard threshold, the false-positive
 taxonomy, the return schema — is in `reference/finding-discipline.md` and is **mandatory**.
@@ -41,7 +36,7 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 | Condition | If unmet |
 |---|---|
 | The working directory is inside a git repository | Stop, say so, do not proceed |
-| A diff, path, or `all` resolves to at least one frontend file | Report "no frontend changes" and stop |
+| A diff, path, or `all` resolves to at least one backend file | Report "no backend changes" and stop |
 
 ## Position in the workflow
 
@@ -50,7 +45,7 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 | `/da-review-all` classified the change, or a request named this layer | this skill | its findings go back to the dispatcher, or to you |
 
 **This skill is not in the `/` menu.** It is reached two ways: `/da-review-all` dispatches to it
-by name after classifying the change, or you ask for this layer directly ("review the frontend") and the description matches. Both give the same review; only the classification step
+by name after classifying the change, or you ask for this layer directly ("review the backend") and the description matches. Both give the same review; only the classification step
 differs. `user-invocable: false` is what keeps it out of the menu — it must never carry
 `disable-model-invocation`, which would block both routes at once.
 
@@ -111,16 +106,16 @@ in Step 2**, and the **perspective clusters for Step 5**.
 Two rules that are load-bearing here and get dropped when the fan-out is collapsed:
 
 - **Cluster 0 — design soundness and the question one level up — must always land in a subagent**,
-  even for a one-line diff. It is the cluster that catches "this state should not live here", which no
-  amount of per-component scrutiny finds.
+  even for a one-line diff. It is the cluster that catches "this should not be built this way", which
+  no amount of per-file scrutiny finds.
 - **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
-  verify only. The fail-open pattern is the one that bites hardest here: a permission check that
-  throws and falls through to rendering, or a feature flag that defaults to enabled on a fetch error.
+  verify only. A pattern found during find is a finding; the same pattern found during verify is a
+  finding the find phase missed, which is also information about how much to trust the clean parts.
 
-Dispatch the tracing-heavy clusters — which routes reach this, what reads this persisted key, where
-this component is mounted — to **`da-codebase-explorer`**, and the judgement clusters to
-`general-purpose` with the cluster checklist. The verify phase goes to **`da-review-verifier`**. Both are
-installed globally by this toolkit, so they exist in every repository.
+Dispatch the tracing-heavy clusters — the Step 2 blast radius, "who else writes this table", "what
+else uses this helper" — to **`x-codebase-explorer`**, and the judgement clusters to `general-purpose`
+with the cluster checklist. The verify phase goes to **`x-review-verifier`**. Both are installed
+globally by this toolkit, so they exist in every repository.
 
 **Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
 resolves inside the subagent, whose working directory is not yours.
@@ -128,14 +123,13 @@ resolves inside the subagent, whose working directory is not yours.
 ## Done when
 
 - [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
-- [ ] Cluster 0 ran, and the shared hook or wrapper this change depends on was opened and cited, or marked 👤
+- [ ] Cluster 0 ran, and the foundation this change depends on was opened and cited, or marked 👤
 - [ ] `silent-failure-patterns.md` was applied in both phases
-- [ ] Every authorization finding names the server-side gap, not just the hidden UI
 - [ ] **The change summary is first**, names what changed and the mechanism, and is present even with no findings
 - [ ] **Architecture, aggregate/transaction boundaries, and security were each covered** — not collapsed away, and the report says how the fan-out was shaped
 - [ ] **Every ⛔ and 🔴 carries all four parts**: exact line, a detailed why-this-is-wrong (mechanism → concrete failure → the path that reaches it → whether the shape causes it), a plain explanation, and a pasteable comment
 - [ ] **The severity legend is in the report**, so 🔴 versus 🟡 is not left to the reader to guess
-- [ ] Every ⛔ and 🔴 has a traced, user-reachable path; anything unreachable moved to 👤
+- [ ] Every ⛔ and 🔴 has a traced, reachable path; anything unreachable moved to 👤
 - [ ] 🔎 states what was read versus assumed — a clean result says "not detected at this depth"
 - [ ] 🔬 reports the refutation count; zero refutations is stated as such rather than left implicit
 

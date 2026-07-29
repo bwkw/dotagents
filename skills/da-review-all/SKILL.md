@@ -39,9 +39,9 @@ This skill classifies the change and runs the layers that apply, then does the p
 
 | Layer skill | Owns |
 |---|---|
-| `da-review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
-| `da-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
-| `da-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
+| `x-review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
+| `x-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
+| `x-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
 
 **The dispatcher reads no reference files** until Step 4. Each layer skill tells its own subagents what
 to load, and opening a reference here would park it in the main context for the whole session.
@@ -104,13 +104,13 @@ entire layer, and that is not recoverable by anything later in the process.
 
 For each layer with files, launch a subagent and tell it to use that layer's skill **by name**:
 
-> Use the `da-review-<layer>` skill and follow it exactly. Your scope is strictly these files:
+> Use the `x-review-<layer>` skill and follow it exactly. Your scope is strictly these files:
 > `<the list>`. Do not re-derive the full diff.
 
 The layer skill handles the rest — it reads its own posture, process, perspectives, and the
 silent-failure patterns, and fans out to its own perspective subagents. **Do not restate its
 instructions here.** If a layer needs different guidance, that belongs in the layer skill, where a
-direct `/da-review-backend` invocation also benefits from it.
+direct `/x-review-backend` invocation also benefits from it.
 
 > **This by-name dispatch is why `disable-model-invocation` must never be set on any of them.** That
 > field blocks programmatic `Skill` calls and subagent preloading, not just model auto-invocation —

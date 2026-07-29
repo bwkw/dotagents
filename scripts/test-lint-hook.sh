@@ -57,9 +57,9 @@ echo "lint hook: disable-model-invocation scope"
 # Denied: something reaches these by name, so the field breaks them silently.
 for d in claude cursor; do
   probe_dmi da-verify          deny "$d"
-  probe_dmi da-review-backend  deny "$d"
-  probe_dmi da-review-frontend deny "$d"
-  probe_dmi da-review-infra    deny "$d"
+  probe_dmi x-review-backend  deny "$d"
+  probe_dmi x-review-frontend deny "$d"
+  probe_dmi x-review-infra    deny "$d"
 done
 
 # Allowed with a warning: legitimate for a user-invoked workflow. Officially recommended, and free.
@@ -79,9 +79,9 @@ reason() { payload "$1" claude "---" "name: $1" "description: Use when testing."
 grep -q 'fails OPEN' <<<"$(reason da-verify)" \
   && ok "verify: the reason says the gate fails OPEN" \
   || bad "verify: the reason does not mention failing open"
-grep -q 'reviewing nothing' <<<"$(reason da-review-backend)" \
-  && ok "da-review-backend: the reason says the layer would be reported as covered" \
-  || bad "da-review-backend: the reason does not say what breaks"
+grep -q 'reviewing nothing' <<<"$(reason x-review-backend)" \
+  && ok "x-review-backend: the reason says the layer would be reported as covered" \
+  || bad "x-review-backend: the reason does not say what breaks"
 
 echo
 echo "lint hook: the pre-existing checks still hold"
@@ -117,12 +117,12 @@ mk() { # name
       "disable-model-invocation: true" "metadata:" "  source: bwkw/dotagents" "---" "" \
       "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$PROBE/$1/SKILL.md"
 }
-for n in da-verify da-review-backend da-review-frontend da-review-infra da-pr-describe da-skills-audit; do mk "$n"; done
+for n in da-verify x-review-backend x-review-frontend x-review-infra da-pr-describe da-skills-audit; do mk "$n"; done
 
 # Strip ANSI colour before matching -- the marker and the text are separated by a reset sequence,
 # so a literal "✗ skills/x" pattern never matches the raw output.
 out="$("$LINTER" "$PROBE" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
-for n in da-verify da-review-backend da-review-frontend da-review-infra; do
+for n in da-verify x-review-backend x-review-frontend x-review-infra; do
   grep -q "^✗ skills/$n:" <<<"$out" \
     && ok "linter errors on '$n'" || bad "linter did NOT error on '$n'"
 done
@@ -148,14 +148,14 @@ mkui() { # name, extra frontmatter lines...
       "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$UIP/$n/SKILL.md"
 }
 # Legitimate: dispatched by da-review-all.
-for n in da-review-backend da-review-frontend da-review-infra; do mkui "$n"; done
+for n in x-review-backend x-review-frontend x-review-infra; do mkui "$n"; done
 # Not dispatched to by anything -- unreachable except by description match.
 mkui da-orphan
 # Unreachable by every route.
 mkui da-doubly-hidden "disable-model-invocation: true"
 
 uiout="$("$LINTER" "$UIP" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
-for n in da-review-backend da-review-frontend da-review-infra; do
+for n in x-review-backend x-review-frontend x-review-infra; do
   grep -q "^✗ skills/$n:.*user-invocable" <<<"$uiout" \
     && bad "linter wrongly errors on dispatch target '$n'" \
     || ok "linter allows 'user-invocable: false' on dispatch target '$n'"

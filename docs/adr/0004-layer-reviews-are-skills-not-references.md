@@ -8,15 +8,15 @@
 
 ## Context
 
-Four review commands existed before this repository: `/da-review-all`, `/da-review-backend`,
-`/da-review-frontend`, `/da-review-infra`. Each was directly invokable, and each was self-contained — roughly
+Four review commands existed before this repository: `/da-review-all`, `/x-review-backend`,
+`/x-review-frontend`, `/x-review-infra`. Each was directly invokable, and each was self-contained — roughly
 31 KB for backend, with a large overlap between the three because the seven-step process, the finding
 discipline, and the report format were duplicated in each one.
 
 The first migration removed the duplication by making `da-review-all` the only skill and demoting the
 three layer bodies to `reference/*.md` that the dispatcher handed to a subagent. The reasoning was
 context economy: a skill body, once loaded, stays in context until the session ends, so making
-`da-review-backend` a skill would park its full body there even when reviewing only backend.
+`x-review-backend` a skill would park its full body there even when reviewing only backend.
 
 ## The problem with that
 
@@ -47,7 +47,7 @@ name, so setting `disable-model-invocation` turns the dispatcher into a no-op". 
 
 ## Decision
 
-The layer reviews are skills: `da-review-backend`, `da-review-frontend`, `da-review-infra`. Each has a lean
+The layer reviews are skills: `x-review-backend`, `x-review-frontend`, `x-review-infra`. Each has a lean
 `SKILL.md` and keeps its heavy content in its own `reference/perspectives.md`. `da-review-all` dispatches
 to them **by skill name**, via a subagent.
 
@@ -73,7 +73,7 @@ not hold the only copy.
 
 ## Consequences
 
-- Three entry points return. `/da-review-backend` works standalone and as a dispatch target, from one
+- Three entry points return. `/x-review-backend` works standalone and as a dispatch target, from one
   file, so they cannot drift.
 - The `disable-model-invocation` invariant is now true as written: setting it on a layer skill makes
   `da-review-all` report that layer as covered while reviewing nothing. The linter checks for it.

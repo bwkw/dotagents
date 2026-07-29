@@ -46,7 +46,7 @@ Two skills can never have it:
 | Skill | What breaks |
 |---|---|
 | `da-verify` | It is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never arms and passes every turn — the guardrail **opens**. |
-| `da-review-backend` / `-frontend` / `-infra` | `da-review-all` dispatches to them by name; the dispatcher would report a layer as covered while reviewing nothing. |
+| `x-review-backend` / `-frontend` / `-infra` | `da-review-all` dispatches to them by name; the dispatcher would report a layer as covered while reviewing nothing. |
 
 Everything else may set it. Applied to `da-pr-describe` only: it writes to GitHub, it is always typed, and
 nothing dispatches to it. That is the official textbook case, and it frees 241 characters.
@@ -72,8 +72,8 @@ fix a budget problem defeats itself. The bar is *`general-purpose` cannot satisf
 
 | Agent | Why a definition rather than a prompt |
 |---|---|
-| **`da-review-verifier`** | `verification.md` requires a verifier that did not take part in finding, and that returns `refuted` rather than `uncertain` when it cannot substantiate a claim. That posture has to hold *before* it reads anything. Passed in a prompt, it is a request. |
-| **`da-codebase-explorer`** | Read-only tracing with `file:line` evidence, an explicit budget, and confirmed / inferred / not-confirmed kept apart. Used by `da-investigate`'s fan-out and every review's Step 2. |
+| **`x-review-verifier`** | `verification.md` requires a verifier that did not take part in finding, and that returns `refuted` rather than `uncertain` when it cannot substantiate a claim. That posture has to hold *before* it reads anything. Passed in a prompt, it is a request. |
+| **`x-codebase-explorer`** | Read-only tracing with `file:line` evidence, an explicit budget, and confirmed / inferred / not-confirmed kept apart. Used by `da-investigate`'s fan-out and every review's Step 2. |
 
 Linked into `~/.claude/agents/`, which Cursor also reads, so one link covers both agents. Managed by
 `setup.sh` with prune, uninstall, status and manifest support on the same footing as skills and hooks —

@@ -40,6 +40,13 @@ syntax() {
     '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/
 }
 
+# Any repo-wide rewrite must skip symlinks. `perl -pi` on one replaces it with a regular file, which
+# has silently broken CLAUDE.md three times. Use this to build the file list instead of `git ls-files`.
+#
+#   for f in $(scripts/check.sh --rewritable); do perl -pi -e '...' "$f"; done
+rewritable() { git ls-files | while read -r f; do [[ -f "$f" && ! -L "$f" ]] && printf '%s\n' "$f"; done; }
+[[ "${1:-}" == "--rewritable" ]] && { rewritable; exit 0; }
+
 symlink_intact() {
   # Claude Code does not read AGENTS.md, so if CLAUDE.md stops being a symlink the always-loaded
   # layer silently drifts. `perl -pi` on a symlink replaces it with a regular file; this caught it.

@@ -43,7 +43,7 @@ its layer references by name, so setting it converts the dispatcher into a silen
 > invoke by name, and it is the only way to make a skill cost zero description budget.
 >
 > The rule is now **never on something reached by name**: `da-verify` (the only thing that arms the gate)
-> and `da-review-backend` / `da-review-frontend` / `da-review-infra` (dispatch targets). Everything else may set
+> and `x-review-backend` / `x-review-frontend` / `x-review-infra` (dispatch targets). Everything else may set
 > it; `da-pr-describe` does. Note that this field is one of the four Cursor *does* understand, so unlike
 > the rest of this ADR's subject matter it behaves identically in both agents.
 

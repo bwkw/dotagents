@@ -1,1 +1,0 @@
-../../_shared/llm-authored-code.md

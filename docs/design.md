@@ -231,7 +231,7 @@ than the assertion — **and it is `/da-verify` that arms the gate, the only thi
 the gate will not let a turn end with checks red. A session where `/da-verify` never ran is a session with
 no gate, which is why the skill's auto-invocation matters as much as typing it.
 
-**After writing code**, `/da-review-backend`, `/da-review-frontend`, and `/da-review-infra` each review one
+**After writing code**, `/x-review-backend`, `/x-review-frontend`, and `/x-review-infra` each review one
 layer as a tech lead, and `/da-review-all` classifies the change and runs the ones that apply before
 looking specifically for the cross-layer risks — a contract change and its consumer shipping out of
 order, a config read live at startup meeting code that has not deployed yet. Then `/da-pr-describe`.
@@ -267,7 +267,7 @@ the same reason. What exists today:
 
 So the gap is no longer "no instrument". It is that **none of it has been run yet**, which is a smaller
 and more embarrassing gap. The first things worth measuring are the calls this repository made on
-judgement rather than evidence: `da-verify` against `verification-before-completion`, `da-review-backend`
+judgement rather than evidence: `da-verify` against `verification-before-completion`, `x-review-backend`
 against `find-bugs`, `da-review-all` against the bundled `code-review`.
 
 One caveat that makes the results worth less than they look: a skill benchmarked in the session that

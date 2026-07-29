@@ -87,7 +87,7 @@ Claude Code と Cursor はエージェントの挙動を変える手段を複数
 罠は3行目です。**自動起動だけでなく、プログラム的な `Skill` 呼び出しとサブエージェントへの preload も止めます**。だから別のスキルが名指しで委譲している相手に付けると、その委譲が**エラーも出さずに壊れます**。この repo で絶対に付けない2箇所は、lint hook とリンタの両方が強制しています。
 
 - **`da-verify`** —— `gate.sh arm` を走らせる唯一のもの。自動起動を切ると Stop ゲートが arm されず毎ターン通る = **ガードレールが開く**。
-- **`da-review-backend` / `-frontend` / `-infra`** —— `da-review-all` が名指しで委譲する先。
+- **`x-review-backend` / `-frontend` / `-infra`** —— `da-review-all` が名指しで委譲する先。
 
 ### `/` メニューから隠すのは別のフィールド
 

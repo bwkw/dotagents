@@ -86,7 +86,7 @@ process.stdin.on("end", () => {
     }
 
     // da-review-all dispatches to these three by name via a subagent.
-    if (["da-review-backend", "da-review-frontend", "da-review-infra"].includes(name)) {
+    if (["x-review-backend", "x-review-frontend", "x-review-infra"].includes(name)) {
       return deny(
         `'${name}' is a by-name dispatch target of da-review-all, and ` +
         "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +

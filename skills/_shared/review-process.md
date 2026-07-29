@@ -94,12 +94,12 @@ generic checks even when there is no project context to be found.
 
 Launch one subagent per perspective cluster, **all in a single message so they run in parallel**.
 
-Use **`da-codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
+Use **`x-codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
 go, what else touches this pattern. Use `general-purpose` for clusters that need judgement about the
 design. Pass every subagent its cluster's checklist from the layer file, and **never skip a cluster**
 because the ideal agent for it is unavailable.
 
-> `da-codebase-explorer` and `da-review-verifier` are installed globally by this toolkit, so they exist in
+> `x-codebase-explorer` and `x-review-verifier` are installed globally by this toolkit, so they exist in
 > every repository. Do not wait for a repository to define an agent — by design this toolkit never
 > adds a file to a product repository, so a repository-local agent will never appear.
 

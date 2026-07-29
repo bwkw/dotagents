@@ -43,7 +43,7 @@ The first half was a reporting error: `~/.claude.json` → `skillUsage` is a map
 | `workflow-code-review` | 199 | a project skill in another repository — the actual primary review tool |
 | `update-pr-description` | 77 | the retired command now shipped as `da-pr-describe` |
 | **`code-review`** | **42** | **bundled, and in real use** |
-| `review-backend` | 40 | retired → `da-review-backend` |
+| `review-backend` | 40 | retired → `x-review-backend` |
 | **`review`** | **24** | **bundled, and in real use** |
 | `review-frontend` / `review-all` / `review-infra` | 7 / **6** / 4 | |
 | `security-review` | 1 | barely used; its earlier removal was right |
@@ -80,7 +80,7 @@ sufficient. `_shared/finding-discipline.md` now says this.
 
 ## Decision 1 — `da-review-all` is the only review entry in the menu
 
-`da-review-backend`, `da-review-frontend` and `da-review-infra` get `user-invocable: false`: out of the
+`x-review-backend`, `x-review-frontend` and `x-review-infra` get `user-invocable: false`: out of the
 `/` menu, still model-invocable so by-name delegation works.
 
 **This partially reverses ADR 0004**, and it is safe because ADR 0004 fixed the right thing for a
@@ -143,7 +143,7 @@ bundled and reports which loaded skills are unused and costing context.
 
 So the gap is now smaller and more embarrassing: the instruments have not been run. First targets are the
 calls made on judgement rather than evidence — `da-verify` against `verification-before-completion`,
-`da-review-backend` against `find-bugs`, `da-review-all` against bundled `code-review`.
+`x-review-backend` against `find-bugs`, `da-review-all` against bundled `code-review`.
 
 ## Consequences
 
