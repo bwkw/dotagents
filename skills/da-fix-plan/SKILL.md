@@ -37,6 +37,12 @@ them**. A plan that accepts every finding has not triaged; it has transcribed.
 Not the same as `/receiving-code-review`, which is about how to respond to *one* piece of feedback in a
 conversation. This one takes a **whole report** and produces an ordered artifact on disk.
 
+**This is the stopping condition for the review loop.** Reviewing until nothing is found does not
+terminate — a reviewer asked for findings produces findings. What ends the loop is not a count of
+rounds but **the Decline bucket**: deciding, on the record, which findings will not be fixed and why.
+The gate has the same shape for checks (three attempts, then a `VERDICT` that says it gave up); this is
+the shape for review. A loop with no Decline is a loop with no exit.
+
 ## Files to read
 
 ### Always read

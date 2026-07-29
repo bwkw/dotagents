@@ -188,10 +188,26 @@ rewrite. If a plan is silent on any of the three, that silence is a ❓, not a p
 ### ❓ Missing from the plan
 (Step 4: rollback, data migration, in-flight requests, observability, …)
 
+### 🧱 Landing plan
+| # | What lands | What gates it | One-way? | Before the next one starts |
+|---|---|---|---|---|
+
 ### 🔎 Confidence
 - Which claims I grounded in code, with `file:line`; which I took on trust; where I hit the 25-file
   budget. A clean review means "no problem found at this depth", not a design sign-off.
 ```
+
+### The landing plan is the same judgement, written down
+
+You have already decided what is irreversible and what must deploy in order. **Where the landings
+divide is the conclusion of that**, and nothing else here decides it: `da-fix-plan` orders fixes into
+commits inside one change, `da-review-all` asks whether two layers ship together only as a finding. So
+plans reach implementation with the split unmade.
+
+The rules are in `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` under **Landing boundaries**.
+The one that decides most: **every landing needs a gate you can name** — if you cannot say what proves
+it, the plan is not finished. One landing is a legitimate answer as one row with a reason; **an absent
+table means nobody decided.**
 
 ## Done when
 
