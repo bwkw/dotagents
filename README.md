@@ -24,6 +24,16 @@ Requires `node` (≥18), `bash`, and `git`. macOS ships bash 3.2 and everything 
 
 Not a pipeline. Each step is one command, and most sessions use two or three.
 
+Officially the loop is **Explore → Plan → Implement → Commit**, with *verify* as a property every phase
+needs rather than a step, and *review* as an **escalation** for risky or unwatched work rather than a
+ritual after every diff. [`docs/workflow.md`](docs/workflow.md) has the full version with sources, the
+abort conditions, and the parts the good sources disagree about. The three rules worth memorising:
+
+- **If you could describe the diff in one sentence, skip the plan.**
+- **`/clear` and start a fresh session between planning and implementing.** The plan is on disk by then.
+- **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what
+  you learned. A clean session with a better prompt beats a long one carrying failed approaches.
+
 ### 1 — Before there is code
 
 The expensive decisions get made here, and code review cannot undo them.
@@ -66,20 +76,29 @@ scripts/gate.sh disarm                     # once everything is green
 ### 3 — After writing code
 
 ```
-/da-review-all        every layer the change touches, plus the risks between them
-/da-review-backend    server code, migrations, contracts, queues, dependencies
-/da-review-frontend   components, routes, hooks, stores, styling, i18n
-/da-review-infra      Terraform, CDK, k8s, IAM, networking, pipelines
+/da-review-all        the review entry point — every layer, plus the risks between them
+/code-review          a second opinion, differently built (bundled)
 /da-pr-describe       a PR description a reviewer can read before opening the diff
 ```
 
-Each layer is a skill you can invoke on its own. `/da-review-all` classifies the change, runs the layer
-skills that apply, and then does the part none of them can: a contract change and its consumer shipping
-out of order, config read live at startup meeting code that has not deployed, a shared default whose
-correctness depends on compensating work in a **different** layer.
+**One review entry, three layers of depth behind it.** `/da-review-all` classifies the change and
+dispatches to `da-review-backend`, `da-review-frontend` and `da-review-infra` — full skills with their own
+posture, process and perspective clusters, kept out of the `/` menu so there is one thing to type instead
+of four. Naming a layer still reaches it directly: *"review the backend"* fires `da-review-backend`
+without going through classification.
+
+The dispatcher then does the part no layer can: a contract change and its consumer shipping out of order,
+config read live at startup meeting code that has not deployed, a shared default whose correctness depends
+on compensating work in a **different** layer, and — for agent-authored change — a boundary where both
+sides were written together and agree with each other while being wrong about the outside world.
 
 All four share one posture — *"clean" is a conclusion earned with evidence, not a default* — and one
 finding discipline, so a layer review and a cross-layer review calibrate severity the same way.
+
+**Run a second reviewer, and make it a different one.** Four AI reviewers over the same 146 pull requests
+caught **93.4% of findings with exactly one of the four, and none with all four** — diversity of approach
+beats quality of any single reviewer. That is why the bundled `/code-review` and Sentry's `/find-bugs` are
+kept rather than suppressed even though this repository ships its own review machinery.
 
 **Each review runs an adversarial pass** before it reports. Findings at the two highest severities go to
 three `da-review-verifier` subagents with different lenses — is this reachable, is it already guarded
@@ -87,18 +106,25 @@ elsewhere, is the severity right — and two must fail to refute for the finding
 that cannot substantiate a claim returns `refuted`, not `uncertain`, which is the opposite of the
 default instinct and the reason the reports stay short.
 
-The full "say this / when" table for all twenty-four skills is [below](#everything-installed-and-when-to-say-it).
-Beyond it, Claude Code has its own built-ins that cover nearby ground: **`/review`** takes a GitHub PR,
-**`/code-review`** takes your working diff, and **`/security-review`** is security-only. `/find-bugs`
-and `/da-review-all` both claim "review changes", so a bare "review this" may pick either — naming it
-removes the coin flip.
+The full "say this / when" table is [below](#everything-installed-and-when-to-say-it), including the
+built-ins worth knowing: **`/review`** takes a GitHub PR, **`/code-review`** your working diff,
+**`/security-review`** is security-only, and **`/simplify`** is quality only and explicitly not a bug
+hunt. `/find-bugs` and `/da-review-all` both claim "review changes", so a bare "review this" may pick
+either — naming it removes the coin flip.
 
 ### 4 — Periodically
 
 ```
-/da-skills-audit      the toolkit's own failure mode is accumulation
-/skill-scanner     audit a newly installed third-party skill before trusting it
+/skill-doctor      which loaded skills are unused and costing context  (bundled)
+/doctor            the listing's real context cost, and its biggest contributors  (bundled)
+/da-skills-audit   over-constraint, overlapping triggers, Cursor incompatibility, size
+/skill-scanner     security-scan a newly installed third-party skill before trusting it
 ```
+
+**Run `/skill-doctor` before `/da-skills-audit`.** The audit reads files, and files are a minority of the
+surface — see the count below. Neither of them measures whether a skill *helps*; that is
+`anthropic-skills:skill-creator`, which runs paired with-skill / without-skill benchmarks and is already
+installed.
 
 ### Two habits worth more than any of the above
 
@@ -129,12 +155,26 @@ could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-prunin
 
 **Type `/da` and you have exactly this repository's set.** Everything shipped here is prefixed `da-`
 (for dotagents) — nine skills and two subagents. That solves two problems at once: at the `/` menu
-there is otherwise no way to tell ours from two dozen third-party skills, and an unprefixed name can
-shadow a built-in silently, which already happened once when a skill called `review` hid Claude Code's
-own `/review`.
+there is otherwise no way to tell ours from everything else, and an unprefixed name can shadow a built-in
+silently, which already happened once when a skill called `review` hid Claude Code's own `/review`.
 
-Twenty-four skills in total. The development loop, in order. Skills marked **●** are ours; the rest are
-upstream, and keep their own names.
+### How big the surface actually is
+
+**75 names are reachable, not 24.** This matters because the budget they share is 1% of the context
+window, and because two earlier audits of this repository were wrong by reading the filesystem:
+
+| Source | Names | Where |
+|---|---|---|
+| On disk | 24 | `~/.agents/skills/` — 9 ours, 15 upstream |
+| Anthropic-managed plugin | 11 | under `~/Library/Application Support/Claude/…`, server-synced |
+| **Compiled into the CLI binary** | **40** | **no files exist** — they live inside the executable |
+
+So a count from `~/.agents/skills` is not the total. `/doctor` and `/skill-doctor` see all of it.
+Six names are suppressed via `skillOverrides` — see [Suppressed](#suppressed-and-why-not-more) below.
+
+### The table
+
+The development loop, in order. **●** marks ours; everything else is upstream or built in.
 
 | Say this | When | |
 |---|---|---|
@@ -153,24 +193,53 @@ upstream, and keep their own names.
 | `/da-verify` | You want evidence rather than an assertion. Runs *this repository's* configured checks, and **arms the Stop gate** | ● |
 | `/verification-before-completion` | About to claim something is done, in a repository with no profile for `/da-verify` | |
 | `/resolving-merge-conflicts` | A merge or rebase conflict is in progress | |
-| **4. After writing code** | | |
-| `/da-review-all` | **The default review.** Classifies the change, runs the layer reviews that apply, then finds what falls *between* layers | ● |
-| `/da-review-backend` | You already know it is backend — API, domain, migrations, contracts, queues, dependencies | ● |
-| `/da-review-frontend` | You already know it is frontend — components, routes, hooks, stores, styling, i18n | ● |
-| `/da-review-infra` | You already know it is infrastructure — Terraform, CDK, k8s, IAM, pipelines | ● |
-| `/find-bugs` | A fast bug and vulnerability sweep over the branch diff. Maps the attack surface first | |
+| `/verify` | Drive the change end-to-end as a user would, not just tests and typecheck (bundled) | |
+| `/run` | Start the app and look at it (bundled) | |
+| **4. After writing code — review is an escalation, not a ritual** | | |
+| `/da-review-all` | **The review entry point.** Classifies the change, dispatches to the layers that apply, then finds what falls *between* them | ● |
+| `/code-review` | **Your second reviewer.** Differently built, so it finds different things (bundled) | |
+| `/find-bugs` | A third: enumerates the attack surface first, then sweeps the branch diff | |
+| `/simplify` | Quality only — reuse, simplification, altitude. Explicitly *not* a bug hunt (bundled) | |
+| `/security-review` | Security specifically, over the pending branch changes (bundled) | |
+| `/review` | A GitHub pull request rather than your working diff (bundled) | |
 | `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning | |
 | `/receiving-code-review` | Feedback arrived and you want to evaluate it rather than implement it reflexively | |
 | `/da-pr-describe` | The PR needs a description a reviewer can read before opening the diff. **Type it — it never fires on its own** | ● |
 | `/finishing-a-development-branch` | Implementation is done and you need to decide how to integrate | |
 | `/handoff` | Compact this conversation so another agent can pick it up | |
 | **5. Periodically** | | |
-| `/da-skills-audit` | Before adding a skill, when skills stop firing automatically, or for a clean-up | ● |
+| `/skill-doctor` | Which loaded skills are unused and costing context. **Run this first** (bundled) | |
+| `/doctor` | The listing's real context cost and its biggest contributors (bundled) | |
+| `/da-skills-audit` | Over-constraint, overlapping triggers, Cursor incompatibility, size | ● |
 | `/skill-scanner` | Before trusting a newly installed third-party skill. Security, not bloat | |
+| `anthropic-skills:skill-creator` | Whether a skill *helps*: with-skill versus without-skill pass rate, tokens, time | |
 
-Overlapping triggers are real: a bare "review this" could reach `/da-review-all` or `/find-bugs`, and
-"am I done" could reach `/da-verify` or `/verification-before-completion`. Both pairs are reasonable —
-naming the one you want removes the coin flip.
+**`da-review-backend` / `-frontend` / `-infra` are deliberately absent from this table** — they carry
+`user-invocable: false`, so `/da-review-all` reaches them and so does naming a layer ("review the
+backend"), but they are not in the `/` menu. One thing to type, three layers of depth behind it.
+
+### Where triggers still overlap, and who wins
+
+| Ask | Goes to | Second opinion |
+|---|---|---|
+| "review this" | `/da-review-all` — or `/find-bugs`; a bare phrasing may pick either | `/code-review` |
+| "is this secure" | `/find-bugs` (bugs + security + quality) | `/security-review` |
+| "am I done" | `/da-verify` if the repo has a profile | `/verification-before-completion` where it does not |
+| "clean this up" | `/simplify` — quality only, by design | — |
+| "run it every day" | bundled `/schedule` | `/loop` for a single repeating check |
+
+### Suppressed, and why not more
+
+Six names are set to `name-only` or `off` in `skillOverrides`, merged by `setup.sh` and reverted exactly
+by `uninstall`: `verification-before-completion` and `claude-api` (both auto-fire on triggers this
+repository hits constantly), `anthropic-skills:schedule` (**two live skills are named `schedule`**), the
+office-file set `docx`/`pptx`/`xlsx`/`pdf` (long descriptions, no dev-loop use), and `morning`/`setup-cowork`.
+
+**The reviewers are not suppressed, on purpose.** The usage log shows bundled `code-review` at 42
+invocations and `review` at 24 — they are in real use — and reviewer diversity is the single
+best-supported review practice available. `disableBundledSkills` would have removed all of them at once,
+and it exists only in CLI 2.1.219+, so it would silently do nothing under an older `claude` on `$PATH`.
+This machine has both versions. See [ADR 0006](docs/adr/0006-one-review-entry-and-the-real-command-surface.md).
 
 ### Why these are skills, and not "commands"
 

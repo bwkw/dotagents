@@ -126,16 +126,31 @@ Adversarial verification is the strongest tool here, and it is not neutral. When
 three biases are measured and reproducible. They matter because this toolkit's verification pass *is* a
 model judging output, and a bias you have not accounted for reads as a result.
 
-**Self-preference: a model rates its own output 10–25% higher.** Larger and more capable models show it
-*more*, not less. The standard advice is blunt — never use the same model as judge and candidate. Here
-that is only partly achievable: the verifier is a separate subagent with a separate context and never
-saw the reasoning, which removes the anchoring, but it is usually the **same model family** that
-produced the finding. So expect confirmations to be inflated.
+**A verifier's verdicts are systematically tilted, and the tilt is not mainly about self-flattery.**
+The obvious story is self-preference — a model rating its own family's output higher, reported in the
+range of 10–25%. But that finding is contested: sanity-check work pushes back on it, and one analysis
+attributes most of the effect to a **flat per-reviewer disposition** rather than to self-favouring, with
+about a 2.8-point spread between the strictest and most lenient reviewer. Read together, the reliable
+claim is narrower and more useful: **a verifier has a fixed lean, and you do not know which way yours
+leans.**
 
-> This is the real reason `refuted` is the default when a claim cannot be substantiated. It is not
-> pessimism — it is a deliberate counterweight to a known, quantified bias pushing the other way. Where
-> a stronger or different model is available (this toolkit's `--advisor`), route the verify pass to it
-> and say so in 🔎.
+Two things follow, and the second is the one that changes what to build.
+
+> **`refuted` is the default because the lean is unknown, not because models are vain.** Three separate
+> effects push toward over-confirming: anchoring on a claim that is already written down, the reviewer's
+> own disposition, and the fact that models do not reliably self-correct without external evidence. The
+> asymmetry is the counterweight to all three at once, and it does not depend on the self-preference
+> number being right.
+
+> **Different prompting matters more than a different instance.** If the lean is per-reviewer rather
+> than self-directed, then a second look from the same model with the *same* framing buys little, while a
+> genuinely different framing buys a lot. This is why the three lenses below are *lenses* and not
+> repetitions, and why the toolkit deliberately keeps a second, differently-built reviewer around
+> (`/find-bugs`, `/code-review`) instead of treating its own review as sufficient. A measurement of four
+> reviewers over the same 146 pull requests found **93.4% of findings were caught by exactly one of the
+> four, and none by all four** — diversity of approach, not quality of a single reviewer, is what moves
+> coverage. Where a stronger or different model is available (this toolkit's `--advisor`), route the
+> verify pass to it and say so in 🔎.
 
 **Verbosity: a longer answer is judged 15–30 points more favourably.** An elaborate finding with three
 paragraphs of reasoning reads as more credible than a one-line one citing a real line of code. **Length
@@ -146,11 +161,11 @@ persuasiveness drops once you look only at what it points at, that is a refutati
 the first ⛔ set the tone for the rest. Each finding is judged against the code, not against its
 neighbours.
 
-**What this means for the three-lens pass.** Running three lenses reduces *variance* — one verifier
-having an off run. It does **not** remove bias shared across the judge population, because the same
-systematic tilt appears in all three. So three agreeing lenses are not three independent opinions, and
-a report must not claim they are. Say "verified from three angles by the same model", never "three
-independent verifiers agreed".
+**What this means for the three-lens pass.** Three lenses reduce *variance* — one verifier having an off
+run — and, because the framings genuinely differ, they buy some real coverage. What they do **not** buy
+is independence: the same model with the same disposition is behind all three. So three agreeing lenses
+are not three independent opinions, and a report must not imply they are. Say "checked from three
+angles", never "three independent verifiers agreed".
 
 ## Return schema
 

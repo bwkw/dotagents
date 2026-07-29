@@ -114,6 +114,13 @@ each body. **The file vocabulary stays**: it is what routes `*.tf` to infra and 
 
 ## Decision 4 — no `skillOverrides`
 
+> **Narrowed by ADR 0006 (2026-07-29).** The reasoning below holds for *our own* skills, which exist in
+> Cursor too. It does not hold for bundled and plugin skills, which do not exist in Cursor at all — there
+> is nothing for them to diverge from. Six of those are now suppressed through
+> `templates/claude.settings.snippet.json`, which also answers the "unmanaged and untracked" objection,
+> since `setup.sh` merges key-scoped and reverts precisely. The standing rule is **never on a skill that
+> also exists in Cursor.**
+
 It is the official non-destructive suppression mechanism, and it was the obvious way to avoid deciding.
 Rejected: it lives in Claude Code's `settings.json`, which Cursor does not read, so every entry makes
 the two agents disagree about which skills are active — one of the two seams `design.md` names as a
@@ -122,6 +129,12 @@ exists to detect skill-state confusion could not see the confusion this created.
 uninstalling, which is symmetric, visible from both agents, and reversible in one command.
 
 ## What this decision is not based on
+
+> **Corrected by ADR 0006 (2026-07-29).** The claim below is half wrong. `skillUsage` *does* carry
+> `usageCount` and `lastUsedAt` per name; a script that failed to read it was mistaken for missing data.
+> The real figures show the bundled reviewers in active use (`code-review` 42, `review` 24) and the layer
+> reviews as the actual entry point (51 invocations against 6 for the dispatcher). The install-date
+> caveat below is the part that stands.
 
 **There is no usage evidence.** `~/.claude.json` records skill usage, and 29 of the 35 had none — but
 34 of the 35 were installed the same day this was written, so "never used" means "installed hours ago".

@@ -16,16 +16,27 @@ selecting correctly, and nothing announces it.
 
 **This skill never modifies anything.** It reports, and proposes. Removals are yours to approve.
 
-**This is not `/doctor`, and it is not an eval.** Three different things:
+**This skill reads files. It does not measure usage, and it is not an eval.** Four tools, and you want
+more than one:
 
-| | Reads | Can see |
+| Tool | Reads | Answers |
 |---|---|---|
-| `/doctor` | usage logs and settings | which skills were *never invoked*, slow hooks, CLAUDE.md duplication. **Run it too** — this skill cannot see usage. |
-| this skill | the files | over-constraint, budget, overlapping triggers, Cursor incompatibility |
-| an eval | with-skill versus without-skill runs | whether a skill actually *helps* |
+| **`/skill-doctor`** | the loaded set, with usage | **which loaded skills are unused and costing context.** Run this *first* — it answers what this skill cannot. |
+| **`/doctor`** | settings and the listing | the listing's real context cost and its biggest contributors; slow hooks; duplicated instructions |
+| this skill | the files on disk | over-constraint, overlapping triggers, Cursor incompatibility, oversized bodies, the `AGENTS.md` invariants |
+| **`anthropic-skills:skill-creator`** | with-skill versus without-skill runs | **whether a skill actually helps.** Aggregates pass rate, time and tokens into `benchmark.json`; measures trigger accuracy with should-fire / should-not-fire prompts. |
 
-Nothing here measures whether a skill works. Say so when reporting, rather than letting a clean audit
-read as a clean bill of health.
+Open the report by naming which of the four were run. **A clean file-level audit says nothing about
+whether the skills help** — that needs the last row, and it is already installed.
+
+Two things to know before trusting any result:
+
+- **The listing is far larger than this repository.** Around 40 skills are compiled into the Claude Code
+  binary and never appear on disk; an Anthropic-managed plugin adds roughly 11 more. A filesystem audit
+  therefore sees a fraction of what the model sees — the exact mistake this table exists to prevent.
+  `/skill-doctor` and `/doctor` see the whole set; **do not present a count from disk as the total.**
+- **A skill benchmarked in the session that wrote it will look better than it is.** Leftover context
+  masks gaps in the written instructions. Benchmark from a fresh session.
 
 ## Preconditions
 
@@ -106,14 +117,34 @@ Look specifically for pairs across sources — upstream sets overlap with each o
 written locally. Report each cluster as: the skills, the shared triggers, and which one should own
 that ground.
 
-## Step 3. Usage, from telemetry
+## Step 3. Usage — ask the tools that already know
 
-Static analysis cannot tell you what is never used. Telemetry can.
+Static analysis cannot tell you what is never used. Three sources can, in order of effort:
 
-Requires `OTEL_LOG_TOOL_DETAILS=1` in `~/.claude/settings.json` (dotagents sets this). Events are
-`skill_activated`, carrying `skill.name` and `invocation_trigger`.
+**1. `/skill-doctor`.** Purpose-built: which loaded skills are unused and costing context. Ask the user
+to run it and paste the output. This is the cheapest answer and covers the bundled and plugin skills a
+filesystem audit cannot see.
 
-Emit the queries for the user to run — do not attempt to query the backend yourself:
+**2. `~/.claude.json` → `skillUsage`.** A map of skill name to `{usageCount, lastUsedAt}`, readable
+directly:
+
+```bash
+node -e 'const u=require(process.env.HOME+"/.claude.json").skillUsage||{};
+  Object.entries(u).sort((a,b)=>b[1].usageCount-a[1].usageCount)
+    .forEach(([k,v])=>console.log(String(v.usageCount).padStart(5), new Date(v.lastUsedAt).toISOString().slice(0,10), k))'
+```
+
+Three cautions, all of which have already caused a wrong conclusion here:
+
+- **Absence of a key means "never invoked by name"**, not "useless". An auto-fired skill may not appear.
+- **Keys carry no provenance.** A bare `review` may be the bundled skill or a project command of the
+  same name, and project-scoped commands from other repositories are mixed in indistinguishably.
+- **Compare against install dates.** A skill installed yesterday with no usage tells you nothing. Check
+  `~/.agents/.skill-lock.json` or the directory mtime before drawing a conclusion.
+
+**3. OpenTelemetry**, when you want the trigger breakdown rather than a total. Requires
+`OTEL_LOG_TOOL_DETAILS=1` (dotagents sets this). Events are `skill_activated`, carrying `skill.name` and
+`invocation_trigger`. Emit the queries for the user to run — do not query the backend yourself:
 
 | Question | What to look at | Reading |
 |---|---|---|

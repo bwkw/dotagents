@@ -59,6 +59,19 @@ invoke least" — so an unused skill does not merely sit there, it degrades the 
 ones you do use, silently. `verify-skills.sh` targets 8,000 characters, which is roughly 1% of a 200K
 window; the real budget scales with the model, and `/doctor` reports the actual figure.
 
+**And most of what shares that budget is not in this repository.** Counted on this machine:
+
+| Source | Names | Where |
+|---|---|---|
+| On disk | 24 | `~/.agents/skills/` — 9 ours, 15 upstream |
+| `anthropic-skills@inline` plugin | 11 | `~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/…` |
+| **Compiled into the CLI binary** | **40** | **no files exist.** Registered as string constants inside the executable |
+| **Total reachable** | **75** | ~46 listed to the model in a typical session |
+
+Two inventories of this repository were wrong because they read the filesystem, and 40 of the 75 are not
+on the filesystem. **A skill count taken from `~/.agents/skills` is not the total** — `/doctor` and
+`/skill-doctor` see the whole set. See ADR 0006.
+
 **A skill body is a recurring cost, not a one-off.** Once invoked it stays for the session and is
 never re-read, so guidance meant to apply throughout must be written as standing instruction rather
 than as a step. After auto-compaction only the first ~5,000 tokens of each are restored. Hence
@@ -151,11 +164,36 @@ issue about the budget being computed against a fixed baseline rather than the a
 A fixed target that is occasionally too strict is more useful than no target; `/doctor` is the source
 of truth.
 
-**`skillOverrides` is not used**, though it is the official non-destructive way to suppress a skill
-(`on` / `name-only` / `user-invocable-only` / `off`). It lives in Claude Code's `settings.json`, which
-Cursor does not read, so every entry would make the two agents disagree about which skills are active —
-and `/da-skills-audit` reads files rather than settings, so it could not see the divergence it created.
-Suppression here means uninstalling, which is symmetric and visible from both agents.
+**`skillOverrides` is used, but only on skills Cursor does not have.** The four values are `on`,
+`name-only` (listed, no description), `user-invocable-only` (hidden from the model, still typable) and
+`off` (hidden from both). It lives in Claude Code's `settings.json`, which Cursor does not read — so
+using it on one of *our* skills would make the two agents disagree about what is active, and
+`/da-skills-audit` reads files rather than settings and could not see that divergence. Bundled and
+plugin skills do not exist in Cursor at all, so there is nothing to diverge from; six of those are
+suppressed through `templates/claude.settings.snippet.json`, which keeps them tracked in the manifest and
+reverted exactly by `uninstall`. **The rule is: never on a skill that also exists in Cursor.** ADR 0006.
+
+## Two hazards specific to this machine
+
+**There are two Claude Code installations, and the settings do not behave the same in both.** `claude` on
+`$PATH` is a mise shim to **2.1.148**; Claude Desktop downloads and runs its own **2.1.219**. Verified
+against the two binaries' own settings schemas:
+
+| Setting | 2.1.148 | 2.1.219 |
+|---|---|---|
+| `skillOverrides` | yes | yes |
+| `skillListingBudgetFraction` (default `0.01`) | yes | yes |
+| `skillListingMaxDescChars` (default `1536`) | yes | yes |
+| **`disableBundledSkills`** | **absent — silently ignored** | yes |
+
+This is why suppression here uses per-name `skillOverrides` rather than `disableBundledSkills`: the
+blunt switch would do nothing under the older binary and give no indication of it. `disableBundledSkills`
+would also be wrong on the merits — it removes all ~40 bundled skills at once, including `code-review`
+and `review`, which the usage log shows in real use.
+
+**The bundled skills change with the binary.** They are compiled in, so a CLI upgrade can add, rename or
+remove names with nothing in this repository noticing. An override naming a skill that no longer exists is
+inert rather than an error, so a stale entry fails quietly. Re-read `/doctor` after a version change.
 
 ---
 

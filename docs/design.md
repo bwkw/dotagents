@@ -171,17 +171,30 @@ fails twice, stop patching**: write down what was tried, clear, and restart with
 Repeated correction accumulates failed approaches and each attempt gets worse. The gate escalates its
 own message at the second failure for this reason.
 
-## The largest known gap: nothing measures whether the skills work
+## The largest known gap: the skills are still unmeasured — but not unmeasurable
 
-There are thirty-odd skills installed and no way to tell which ones help. `/da-skills-audit` is a
-*static* check — budget, duplication, compatibility, disuse — which is a different thing from an
-*eval*. The official `skill-creator` plugin runs paired with-skill / without-skill agents on the same
-prompt in the same turn and diffs pass rate, tokens, and duration; `mgechev/skillgrade` does the CI
-version of the same idea, failing the build below a pass-rate threshold.
+Every claim in this repository about a skill improving anything is an opinion, and that is worth stating
+plainly because the rest of the design is built on refusing exactly that kind of unbacked claim.
 
-Until one of those is wired in, every claim in this repository about a skill improving anything is an
-opinion. That is worth stating plainly, because the rest of the design is built on refusing exactly
-that kind of unbacked claim elsewhere.
+**An earlier version of this section said no way to measure existed. That was wrong**, and the error is
+instructive: the tools were installed and invisible, in the same way the skill inventory was wrong for
+the same reason. What exists today:
+
+| Tool | Answers |
+|---|---|
+| **`anthropic-skills:skill-creator`** | The real eval. Paired with-skill / without-skill runs on the same prompt, aggregating pass rate, time and tokens into `benchmark.json`, plus trigger accuracy from should-fire / should-not-fire prompts. **Installed.** |
+| **`/skill-doctor`** | Which loaded skills are unused and costing context. **Bundled.** |
+| **`/doctor`** | The listing's actual context cost and its biggest contributors. **Bundled.** |
+| `/da-skills-audit` | Static: over-constraint, overlapping triggers, Cursor incompatibility, size. Not an eval, and now says so. |
+
+So the gap is no longer "no instrument". It is that **none of it has been run yet**, which is a smaller
+and more embarrassing gap. The first things worth measuring are the calls this repository made on
+judgement rather than evidence: `da-verify` against `verification-before-completion`, `da-review-backend`
+against `find-bugs`, `da-review-all` against the bundled `code-review`.
+
+One caveat that makes the results worth less than they look: a skill benchmarked in the session that
+authored it will score better than it is, because leftover context masks gaps in the written
+instructions. Benchmark from a fresh session or do not believe the number.
 
 Two smaller gaps in the same family:
 
