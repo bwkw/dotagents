@@ -30,12 +30,9 @@ it — this removes both the work of invoking each layer by hand and, more impor
 
 ## What this skill delegates to
 
-**This is the only review entry point in the `/` menu.** The three layer reviews are full skills with
-their own posture, process and perspective clusters, but they carry `user-invocable: false` — reachable
-by this dispatcher and by a request that names a layer, not by typing. One menu entry, three layers of
-depth behind it.
-
-This skill classifies the change and runs the layers that apply, then does the part none of them can.
+The three layer reviews are full skills with their own posture, process and perspective clusters. They
+are not typed — this dispatcher reaches them, and so does a request that names a layer. This skill
+classifies the change, runs the layers that apply, then does the part none of them can.
 
 | Layer skill | Owns |
 |---|---|
@@ -112,9 +109,8 @@ silent-failure patterns, and fans out to its own perspective subagents. **Do not
 instructions here.** If a layer needs different guidance, that belongs in the layer skill, where a
 direct `/x-review-backend` invocation also benefits from it.
 
-> **This by-name dispatch is why `disable-model-invocation` must never be set on any of them.** That
-> field blocks programmatic `Skill` calls and subagent preloading, not just model auto-invocation —
-> setting it on a layer skill turns this step into a silent no-op. The linter checks for it.
+> **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
+> so this step becomes a silent no-op. The linter and the lint hook both check for it.
 
 Run the layers **sequentially**. Each one fans out to its own subagents internally, so there is no
 parallelism to gain here, and attempting it just makes the transcript harder to follow.
@@ -145,10 +141,7 @@ layers, which no single-layer review can see:
 `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` and work through all five. Do not settle for
 re-applying the patterns as written — each has a shape that appears only when the cause and the
 consequence sit in **different layers**, and no layer review can reach any of them because every copy,
-every half, every side is locally correct. In short: a shared default whose compensation lives in
-another layer; a fallback that treats absent-from-elsewhere as permitted; one source of truth
-re-declared under a different name; live-read config racing a two-pipeline rollout; and an action in
-one layer whose only signal lands in another.
+every half, every side is locally correct.
 
 **Always pull each layer's 🧭 and unverified clears (👤) to the top.** Design doubts, system-wide
 concerns, and overconfident clears cut across layers, so they must not stay buried inside a
@@ -195,12 +188,7 @@ and it is the only place they can be checked because no layer can see them.
 - Never modify code or configuration. Read-only.
 - Suggested comments stay suggestions. Posting via `gh pr review` or similar happens only when the
   user explicitly asks for it.
-- Cross-layer findings are calibrated by the same reachability rule as everything else; it lives in
-  `finding-discipline.md`. What to confirm here is specific though: which path is actually used, the
-  seed and config rollout order, and whether backend and frontend release together.
-- Always present the layer classification before acting on it.
 - Do not run reviews for layers the change does not touch.
-- If only one layer is touched, the result is the same as running that layer alone; say explicitly
-  that there is no cross-layer impact.
-- Even for a clean cross-layer summary, state the limits under 🔎. Never present it as unconditional
-  proof of safety.
+- Cross-layer findings use the same reachability rule as everything else (`finding-discipline.md`).
+  What to confirm here is specific: which path is actually used, the seed and config rollout order,
+  and whether backend and frontend release together.

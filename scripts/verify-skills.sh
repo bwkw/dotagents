@@ -148,7 +148,7 @@ check_skill() {
   # --- invariant: disable-model-invocation only where nothing dispatches by name ---
   # Officially this is the correct spelling for a user-invoked workflow, and it costs zero description
   # budget. It is wrong only where something reaches the skill BY NAME, because it also blocks
-  # programmatic Skill calls and subagent preloading -- with no error. See docs/adr/0005.
+  # programmatic Skill calls and subagent preloading -- with no error. See docs/decisions.md.
   # Match on $name, not $id -- $id is "skills/<name>" and a bare case pattern never matches it.
   if has_frontmatter_key "$skill" disable-model-invocation; then
     case "$name" in
@@ -175,14 +175,14 @@ check_skill() {
     if grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports' <<<"$body"; then
       :
     elif [[ "$dir" == "$REPO/skills/"* ]]; then
-      err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/adr/0003)"
+      err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/decisions.md)"
     else
       warn "$id" "declares 'allowed-tools' but the body never states the restriction -- that constraint does not exist in Cursor"
     fi
   fi
 
   # A skill whose body dispatches to subagents but whose allowed-tools omits Task has been
-  # forbidden from doing the thing it exists to do -- by an optimization, which ADR 0003 says must
+  # forbidden from doing the thing it exists to do -- by an optimization, which decisions.md §3 says must
   # never be the mechanism. Silent in Cursor, and a permission prompt in Claude.
   if has_frontmatter_key "$skill" allowed-tools \
      && grep -qiE 'parallel subagents|dispatch (them|the)|Task tool|launch .*subagent' <<<"$body" \
@@ -192,7 +192,7 @@ check_skill() {
 
   if has_frontmatter_key "$skill" context; then
     grep -qiE 'subagent|sub-agent|Task tool|separate context|fresh context' <<<"$body" \
-      || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/adr/0003)"
+      || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/decisions.md)"
   fi
 
   # --- provenance ------------------------------------------------------------

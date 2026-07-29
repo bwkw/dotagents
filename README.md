@@ -3,467 +3,345 @@
 [![ci](https://github.com/bwkw/dotagents/actions/workflows/ci.yml/badge.svg)](https://github.com/bwkw/dotagents/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A personal AI development toolkit for **Claude Code and Cursor**. Installed once, globally, and
-available in every repository. No product repository is ever modified.
+**Claude Code と Cursor** のための個人用 AI 開発ツールキット。一度グローバルに入れれば、どのリポジトリでも使えます。プロダクトのリポジトリには一切手を入れません。
 
-日本語版: [README.ja.md](README.ja.md)
+English: [README.en.md](README.en.md)
 
-Why it is shaped this way, with sources: [docs/design.md](docs/design.md) · Which mechanism to use:
-[docs/mechanisms.md](docs/mechanisms.md) · Decisions: [docs/adr/](docs/adr/)
+なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
+[docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md)
 
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
 cd ~/private/dotagents
-./scripts/setup.sh install --dry-run   # see what it would do
+./scripts/setup.sh install --dry-run   # 何が起きるか確認
 ./scripts/setup.sh install
 ./scripts/setup.sh status
 ```
 
-Requires `node` (≥18), `bash`, and `git`. macOS ships bash 3.2 and everything here runs on it.
+必要なもの: `node`（18以上）、`bash`、`git`。macOS の bash 3.2 で全て動きます。
 
 ---
 
-## Pick by what you are doing
+## 何をしたいかで選ぶ
 
-Five use cases. Each is entered on its own — this is not one pipeline with branches.
-**●** is from this repository, **○** upstream, **◆** built into Claude Code.
+**5つのユースケース。** それぞれ独立に入ります —— 分岐のある1本のパイプラインではありません。
+**●** はこのリポジトリ製、**○** は上流、**◆** は Claude Code 組み込み。
 
-### 1. Build a feature
+### 1. 機能を作る
 
-| Step | Type | What it is for |
+| 段階 | 打つもの | 何のためか |
 |---|---|---|
-| **0. Survey** | ○ `/research` | "What do people actually do about this?" External primary sources, written to a file in the repo. **The options and their tradeoffs come out of this**, and the file outlives `/clear` |
-| **1. Settle it** | ○ `/grill-me` | Interrogates the option you picked until the requirement is actually pinned down |
-| | ● `/da-investigate` | What a change would touch in *this* codebase — `file:line`, under a budget, naming what it could not confirm |
-| **2. Write it down** | ○ `/documentation-and-adrs` | The decision, as an ADR |
-| | ○ `/writing-plans` | The spec, on disk. (Or openspec, if the repository uses it) |
-| | **● `/da-design-review`** | Reviews what you wrote **before code exists** — one-way doors, migration order, rollback, and a past-tense pre-mortem |
-| | `/clear` | The plan is on disk. Implement in a fresh session |
-| **3. Implement** | ○ `/executing-plans` | Work through the written plan with checkpoints |
-| | ○ `/using-git-worktrees` | When the work needs isolating from the current workspace |
-| | **● `/da-verify`** | Runs *this repository's* configured checks and reports evidence. **Also arms the gate** |
-| **4. Review and iterate** | see use case 4 | |
+| **0. 地面を調べる** | ○ `/research` | 「世の中は実際どうやっているか」。外部の一次情報を、**リポジトリ内のファイル**に書き出す。**選択肢とトレードオフはここから出てくる**し、ファイルは `/clear` を越えて残る |
+| **1. 何を作るか固める** | ○ `/grill-me` | 選んだ選択肢を、要件が本当に固まるまで質問攻めにする |
+| | ● `/da-investigate` | **この**コードベースで何に触るか。`file:line`、予算内、**確認できなかったことを名指し** |
+| **2. 書き下す** | ○ `/documentation-and-adrs` | 決定を ADR として |
+| | ○ `/writing-plans` | spec をディスクに（リポジトリが openspec を使うならそちら） |
+| | **● `/da-design-review`** | 書いたものを**コードが存在しない段階で**レビュー —— 一方通行の扉、移行順序、ロールバック、過去形のプリモーテム |
+| | `/clear` | 計画はディスクにある。実装は新セッションで |
+| **3. 実装する** | ○ `/executing-plans` | 書かれた計画を節目付きで進める |
+| | ○ `/using-git-worktrees` | 作業を今のワークスペースから隔離する必要があるとき |
+| | **● `/da-verify`** | **この**リポジトリの設定済みチェックを実行し、証拠を報告。**ゲートも arm する** |
+| **4. レビューして改善** | ユースケース4へ | |
 
-Test-first is not a step here: it is a standing rule in `AGENTS.md`, because a default that needs
-invoking is not a default. ○ `/test-driven-development` holds the detailed process when you want it.
+**テストが先はここの段階ではありません** —— `AGENTS.md` の常設ルールです（呼ばないと効かない既定値は既定値ではない）。詳細な手順が要るときは ○ `/test-driven-development`。
 
-### 2. Investigate
+### 2. 調査する
 
-Two different questions, two different tools. Reaching for the wrong one is the common mistake.
+**問いが2種類あり、道具も2つ。** 間違った方に手を伸ばすのがよくある失敗です。
 
-| The question | Type | Notes |
+| 問い | 打つもの | 補足 |
 |---|---|---|
-| "How does the world do this?" | ○ `/research` | External sources. Writes findings to a file, and can run in a background agent |
-| "Where does X live / what depends on it / what would break?" | ● `/da-investigate` | **This** codebase. 25 file reads, 3 search rounds, then it **stops and says what it did not check**. Reports Confirmed / Inferred / Unconfirmed as three distinct things, and retries a negative result with different vocabulary before asserting it |
+| 「世の中はこれをどうやっているか」 | ○ `/research` | **外部**の情報源。所見をファイルに書き、背景エージェントでも走れる |
+| 「X はどこ / 何が依存 / 何が壊れる」 | ● `/da-investigate` | **この**コードベース。25ファイル・検索3ラウンドで**止まり、確認しなかったことを言う**。Confirmed / Inferred / Unconfirmed を別物として報告し、**負の結論は語彙を変えて再探索してから**主張する |
 
-`/da-investigate` fans out to ● `x-codebase-explorer` subagents, so the reading stays in their context
-rather than yours.
+`/da-investigate` は ● `x-codebase-explorer` サブエージェントに展開するので、**読んだ内容は彼らの context に留まります**。
 
-### 3. Fix a bug
+### 3. バグを直す
 
-| Step | Type | Notes |
+| 段階 | 打つもの | 補足 |
 |---|---|---|
-| **Investigate** | **○ `/systematic-debugging`** | Root cause **before** fix, and it refuses to skip ahead. This is not a review — pointing a review skill at a bug returns a list of nearby imperfections instead of the cause |
-| | ● `/da-investigate` | Only once you have a suspect, for its blast radius |
-| **Fix** | ○ `/systematic-debugging` | Its own Phase 4 carries the fix through |
-| **Prove it** | **● `/da-verify`** | And the bugfix starts with a test that reproduces the bug, so "fixed" means something |
+| **調査** | **○ `/systematic-debugging`** | **修正より先に root cause**、飛躍を拒否する。**これはレビューではありません** —— バグにレビュースキルを向けると、原因ではなく近所の不完全さの一覧が返る |
+| | ● `/da-investigate` | 疑わしい箇所が決まってから、その影響範囲だけ |
+| **修正** | ○ `/systematic-debugging` | 自身の Phase 4 が修正まで担う |
+| **証明** | **● `/da-verify`** | そしてバグ修正は**バグを再現するテストから**始まる（でないと「直った」に意味がない） |
 
-### 4. Review
+### 4. レビューする
 
-| | Type | Notes |
+| | 打つもの | 補足 |
 |---|---|---|
-| **Your own work** | **● `/da-review-all`** | The only review entry to type. Classifies the change, dispatches to the layers that apply, then finds what falls *between* them |
-| | ◆ `/code-review` or ○ `/find-bugs` | **A second reviewer, deliberately a different one.** Four reviewers over the same 146 PRs caught 93.4% of findings with exactly one of the four |
-| | **● `/da-fix-plan`** | The findings → an ordered plan. **Its main job is deciding what not to fix** |
-| | ○ `/receiving-code-review` | When feedback arrives and you want to evaluate it rather than implement it reflexively |
-| | ● `/da-pr-describe` | The PR description. **Type it** — it never fires on its own |
-| **Someone else's PR** | ◆ `/review <PR>` | The GitHub view |
-| | ● `/da-review-all <base>` | For depth. **Reconstructs the intent from the description, issue and commits before producing a single finding** — a difference in approach is not a defect, and pre-existing problems are labelled and do not block |
-| **Narrower passes** | ◆ `/security-review` · ◆ `/simplify` | Security only; quality only and explicitly not a bug hunt |
+| **自分の実装** | **● `/da-review-all`** | **打つレビュー入口はこれだけ。** 変更を分類し、該当する層に委譲し、**層と層の間**に落ちるものを見る |
+| | ◆ `/code-review` か ○ `/find-bugs` | **2本目、意図的に別の作りのもの。** 同一146 PR に4種を当てて、指摘の93.4%は4つのうち1つだけが検出 |
+| | **● `/da-fix-plan`** | 所見 → 順序付きの計画。**主な仕事は「何を直さないか」を決めること** |
+| | ○ `/receiving-code-review` | 指摘が来て、反射的に実装せず評価したいとき |
+| | ● `/da-pr-describe` | PR 説明。**自分で打つ** —— 自動では起動しない |
+| **他人の PR** | ◆ `/review <PR>` | GitHub の見え方 |
+| | ● `/da-review-all <base>` | 深さが欲しいとき。**説明・issue・コミットから意図を再構成してから、所見を1つも出さずに言い直す** —— アプローチの違いは欠陥ではなく、既存の問題は「既存」とラベルしてブロックしない |
+| **狭いパス** | ◆ `/security-review`・◆ `/simplify` | セキュリティ専用 / 品質専用で明示的にバグ探しではない |
 
-`x-review-backend` / `-frontend` / `-infra` are full skills but **not in the `/` menu** — the dispatcher
-reaches them, and so does naming a layer ("review the backend"). One thing to type, three layers of depth.
+`x-review-backend` / `-frontend` / `-infra` は完全なスキルですが **`/` メニューには出しません** —— ディスパッチャが届き、層を名指しした依頼（「backend をレビューして」）も届きます。**打つのは1つ、その裏に3層の深さ。**
 
-### 5. Maintain the toolkit
+### 5. ツールキットを保守する
 
-| Type | When |
+| 打つもの | いつ |
 |---|---|
-| ◆ `/skill-doctor` | **First.** Which loaded skills are unused and costing context |
-| ◆ `/doctor` | The listing's real context cost, and its biggest contributors |
-| ● `/da-skills-audit` | Over-constraint, overlapping triggers, Cursor incompatibility, size |
-| ○ `/skill-scanner` | Before trusting a newly installed third-party skill. Security, not bloat |
-| ○ `anthropic-skills:skill-creator` | The only thing that measures whether a skill **helps**: with-skill vs without-skill pass rate, tokens, time |
+| ◆ `/skill-doctor` | **最初にこれ。** 未使用でコンテキストを食っているスキル |
+| ◆ `/doctor` | listing の実コストと最大寄与者 |
+| ● `/da-skills-audit` | 過剰制約、トリガ重複、Cursor 非互換、サイズ |
+| ○ `/skill-scanner` | 第三者スキルを信用する前。**bloat ではなくセキュリティ** |
+| ○ `anthropic-skills:skill-creator` | スキルが**役に立っているか**を測れる唯一のもの: with/without の pass rate・トークン・時間 |
 
-### Three rules that matter more than any command
+### どのコマンドより効く3つの規則
 
-- **If you could describe the diff in one sentence, skip the plan.**
-- **`/clear` between the plan and the implementation**, and between unrelated tasks.
-- **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what you
-  learned. A clean session with a better prompt beats a long one carrying failed approaches.
+- **差分を1文で説明できるなら計画は飛ばす。**
+- **計画と実装の間で `/clear`**、そして無関係なタスクの間でも。
+- **同じ問題で2回修正に失敗したらセッションを捨てる。** 学んだことを織り込んで prompt を書き直す。失敗したアプローチを抱えた長いセッションより、良い prompt の綺麗なセッションが勝つ。
 
-[`docs/design.md`](docs/design.md) has the reasoning, the sources, and the places good sources disagree
-— including the fact that **there is no canonical phase count**; the five use cases above are a
-convenience, not a finding.
+理由・出典・良い出典どうしが食い違う箇所は [`docs/design.md`](docs/design.md) に。**正典と呼べる段階数は存在しない**という事実も含めて —— 上の5ユースケースは便宜であって、発見ではありません。
 
-### The gate, and when you touch it directly
+### ゲートと、直接触る場合
 
-`/da-verify` arms the gate as its first step, so **there is no separate arming step in any use case
-above.** Once armed, the end of every turn runs this repository's checks and refuses to finish while they
-are red.
+`/da-verify` が最初のステップでゲートを arm するので、**上のどのユースケースにも別途 arm するステップはありません。** arm 後はターン終了ごとにこのリポジトリのチェックが走り、赤い間は終了を拒否します。
 
 ```bash
-scripts/gate.sh arm       # hold from the FIRST turn, before any verify has run
-scripts/gate.sh disarm    # back to question-answering; no suite on the way out
+scripts/gate.sh arm       # まだ verify が走っていない段階から、最初のターンから保留したい
+scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを走らせたくない
 ```
 
-> **Not an unattended-overnight lock.** Arming early raises the odds that a session you are not watching
-> ends green, and that is all. **Claude Code releases a Stop hook after 8 consecutive blocks**, so a
-> genuinely stuck run gets let through; **on Cursor it cannot block at all**, only nudge, and it stops
-> nudging at the third message; and a hook that keeps refusing is not progress — two failed corrections
-> means discard the session, the opposite of holding it open. What survives across sessions is the spec
-> on disk, the checks in CI, and commits as recovery points.
+> **深夜に無人で回すためのロックではありません。** 早めに arm すると、見ていないセッションが緑で終わる確率が上がる。それだけです。**Claude Code は Stop hook を8回連続ブロックで解除**するので本当に詰まった実行は通る。**Cursor ではブロックできず**、nudge するだけで3回目に止める。そして**拒否し続ける hook は前進ではない** —— 2回失敗したらセッションを捨てるのが正しく、保留し続けるのはその逆。セッションを越えて残るのは**ディスクの spec、CI のチェック、復帰点としてのコミット**です。
 
-## What is in here
+## 何が入っているか
 
-**Ten skills are written here**; the other eleven are installed from upstream, because methodology is
-better maintained by people who work on it full time. Ours are the ones that encode an opinion —
-what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
-work is called done. They are marked **●** throughout.
+**自作は10スキル**、残り11本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
-Plus two subagents in `agents/`, installed globally so they exist in every repository:
-**`x-review-verifier`** (adversarial, refutes by default, never took part in finding) and
-**`x-codebase-explorer`** (read-only tracing, `file:line` evidence, explicit budget). The review skills
-dispatch to them by name. Before they existed, five files said "prefer a purpose-built agent when the
-repository defines one" — and since this toolkit never adds a file to a product repository, that branch
-could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
+加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
-## The whole surface, and what is suppressed
+## 面の全体と、何を抑制しているか
 
-**Type `/da` and you get the seven things you type — the same seven in Claude Code and in Cursor.**
+**`/da` と打てば、打つべき7つが出ます —— Claude Code と Cursor で同じ7つ。**
 
-Two prefixes, and the split is the point. **`da-` is what you type** (7). **`x-` is internal** (3 layer
-reviews, 2 subagents) — reached by the dispatcher or by naming a layer, never typed.
+**前置は2つあり、その分割が本質**です。**`da-` は打つもの**（7）。**`x-` は内部**（層別レビュー3＋サブエージェント2）—— ディスパッチャか層の名指しで届き、**打つものではありません**。
 
-The split exists because hiding by field does not work in both agents: `user-invocable: false` is
-Claude-only, and **Cursor puts subagents in its command picker**, so `/da` there was returning 12 entries
-where Claude returned 7 — five of them dispatch targets nobody should type. Not sharing the prefix fixes
-it in both, without depending on a field either agent may ignore. That solves two problems at once: at the `/` menu
-there is otherwise no way to tell ours from everything else, and an unprefixed name can shadow a built-in
-silently, which already happened once when a skill called `review` hid Claude Code's own `/review`.
+分割が必要なのは、**フィールドで隠す方法が両エージェントで通用しない**からです: `user-invocable: false` は Claude 専用、そして **Cursor はサブエージェントをコマンドピッカーに載せる**。結果 `/da` は Cursor で12件、Claude で7件を返していて、**差の5件は誰も打つべきでないディスパッチ先**でした。前置を共有しないことで、**どちらかのエージェントが無視しうるフィールドに頼らずに**両方で直ります。これで2つの問題が同時に解けます: `/` メニューでは自作と第三者製20数本を見分ける手段が他に無いこと、そして**前置なしの名前は組み込みを無言で隠す**こと（`review` という名前のスキルが Claude Code の `/review` を隠す事故が実際に起きました）。
 
-### How big the surface actually is
+### 面の実際の大きさ
 
-**72 names are reachable, not 21.** This matters because the budget they share is 1% of the context
-window, and because two earlier audits of this repository were wrong by reading the filesystem:
+**到達可能な名前は 21 ではなく 72。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
 
-| Source | Names | Where |
+| 出所 | 数 | 場所 |
 |---|---|---|
-| On disk | 21 | `~/.agents/skills/` — 10 ours, 11 upstream |
-| Anthropic-managed plugin | 11 | under `~/Library/Application Support/Claude/…`, server-synced |
-| **Compiled into the CLI binary** | **40** | **no files exist** — they live inside the executable |
+| ディスク上 | 21 | `~/.agents/skills/` —— 自作10、上流11 |
+| Anthropic 管理プラグイン | 11 | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
+| **CLI バイナリにコンパイル済み** | **40** | **ファイルとして存在しない** —— 実行ファイルの中 |
 
-So a count from `~/.agents/skills` is not the total. `/doctor` and `/skill-doctor` see all of it.
-Eight names are suppressed via `skillOverrides` — see [Suppressed](#suppressed-and-why-not-more) below.
+`~/.agents/skills` を数えても全体にはなりません。`/doctor` と `/skill-doctor` が全部を見ます。6件は `skillOverrides` で抑制しています（下記）。
 
-### Where triggers still overlap, and who wins
+### トリガが重なる場所と、どちらが勝つか
 
-| Ask | Goes to | Second opinion |
+| こう頼む | 行き先 | 2本目 |
 |---|---|---|
-| "review this" | `/da-review-all` — or `/find-bugs`; a bare phrasing may pick either | `/code-review` |
-| "is this secure" | `/find-bugs` (bugs + security + quality) | `/security-review` |
-| "am I done" | `/da-verify`. Without a profile it **stops and hands you one to fill in** — there is no fallback skill any more, and no gate until you save it |
-| "clean this up" | `/simplify` — quality only, by design | — |
-| "run it every day" | bundled `/schedule` | `/loop` for a single repeating check |
+| 「レビューして」 | `/da-review-all` —— `/find-bugs` にも行きえる | `/code-review` |
+| 「セキュアか」 | `/find-bugs`（バグ＋セキュリティ＋品質） | `/security-review` |
+| 「終わった？」 | `/da-verify`。profile が無ければ**埋めるだけの profile を返して止まる** —— 代替スキルはもう無く、保存するまでゲートも無い |
+| 「整理して」 | `/simplify` —— 設計上、品質専用 | —— |
+| 「毎日動かして」 | バンドルの `/schedule` | 単発の繰り返しは `/loop` |
 
-### Suppressed, and why not more
+### 抑制しているもの、そしてなぜそれ以上やらないか
 
-Six names are set to `name-only` or `off` in `skillOverrides`, merged by `setup.sh` and reverted exactly
-by `uninstall`: `claude-api` (auto-fires on triggers this
-repository hits constantly), `anthropic-skills:schedule` (**two live skills are named `schedule`**), the
-office-file set `docx`/`pptx`/`xlsx`/`pdf` (long descriptions, no dev-loop use), and `morning`/`setup-cowork`.
+`skillOverrides` で8件を `name-only` か `off` に。`setup.sh` がマージし、`uninstall` が正確に戻します: `claude-api`（このリポジトリの作業で常に該当するトリガで自動発火する）、`anthropic-skills:schedule`（**`schedule` という名前のスキルが2本生きている**）、office 系 `docx`/`pptx`/`xlsx`/`pdf`（description が長く開発ループ外）、`morning`/`setup-cowork`。
 
-**The reviewers are not suppressed, on purpose.** The usage log shows bundled `code-review` at 42
-invocations and `review` at 24 — they are in real use — and reviewer diversity is the single
-best-supported review practice available. `disableBundledSkills` would have removed all of them at once,
-and it exists only in CLI 2.1.219+, so it would silently do nothing under an older `claude` on `$PATH`.
-This machine has both versions. See [ADR 0006](docs/adr/0006-one-review-entry-and-the-real-command-surface.md).
+**レビュア系は意図的に抑制していません。** 使用ログではバンドル `code-review` が42回、`review` が24回 —— 実際に使われています。そしてレビュアの多様性は、手に入る中で最も裏付けのあるレビュー手法です。`disableBundledSkills` なら一撃で全部消え、しかも **CLI 2.1.219 以降にしか存在しない**ので `$PATH` の古い `claude` では黙って無効になります。このマシンには両バージョンが入っています。[判断の記録 §8](docs/decisions.md) 参照。
 
-### Why these are skills, and not "commands"
+### なぜ「コマンド」ではなく全部スキルなのか
 
-Official guidance merged commands into skills, and there is no documented case where a bare
-`commands/*.md` is preferable — so there is no `commands/` directory here. The full taxonomy, with
-sources, is in [`docs/mechanisms.md`](docs/mechanisms.md#commands-are-skills-now).
+公式がコマンドをスキルに統合し、素の `commands/*.md` が好ましいケースは公式に1つもない —— なのでここに `commands/` ディレクトリはありません。分類の全体像と出典は [`docs/mechanisms.md`](docs/mechanisms.md) にあります。
 
-What follows from it operationally:
+そこから出てくる運用上の帰結:
 
-- **Type `/` and everything is in one list.** Nothing here is invoked a second, different way.
-- The prompt-template case is now spelled `disable-model-invocation: true`, which also drops the
-  description from context and so costs no budget. `/da-pr-describe` uses it — it writes to GitHub, so
-  the timing is yours.
-- **`/da-verify` and the three layer reviews must never use it**, because something reaches them *by
-  name*. The lint hook and the linter both enforce that, with tests.
-- One skill serving both a direct invocation and a dispatch from `/da-review-all` is why the layer
-  reviews are skills and not two files that drift apart — which is how this repository's predecessor
-  decayed. Their shared reference set is symlinked, so a change to the discipline reaches every layer
-  and the cross-layer pass at once.
+- **`/da` を打てば自作のものだけが1つのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
+- プロンプトテンプレートの用途は今 `disable-model-invocation: true` という綴りで、**description が context から完全に消えるので予算コストがゼロ**です。`/da-pr-describe` がこれ（GitHub に書き込むので、タイミングはあなたのもの）。
+- 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
+- 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-### Where the upstream eleven come from
+### 上流11本はどこから来たか
 
-Chosen from collections that are widely used and actively maintained, and **installed selectively** —
-never a whole repository, because every description shares one budget. Only what a flow above actually
-reaches.
+**広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
-| Source | Installed from it | Why this collection |
+| 出所 | そこから入れたもの | なぜこのコレクションか |
 |---|---|---|
-| **[obra/superpowers](https://github.com/obra/superpowers)** — 6 | `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `receiving-code-review` · `using-git-worktrees` | The methodology backbone: plan → implement → verify, plus the debugging discipline. Multi-harness, `AGENTS.md` and tests of its own. This is where the *process* comes from |
-| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2 | `grill-me` · `research` | Sharp, single-purpose tools. `grill-me` is the interrogation that turns an option into a settled requirement, and it costs zero budget (`disable-model-invocation`); `research` is the external survey the design flow starts from |
-| **[getsentry/skills](https://github.com/getsentry/skills)** — 2 | `find-bugs` · `skill-scanner` | From a company whose product is finding production failures. `find-bugs` enumerates the attack surface before it sweeps — a different shape from our layered review, which is exactly why it is the second reviewer. `skill-scanner` found a real defect in this repository's own frontmatter |
-| **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1 | `documentation-and-adrs` | Just the ADR practice. The other four from this collection were removed as off-loop; this one was removed too and **reinstated**, because writing the ADR is where the design flow starts |
+| **[obra/superpowers](https://github.com/obra/superpowers)** — 6本 | `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `receiving-code-review` · `using-git-worktrees` | **方法論の背骨**: plan → implement → verify と、デバッグの規律。マルチハーネス対応で、自前の `AGENTS.md` とテストを持つ。**プロセスはここから来ています** |
+| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2本 | `grill-me` · `research` | **鋭くて単一目的**の道具。`grill-me` は選択肢を固まった要件に変える質問攻めで予算コストゼロ（`disable-model-invocation`）、`research` は設計フローの出発点となる外部調査 |
+| **[getsentry/skills](https://github.com/getsentry/skills)** — 2本 | `find-bugs` · `skill-scanner` | **本番の障害を見つけることが製品の会社**から。`find-bugs` は攻撃面を全列挙してからスイープする —— 層別レビューとは**形が違う**ので、まさに2本目のレビュアに適しています。`skill-scanner` はこのリポジトリ自身の frontmatter の実バグを見つけました |
+| **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1本 | `documentation-and-adrs` | **ADR の実践だけ。** このコレクションの他4本は「ループ外」として削除。これも一度削除して、**戻しました** —— ADR を書くことが設計フローの出発点だからです |
 
-Bundled in Claude Code and used rather than suppressed: `/code-review`, `/review`, `/security-review`,
-`/simplify`, `/verify`, `/run`, `/doctor`, `/skill-doctor`. Plus `anthropic-skills:skill-creator`, which
-is the only thing here that can measure whether a skill helps.
+**抑制せずに使っている Claude Code 組み込み**: `/code-review` · `/review` · `/security-review` · `/simplify` · `/verify` · `/run` · `/doctor` · `/skill-doctor`。加えて `anthropic-skills:skill-creator` —— **スキルが役に立っているかを測れる唯一のもの**です。
 
-**The selection rule, and why nothing is vendored.** Methodology is better maintained by people who work
-on it full time, so it is installed alongside rather than copied in — `npx skills check` shows what
-changed upstream before `npx skills update` takes it. A vendored copy would be a fork nobody maintains.
-The cost of that choice is that an upstream skill **cannot be edited here**: a fix in place is lost on the
-next update, so the only levers are install and remove. That is why the `da-` prefix marks ours and
-upstream keeps its own names.
+**選定の規則と、なぜ vendoring しないか。** 方法論はそれを本業にしている人たちが維持した方が良いので、コピーせず**並べて入れます** —— `npx skills check` で上流の差分を確認してから `npx skills update` で取り込む。vendored なコピーは**誰もメンテしない fork** です。この選択の代償は、**上流スキルはここで編集できない**こと: その場で直しても次の update で失われるので、レバーは install と remove だけ。**だから `da-` prefix が自作を示し、上流は元の名前のままなのです。**
 
-The line for what belongs here: **would this be equally useful to someone with different opinions?**
-If yes, it belongs upstream. What stays encodes a particular opinion — what counts as a finding worth
-reporting, what makes a review trustworthy, what must be true before work is called done.
+ここに置くかの判定基準: **「違う意見を持つ人にとっても同じくらい有用か？」** Yes なら上流に属します。残るのは**特定の意見をエンコードしたもの** —— 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。
 
-### The frontmatter guard
+### frontmatter ガード
 
-`hooks/dotagents-lint-skill-frontmatter.sh`, on both agents. **The one hook you meet without asking for
-it** — it runs on every `Write`/`Edit` and only reacts to a path ending in `SKILL.md`.
+`hooks/dotagents-lint-skill-frontmatter.sh`、両エージェントで動きます。**頼まなくても遭遇する唯一の hook** です —— `Write`/`Edit` のたびに走り、パスが `SKILL.md` で終わるときだけ反応します。
 
-If you write a skill and the edit is **refused**, this is why:
+スキルを書いていて編集が**拒否された**ら、理由はこれです。
 
-| It refuses | Because |
+| 拒否する条件 | 理由 |
 |---|---|
-| no `name`, or no `description` | The skill appears in the menu and never fires. Nothing else reports that. |
-| frontmatter opened with `---` and never closed | Same failure, harder to spot. |
-| `disable-model-invocation` on `da-verify` | It is the only thing that arms the gate, so the guardrail would open. |
-| `disable-model-invocation` on a layer review | `da-review-all` would report that layer as covered while reviewing nothing. |
+| `name` か `description` が無い | メニューには出るのに一度も発火しない。他にそれを報告するものが無い |
+| `---` で開いて閉じていない | 同じ失敗で、より気づきにくい |
+| `da-verify` に `disable-model-invocation` | ゲートを arm する唯一のものなので、ガードレールが開く |
+| 層別レビューに `disable-model-invocation` | `da-review-all` がその層を「カバー済み」と報告して何もレビューしなくなる |
 
-It **asks rather than refuses** when a description says what a skill does but not *when* to use it — that
-still works when typed, it just will not fire on its own. Everything else passes. This hook only
-inspects, so if it crashes it falls through open; the one that must fail closed is the gate below.
+「何をするか」は書いてあるが「**いつ使うか**」が無い description は、**拒否ではなく確認**になります —— 打てば動くが、自動では発火しないので。それ以外は通します。この hook は検査だけなので落ちたら**開いて**通します。閉じて止まらなければならないのは下のゲートです。
 
-### The verification gate
+### 検証ゲート
 
-`hooks/dotagents-verify-gate.sh`, on both agents.
+`hooks/dotagents-verify-gate.sh`、両エージェントで動きます。
 
-**Sentinel-gated.** Inert until `gate.sh arm`. An always-on gate that runs the test suite at the end
-of every question-answering session gets switched off within a day, which is worse than not having
-one. `gate.sh arm` warns when no profile matches, because an armed gate with nothing to run reports
-itself active and passes everything.
+**センチネル方式。** `gate.sh arm` するまで何もしません。常時ONのゲートは、質問に答えるだけのセッションの終わりにもテストスイートを走らせるので一日で切られます。それは無いより悪い。`gate.sh arm` は profile が無いとき警告します —— 走らせるものが無いゲートは「有効」と表示しながら全部通すので。
 
-**Commands come from a profile**, matched on git remote — so product repositories stay untouched. A
-check marked `agent_may_run: false` is never run by the agent (some repositories document that an
-agent must not run a particular command) and the gate requires *your* output before it passes. With no
-profile it stays silent rather than guessing: an invented `npm test` in an unfamiliar repository is
-how a gate loses trust.
+**コマンドは profile から引きます。** git remote で照合するので、プロダクトのリポジトリは無改変です。`agent_may_run: false` のチェックはエージェントが決して実行せず（そう文書で定めているリポジトリがあるため）、**あなた自身の出力**を要求します。profile が無ければ推測せず黙ります —— 見知らぬリポジトリで勝手に `npm test` を叩くのは、検証ツールが信用を失う典型です。
 
-**Cursor runs it too, but cannot block.** Cursor's `stop` hook has no refusal mechanism; it
-auto-submits a follow-up message instead, capped by `loop_limit`. Both hooks detect the caller and
-answer in the right dialect. Treat Cursor's side as a strong nudge and run `/da-verify` when it matters.
-[ADR 0003](docs/adr/0003-cursor-compatible-subset.md) has the parity table.
+**Cursor でも走りますが、ブロックできません。** Cursor の `stop` フックには拒否の仕組みがなく、代わりに follow-up メッセージを自動投入します（`loop_limit` で打ち切り）。両フックは呼び出し元を判定して適切な方言で応答します。Cursor 側は「強い促し」と考え、重要な場面では `/da-verify` を明示実行してください。対応表は [判断の記録 §3](docs/decisions.md)。
 
-**When it seems to do nothing**, read `~/.claude/.dotagents-gate/trace.log`. Every invocation is
-recorded with the reason it passed. "Nothing happened" has six legitimate causes and that file tells
-them apart — it exists because guessing between them once nearly led to changing working code.
+**何も起きていないように見えたら** `~/.claude/.dotagents-gate/trace.log` を読んでください。全ての呼び出しと、通した理由が記録されています。「何も起きなかった」には正当な原因が6通りあり、このファイルがそれを区別します —— 一度これが無いまま推測して、**動いているコードを変えて原因を隠しかけた**ので作りました。
 
-### Profiles
+### プロファイル
 
-Copy [`profiles/dotagents.json`](profiles/dotagents.json) — this repository's own, and the one that
-actually runs — or [`profiles/_example.json`](profiles/_example.json), to `profiles/<repo>.json`.
+[`profiles/dotagents.json`](profiles/dotagents.json)（このリポジトリ自身のもので、**実際に動いている唯一の例**）か [`profiles/_example.json`](profiles/_example.json) を `profiles/<repo>.json` にコピーします。
 
-**Your copy is gitignored.** Profiles name real repositories, real environments, sometimes an
-employer's internal rules; they stay on the machine that wrote them. `.gitignore` is an allowlist, so
-a new profile is untracked by default rather than tracked until someone remembers. `/da-verify` walks you
-through writing one.
+**あなたのコピーは gitignore されます。** profile は実在のリポジトリ名・環境名、場合によっては勤務先の社内ルールを含むので、書いたマシンに留まります。`.gitignore` は許可リスト方式なので、新しい profile は**デフォルトで untracked** です（「除外し忘れるまで追跡される」の逆）。`/da-verify` が書き方を案内します。
 
-### How it is wired
+### 仕組み
 
 ```
 dotagents/skills/<name>/
         ↑ symlink
-~/.agents/skills/<name>          ← Cursor reads this directly
+~/.agents/skills/<name>          ← Cursor はここを直接読む
         ↑ symlink
-~/.claude/skills/<name>          ← Claude Code follows the link
+~/.claude/skills/<name>          ← Claude Code は symlink を追う
 ```
 
-One physical copy; an edit here takes effect in both agents with no sync step. Only Claude Code gets a
-link — Cursor reading `~/.agents/skills/` is **observed, not assumed**
-([ADR 0001](docs/adr/0001-global-install-via-agents-dir.md)).
+実体はひとつ。ここを編集すれば同期の手順なしに両エージェントへ反映されます。リンクを張るのは Claude Code 側だけ —— Cursor が `~/.agents/skills/` を読むことは**推測ではなく観測**です（[判断の記録 §1](docs/decisions.md)）。
 
-Hooks are **copied**, not linked: a dangling hook symlink exits 127, which is treated as
-non-blocking, so the guardrail would open rather than close
-([ADR 0002](docs/adr/0002-hooks-are-copied-not-symlinked.md)).
+フックだけは **実体コピー**です。symlink が切れると `exit 127` になり non-blocking として扱われるため、**ガードレールが「止まる」のではなく「開く」**からです（[判断の記録 §2](docs/decisions.md)）。
 
 ---
 
-### Cursor sees a different, larger menu — and this is not fully solved
+## 上流のスキル
 
-Both agents are first class, but the surfaces are **not** the same size, and the difference runs one way:
+ここには取り込まず、横に並べて `npx skills check` / `npx skills update` で更新します。
 
-| | Claude Code | Cursor |
-|---|---|---|
-| From `~/.agents/skills` | 21, **minus the 3 layer reviews** hidden by `user-invocable: false` | **all 21** — Cursor ignores that field, so the layer reviews appear in its menu |
-| Built-in | ~40 compiled into the CLI | **19 of its own**: `review`, `review-bugbot`, `review-security`, `create-skill`, `create-rule`, `create-subagent`, `loop`, `automate`, `babysit`, `split-to-prs`, `onboard`, `shell`, `sdk`, `canvas`, `statusline`, `migrate-to-skills`, `create-hook`, `update-cli-config`, `update-cursor-settings` |
-| `skillOverrides` suppressions | 8 active | **0** — Cursor does not read `settings.json` |
-
-Two consequences worth being blunt about:
-
-**The layer reviews leak into Cursor's menu.** In Claude Code there is one review entry to type; in
-Cursor there are four of ours plus `review`, `review-bugbot`, `review-security` and `find-bugs`. Typing a
-layer directly in Cursor still works correctly — it is the same skill — so this costs menu clarity, not
-behaviour, which is the line [ADR 0003](docs/adr/0003-cursor-compatible-subset.md) draws. It is
-nonetheless the largest remaining divergence, and it is **not fixed**.
-
-**The 9 suppressions do not apply there, and mostly do not need to.** Six of the eight target skills that
-do not exist in Cursor at all — bundled and Anthropic-plugin ones — so there is nothing to suppress.
-All eight now target skills Cursor does not have, so after the latest pruning **there is nothing left
-that needed suppressing on that side.**
-
-**What is not known:** whether Cursor's 19 can be disabled, and where. Its own settings surface was not
-read, so nothing here claims to prune them. If they crowd the menu enough to matter, that is the next
-thing to find out rather than something already handled.
-
-### Every script here, and what justifies it
-
-Script sprawl is the failure mode of a toolkit like this, so each one has to name what it prevents.
-Nine files, and **two were deleted for failing this test.**
-
-| File | Lines | Why it exists |
-|---|---|---|
-| `scripts/setup.sh` | 557 | The distribution mechanism. Links skills and agents, copies hooks, merges settings key-scoped, prunes what the repo no longer ships, and reverts exactly what it added. Without it nothing installs |
-| `scripts/lib/merge-settings.mjs` | 271 | The safe half of that: merges only declared keys, never rewrites a value it did not write, records what it touched. It edits a file holding someone else's API key |
-| `hooks/dotagents-verify-gate.sh` | 407 | The gate. The whole value proposition — an agent stops when work *looks* done |
-| `hooks/dotagents-lint-skill-frontmatter.sh` | 124 | Refuses a `SKILL.md` that would install broken and never say so |
-| `scripts/gate.sh` | 158 | The gate's control surface: arm, disarm, record a delegated check, report state. Called by `/da-verify`, not usually by you |
-| `scripts/verify-skills.sh` | 360 | The `AGENTS.md` invariants, as checks. **Caught:** frontmatter that no YAML parser accepts, `allowed-tools` omitting a tool the body uses, references never mentioned in the body, an unreachable `user-invocable: false` |
-| `scripts/test-verify-gate.sh` | 405 | 42 assertions. The gate is the one thing that must fail *closed*, and it failed open twice before these existed |
-| `scripts/test-lint-hook.sh` | 175 | 33 assertions. **Caught the worst bug in this repository:** a scope check that matched the wrong variable and therefore never fired — installed, and enforcing nothing |
-| `scripts/test-setup.sh` | 141 | 18 assertions against a fake `$HOME`. The installer edits files holding credentials and other tools' hooks |
-| `scripts/check.sh` | 68 | One command for all of the above, so it is one thing to remember instead of four |
-
-**Deleted, because they failed the same test:**
-
-| Removed | Why |
-|---|---|
-| `hooks/dotagents-statusline.sh` + its template + `--statusline` | An opt-in that was **never opted into.** 72 lines plus an installer function, rendering a status line nothing ever asked for. It also forced an exception into the "every hook must be able to block" check, because it was the only hook that could not |
-| `templates/claude.advisor.snippet.json` + `--advisor` | Same: **never enabled.** And the feature behind it is experimental and Anthropic-API-only, so the flag documented a capability most environments do not have |
-
-The pattern in both: **an option, for a thing, that was never turned on.** That is what makes a toolkit
-annoying to own — not the count of files, but files whose purpose you have to reconstruct before you can
-decide whether to keep them. Anything here that cannot answer "what does it prevent" in one line should
-go the same way.
-
-## Upstream skills
-
-Not vendored here. Installed alongside, updated with `npx skills check` / `npx skills update`.
-
-**Install selectively.** Every installed description is resident in context permanently, so taking a
-whole repository costs the selection accuracy of everything else.
+**選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
 
 ```bash
-# methodology — obra/superpowers
+# 方法論 — obra/superpowers
 npx skills add obra/superpowers -g -a claude-code -a cursor \
   -s writing-plans -s executing-plans -s receiving-code-review \
   -s systematic-debugging -s test-driven-development -s using-git-worktrees
 
-# practice — mattpocock/skills
+# 実務 — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
   -s grill-me -s research
 
-# security — getsentry/skills
+# セキュリティ — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
 
-# decision records — addyosmani/agent-skills
+# 決定の記録 — addyosmani/agent-skills
 npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
   -s documentation-and-adrs
 ```
 
-Deliberately omitted, to avoid competing for the same triggers: `mattpocock/tdd` and
-`diagnosing-bugs` (superpowers covers both), `addyosmani/code-review-and-quality` and
-`spec-driven-development` (covered here and upstream), and anything platform-specific.
+同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
 
-**Uninstalling leaves the skill live in Cursor.** `npx skills remove <name> -g -a claude-code -a cursor`
-unlinks the agent directories and updates the lockfile, but leaves the real directory in
-`~/.agents/skills/` — the path Cursor reads natively. Delete it too, then check the two agree:
+**アンインストールしても Cursor では生き残ります。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェント側のリンクを外して lockfile を更新しますが、**`~/.agents/skills/` の実体を残します** —— Cursor がネイティブに読むパスです。実体も消して、両者が一致することを確認してください:
 
 ```bash
 diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ```
 
-**Removed after measuring**, not on a hunch. `/da-skills-audit` compares descriptions pairwise for
-shared trigger vocabulary, and **13 were removed across three rounds** — taking the set from 35 skills
-to 21 and resident descriptions from 6,905 to about 3,500 characters. Each removal, its reason and its
-cost are in [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) and
-[ADR 0006](docs/adr/0006-one-review-entry-and-the-real-command-surface.md), including **two that were
-wrong and reinstated** — both cut against a guess at the development flow rather than the flow itself.
+**測ってから削除しています**（勘ではなく）。`/da-skills-audit` が description のトリガ語彙を総当たりで比較し、トリガの語彙が重なっていた**13本を3ラウンドで削除**しました —— 35本 → 21本、resident な description は 6,905字 → 約3,500字になりました。1本ごとの理由と代償は [判断の記録 §4](docs/decisions.md) と [判断の記録 §8](docs/decisions.md) にあります。**うち2本は誤りで、戻しました** —— どちらも開発フロー自体ではなく、それについての推測に対して切ったものです。
 
-Two consequences are live rather than historical:
+歴史ではなく**今も生きている影響**が2つ:
 
-- **Three upstream skills name a skill that is no longer installed** — `writing-plans`,
-  `executing-plans` and `systematic-debugging`. Accepted: editing an upstream file in place is lost on
-  the next `npx skills update`, silently.
-- **`/da-verify` has no fallback.** The skill that used to cover a repository with no profile is gone,
-  so it stops and hands you a profile to fill in instead of guessing at commands.
+- **上流3本が、もう入っていないスキルを名指ししています** —— `writing-plans`・`executing-plans`・`systematic-debugging`。受容しています: 上流ファイルをその場で編集しても次の `npx skills update` で、無言で失われるので。
+- **`/da-verify` に代替がありません。** profile が無いリポジトリを覆っていたスキルを外したので、コマンドを推測せず、**停止して埋める用の profile を返します**。
 
-Skills run with full agent permissions. `/skill-scanner` audits one for prompt injection and
-supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is
-for.
+スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 
 
-## Writing a skill
+## スキルの書き方
 
-Start from [`_template/SKILL.md`](_template/SKILL.md), then `./scripts/verify-skills.sh`.
+[`_template/SKILL.md`](_template/SKILL.md) から始めて `./scripts/verify-skills.sh`。
 
-The invariants are in [`AGENTS.md`](AGENTS.md) — that file is the always-loaded layer and holds the
-ones that fail *silently*. The one that governs everything else: **strip every Claude-only frontmatter
-field and the skill must still behave the same**, because Cursor ignores them without saying so, and
-runs a different model family besides.
+不変則は [`AGENTS.md`](AGENTS.md) にあります —— あれが常時ロードされる層で、**無警告で失敗する**ものだけを置いています。全体を規定する1つ: **Claude 固有の frontmatter を全部剥がしても同じ挙動が成立すること。** Cursor はそれらを何も言わずに無視し、しかも**別のモデルファミリー**で動くので。
 
-## Tests
+### Cursor はもっと大きい別のメニューを見ている —— そしてこれは解決しきっていません
+
+両エージェントを一級市民として扱っていますが、**面の大きさは同じではなく**、差は一方向に出ます。
+
+| | Claude Code | Cursor |
+|---|---|---|
+| `~/.agents/skills` から | 21 **− 層別3本**（`user-invocable: false` で隠す） | **21全部** —— このフィールドを無視するので**層別レビューがメニューに出る** |
+| 組み込み | 約40（CLI にコンパイル済み） | **自前で19本**: `review` `review-bugbot` `review-security` `create-skill` `create-rule` `create-subagent` `loop` `automate` `babysit` `split-to-prs` `onboard` `shell` `sdk` `canvas` `statusline` `migrate-to-skills` `create-hook` `update-cli-config` `update-cursor-settings` |
+| `skillOverrides` の抑制 | 8件有効 | **0件** —— `settings.json` を読まない |
+
+はっきり書いておくべき帰結が2つ。
+
+**層別レビューが Cursor のメニューに漏れます。** Claude Code では打つレビュー入口は1つですが、Cursor では自作4本＋`review`＋`review-bugbot`＋`review-security`＋`find-bugs`。Cursor で層別を直接打っても**同じスキルなので正しく動きます** —— 失うのはメニューの見通しであって挙動ではなく、それが [判断の記録 §3](docs/decisions.md) の引く線です。ただし**現時点で最大の乖離**であり、**直っていません**。
+
+**9件の抑制は Cursor に効かず、そして大半は効く必要がありません。** 9件のうち6件は**Cursor に存在しないスキル**（バンドルと Anthropic プラグイン）が対象なので、抑制する相手がいません。**最新の剪定後、8件すべてが Cursor に存在しないスキルを対象にしている**ので、そちら側で抑制すべきものは残っていません。
+
+**分かっていないこと**: Cursor の19本を無効化できるのか、できるならどこで。Cursor 自身の設定面は読んでいないので、**ここでは剪定できると主張しません**。メニューを圧迫して困るなら、それが次に調べることであって、すでに処理済みのことではありません。
+
+## スクリプト全部と、それを正当化する理由
+
+**スクリプトの増殖はこの種のツールキットの failure mode** なので、1本ごとに「何を防ぐか」を言えなければいけません。9ファイルあり、**2つはこのテストに落ちて削除しました。**
+
+| ファイル | 行数 | なぜ存在するか |
+|---|---|---|
+| `scripts/setup.sh` | 557 | **配布の機構。** スキルと agent を link、hook をコピー、設定をキー単位でマージ、リポジトリが配らなくなったものを prune、追加したものだけを正確に revert。これが無いと何もインストールされない |
+| `scripts/lib/merge-settings.mjs` | 271 | その安全な半分: 宣言したキーだけをマージし、自分が書いていない値は書き換えず、触ったものを記録する。**他人の API キーを含むファイルを編集する**ので |
+| `hooks/dotagents-verify-gate.sh` | 407 | **ゲート。** 価値提案の本体 —— エージェントは「完了したように見えた」時点で止まる |
+| `hooks/dotagents-lint-skill-frontmatter.sh` | 124 | **壊れた状態でインストールされて何も言わない** `SKILL.md` を拒否する |
+| `scripts/gate.sh` | 158 | ゲートの操作面: arm / disarm / 委譲チェックの記録 / 状態表示。通常はあなたではなく `/da-verify` が呼ぶ |
+| `scripts/verify-skills.sh` | 360 | `AGENTS.md` の不変条件をチェックに落としたもの。**実際に捕まえた**: どの YAML パーサも受け付けない frontmatter、本文が使うツールを欠いた `allowed-tools`、本文から言及されていない reference、到達不能な `user-invocable: false` |
+| `scripts/test-verify-gate.sh` | 405 | 42 assertion。**ゲートは唯一「閉じて落ちる」ことが必須のもの**で、これが無かった時代に2回 fail-open した |
+| `scripts/test-lint-hook.sh` | 175 | 33 assertion。**このリポジトリ最悪のバグを捕まえた**: scope チェックが誤った変数を見ていて**一度も発火していなかった** —— インストール済みで、何も強制していない状態 |
+| `scripts/test-setup.sh` | 141 | 偽の `$HOME` に対する 18 assertion。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
+| `scripts/check.sh` | 68 | 上記すべてを1コマンドに。**4つ覚える代わりに1つ** |
+
+**削除したもの（同じテストに落ちた）:**
+
+| 削除 | 理由 |
+|---|---|
+| `hooks/dotagents-statusline.sh` ＋ template ＋ `--statusline` | **一度もオプトインされなかったオプトイン。** 72行とインストーラの関数を使って、誰も求めていないステータスラインを描画していた。しかも「全 hook はブロックできなければならない」チェックに**例外を強制**していた —— ブロックできない唯一の hook だったので |
+| `templates/claude.advisor.snippet.json` ＋ `--advisor` | 同じく**一度も有効化されなかった**。しかも背後の機能は experimental で Anthropic API 専用なので、**大半の環境に存在しない能力**をフラグが説明していた |
+
+両方に共通するパターン: **一度も ON にされなかった、何かのためのオプション。** ツールキットの所有が煩わしくなる原因は**ファイル数ではなく**、「保持するか判断する前に、まず目的を再構成しないといけないファイル」です。ここにあるもので**「何を防ぐか」を1行で答えられないものは、同じように消すべき**です。
+
+## テスト
 
 ```bash
-./scripts/check.sh              # everything: syntax, symlink, lint, 93 behavioural assertions
-./scripts/check.sh --fast       # syntax and lint only
+./scripts/check.sh              # 全部: 構文、symlink、lint、93 の振る舞い assertion
+./scripts/check.sh --fast       # 構文と lint だけ
 ```
 
-Individually, when one of them is what you are working on: `verify-skills.sh` (lint),
-`test-verify-gate.sh` (42), `test-lint-hook.sh` (33), `test-setup.sh` (18).
+個別に走らせるのは、そのどれかを触っているときだけ: `verify-skills.sh`（lint）、`test-verify-gate.sh`（42）、`test-lint-hook.sh`（33）、`test-setup.sh`（18）。
 
-CI runs both suites on **Linux and macOS**, because breakage has gone in both directions: bash 4
-constructs that pass on Linux and fail on macOS, and `mktemp -t` spellings that work on BSD and fail
-on GNU coreutils.
+CI は両スイートを **Linux と macOS の両方**で走らせます。壊れ方が両方向に出たからです —— bash 4 構文は Linux で通り macOS で落ち、`mktemp -t` の綴りは BSD で通り GNU coreutils で落ちる。
 
-The gate and the installer are the two things with real tests, and for opposite reasons. The gate must
-fail *closed* — every fail-open bug found in it has a regression test. The installer edits files it
-does not own, holding other people's credentials and other tools' hooks — its tests assert that a
-secret it did not write survives, that three other tools' hooks survive, and that uninstall leaves
-nothing behind.
+実テストを持つのはゲートとインストーラだけで、理由は正反対です。**ゲートはフェイルクローズでなければならない** —— 見つかった全てのフェイルオープンに回帰テストがあります。**インストーラは自分のものでないファイルを編集する** —— 他人の資格情報と他人のフックを含むので、テストは「書いていない秘密が生き残る」「他3ツールのフックが生き残る」「uninstall が何も残さない」を固定しています。
 
-## Secrets
+## シークレット
 
-Nothing secret lives here, and the installer does not touch what it did not write. `setup.sh` merges
-only the keys its templates declare, records them in `~/.claude/.dotagents-managed.json`, backs up
-first, and never rewrites an existing value it does not own. Existing hooks are appended to, never
-replaced.
+ここには何も秘密を置かず、インストーラは自分が書いていないものに触りません。テンプレートが宣言したキーだけをマージし、`~/.claude/.dotagents-managed.json` に記録し、先にバックアップを取り、自分のものでない既存値は書き換えません。既存フックは置換ではなく追記です。
 
-`uninstall` restores every key to its original **value** — not the file to its original **bytes**.
-Settings are rewritten with a fixed layout, so a differently formatted file comes back reformatted.
-`test-setup.sh` asserts the values, which is what can honestly be promised.
+`uninstall` が戻すのは各キーの**値**であって、ファイルの**バイト列**ではありません。設定は固定の整形で書き直されるので、別の整形をしていたファイルは整形され直します。`test-setup.sh` が検証しているのは値であり、それが正直に約束できることです。
 
-CI runs gitleaks over full history.
+CI では gitleaks を全履歴に対して走らせています。
 
-## License
+## ライセンス
 
 [MIT](LICENSE)

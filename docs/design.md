@@ -1,316 +1,258 @@
-# Design
+# 設計思想
 
-Why this toolkit has the shape it has, what it is for, and how it is meant to be used.
+なぜこの形なのか、何のためのものか、どう使う想定か。
 
-The ADRs in this directory cover individual mechanisms. This document covers the reasoning above
-them: what problem is being solved, what was deliberately left out, and where the design is
-uncertain. For the narrower question of *which* mechanism a given thing should be — skill, hook,
-subagent, MCP server, always-loaded context — see [`mechanisms.md`](mechanisms.md), which records the
-official guidance with sources and the two places this toolkit deviates from it.
+このディレクトリの ADR は個別の機構（symlink か copy か、等）を扱います。この文書はその一段上 —
+何を解こうとしているのか、何を意図的に入れなかったのか、どこが未確定なのか。
 
----
-
-## The problem
-
-Two agents, several repositories, one person. Left alone, that produces the same three failures
-regardless of how good the models get.
-
-**Assets scatter and drift.** A prompt written for Claude Code is invisible to Cursor. The obvious
-fix — copy it — means two files that agree today and disagree in a month, with nothing reporting the
-divergence. Duplication is not a maintenance cost; it is a correctness cost, because you stop being
-able to say which copy is authoritative.
-
-**The human becomes the verification loop.** An agent stops when work *looks* done. Absent a check it
-can run and a rule about what counts as finished, "looks done" is the only available signal — so the
-person reviews everything, every time, and the leverage evaporates.
-
-**Reviews decay into noise.** An agent asked to find problems will find some. Follow all of them and
-you get defensive code, speculative abstraction, and tests for states that cannot occur. Two reports
-like that and nobody reads the third.
-
-None of these are model problems. Better models make each *worse*, because more output flows through
-the same unguarded channels.
-
-## What this is not
-
-Worth stating, because the boundary is what keeps the toolkit small:
-
-- **Not a replacement for upstream skill collections.** Methodology and general practice are better
-  maintained by people who work on them full time. This installs from them and writes only the delta.
-- **Not a per-repository framework.** It never adds a file to a product repository. That is a hard
-  constraint, not a preference — see below.
-- **Not a prompt library.** A prompt you paste is a prompt you forget to update. Everything here is
-  either invoked by name or loaded automatically.
-- **Not portable to arbitrary agents.** Two targets, Claude Code and Cursor, both first class. A
-  third would change several decisions.
+English: [design.md](design.md)
 
 ---
 
-## Three layers, and why the line falls where it does
+## 解こうとしている問題
+
+エージェント2つ、リポジトリ複数、人ひとり。放っておくと、モデルの性能に関係なく同じ3つの failure が出ます。
+
+**資産が散り、ドリフトする。** Claude Code 向けに書いたプロンプトは Cursor から見えません。素直な解決策
+——コピーする——は、今日は一致していて1ヶ月後には食い違い、しかも**乖離を誰も報告しない**2つのファイルを
+作ります。重複は保守コストではなく**正しさのコスト**です。どちらが正なのか言えなくなるからです。
+
+**人間が検証ループそのものになる。** エージェントは作業が**完了したように見えた**時点で止まります。実行
+できるチェックと「何をもって完了か」のルールが無ければ、「完了したように見える」が唯一のシグナルです。
+結果、人が毎回すべてを見ることになり、レバレッジが消えます。
+
+**レビューがノイズに退化する。** 問題を探せと言われたエージェントは何かを見つけます。全部に従えば、
+防御的なコード・投機的な抽象・起こり得ない状態のテストが積み上がります。そういうレポートを2回見たら、
+3回目は読まれません。
+
+**どれもモデルの問題ではありません。** モデルが良くなるとそれぞれ**悪化します** — 同じ無防備な経路を、
+より多くの出力が通るからです。
+
+## これは何ではないか
+
+境界を明示するのは、それがツールキットを小さく保つ唯一の方法だからです。
+
+- **上流のスキル集の代替ではない。** 方法論や一般的なプラクティスは、それを本業にしている人たちが
+  維持した方が良い。ここは上流から入れて、**差分だけ**を書きます
+- **リポジトリごとのフレームワークではない。** プロダクトのリポジトリにファイルを1つも足しません。
+  これは好みではなく**ハード制約**です（後述）
+- **プロンプト集ではない。** 貼り付けるプロンプトは更新を忘れるプロンプトです。ここにあるものは全て、
+  名前で呼び出されるか自動でロードされます
+- **任意のエージェントに移植可能ではない。** Claude Code と Cursor の2つが対象で、両方とも一級市民。
+  3つ目が加わればいくつかの判断は変わります
+
+---
+
+## 3層と、境界の引き方
 
 ```
-adopt      upstream skills, installed with npx skills, never vendored
-own        this repository — only what upstream does not cover
-absorb     profiles/ — per-repository facts, gitignored, never in a product repo
+adopt    上流のスキル。npx skills で入れる。ここには取り込まない
+own      このリポジトリ。上流がカバーしないものだけ
+absorb   profiles/ — リポジトリ固有の事実。gitignore され、プロダクトリポには置かない
 ```
 
-**The adopt/own line** is drawn at *specificity*. Anything a competent engineer at another company
-would also want — how to write a plan, how to debug systematically, how to run TDD — belongs
-upstream. It is better maintained there and improves without effort here. What stays is what encodes
-a particular opinion: what counts as a finding worth reporting, what makes a review trustworthy, what
-must be true before work is called done.
+**adopt / own の境界は「固有性」で引いています。** 別の会社の有能なエンジニアも同じように欲しがるもの
+——計画の書き方、系統的なデバッグ、TDD の回し方——は上流に属します。そちらの方が良く維持され、
+こちらの労力なしに改善します。残るのは**特定の意見をエンコードしたもの**です。何を報告に値する所見と
+するか、何がレビューを信頼できるものにするか、何が真であれば作業を完了と呼べるか。
 
-The test when considering a new skill: *would this be equally useful to someone with different
-opinions?* If yes, it belongs upstream or nowhere.
+新しいスキルを検討するときの判定基準: **「違う意見を持つ人にとっても同じくらい有用か？」** Yes なら、
+それは上流に属するか、どこにも属しません。
 
-**The own/absorb line** is drawn at *what would be embarrassing to publish*. Verification commands
-name real repositories, real environments, sometimes an employer's internal rules. That is
-configuration, not toolkit. It stays on the machine that wrote it, and `.gitignore` is an allowlist so
-a new profile is untracked by default rather than tracked until someone remembers to exclude it.
+**own / absorb の境界は「公開したら気まずいか」で引いています。** 検証コマンドは実在のリポジトリ名・
+環境名、場合によっては勤務先の社内ルールを名指しします。それは**設定であってツールキットではない**。
+書いたマシンに留まります。`.gitignore` は許可リスト方式なので、新しい profile はデフォルトで untracked
+です——「除外し忘れるまで追跡される」の逆向き。
 
-This also makes the toolkit outlast any particular job.
+これは同時に、ツールキットを**特定の職より長生きさせます**。
 
-## The constraint that shaped everything: product repositories stay untouched
+## すべてを規定した制約: プロダクトリポジトリに触らない
 
-Every alternative design starts by adding files to the repositories you work in — a `.claude/`
-directory, a config file, a committed profile. That is how the tools this replaced worked, and how
-they drifted.
+他のあらゆる設計案は「作業対象のリポジトリにファイルを足す」から始まります —— `.claude/` ディレクトリ、
+設定ファイル、コミットされた profile。これが、今回置き換えた仕組みのやり方であり、**ドリフトした理由**
+でもあります。
 
-Refusing it forces three consequences, all of which turned out to be improvements:
+これを拒否すると3つの帰結が強制され、結果的にどれも改善でした:
 
-- **Global installation only.** One physical copy, symlinked into both agents. Editing a file here
-  takes effect immediately in both, with no sync step and nothing to diverge.
-- **Repository facts live in `profiles/`**, resolved by git remote at run time rather than by a file
-  in the repository.
-- **No coordination cost.** Nothing to get reviewed, nothing to keep in step with a team's
-  conventions, nothing to remove when leaving.
+- **グローバルインストール一本。** 実体はひとつ、両エージェントへ symlink。ここを編集すれば即座に両方へ
+  反映され、同期の手順もなく、乖離するものがない
+- **リポジトリ固有の事実は `profiles/` に。** リポジトリ内のファイルではなく、実行時に git remote で照合
+- **調整コストがゼロ。** レビューを通すものがなく、チームの規約と歩調を合わせるものがなく、
+  辞めるときに消すものがない
 
-The cost is real: project-scoped skills are out of reach by construction, and a repository cannot
-carry its own verification config. Both are accepted. A personal toolkit that needs per-repository
-installation is a per-repository change.
+コストは実在します。プロジェクトスコープのスキルは構造上使えず、リポジトリが自分の検証設定を持てません。
+どちらも受け入れています。**リポジトリごとのインストールを必要とする個人ツールキットは、
+リポジトリごとの変更です。**
 
 ---
 
-## Whose practices this is built from
+## 誰の実践から組み立てたか
 
-Almost nothing here is original, and the parts that are should be visible as such. What was taken, and —
-more usefully — **what was rejected and why**.
+ここにあるものはほとんど独自ではありません。そして独自な部分は、独自だと分かるようにしておくべきです。何を取り、そして——より役に立つ方——**何を却下したか**。
 
-### The structural patterns every skill follows
+### 全スキルが従う構造パターン
 
-Not decoration — each of these was added because its absence had already cost something:
+飾りではなく、どれも「無かったせいで何かを損なった」から入っています:
 
-| Pattern | What it prevents |
+| パターン | 何を防ぐか |
 |---|---|
-| An **immediate-stop preconditions table** at the head of every skill | A skill running against a repository it cannot actually work in, and reporting a result anyway |
-| **"Always read"** split from **"read only if"**, with *"read everything just in case" explicitly forbidden* | The skill spending its budget on files irrelevant to this invocation |
-| A **workflow-position table** naming each skill's own upstream and downstream | Skills that work individually and connect to nothing |
-| A bold **read-only declaration** on anything that investigates or reviews | A review that edits the code it was reviewing |
-| **Fact / inference / could-not-confirm** kept separate | An inference being read as a finding |
-| A **frontmatter lint hook** | A broken `SKILL.md` landing and failing silently later |
-| `_template/`, whose `_` prefix keeps it out of install | The template being installed as a skill |
+| 全スキル冒頭の**即時停止する前提条件テーブル** | 実際には作業できないリポジトリでスキルが走り、それでも結果を報告すること |
+| **「必ず読む」**と**「条件付きで読む」**の2表（*「念のため全部読む」を明示的に禁止*） | その呼び出しに無関係なファイルで予算を使い切ること |
+| 各スキルが前工程と後工程を自己申告する**ワークフロー位置テーブル** | 個別には動くが何にも繋がらないスキル |
+| 調査・レビュー系の冒頭太字の**読み取り専用宣言** | レビュー対象のコードをレビューが書き換えること |
+| **事実 / 推測 / 確認できなかった**の3分離 | 推測が指摘として読まれること |
+| **frontmatter lint hook** | 壊れた `SKILL.md` が着地し、後で無警告に失敗すること |
+| `_` 前置で install 対象外にする `_template/` | テンプレートがスキルとして配布されること |
 
-### Official Anthropic guidance
+### 公式の Anthropic ガイダンス
 
-The loop vocabulary, the verification ladder, the context-management rules, and the taxonomy of
-mechanisms are all official rather than invented. [`mechanisms.md`](mechanisms.md) and the Sources
-section below carry the sources per claim. Two official lines shaped more of this than anything else:
+ループの語彙、検証のはしご、コンテキスト管理の規則、仕組みの分類は**すべて公式であって発明ではありません**。主張ごとの出典は [`mechanisms.md`](mechanisms.md) と下の出典節にあります。この設計を最も規定した公式の2行:
 
-> *Put guardrails in hooks. An instruction like "never edit `.env`" in CLAUDE.md or a skill is a request,
-> not a guarantee.*
+> *ガードレールは hook に置け。CLAUDE.md やスキルに書いた「`.env` を絶対に編集するな」は**お願いであって保証ではない**。*
 
-> *A reviewer prompted to find gaps will usually report some, even when the work is sound… Chasing every
-> finding leads to over-engineering.*
+> *ギャップを探せと指示されたレビュアーは、作業が健全でも**たいてい何か報告する**……全部追うと過剰設計に至る。*
 
-The first is why the verification gate is a hook and not a rule. The second is why the reporting
-discipline is aggressive and why `/da-fix-plan` exists to subtract.
+前者が「検証ゲートをルールではなく hook にした」理由。後者が「所見の規律が厳しい」理由と、**引き算のための `/da-fix-plan` が存在する**理由です。
 
-### Practitioners, and where they disagree with the docs
+### 実践者たち、そして彼らが公式と食い違う場所
 
-Named because their disagreements are more useful than their agreements, and because a toolkit that only
-cites official guidance will inherit its blind spots:
+**一致点より食い違いの方が役に立つ**ので、そこを名指しします。公式だけを引くツールキットは公式の死角をそのまま引き継ぐからです。
 
-- **Birgitta Böckeler / Thoughtworks** — the *guides versus sensors* framing, and the argument that this
-  field has over-invested in instructions given up front and under-invested in tools that observe what was
-  actually produced. That is the case for the gate, the linter and the tests over more prose. Also hers:
-  reviewing code occasionally **to check your instrumentation has not drifted** rather than to catch bugs.
-- **Simon Willison** — verification over reading: *"if the code has never been executed it's pure luck if
-  it actually works"*, and **fix the process that generates the code rather than hand-fixing the code**.
-- **Addy Osmani** — *stop reviewing everything to the same depth*, and the measurement that four reviewers
-  over 146 pull requests caught **93.4% of findings with exactly one of the four**. That single number is
-  why the bundled reviewers are kept rather than suppressed.
-- **Armin Ronacher** — the *outer harness loop* framing (this toolkit **is** the outer loop), and *Agent
-  Psychosis* as the warning: a toolkit that becomes the project.
-- **Kent Beck** — *"multi-agent is a feature; outcome-orientation is the thing the feature is supposed to
-  deliver"*, and the failure signal: **the day the setup makes you a dispatcher, it has stopped paying.**
+- **Birgitta Böckeler / Thoughtworks** —— *guides（先に与える指示）と sensors（実際に作られたものを観測する道具）*の対比、そして「この分野は guides に過剰投資し sensors に投資不足」という主張。これが「散文を増やすよりゲート・リンタ・テスト」の根拠です。もう1つ彼女のもの: **計装がずれていないかを確認するために**時々コードを読む（バグを捕まえるためではなく）。
+- **Simon Willison** —— 読むより検証: *「一度も実行されていないコードが動くのは純粋に運」*、そして**コードを手で直すのではなくコードを生む過程を直す**。
+- **Addy Osmani** —— *全部を同じ深さでレビューするのをやめろ*、そして4種のレビュアを146 PR に当てて**指摘の93.4%が4つのうち1つだけが検出**という計測。この数値1つが、バンドルのレビュアを抑制せず残している理由です。
+- **Armin Ronacher** —— *外側のハーネスループ*という捉え方（**このツールキットがその外側のループ**）と、警告としての *Agent Psychosis*: ツールキット自体がプロジェクトになる失敗。
+- **Kent Beck** —— *「multi-agent は機能であって、その機能が届けるべきものは outcome 志向だ」*、そして失敗のシグナル: **自分がディスパッチャになった日、その仕組みは元が取れなくなっている。**
 
-### What was investigated and rejected
+### 調査して却下したもの
 
-Rejections belong in the record as much as adoptions, because otherwise they get re-proposed:
+**却下は採用と同じくらい記録に値します。**でないと再提案されるからです。
 
-| Considered | Outcome |
+| 検討したもの | 結果 |
 |---|---|
-| **Milvus × Ollama vector index + `claude-context` MCP** for cross-repository search | **Rejected** — indexes per absolute path, so a symlink virtual monorepo double-indexes and goes stale; requires a resident docker stack; and Claude Code itself moved from RAG to agentic search citing staleness. [ADR 0007](adr/0007-cross-repository-search-stays-agentic.md) |
-| **`codegraph`** | **Unevaluated, honestly.** Not rejected. ADR 0007 sets the bar it has to clear. |
-| Plugin/marketplace packaging | Deferred — namespacing breaks by-name dispatch. ADR 0001, revisited in 0003 |
-| `disableBundledSkills` | Rejected — too blunt, and version-dependent. ADR 0006 |
-| Migrating existing product-repository assets | Out of scope by design. This is a personal toolkit, not a migration |
+| 横断検索のための **Milvus × Ollama ベクトルDB＋`claude-context` MCP** | **却下** —— インデックスが絶対パス単位なので symlink の virtual monorepo は二重インデックス化して独立に古くなる。docker 常駐が必要。そして Claude Code 自身が staleness を理由に RAG から agentic search へ移っている。[判断の記録 §9](decisions.md) |
+| **`codegraph`** | **未評価。正直にそう書く。**却下ではありません。越えるべき基準は 判断の記録 §9 に |
+| plugin / marketplace 配布 | 保留 —— namespace が名指し委譲を壊す。判断の記録 §1・§3 で再検討 |
+| `disableBundledSkills` | 却下 —— 粗すぎ、かつバージョン依存。判断の記録 §8 |
+| プロダクトリポの既存資産の移植 | **設計上のスコープ外**。これは個人用ツールキットであって移行ではない |
 
-## Where constraint earns its keep, and where it does not
+## 制約が働く場所と、働かない場所
 
-Current guidance for this generation of models is to constrain less and let judgement work — Claude
-Code removed most of its own system prompt with no measurable loss. That is the right default, and
-most of this toolkit follows it: skills are thin guides, detail loads on demand, and the layer bodies
-are read only by the subagent that needs them.
+この世代のモデルに対する現在の指針は「制約を減らして judgement に任せろ」です —— Claude Code は自身の
+システムプロンプトの大半を削り、測定可能な劣化はありませんでした。**それが正しいデフォルト**であり、
+このツールキットの大部分はそれに従っています。スキルは薄いガイドで、詳細は必要時にロードされ、層別の
+本文はそれを必要とするサブエージェントだけが読みます。
 
-Two places deliberately go the other way, and the reasoning should be legible so they can be revisited:
+2箇所だけ意図的に逆を行っています。**後から見直せるように理由を書いておきます**:
 
-**Reporting discipline is constrained on purpose.** The failure mode is specific: an agent asked to
-find gaps produces plausible findings, and the ones that are merely plausible are indistinguishable
-from the ones that matter until someone spends the effort to tell them apart. Numeric confidence with
-a discard threshold, and a written definition of what counts as a false positive, exist because this
-is not a judgement call the model gets to make freshly each time — it is an opinion about how much
-noise is acceptable, and opinions are exactly what a skill should encode. The threshold is aggressive
-on purpose: a missed finding costs one bug, while a noisy report costs the habit.
+**報告の規律は意図的に制約しています。** failure mode が具体的だからです —— ギャップを探せと言われた
+エージェントはもっともらしい所見を出し、**「もっともらしいだけ」と「重要」は、誰かが労力をかけて
+選り分けるまで区別できません**。数値の確信度と破棄閾値、そして偽陽性の明文化された定義は、これが
+「モデルが毎回新たに下してよい判断ではない」から存在します。**どれだけのノイズを許容するかという意見**
+であり、意見こそスキルがエンコードすべきものです。閾値が攻撃的なのは意図的で、**見逃しはバグ1件の
+コストだが、ノイズの多いレポートは習慣そのものを失うコスト**だからです。
 
-**Verification is constrained mechanically.** Not because the model would decide badly, but because
-"I ran the tests" is a claim, and a claim is not evidence. A hook that runs the command is not a
-guardrail against poor judgement; it removes the need to trust a report at all.
+**検証は機械的に制約しています。** モデルの判断が悪いからではなく、**「テストを走らせた」は主張であって
+証拠ではない**からです。コマンドを実行するフックは判断力への防護柵ではなく、**報告を信じる必要そのものを
+取り除きます**。
 
-Everywhere else, constraint should be suspected. Fixed budgets, mandatory section structures, and
-exact output skeletons are load-bearing only where they prevent a specific, named failure. Where they
-are merely tidy, they cost judgement and should go. `/doctor` exists to find these; this repository
-is not exempt.
+**それ以外の場所では、制約を疑うべきです。** 固定予算・必須の節構成・厳密な出力雛形は、**名前を付けられる
+具体的な failure を防いでいるときだけ**意味があります。単に整っているだけなら judgement を削るコストの方が
+大きく、削るべきです。`/doctor` はこれを見つけるためのもので、**このリポジトリも例外ではありません**。
 
-## The two boundaries that produce silent failure
+## 無警告の失敗を生む2つの継ぎ目
 
-Most of the mechanism here defends two seams where things break without saying so.
+ここにある機構の大半は、**何も言わずに壊れる2つの seam** を守っています。
 
-**Claude Code and Cursor read different subsets of the same file.** Cursor understands four
-frontmatter fields and silently ignores the rest, so a constraint written in `allowed-tools` is
-simply absent there, with nothing reporting it. Hence the rule: strip every Claude-only field and the
-skill must still behave the same. Constraints go in the body as prose; frontmatter is optimisation on
-top. The linter enforces this because prose conventions decay and machine checks do not.
+**Claude Code と Cursor は同じファイルの違う部分集合を読みます。** Cursor が理解する frontmatter は4つ
+だけで、残りは黙って無視されます。だから `allowed-tools` に書いた制約は Cursor には**存在せず、
+それを報告するものもありません**。ゆえのルール: **Claude 固有のフィールドを全部剥がしても同じ挙動が
+成立すること。** 制約は本文に散文で書き、frontmatter はその上の最適化。**散文の規約は劣化し、機械検査は
+劣化しない**ので、linter で強制します。
 
-**A guardrail can fail open.** A dangling hook symlink exits 127, which is treated as non-blocking —
-so the broken guardrail does not stop the agent, it stops guarding. This has already happened twice
-here in different disguises, which is why hooks are copied rather than linked, why the gate blocks on
-its own internal error rather than passing, and why the gate is the one component with a real test
-suite.
+**ガードレールはフェイルオープンし得ます。** symlink が切れたフックは `exit 127` になり、これは
+non-blocking として扱われます —— 壊れたガードレールはエージェントを止めるのではなく、**守るのをやめます**。
+これは既にこのリポジトリで**2回、別の姿で**起きました。だからフックは symlink ではなくコピーで、
+ゲートは自身の内部エラー時に通過ではなくブロックし、ゲートだけが本物のテストスイートを持っています。
 
-Both seams share a property that drove the whole design: **the failure is invisible from inside.**
-Nothing is logged, nothing errors, and the tool appears to work. That is what the checks are for.
+この2つの seam は、設計全体を規定した性質を共有しています: **内側からは失敗が見えない。** 何もログに
+出ず、何もエラーにならず、ツールは動いているように見える。検査はそのために存在します。
 
 ---
 
-## How it is meant to be used
+## どう使う想定か
 
-There is no pipeline. Each skill is invoked by name, and most sessions use one or two.
+**パイプラインはありません。** 各スキルは名前で呼び出し、たいていのセッションは1〜2個しか使いません。
 
-**Before writing code**, when the shape is not obvious: `/grill-me` to be interrogated until the
-requirement is actually pinned down, `/da-investigate` when you need to know what a change would touch,
-`/writing-plans` to get a plan on disk. Then `/da-design-review` on that plan — it catches what code
-review cannot fix later, because by the time a diff exists the migration strategy and the contract
-shape are already decided.
+**コードを書く前**、形が自明でないとき: `/grill-me` で要件が本当に固まるまで質問攻めにされる。
+`/da-investigate` で変更が何に触れるかを知る。`/writing-plans` で計画をディスクに落とす。そのうえで
+その計画に `/da-design-review` —— **コードレビューでは後から直せないもの**を捕まえます。diff が存在する
+時点で、移行戦略と契約の形はもう決まっているからです。
 
-**While writing code**, the upstream skills do the work. `/da-verify` when you want the evidence rather
-than the assertion — **and it is `/da-verify` that arms the gate, the only thing that does.** Once armed,
-the gate will not let a turn end with checks red. A session where `/da-verify` never ran is a session with
-no gate, which is why the skill's auto-invocation matters as much as typing it.
+**コードを書いている間**は上流のスキルが働きます。主張ではなく証拠が欲しいときに `/da-verify`。
+ゲートは自分で武装し、チェックが赤のままターンを終わらせません。
 
-**After writing code**, `/x-review-backend`, `/x-review-frontend`, and `/x-review-infra` each review one
-layer as a tech lead, and `/da-review-all` classifies the change and runs the ones that apply before
-looking specifically for the cross-layer risks — a contract change and its consumer shipping out of
-order, a config read live at startup meeting code that has not deployed yet. Then `/da-pr-describe`.
+**書いた後**は `/da-review-all`。変更を層で分類し、それぞれを専用サブエージェントでレビューしたうえで、
+**層をまたぐリスク**を専門に探します —— 契約変更とその消費側が順序を違えて出る、起動時に都度読まれる
+config が未デプロイのコードに出会う、といったもの。そして `/da-pr-describe`。
 
-The layer skills are the same skills whether you invoke them or the dispatcher does; see ADR 0004 for
-why they are skills rather than reference files the dispatcher hands to a subagent.
+**定期的に** `/da-skills-audit`。**このツールキット自身の failure mode は蓄積**です。インストール済み
+スキルの description は常にコンテキストに常駐するので、**新しいスキル1つは既存の全スキルの選択精度を
+削って支払われます**。成長は剪定で払う必要があります。
 
-**Periodically**, `/da-skills-audit`. The toolkit's own failure mode is accumulation: every installed
-description is resident in context permanently, so each new skill costs the selection accuracy of
-every existing one. Growth has to be paid for by pruning.
+上記より大事な習慣が2つあります。**無関係なタスクの間で `/clear`** —— 前のタスクの文脈を抱えた
+セッションは、今のタスクについてより悪い判断をします。そして**同じチェックが2回落ちたら、パッチを
+やめる** —— 試したことを書き出し、clear して、それを織り込んで再開する。修正の繰り返しは失敗した
+アプローチを堆積させ、試行ごとに悪化します。ゲートが2回目でメッセージをエスカレートするのはこの理由です。
 
-Two habits matter more than any of the above. **`/clear` between unrelated tasks** — a session
-carrying a previous task's context makes worse decisions about this one. And **when the same check
-fails twice, stop patching**: write down what was tried, clear, and restart with that folded in.
-Repeated correction accumulates failed approaches and each attempt gets worse. The gate escalates its
-own message at the second failure for this reason.
+## 最大の既知のギャップ: スキルはまだ測っていない —— ただし測れないわけではない
 
-## The largest known gap: the skills are still unmeasured — but not unmeasurable
+このリポジトリの「スキルが何かを良くしている」という主張はすべて**意見**です。明記する価値があるのは、設計の残りの部分が**まさにその種の裏付けのない主張を拒否すること**の上に建っているからです。
 
-Every claim in this repository about a skill improving anything is an opinion, and that is worth stating
-plainly because the rest of the design is built on refusing exactly that kind of unbacked claim.
+**この節の以前の版は「測る手段が存在しない」と書いていました。それは誤りでした。** 誤り方も示唆的です —— 手段はインストール済みで、見えていなかっただけ。スキルの棚卸しが2回外れたのと同じ理由です。今あるもの:
 
-**An earlier version of this section said no way to measure existed. That was wrong**, and the error is
-instructive: the tools were installed and invisible, in the same way the skill inventory was wrong for
-the same reason. What exists today:
-
-| Tool | Answers |
+| 手段 | 何に答えるか |
 |---|---|
-| **`anthropic-skills:skill-creator`** | The real eval. Paired with-skill / without-skill runs on the same prompt, aggregating pass rate, time and tokens into `benchmark.json`, plus trigger accuracy from should-fire / should-not-fire prompts. **Installed.** |
-| **`/skill-doctor`** | Which loaded skills are unused and costing context. **Bundled.** |
-| **`/doctor`** | The listing's actual context cost and its biggest contributors. **Bundled.** |
-| `/da-skills-audit` | Static: over-constraint, overlapping triggers, Cursor incompatibility, size. Not an eval, and now says so. |
+| **`anthropic-skills:skill-creator`** | 本物の eval。同一プロンプトで with-skill / without-skill を対で走らせ、pass rate・時間・トークンを `benchmark.json` に集計。should-fire / should-not-fire プロンプトでトリガ精度も測る。**インストール済み** |
+| **`/skill-doctor`** | ロード済みスキルのうち、未使用でコンテキストを食っているもの。**バンドル** |
+| **`/doctor`** | listing の実際のコンテキストコストと、最大の寄与者。**バンドル** |
+| `/da-skills-audit` | 静的検査。過剰制約・トリガ重複・Cursor 非互換・サイズ。**eval ではなく、今はそう明言している** |
 
-So the gap is no longer "no instrument". It is that **none of it has been run yet**, which is a smaller
-and more embarrassing gap. The first things worth measuring are the calls this repository made on
-judgement rather than evidence: `da-verify` against `verification-before-completion`, `x-review-backend`
-against `find-bugs`, `da-review-all` against the bundled `code-review`.
+つまりギャップはもう「計器がない」ではありません。**一度も回していない**ことです —— より小さく、より恥ずかしいギャップ。最初に測る価値があるのは、このリポジトリが証拠ではなく判断で決めた箇所です: `da-verify` 対 `verification-before-completion`、`x-review-backend` 対 `find-bugs`、`da-review-all` 対バンドル `code-review`。
 
-One caveat that makes the results worth less than they look: a skill benchmarked in the session that
-authored it will score better than it is, because leftover context masks gaps in the written
-instructions. Benchmark from a fresh session or do not believe the number.
+結果を額面より安く見るべき注意が1つ。**それを書いたセッションでベンチマークしたスキルは、実際より良く出ます** —— 残ったコンテキストが、書かれた指示の穴を埋めてしまうから。新しいセッションから測るか、数字を信じないかのどちらかです。
 
-Two smaller gaps in the same family:
+同じ系統の小さいギャップが2つ:
 
-- **No cost observability.** OpenTelemetry is configured for skill-activation events but nothing
-  tracks tokens or spend. If the advisor or parallel subagents get used more heavily, there is no way
-  to tell "this is working" from "this is expensive".
-- **Skill supply-chain review is separate from what `/da-skills-audit` does.** That audit reads for
-  over-constraint; `/skill-scanner` reads for prompt injection. Neither reviews an MCP server or a
-  plugin before it is installed.
+- **コストの可観測性がありません。** OpenTelemetry はスキル発火イベント用に設定してありますが、トークンや金額を追うものが何もありません。subagent を重く使い始めたとき、「効いている」と「高い」を区別する手段がない。
+- **スキルのサプライチェーン検査は `/da-skills-audit` の仕事ではありません。** あちらは過剰制約を読み、`/skill-scanner` はプロンプトインジェクションを読みます。**どちらも MCP サーバやプラグインをインストール前に検査しません。**
 
-## What is uncertain
+## 未確定なこと
 
-Stated plainly, because a design document that only justifies is not useful:
+正直に書いておきます。**正当化しかしない設計文書は役に立たない**ので。
 
-- **Whether Cursor double-lists skills** reachable from both `~/.agents/skills/` and
-  `~/.cursor/skills/`. The upstream CLI stopped creating the latter, which suggests it is redundant;
-  this still creates it, because a silent absence is worse than a duplicate menu entry. Unverified.
-  See ADR 0001.
-- **Whether the reporting constraints are still earning their keep** as models improve. The
-  thresholds are numbers someone chose, not measurements. They should be tested against real reviews
-  rather than defended.
-- **Whether `profiles/` should be a schema and nothing else.** The example may narrow how people
-  write profiles more than it helps them start.
-- **Whether the mandatory section structure in skills is signal or ritual.** It makes skills
-  scannable and gives the linter something to check; it may also be overhead that a capable model
-  does not need.
+- **Cursor がスキルを二重に発見するか。** `~/.agents/skills/` と `~/.cursor/skills/` の両方から到達
+  できます。上流の CLI は後者を作るのをやめており、冗長であることを示唆しますが、ここでは作り続けて
+  います —— **無警告の不在は重複メニューより悪い**からです。**未検証。** 判断の記録 §1 参照
+- **報告の制約が今もなお働いているか。** 閾値は誰かが選んだ数字であって、測定値ではありません。
+  擁護するのではなく、実際のレビューに対してテストすべきものです
+- **`profiles/` は schema だけで良いのではないか。** example は、書き始めを助ける以上に
+  **書き方を狭めている**かもしれません
+- **スキルの必須節構成は signal か儀式か。** スキルを走り読み可能にし、linter に検査対象を与えますが、
+  有能なモデルには不要なオーバーヘッドかもしれません
 
-### And what is not settled about the loop itself
+### そして、ループ自体について確定していないこと
 
-- **There is no canonical five-phase loop.** Official is three (mechanical) or four (workflow), with
-  review as an escalation. Practitioners disagree meaningfully: one framing is nested loops with a
-  *harness* deciding whether a session's ending was really an ending; another rejects phases entirely in
-  favour of *guides* (given up front) versus *sensors* (observing what was produced), arguing the field
-  has over-invested in guides. The five-phase shape is a convenience, not a finding.
-- **Where the human belongs is contested.** Official guidance puts them inside the loop — approve the
-  plan, read the evidence. A strong practitioner argument says line-by-line review becomes
-  counterproductive once agents outpace human reading, and proposes intervening only on threshold
-  violations plus periodic deep dives *to check the instrumentation has not drifted*. That second idea is
-  the good one: you read code occasionally not to catch bugs but to confirm your sensors still work.
-- **Productivity numbers for agentic coding are not trustworthy.** The most careful measurement attempt
-  abandoned its own design, reporting −18% (CI −38% to +9%) for experienced developers and calling its
-  own data *very weak evidence*. Anyone quoting a clean figure is not reading the source.
-- **Plan-to-disk has no measured effect size.** The mechanism is clear and the practice is officially
-  recommended; the widely repeated "3–10× first-pass success" figure traces to a vendor blog citing
-  unnamed reports. Do not repeat it.
+- **正典の5段階ループは存在しません。** 公式は3（機構）か4（ワークフロー）で、review はエスカレーション。実践者は意味のある形で食い違っています: 一方は**ハーネス**がセッションの終わりを本当に終わりと見なすか判定する入れ子ループという捉え方、もう一方は段階を退けて *guides（先に与える）と sensors（作られたものを観測する）* の対比を採り、この分野は guides に過剰投資していると論じます。**5段階という形は便宜であって発見ではありません。**
+- **人間がどこに居るべきかは論争中です。** 公式はループの内側（計画を承認し、証拠を読む）。強い実践者の主張は、エージェントが人間の読む速度を超えた時点で行単位のレビューは逆効果になる、というもので、閾値違反時＋定期的な深掘りだけに介入することを提案します。**その定期的な深掘りの目的が「計装がずれていないかの確認」**であるのが良いところです。
+- **エージェント開発の生産性の数値は信用できません。** 最も慎重な測定の試みは自らの設計を放棄し、経験者で **−18%（信頼区間 −38% 〜 +9%）** を報告し、自分のデータを *very weak evidence* と呼んでいます。綺麗な数字を引用している人は原典を読んでいません。
+- **plan をディスクに書くことの効果量は測られていません。** 機構は明らかで公式も推奨していますが、広く引用される「初回成功率 3〜10倍」はベンダーのブログが匿名の報告を引いたものです。**繰り返さないこと。**
 
 ---
 
-## Sources
+## 出典
 
-**Official (Anthropic)** — [Best practices](https://code.claude.com/docs/en/best-practices) ·
+**Official（Anthropic）** — [Best practices](https://code.claude.com/docs/en/best-practices) ·
 [How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works) ·
 [Skills](https://code.claude.com/docs/en/skills) ·
 [Run agents in parallel](https://code.claude.com/docs/en/agents) ·

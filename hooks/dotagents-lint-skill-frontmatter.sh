@@ -81,7 +81,7 @@ process.stdin.on("end", () => {
       return deny(
         "Never set 'disable-model-invocation' on 'verify'. It is the only thing that runs " +
         "'gate.sh arm', so disabling auto-invocation leaves the Stop gate unarmed and it passes " +
-        "every turn -- the guardrail fails OPEN with nothing reported. See docs/adr/0005.",
+        "every turn -- the guardrail fails OPEN with nothing reported. See docs/decisions.md.",
       );
     }
 
@@ -91,7 +91,7 @@ process.stdin.on("end", () => {
         `'${name}' is a by-name dispatch target of da-review-all, and ` +
         "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +
         "Setting it makes da-review-all report that layer as covered while reviewing nothing, with " +
-        "no error. See docs/adr/0004 and docs/adr/0005.",
+        "no error. See docs/decisions.md.",
       );
     }
 

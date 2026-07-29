@@ -9,7 +9,7 @@
 #
 # Skills are symlinked so edits take effect immediately.
 # Hooks are copied, because a dangling hook symlink exits 127 and Claude Code treats that as
-# non-blocking -- the guardrail would open rather than close. See docs/adr/0002.
+# non-blocking -- the guardrail would open rather than close. See docs/decisions.md.
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ CLAUDE_SKILLS="$HOME/.claude/skills"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CLAUDE_HOOKS="$HOME/.claude/hooks"
 # Cursor reads ~/.claude/agents/ as well as its own, so one link covers both agents. Verify in
-# Cursor after changing this -- see docs/adr/0005.
+# Cursor after changing this -- see docs/decisions.md.
 CLAUDE_AGENTS="$HOME/.claude/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
@@ -97,7 +97,7 @@ link_skill() {
 
   # Only Claude Code needs a link. Cursor reads ~/.agents/skills natively -- confirmed by observing
   # an upstream skill with no ~/.cursor/skills entry appear in its menu -- and a skill reachable from
-  # both paths is listed once, not twice. See docs/adr/0001.
+  # both paths is listed once, not twice. See docs/decisions.md.
   local dest="$CLAUDE_SKILLS/$name"
   local rel="../../.agents/skills/$name"   # ~/.claude/skills/<n> -> ~/.agents/skills/<n>
   if [[ -e "$dest" && ! -L "$dest" ]]; then
@@ -409,7 +409,7 @@ cmd_status() {
     fi
     i=$((i+1))
   done
-  note "Cursor's stop hook cannot block; it only injects a follow-up. Not parity -- see docs/adr/0003."
+  note "Cursor's stop hook cannot block; it only injects a follow-up. Not parity -- see docs/decisions.md."
 
   echo
   if (( missing )); then

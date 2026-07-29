@@ -205,7 +205,7 @@ fi
 # Armed somewhere, but not for this repository. Not our business.
 [[ -n "$slug_dir" ]] || pass "armed elsewhere, not for $gate_repo_root"
 
-# Armed for this repo, so from here a malfunction must block rather than pass. See docs/adr/0002.
+# Armed for this repo, so from here a malfunction must block rather than pass. See docs/decisions.md.
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
   block "The verification gate needs node and cannot find it on PATH, so it cannot check anything.
 
@@ -277,7 +277,7 @@ run_dir="$repo_root${sub:+/$sub}"
 work="$(mktemp "${TMPDIR:-/tmp}/dotagents-gate.XXXXXX" 2>/dev/null)"
 if [[ -z "$work" || ! -f "$work" ]]; then
   # The gate could not set itself up. It must not let the turn through on its own malfunction --
-  # a guardrail that fails open is worse than none (docs/adr/0002).
+  # a guardrail that fails open is worse than none (docs/decisions.md).
   block "The verification gate could not create its scratch file, so it cannot check anything.
 
 This is a fault in the gate itself, not in your work. Either fix it or disarm the sentinel at

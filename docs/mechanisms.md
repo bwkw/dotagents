@@ -1,16 +1,146 @@
-# Which mechanism, and why
+# どの仕組みを選ぶか、そしてなぜ
 
-日本語: [mechanisms.ja.md](mechanisms.ja.md)
+Claude Code と Cursor はエージェントの挙動を変える手段を複数持っていて、**互換ではありません**。間違った手段を選ぶと、**ルールが「どこにも強制されていない場所」に書かれた状態**になります。
 
-Claude Code and Cursor both offer several ways to change how the agent behaves. They are not
-interchangeable, and picking the wrong one is how a rule ends up written down somewhere it is never
-enforced.
+---
 
-This document records the official guidance, with sources, and the two places this toolkit deviates
-from it. It exists because "should this be a skill or a hook" came up often enough to be worth
-answering once.
+## 判断は1つの表で済む
 
-Sources, all read 2026-07-28:
+公式の枠組みは分類ではなく**引き金**です —— カテゴリとして何に属しそうかではなく、**直前に何が起きたか**で選びます。
+
+| 何が起きたか | 何を足すか |
+|---|---|
+| エージェントが規約を2回間違えた | `AGENTS.md` に書く |
+| 同じプロンプトを毎回打っている | **名前で呼ぶスキル** |
+| 同じ手順書を3回目貼った | **スキル** |
+| エージェントに見えないものからデータをコピーしている | 接続は **MCP サーバ**、使い方は**スキル** |
+| 読み返さない出力で会話が溢れる | **サブエージェント** |
+| **毎回、確認なしに**起きてほしい | **hook** |
+| 2つ目のリポジトリでも同じ構成が必要 | **plugin**、そして marketplace |
+
+公式ドキュメントで最も有用な1行は、hook かそれ以外かを決めるこれです。
+
+> *ガードレールは hook に置け。CLAUDE.md やスキルに書いた「`.env` を絶対に編集するな」は**お願いであって保証ではない**。*
+
+**スキルは読まれて解釈される。hook は実行される。** 調子の悪い日にも成立しなければならないルールなら、それは hook です。
+
+## それぞれのコスト
+
+| 仕組み | いつ読まれる | コスト |
+|---|---|---|
+| `AGENTS.md` | 毎セッション、自動 | **毎リクエスト、常に** |
+| スキルの **description** | 毎セッション | **毎リクエスト、インストール済み全スキル分** |
+| スキルの **本文** | 起動時 | **セッション終了まで context に残り、再読み込みされない** |
+| サブエージェント | 起動時 | 隔離 —— 読んだ内容はその context に留まる |
+| hook | イベント発火時 | **ゼロ**（出力を返さない限り） |
+| MCP サーバ | セッション開始 | ツール名のみ。スキーマは要求時 |
+
+ここから来る帰結が2つ、この repo の判断の大半を規定しています。
+
+**インストール済みのスキルは、他の全スキルに課税します。** description は **context window の1%**の予算を共有します。溢れると Claude Code は「**使用頻度の低いスキルから description を落とす**」ので、未使用のスキルはただ座っているのではなく、**使っているスキルの自動起動を無言で劣化させます**。
+
+**そして、その予算を分け合っている大半はこのリポジトリのものではありません。** このマシンでの実測:
+
+| 出所 | 名前の数 | 場所 |
+|---|---|---|
+| ディスク上 | 24 | `~/.agents/skills/` —— 自作9、上流15 |
+| Anthropic 管理プラグイン | 11 | `~/Library/Application Support/Claude/…` |
+| **CLI バイナリにコンパイル済み** | **40** | **ファイルとして存在しない**。実行ファイル内の文字列定数 |
+| **到達可能な合計** | **75** | 典型的なセッションでモデルに提示されるのは約46 |
+
+このリポジトリの監査は2回とも**ファイルシステムを読んだために外しました**。75本のうち40本はファイルシステム上に無いからです。**`~/.agents/skills` から数えた数は合計ではありません。** `/doctor` と `/skill-doctor` が全体を見ます（判断の記録 §8）。
+
+**スキル本文は一度きりではなく継続的なコストです。** 起動するとセッション中残り、再読み込みされないので、**全体に効く指針は「手順」ではなく「常設の指示」として書く**必要があります。auto-compaction 後は各スキルの**先頭 ~5,000 トークンだけ**が復元されます。だから `reference/` があり、詳細は要求時に読まれ、読まれるまでコストはゼロです。
+
+---
+
+## コマンドは、もうスキルです
+
+**使い分けの判断は存在しません。** 公式の原文:
+
+> **Custom commands have been merged into skills.** `.claude/commands/deploy.md` のファイルと
+> `.claude/skills/deploy/SKILL.md` のスキルはどちらも `/deploy` を作り、同じように動く。既存の
+> `.claude/commands/` ファイルは動き続ける。スキルは任意の機能を追加する —— 付随ファイル用のディレクトリ、
+> あなたが呼ぶかモデルが呼ぶかを制御する frontmatter、そして関連するときにモデルが自動で読み込む能力。
+
+**非推奨ではありません** —— 語は「統合された」「動き続ける」「スキルが推奨」です。ただし**素の `commands/*.md` が好ましいケースは1つも文書化されていません**。機能の少ないスキルが互換のために残っているだけです。**Cursor の commands ドキュメントページは現在 404。**
+
+### スキルの2種類
+
+かつてのコマンド対スキルの問いは、いま **frontmatter の1フィールド**です。
+
+| | モデル起動（既定） | 自分で起動（`disable-model-invocation: true`） |
+|---|---|---|
+| `/name` と打つ | ○ | ○ |
+| モデルが選ぶ | ○ | **×** |
+| 別のスキルが名前で呼ぶ | ○ | **×** |
+| description が context に載る | ○ | **× —— 予算コストゼロ** |
+
+公式の指針:
+
+> **副作用のあるスキルには `disable-model-invocation: true` を使え。** context を節約し、あなただけが起動することを保証する。…… **コードが完成して見えるからといって Claude がデプロイを決めるのは望ましくない。**
+
+つまり **副作用があるもの、あるいは結局いつも自分で打つもの**。**参照用の知識には使いません** —— そこでは自動起動こそが価値です。
+
+罠は3行目です。**自動起動だけでなく、プログラム的な `Skill` 呼び出しとサブエージェントへの preload も止めます**。だから別のスキルが名指しで委譲している相手に付けると、その委譲が**エラーも出さずに壊れます**。この repo で絶対に付けない2箇所は、lint hook とリンタの両方が強制しています。
+
+- **`da-verify`** —— `gate.sh arm` を走らせる唯一のもの。自動起動を切ると Stop ゲートが arm されず毎ターン通る = **ガードレールが開く**。
+- **`x-review-backend` / `-frontend` / `-infra`** —— `da-review-all` が名指しで委譲する先。
+
+### `/` メニューから隠すのは別のフィールド
+
+`user-invocable: false` は**メニューから消すがモデルからは呼べる**ままにします。層別レビュー3本がこれで、入口を1つに寄せています。`disable-model-invocation` と併用すると**どの経路からも到達不能**になるため、リンタがエラーにします。
+
+**ただし Cursor はこのフィールドを無視します。** 層別3本は Cursor のメニューに残り、さらに **Cursor は subagent もコマンドピッカーに出します**。これは*表示*の差であって挙動の差ではありませんが、`/da` の件数が Claude で7・Cursor で12 になる原因で、**だから内部用は `x-` 接頭辞で分けています**（判断の記録 §7）。フィールドで隠す方法は両エージェントで成立しません。
+
+---
+
+## Cursor は全部の部分集合しか読まない
+
+両エージェントを一級市民として扱うので、**制約になるのは常に Cursor が理解する範囲**です。
+
+| | Claude Code | Cursor |
+|---|---|---|
+| スキル | `~/.claude/skills/`、symlink を追う | `~/.agents/skills/` をネイティブに、加えて `.cursor/` `.claude/` `.codex/` |
+| スキル frontmatter | 多数 | **`name` `description` `paths` `disable-model-invocation` `metadata` のみ** |
+| `name` とディレクトリ名の一致 | 不要 | **必須** |
+| サブエージェント | `~/.claude/agents/` | `.claude/agents/` も読む。フィールドは `name` `description` `model` `readonly` `is_background` |
+| hook | `settings.json`、PascalCase | `hooks.json`、camelCase、**非互換** |
+| 常時ロード | `CLAUDE.md` | `AGENTS.md` か `.cursor/rules` |
+| コマンド | レガシー | ドキュメントページ削除 |
+
+`allowed-tools` `argument-hint` `context: fork` `model` `when_to_use` `user-invocable` は **Cursor では単に存在せず、それを報告するものもありません**。だから `AGENTS.md` の規則: **Claude 専用フィールドを全部剥がしても、スキルは同じ挙動をしなければならない**。制約は本文に散文で書き、frontmatter はその上の最適化。サブエージェント定義も同じ理由で、読み取り専用の制約を `tools:` と本文の両方に書いています。
+
+`${CLAUDE_SKILL_DIR}` `$ARGUMENTS` `` !`command` `` は Claude Code の拡張です。依存する場合、その依存が Cursor で生き残る形になっている必要があります。
+
+---
+
+## このリポジトリが公式から外れている場所
+
+**`verify-skills.sh` は 8,000字を固定の予算にしています**が、実際の予算はモデルに応じて変わります。この数値は 200K ウィンドウの1%の逆算近似で、上流には「予算が実ウィンドウではなく固定基準で計算される」既知の issue もあります。**時々厳しすぎる固定目標は、目標が無いよりは有用**という判断で、真実の値は `/doctor` です。
+
+**`skillOverrides` は使いますが、Cursor に存在しないスキルに対してだけです。** 値は `on` / `name-only`（載るが description 無し）/ `user-invocable-only`（モデルから隠すが打てる）/ `off`（両方から隠す）。これは Claude Code の `settings.json` にあり Cursor は読まないので、**自作スキルに使うと両エージェントが「何が有効か」で食い違います**。バンドル・プラグインのスキルは Cursor に存在しないので食い違う相手がいません。6件を `templates/claude.settings.snippet.json` 経由で抑制しており、マニフェストに記録され `uninstall` で正確に戻ります。**規則: Cursor にも存在するスキルには絶対に使わない。**
+
+## このマシン固有の危険が2つ
+
+**Claude Code が2つ入っていて、設定の効き方が同じではありません。** `$PATH` の `claude` は mise shim 経由の **2.1.148**、Claude Desktop は自前でダウンロードした **2.1.219** を動かします。両バイナリの設定スキーマを直接読んで確認した結果:
+
+| 設定 | 2.1.148 | 2.1.219 |
+|---|---|---|
+| `skillOverrides` | ○ | ○ |
+| `skillListingBudgetFraction`（既定 `0.01`） | ○ | ○ |
+| `skillListingMaxDescChars`（既定 `1536`） | ○ | ○ |
+| **`disableBundledSkills`** | **無い —— 黙って無視される** | ○ |
+
+抑制に `disableBundledSkills` ではなく名前単位の `skillOverrides` を使うのはこれが理由です。**粗い方のスイッチは古いバイナリでは何もせず、その事実を何も知らせません。** 内容としても不適切で、`code-review` と `review`（使用ログで実際に使われている）を含む約40本を一撃で消します。
+
+**バンドルスキルはバイナリと一緒に変わります。** コンパイル済みなので、CLI のアップグレードで名前が追加・改名・削除されても、このリポジトリの何も気づきません。存在しないスキルを指す override は**エラーではなく無効**なので、古い entry は静かに失敗します。**バージョンが変わったら `/doctor` を読み直してください。**
+
+---
+
+## 出典
+
+仕組みの分類そのものの出典（すべて 2026-07-28 に確認）:
 
 - [Extend Claude Code — features overview](https://code.claude.com/docs/en/features-overview)
 - [Extend Claude with skills](https://code.claude.com/docs/en/skills)
@@ -18,223 +148,20 @@ Sources, all read 2026-07-28:
 - [Steering Claude Code: when to use CLAUDE.md, skills, hooks, and subagents](https://claude.com/blog/steering-claude-code-skills-hooks-rules-subagents-and-more)
 - [Agent Skills — Cursor](https://cursor.com/docs/skills) · [Subagents](https://cursor.com/docs/subagents) · [Hooks](https://cursor.com/docs/hooks)
 
----
+### レビュー観点の裏にある出典
 
-## The decision, in one table
+レビュースキルのチェックリストはここで発明したものではありません。**数値や固有の技法を含む観点は、どこから来たかを記録しています** —— 将来の読者が「信じる」のではなく「まだ成立するか確かめられる」ようにするためです。
 
-The official framing is a set of **triggers** rather than a taxonomy — you pick by what just happened,
-not by what category the thing feels like it belongs to.
-
-| What happened | What to add |
+| スキル内で使っている主張 | 出典 |
 |---|---|
-| The agent gets a convention wrong twice | Put it in `AGENTS.md` |
-| You keep typing the same prompt to start a task | A skill you invoke by name |
-| You have pasted the same playbook a third time | A skill |
-| You keep copying data from something the agent cannot see | An MCP server for the connection, and a skill for how to use it well |
-| A side task floods the conversation with output you will not reread | A subagent |
-| You want something to happen **every time, without asking** | A hook |
-| A second repository needs the same setup | A plugin, then a marketplace |
-
-The single most useful line in the official docs is the one that decides hook-versus-anything-else:
-
-> Put guardrails in hooks. An instruction like "never edit `.env`" in CLAUDE.md or a skill is a
-> request, not a guarantee.
-
-A skill is read and interpreted. A hook runs. If a rule has to hold on a bad day, it is a hook.
-
-## What each one costs
-
-| Mechanism | Loads | Cost |
-|---|---|---|
-| `AGENTS.md` | every session | every request, always |
-| Skill **description** | every session | every request, for every installed skill |
-| Skill **body** | when invoked | stays in context for the rest of the session; never re-read |
-| Subagent | when spawned | isolated — the reading stays in its context |
-| Hook | on its event | zero, unless it returns output |
-| MCP server | session start | tool names only; schemas on demand |
-
-Two consequences that drive most of this repository's decisions:
-
-**Every installed skill taxes every other one.** Descriptions share a listing budget of **1% of the
-model's context window**. On overflow, Claude Code "drops descriptions starting with the skills you
-invoke least" — so an unused skill does not merely sit there, it degrades the auto-invocation of the
-ones you do use, silently. `verify-skills.sh` targets 8,000 characters, which is roughly 1% of a 200K
-window; the real budget scales with the model, and `/doctor` reports the actual figure.
-
-**And most of what shares that budget is not in this repository.** Counted on this machine:
-
-| Source | Names | Where |
-|---|---|---|
-| On disk | 24 | `~/.agents/skills/` — 9 ours, 15 upstream |
-| `anthropic-skills@inline` plugin | 11 | `~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/…` |
-| **Compiled into the CLI binary** | **40** | **no files exist.** Registered as string constants inside the executable |
-| **Total reachable** | **75** | ~46 listed to the model in a typical session |
-
-Two inventories of this repository were wrong because they read the filesystem, and 40 of the 75 are not
-on the filesystem. **A skill count taken from `~/.agents/skills` is not the total** — `/doctor` and
-`/skill-doctor` see the whole set. See ADR 0006.
-
-**A skill body is a recurring cost, not a one-off.** Once invoked it stays for the session and is
-never re-read, so guidance meant to apply throughout must be written as standing instruction rather
-than as a step. After auto-compaction only the first ~5,000 tokens of each are restored. Hence
-`reference/`: detail loads on demand, and costs nothing until read.
-
----
-
-## Commands are skills now
-
-There is no commands-versus-skills decision to make. Official, verbatim:
-
-> **Custom commands have been merged into skills.** A file at `.claude/commands/deploy.md` and a skill
-> at `.claude/skills/deploy/SKILL.md` both create `/deploy` and work the same way. Your existing
-> `.claude/commands/` files keep working. Skills add optional features: a directory for supporting
-> files, frontmatter to control whether you or Claude invokes them, and the ability for Claude to load
-> them automatically when relevant.
-
-Commands are not deprecated — the language is "merged", "keep working", "Skills are recommended" — but
-there is **no documented case where a bare `commands/*.md` is preferable**. It is a skill with fewer
-options, kept for compatibility. Cursor's commands documentation page is now a 404.
-
-So this repository has no `commands/` directory, and adding one would be a step backwards.
-
-### The two kinds of skill
-
-What used to be the command-versus-skill question is now one frontmatter field.
-
-| | Model-invoked (default) | You-invoked (`disable-model-invocation: true`) |
-|---|---|---|
-| You type `/name` | yes | yes |
-| The model picks it | yes | **no** |
-| Another skill calls it by name | yes | **no** |
-| Description in context | yes | **no — zero budget cost** |
-
-Official guidance on when to set it:
-
-> Use `disable-model-invocation: true` for skills with side effects. This saves context and ensures
-> only you trigger them. … You don't want Claude deciding to deploy because your code looks ready.
-
-So: **side effects, or you always type it anyway.** Not for reference knowledge, where automatic
-invocation is the entire value.
-
-The trap is the third row. It blocks programmatic `Skill` calls and subagent preloading, not just
-automatic invocation — so setting it on something another skill dispatches to breaks that dispatch
-**with no error**. Two skills here can never have it, and both the lint hook and `verify-skills.sh`
-enforce it (see ADR 0005):
-
-- **`da-verify`** — the only thing that runs `gate.sh arm`. Without automatic invocation the Stop gate
-  never arms and passes every turn: the guardrail opens.
-- **`x-review-backend` / `x-review-frontend` / `x-review-infra`** — `da-review-all` dispatches to them by name.
-
-### Hiding from the menu is a different field
-
-`user-invocable: false` keeps the skill in the model's context but takes it out of the `/` menu — the
-mirror image of `disable-model-invocation`. The three layer reviews use it, so `/da-review-all` is the
-only review entry you type while the layers stay reachable by dispatch and by naming a layer.
-
-Two things this costs, both accepted:
-
-- **Cursor ignores the field**, so the layers stay in its menu. That is a *presentation* difference, not
-  a behavioural one, which is the line ADR 0003 draws — strip the Claude-only field and the skill still
-  does the same thing.
-- **Combined with `disable-model-invocation` it makes a skill unreachable by every route**, and on a
-  skill nothing dispatches to it is reachable only by description match. `verify-skills.sh` errors on
-  both cases rather than trusting the author to remember.
-
----
-
-## Cursor reads a subset of all of it
-
-Both agents are first class here, so the binding constraint is whatever Cursor understands.
-
-| | Claude Code | Cursor |
-|---|---|---|
-| Skills | `~/.claude/skills/`, follows symlinks | `~/.agents/skills/` natively, plus `.cursor/`, `.claude/`, `.codex/` |
-| Skill frontmatter | many fields | **`name`, `description`, `paths`, `disable-model-invocation`, `metadata` only** |
-| `name` must match the directory | no | **yes** |
-| Subagents | `~/.claude/agents/` | reads `.claude/agents/` too; fields are `name`, `description`, `model`, `readonly`, `is_background` |
-| Hooks | `settings.json`, PascalCase events | `hooks.json`, camelCase events, **incompatible** |
-| Always-loaded context | `CLAUDE.md` | `AGENTS.md` or `.cursor/rules` |
-| Commands | legacy | documentation page removed |
-
-Everything else in a Claude Code `SKILL.md` — `allowed-tools`, `argument-hint`, `context: fork`,
-`model`, `when_to_use` — is simply absent in Cursor, with nothing reporting it. Hence the rule in
-`AGENTS.md`: **strip every Claude-only field and the skill must still behave the same.** Constraints
-go in the body as prose; frontmatter is optimisation on top. The same applies to subagents, which is
-why both agent definitions here state their read-only constraint in the body as well as in `tools:`.
-
-`${CLAUDE_SKILL_DIR}`, `$ARGUMENTS` and `!`command`` interpolation are Claude Code extensions. Where a
-skill depends on one, that dependence needs to be survivable in Cursor.
-
----
-
-## Where this repository deviates
-
-Two places, both deliberate.
-
-**`verify-skills.sh` hardcodes an 8,000-character budget** where the real one scales with the model.
-The number is a reverse-engineered approximation of 1% of a 200K window, and there is a known upstream
-issue about the budget being computed against a fixed baseline rather than the actual context window.
-A fixed target that is occasionally too strict is more useful than no target; `/doctor` is the source
-of truth.
-
-**`skillOverrides` is used, but only on skills Cursor does not have.** The four values are `on`,
-`name-only` (listed, no description), `user-invocable-only` (hidden from the model, still typable) and
-`off` (hidden from both). It lives in Claude Code's `settings.json`, which Cursor does not read — so
-using it on one of *our* skills would make the two agents disagree about what is active, and
-`/da-skills-audit` reads files rather than settings and could not see that divergence. Bundled and
-plugin skills do not exist in Cursor at all, so there is nothing to diverge from; six of those are
-suppressed through `templates/claude.settings.snippet.json`, which keeps them tracked in the manifest and
-reverted exactly by `uninstall`. **The rule is: never on a skill that also exists in Cursor.** ADR 0006.
-
-## Two hazards specific to this machine
-
-**There are two Claude Code installations, and the settings do not behave the same in both.** `claude` on
-`$PATH` is a mise shim to **2.1.148**; Claude Desktop downloads and runs its own **2.1.219**. Verified
-against the two binaries' own settings schemas:
-
-| Setting | 2.1.148 | 2.1.219 |
-|---|---|---|
-| `skillOverrides` | yes | yes |
-| `skillListingBudgetFraction` (default `0.01`) | yes | yes |
-| `skillListingMaxDescChars` (default `1536`) | yes | yes |
-| **`disableBundledSkills`** | **absent — silently ignored** | yes |
-
-This is why suppression here uses per-name `skillOverrides` rather than `disableBundledSkills`: the
-blunt switch would do nothing under the older binary and give no indication of it. `disableBundledSkills`
-would also be wrong on the merits — it removes all ~40 bundled skills at once, including `code-review`
-and `review`, which the usage log shows in real use.
-
-**The bundled skills change with the binary.** They are compiled in, so a CLI upgrade can add, rename or
-remove names with nothing in this repository noticing. An override naming a skill that no longer exists is
-inert rather than an error, so a stale entry fails quietly. Re-read `/doctor` after a version change.
-
----
-
-## Sources behind the review perspectives
-
-The review skills' checklists are not invented here. Where a perspective carries a number or a named
-technique, this is where it came from — recorded so a future reader can check whether it still holds
-rather than trusting it.
-
-| Claim used in a skill | Source |
-|---|---|
-| A model judging output rates its own family's work 10–25% higher, more so in more capable models; never use the same model as judge and candidate; ensembling reduces variance but not shared systematic bias | [Self-Preference Bias in LLM-as-a-Judge](https://arxiv.org/pdf/2410.21819), [Justice or Prejudice? Quantifying Biases in LLM-as-a-Judge](https://arxiv.org/pdf/2410.02736), [LLM-Judge Bias Mitigation (2026)](https://futureagi.com/blog/evaluating-llm-judge-bias-mitigation-2026/) |
-| Verbosity bias inflates preference for longer answers by 15–30 points; position bias exists | same |
-| ~20% of agent-authored samples reference packages that do not exist; slopsquatting registers the hallucinated names; yanked or CVE-bearing versions get reproduced; happy-path bias shows up as catch-all handlers and calls without timeouts | [AI Hallucinations in Production Code (2026)](https://www.devx.com/uncategorized/ai-hallucinations-production-code-risks-mitigations-2026/), [AI-Generated Code Review Standards](https://www.metacto.com/blogs/establishing-code-review-standards-for-ai-generated-code), [CSA: AI-Generated Code Vulnerability Surge](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-generated-code-vulnerability-surge-2026/) |
-| Prospective hindsight — imagining the failure as already having happened — raises correct identification of causes by ~30% | Mitchell, Russo & Pennington 1989, via [Performing a Project Premortem](https://www.researchgate.net/publication/3229642_Performing_a_Project_Premortem) (Klein, HBR 2007) and [Ness Labs](https://nesslabs.com/pre-mortem-anticipate-failure-with-prospective-hindsight) |
-| Core Web Vitals thresholds LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1; INP replaced FID and is the most commonly failed; cause is main-thread JavaScript during interaction | [Core Web Vitals 2026 guide](https://www.digitalapplied.com/blog/core-web-vitals-2026-inp-lcp-cls-optimization-guide), [Ultimate checklist](https://www.corewebvitals.io/core-web-vitals/ultimate-checklist) |
-| WCAG 2.2 supersedes 2.1 with nine new criteria; contrast is the most common failure; Accessible Authentication (3.3.8) requires paste and autofill to work | [WCAG 2.2 checklist](https://www.levelaccess.com/blog/wcag-2-2-aa-summary-and-checklist-for-website-owners/), [What frontend developers need to fix](https://danholloran.me/posts/wcag-2-2-what-frontend-developers-need-to-fix) |
-| CSP: avoid `unsafe-inline`/`unsafe-eval`, prefer nonce or hash, minimise allowlisted domains, re-review when a dependency is added | [OWASP WSTG: Test for CSP](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/12-Test_for_Content_Security_Policy) |
-| Terraform state holds attributes in plaintext; encrypt, version and lock the backend; restrict who can read it; scanners cover the mechanical checks | [Terraform Architecture Review Checklist (CIS-mapped)](https://archguard.io/blog/terraform-architecture-review-checklist), [IaC Security Review](https://www.propelcode.ai/blog/infrastructure-as-code-security-review-terraform-cloudformation) |
-| Production-readiness dimensions, and that dependency readiness is a commonly skipped one | [Google SRE: Production Readiness Review](https://sre.google/sre-book/evolving-sre-engagement-model/), [Launch checklist](https://sre.google/sre-book/launch-checklist/), [Production readiness checklist](https://getdx.com/blog/production-readiness-checklist/) |
-| Do not block on personal style preference; mark optional comments as `Nit:` | [Google: What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html) |
-
-Two of these changed a design decision rather than adding a checklist item, and both are worth knowing
-before trusting a review:
-
-- **The three-lens verification pass is not three independent opinions.** It is one model checked from
-  three angles. That reduces the chance of one bad run and does nothing about bias shared across all
-  three. The skills now say so, and route to a different model where one is available.
-- **`refuted` as the default verdict is a counterweight, not pessimism.** With self-preference measured
-  at 10–25%, a neutral prior over-confirms. This was originally chosen on instinct; the number is why it
-  stays.
+| LLM を判定者に使うと偏りが出る。ただし**自己優遇の数値には依拠しない** —— 反証論文があり、別の解析では偏りは検証者ごとの一律の傾向（最厳格〜最寛容で 2.8 ポイント差）とされる。`refuted` 既定の根拠は**アンカリング除去・検証者分散・内在的自己修正の不成立**に置いてある | [Self-Preference Bias in LLM-as-a-Judge](https://arxiv.org/pdf/2410.21819) · [Justice or Prejudice?](https://arxiv.org/pdf/2410.02736) · [Are LLM Evaluators Really Narcissists?](https://arxiv.org/pdf/2601.22548) · [LLMs Cannot Self-Correct Reasoning Yet](https://arxiv.org/abs/2310.01798) |
+| 冗長性バイアスは長い回答への選好を 15〜30 ポイント押し上げる。位置バイアスも存在する（どちらも独立に測定済み） | 上と同じ |
+| エージェント生成コードの約20%が**存在しないパッケージ**を参照する。slopsquatting はその幻覚名を実際に登録する。yank 済み・CVE 持ちのバージョンが再現される。happy-path バイアスは catch-all ハンドラとタイムアウト無しの呼び出しとして現れる | [AI Hallucinations in Production Code (2026)](https://www.devx.com/uncategorized/ai-hallucinations-production-code-risks-mitigations-2026/) |
+| **prospective hindsight**（失敗が既に起きたものとして想像する）は原因の正しい特定を約30%増やす | Mitchell, Russo & Pennington 1989 —— [Performing a Project Premortem](https://www.researchgate.net/publication/3229642_Performing_a_Project_Premortem) (Klein, HBR 2007) · [Ness Labs](https://nesslabs.com/pre-mortem-anticipate-failure-with-prospective-hindsight) |
+| Core Web Vitals の閾値 LCP ≤ 2.5s / INP ≤ 200ms / CLS ≤ 0.1。INP が FID を置き換え、最も落ちやすい。原因は操作中のメインスレッド JavaScript | [Core Web Vitals 2026 guide](https://www.digitalapplied.com/blog/core-web-vitals-2026-inp-lcp-cls-optimization-guide) · [Ultimate checklist](https://www.corewebvitals.io/core-web-vitals/ultimate-checklist) |
+| WCAG 2.2 が 2.1 を置き換え、新基準9件。コントラストが最頻の失敗。Accessible Authentication (3.3.8) はペーストと autofill が動くことを要求する | [WCAG 2.2 checklist](https://www.levelaccess.com/blog/wcag-2-2-aa-summary-and-checklist-for-website-owners/) · [What frontend developers need to fix](https://danholloran.me/posts/wcag-2-2-what-frontend-developers-need-to-fix) |
+| CSP: `unsafe-inline` / `unsafe-eval` を避け nonce か hash を使う。許可ドメインを最小化し、依存が増えたら再点検する | [OWASP WSTG: Test for CSP](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/12-Test_for_Content_Security_Policy) |
+| Terraform の state は属性を**平文で**持つ。backend を暗号化・バージョニング・ロックし、読める人を制限する。機械的な検査はスキャナが覆う | [Terraform Architecture Review Checklist (CIS-mapped)](https://archguard.io/blog/terraform-architecture-review-checklist) · [IaC Security Review](https://www.propelcode.ai/blog/infrastructure-as-code-security-review-terraform-cloudformation) |
+| production-readiness の観点、そして**依存の readiness が最も飛ばされやすい**こと | [Google SRE: Production Readiness Review](https://sre.google/sre-book/evolving-sre-engagement-model/) · [Launch checklist](https://sre.google/sre-book/launch-checklist/) · [Production readiness checklist](https://getdx.com/blog/production-readiness-checklist/) |
+| 個人的な好みの問題でブロックしない。任意の指摘は `Nit:` と明示する | [Google: What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html) |
+| 4種の AI レビュアを同一146 PR に当てると、**指摘の 93.4% は4つのうち1つだけが検出**し、4つ全部が検出したものは0件 —— 効くのはレビュアの質より**多様性** | [Osmani, Agentic Code Review](https://addyosmani.com/blog/agentic-code-review/) · [Cross-Context Review](https://arxiv.org/pdf/2603.12123) |

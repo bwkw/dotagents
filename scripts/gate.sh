@@ -46,7 +46,7 @@ find_armed() {
 
 # Is there a profile for this repository? Arming one without a profile produces a gate that reports
 # "armed" and then passes every turn in silence -- the believing-you-are-protected state that
-# docs/adr/0002 exists to prevent. Found by arming this repository, which had no profile.
+# docs/decisions.md exists to prevent. Found by arming this repository, which had no profile.
 warn_if_no_profile() {
   local root="$1" remote profiles hit
   remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"

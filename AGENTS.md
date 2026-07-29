@@ -4,9 +4,14 @@ Personal AI development toolkit. Skills, hooks, and repository profiles that wor
 Code and Cursor**, installed once globally. `CLAUDE.md` symlinks here, because Claude Code does not
 read `AGENTS.md`.
 
-Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape
-is in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
-context — is in `docs/mechanisms.md`, with sources. This file holds only what you cannot get by looking.
+**The human documentation is in Japanese; skill bodies and this file are in English** — they are prompts
+the model reads, and English costs about a third of the tokens. `README.en.md` is a short English entry
+point for visitors.
+
+Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape is
+in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
+context — is in `docs/mechanisms.md`, with sources. What was decided, and what was decided *wrongly*, is
+in `docs/decisions.md`. This file holds only what you cannot get by looking.
 
 ## Invariants
 

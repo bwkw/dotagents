@@ -23,7 +23,7 @@
     "",
     "disableBundledSkills is deliberately NOT used: it drops all ~40 at once, including code-review and",
     "review which the usage log shows in real use, and it exists only in CLI 2.1.219+ -- an older",
-    "`claude` on $PATH ignores it silently. See docs/adr/0006."
+    "`claude` on $PATH ignores it silently. See docs/decisions.md."
   ],
   "skillOverrides": {
     "claude-api": "name-only",
