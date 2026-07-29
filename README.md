@@ -279,6 +279,24 @@ The line for what belongs here: **would this be equally useful to someone with d
 If yes, it belongs upstream. What stays encodes a particular opinion — what counts as a finding worth
 reporting, what makes a review trustworthy, what must be true before work is called done.
 
+### The frontmatter guard
+
+`hooks/dotagents-lint-skill-frontmatter.sh`, on both agents. **The one hook you meet without asking for
+it** — it runs on every `Write`/`Edit` and only reacts to a path ending in `SKILL.md`.
+
+If you write a skill and the edit is **refused**, this is why:
+
+| It refuses | Because |
+|---|---|
+| no `name`, or no `description` | The skill appears in the menu and never fires. Nothing else reports that. |
+| frontmatter opened with `---` and never closed | Same failure, harder to spot. |
+| `disable-model-invocation` on `da-verify` | It is the only thing that arms the gate, so the guardrail would open. |
+| `disable-model-invocation` on a layer review | `da-review-all` would report that layer as covered while reviewing nothing. |
+
+It **asks rather than refuses** when a description says what a skill does but not *when* to use it — that
+still works when typed, it just will not fire on its own. Everything else passes. This hook only
+inspects, so if it crashes it falls through open; the one that must fail closed is the gate below.
+
 ### The verification gate
 
 `hooks/dotagents-verify-gate.sh`, on both agents.
