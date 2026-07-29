@@ -23,6 +23,11 @@ check() { # check <name> <expected-exit> <actual-exit>
   fi
 }
 
+# The inline `&& { printf ...; pass=... } || { printf ...; fail=... }` pattern below predates these.
+# New assertions use ok/no; the existing ones are left alone rather than churned.
+ok() { printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; pass=$((pass+1)); }
+no() { printf '%s✗%s %s\n' "$c_red"   "$c_off" "$1"; fail=$((fail+1)); }
+
 # --- scratch repo -----------------------------------------------------------
 REPO="$TMP/repo"
 mkdir -p "$REPO"
@@ -45,11 +50,17 @@ GATE_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gate.sh"
 arm()   { DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$REPO" >/dev/null; }
 disarm(){ DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$REPO" >/dev/null 2>&1 || true; rm -rf "$GATE"; }
 
-invoke() {
-  printf '{"cwd":"%s"}' "$REPO" \
+# trace() in the hook returns early unless $GATE_DIR exists, and several cases below `rm -rf "$GATE"`.
+# So an absent log means "nothing was traced", which is a legitimate answer, not an error.
+trace_has() { grep -q "$1" "$GATE/trace.log" 2>/dev/null; }
+
+invoke_at() { # invoke_at <dir> [extra-json-fields]
+  printf '{"cwd":"%s"%s}' "$1" "${2:+,$2}" \
     | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr"
   echo $?
 }
+
+invoke() { invoke_at "$REPO"; }
 
 # Cursor's stop hook sends {status, loop_count} and no cwd, so the hook falls back to $PWD.
 # It cannot block; it answers with {"followup_message": ...} on stdout.
@@ -280,6 +291,14 @@ check "re-entry after a block -> releases once so the user is reachable" 0 "$ree
 grep -qi 'still failing' "$TMP/stderr" \
   && { printf '%s✓%s   says the checks are still red while releasing\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
   || { printf '%s✗%s   released without saying why\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+
+# ...and the release must reach the trace log. It is the release, not the block, that decides whether
+# a red turn ends -- so a trace that records only blocks is silent about the gate's most frequent and
+# most consequential event, and "nothing happened" cannot be told apart from "never ran".
+if trace_has 'RELEASED'; then ok "   the release is traced, not only the block"
+else no "   released without a trace line (trace: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 200))"; fi
+if trace_has 'boom'; then ok "   the trace names the check that was still red"
+else no "   the release trace does not name the failing check"; fi
 
 # The block message must not teach the agent how to forge the delegated result.
 rm -rf "$GATE"; arm
