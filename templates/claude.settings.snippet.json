@@ -26,7 +26,6 @@
     "`claude` on $PATH ignores it silently. See docs/adr/0006."
   ],
   "skillOverrides": {
-    "verification-before-completion": "name-only",
     "claude-api": "name-only",
     "anthropic-skills:schedule": "off",
     "docx": "name-only",

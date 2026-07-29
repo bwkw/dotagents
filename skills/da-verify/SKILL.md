@@ -26,7 +26,38 @@ nudge, and running `/da-verify` explicitly is how you actually know. Do not assu
 |---|---|
 | The working directory is inside a git repository with an `origin` remote | Stop and report it. The profile is resolved by remote. |
 | The dotagents checkout is locatable (`~/.claude/.dotagents-managed.json` → `repo`) | Report it, and run the checks without arming the gate. Say that the gate is not active. |
-| A profile matches this repository | **Stop.** Report that no profile exists, show the repository's remote, and offer to write one. **Never guess commands** — running an invented `npm test` in an unfamiliar repository is how a verification tool loses trust. |
+| A profile matches this repository | **Stop, and hand back a profile ready to fill in** — see below. **Never guess commands**: running an invented `npm test` in an unfamiliar repository is how a verification tool loses trust. |
+
+### When no profile matches
+
+Stopping used to be sufficient because an upstream skill covered the general case. That skill was
+removed, so **stopping is now the entire answer unless you make the next step trivial.** Do that:
+
+1. Report the repository's remote, and that nothing matches it.
+2. **Read the repository's own manifests** — `package.json` scripts, `Makefile` targets, `justfile`,
+   `pyproject.toml`, the CI workflow — and **propose** the commands you find, quoting where each came
+   from. Reporting what a file says is not guessing; running it unasked would be.
+3. Emit a profile with those filled in, ready to save:
+
+```jsonc
+// <dotagents>/profiles/<repo>.json — gitignored unless explicitly allowlisted
+{
+  "$schema": "./_schema.json",
+  "match": { "remote": "<owner/repo, from git remote>" },
+  "checks": [
+    { "id": "lint",      "cmd": "<from scripts.lint>",      "gate": true, "agent_may_run": true, "scope": "changed" },
+    { "id": "typecheck", "cmd": "<from scripts.typecheck>", "gate": true, "agent_may_run": true },
+    { "id": "unit",      "cmd": "<from scripts.test>",      "gate": true, "agent_may_run": true, "scope": "changed" }
+  ]
+}
+```
+
+4. Say plainly that **until it is saved this repository has no gate**: the Stop hook stays inert, so
+   nothing holds a turn that ends red. That is the cost of having no profile, and it should not be
+   discovered later.
+
+**Do not fall back to running something.** A green result you cannot trace to a configured command is
+indistinguishable from no check at all, which is worse than stopping.
 
 ## Position in the workflow
 

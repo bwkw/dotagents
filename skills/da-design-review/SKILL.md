@@ -30,7 +30,7 @@ a separate act, done deliberately.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/grill-me`, `/writing-plans`, `/brainstorming` | `/da-design-review` | revise the plan, then `/executing-plans` |
+| `/research`, `/grill-me`, `/writing-plans` or an ADR | `/da-design-review` | revise, then `/executing-plans` |
 
 ## Files to read
 

@@ -24,182 +24,111 @@ Requires `node` (≥18), `bash`, and `git`. macOS ships bash 3.2 and everything 
 
 ---
 
-## The development loop this gives you
+## Pick by what you are doing
 
-Not a pipeline. Each step is one command, and most sessions use two or three.
-
-Officially the loop is **Explore → Plan → Implement → Commit**, with *verify* as a property every phase
-needs rather than a step, and *review* as an **escalation** for risky or unwatched work rather than a
-ritual after every diff. [`docs/workflow.md`](docs/workflow.md) has the full version with sources, the
-abort conditions, and the parts the good sources disagree about. The three rules worth memorising:
-
-- **If you could describe the diff in one sentence, skip the plan.**
-- **`/clear` and start a fresh session between planning and implementing.** The plan is on disk by then.
-- **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what
-  you learned. A clean session with a better prompt beats a long one carrying failed approaches.
-
-### Five phases, plus two side flows
-
-Real work does not arrive as one linear loop. Pick the flow, then read only that row.
+Five use cases. Each is entered on its own — this is not one pipeline with branches.
 **●** is from this repository, **○** upstream, **◆** built into Claude Code.
 
-| Flow | In order |
+### 1. Build a feature
+
+| Step | Type | What it is for |
+|---|---|---|
+| **0. Survey** | ○ `/research` | "What do people actually do about this?" External primary sources, written to a file in the repo. **The options and their tradeoffs come out of this**, and the file outlives `/clear` |
+| **1. Settle it** | ○ `/grill-me` | Interrogates the option you picked until the requirement is actually pinned down |
+| | ● `/da-investigate` | What a change would touch in *this* codebase — `file:line`, under a budget, naming what it could not confirm |
+| **2. Write it down** | ○ `/documentation-and-adrs` | The decision, as an ADR |
+| | ○ `/writing-plans` | The spec, on disk. (Or openspec, if the repository uses it) |
+| | **● `/da-design-review`** | Reviews what you wrote **before code exists** — one-way doors, migration order, rollback, and a past-tense pre-mortem |
+| | `/clear` | The plan is on disk. Implement in a fresh session |
+| **3. Implement** | ○ `/executing-plans` | Work through the written plan with checkpoints |
+| | ○ `/using-git-worktrees` | When the work needs isolating from the current workspace |
+| | **● `/da-verify`** | Runs *this repository's* configured checks and reports evidence. **Also arms the gate** |
+| **4. Review and iterate** | see use case 4 | |
+
+Test-first is not a step here: it is a standing rule in `AGENTS.md`, because a default that needs
+invoking is not a default. ○ `/test-driven-development` holds the detailed process when you want it.
+
+### 2. Investigate
+
+Two different questions, two different tools. Reaching for the wrong one is the common mistake.
+
+| The question | Type | Notes |
+|---|---|---|
+| "How does the world do this?" | ○ `/research` | External sources. Writes findings to a file, and can run in a background agent |
+| "Where does X live / what depends on it / what would break?" | ● `/da-investigate` | **This** codebase. 25 file reads, 3 search rounds, then it **stops and says what it did not check**. Reports Confirmed / Inferred / Unconfirmed as three distinct things, and retries a negative result with different vocabulary before asserting it |
+
+`/da-investigate` fans out to ● `da-codebase-explorer` subagents, so the reading stays in their context
+rather than yours.
+
+### 3. Fix a bug
+
+| Step | Type | Notes |
+|---|---|---|
+| **Investigate** | **○ `/systematic-debugging`** | Root cause **before** fix, and it refuses to skip ahead. This is not a review — pointing a review skill at a bug returns a list of nearby imperfections instead of the cause |
+| | ● `/da-investigate` | Only once you have a suspect, for its blast radius |
+| **Fix** | ○ `/systematic-debugging` | Its own Phase 4 carries the fix through |
+| **Prove it** | **● `/da-verify`** | And the bugfix starts with a test that reproduces the bug, so "fixed" means something |
+
+### 4. Review
+
+| | Type | Notes |
+|---|---|---|
+| **Your own work** | **● `/da-review-all`** | The only review entry to type. Classifies the change, dispatches to the layers that apply, then finds what falls *between* them |
+| | ◆ `/code-review` or ○ `/find-bugs` | **A second reviewer, deliberately a different one.** Four reviewers over the same 146 PRs caught 93.4% of findings with exactly one of the four |
+| | **● `/da-fix-plan`** | The findings → an ordered plan. **Its main job is deciding what not to fix** |
+| | ○ `/receiving-code-review` | When feedback arrives and you want to evaluate it rather than implement it reflexively |
+| | ● `/da-pr-describe` | The PR description. **Type it** — it never fires on its own |
+| **Someone else's PR** | ◆ `/review <PR>` | The GitHub view |
+| | ● `/da-review-all <base>` | For depth. **Reconstructs the intent from the description, issue and commits before producing a single finding** — a difference in approach is not a defect, and pre-existing problems are labelled and do not block |
+| **Narrower passes** | ◆ `/security-review` · ◆ `/simplify` | Security only; quality only and explicitly not a bug hunt |
+
+`da-review-backend` / `-frontend` / `-infra` are full skills but **not in the `/` menu** — the dispatcher
+reaches them, and so does naming a layer ("review the backend"). One thing to type, three layers of depth.
+
+### 5. Maintain the toolkit
+
+| Type | When |
 |---|---|
-| **0. Survey the ground** — "what do people actually do about this?" | ○ `/research` — external primary sources, findings written to a file in the repo. **Options with tradeoffs come out of this**, and the file survives `/clear` |
-| **1. Settle what you are building** | ○ `/grill-me` against the options → ● `/da-investigate` for what a change would touch in *this* codebase |
-| **2. Write it down** | ○ `/documentation-and-adrs` for the decision, openspec or ○ `/writing-plans` for the spec → **● `/da-design-review`** on what you wrote → then `/clear` |
-| **3. Implement** | ○ `/executing-plans` if there is a plan — **test-first either way** → **● `/da-verify`** |
-| **4. Review critically and iterate** | **● `/da-review-all`** → a second reviewer: ◆ `/code-review` or ○ `/find-bugs` → **● `/da-fix-plan`** → fix → ● `/da-verify` → ● `/da-pr-describe` |
-| *Someone else's PR* | ◆ `/review <PR>`, or ● `/da-review-all <base>` for depth → ● `/da-fix-plan` if you are collecting the comments |
-| *An error* | **○ `/systematic-debugging`** — root cause before fix, and it refuses to skip → ● `/da-investigate` for the blast radius once you have a suspect. Its own Phase 4 carries the fix → ● `/da-verify` |
+| ◆ `/skill-doctor` | **First.** Which loaded skills are unused and costing context |
+| ◆ `/doctor` | The listing's real context cost, and its biggest contributors |
+| ● `/da-skills-audit` | Over-constraint, overlapping triggers, Cursor incompatibility, size |
+| ○ `/skill-scanner` | Before trusting a newly installed third-party skill. Security, not bloat |
+| ○ `anthropic-skills:skill-creator` | The only thing that measures whether a skill **helps**: with-skill vs without-skill pass rate, tokens, time |
 
-Four things about that table, all of which used to be implicit:
+### Three rules that matter more than any command
 
-**Not everything is `da-`, on purpose.** The prefix marks what this repository *owns and may rewrite*.
-Upstream skills keep their own names because editing one in place is lost on the next
-`npx skills update` — a `da-` wrapper around `/grill-me` would be a second file that drifts, which is the
-failure this toolkit exists to avoid. `/da` narrows the menu to what is ours; the flows deliberately reach
-past it.
+- **If you could describe the diff in one sentence, skip the plan.**
+- **`/clear` between the plan and the implementation**, and between unrelated tasks.
+- **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what you
+  learned. A clean session with a better prompt beats a long one carrying failed approaches.
 
-**Test-first is the base, not a step.** It is a standing rule in `AGENTS.md` rather than a skill you must
-remember, because a default that needs invoking is not a default. `/test-driven-development` holds the
-detailed process when you want it. A bugfix starts with a test that reproduces the bug, and tests written
-*after* the implementation get labelled as such rather than presented as verification.
+[`docs/workflow.md`](docs/workflow.md) has the reasoning, the sources, and the places good sources
+disagree.
 
-**`gate.sh arm` is gone from the implement flow, because `/da-verify` arms the gate itself** — its Step 0
-does exactly that. Running `/da-verify` once, typed or auto-fired, makes the end-of-turn gate active for
-the rest of the session. Reach for `arm` directly only in the case verify cannot cover: arming *before*
-any verify has run, for an unattended session you want held from the first turn. `disarm` when the
-repository goes back to answering questions and you do not want a suite on the way out.
+### The gate, and when you touch it directly
 
-**Reviewing someone else's work is a different posture.** You do not know the intent, so the first pass
-reconstructs it from the description, the issue, the commits and any referenced spec, and **states it back
-before producing a single finding**. A difference in approach is not a defect; pre-existing problems are
-labelled and do not block. And **error investigation is not review** — pointing a review skill at a bug
-returns a list of nearby imperfections instead of the cause.
-
-### 1 — Before there is code
-
-The expensive decisions get made here, and code review cannot undo them.
-
-```
-/grill-me          be interrogated until the requirement is actually pinned down
-/da-investigate       what would this change touch, and what breaks — with file:line
-/writing-plans     get a plan onto disk
-/da-design-review     ← the plan, reviewed before anyone implements it
-```
-
-`/da-design-review` looks for what a later code review structurally cannot: **one-way doors** (what
-becomes irreversible, and at which moment), migration order, whether every intermediate deploy state
-works, and **what the plan does not mention at all** — rollback, existing data, in-flight requests,
-the signal that says it worked. Absence is the hardest thing to review and the usual source of
-production surprise.
-
-`/da-investigate` answers under a fixed budget (25 files, 3 search rounds) and escalates cheapest-first:
-ripgrep, then structural search, then LSP, and only then reading whole files. It reports confidence as
-exactly **Confirmed / Inferred / Unconfirmed** — "probably" and "should be" collapse the distinction
-that matters — and names what it did not check.
-
-### 2 — While writing code
-
-Work: `/executing-plans` for a written plan, `/systematic-debugging` for a bug — **test-first in either
-case**, per `AGENTS.md`. Then `/da-verify` when you want the evidence rather than the assertion.
-
-**The gate is the point, and `/da-verify` is what switches it on.** An agent stops when work *looks*
-done; absent a check it can run, that is the only signal it has, and you become the verification loop.
-`/da-verify` arms the gate as its first step, and from then on the end of every turn runs this
-repository's own commands and refuses to finish while they are red.
-
-So there is no separate arming step in the normal flow. The two cases where you touch it directly:
+`/da-verify` arms the gate as its first step, so **there is no separate arming step in any use case
+above.** Once armed, the end of every turn runs this repository's checks and refuses to finish while they
+are red.
 
 ```bash
 scripts/gate.sh arm       # hold from the FIRST turn, before any verify has run
 scripts/gate.sh disarm    # back to question-answering; no suite on the way out
 ```
 
-> **Do not treat this as an unattended-overnight lock.** Arming early raises the odds that a session you
-> are not watching finishes green, and that is all. Three limits, none of which the gate can fix:
-> **Claude Code releases a Stop hook after 8 consecutive blocks**, so a genuinely stuck run gets let
-> through and finishes red. **On Cursor it cannot block at all** — it injects a follow-up message and
-> stops doing even that at the third one, so the run can be walked past. And a hook that keeps refusing
-> is not progress; if the same check fails twice the right move is to discard the session, which is the
-> opposite of holding it open.
->
-> For work that genuinely runs while you sleep, the durable parts are the ones that survive the session:
-> the spec on disk, the checks in CI, and commits as recovery points. The gate is a guardrail inside one
-> session, not a supervisor across many.
-
-### 3 — After writing code
-
-```
-/da-review-all        the review entry point — every layer, plus the risks between them
-/code-review          a second opinion, differently built (bundled)
-/da-fix-plan          the findings, triaged into an ordered plan — decides what NOT to fix
-/da-pr-describe       a PR description a reviewer can read before opening the diff
-```
-
-**One review entry, three layers of depth behind it.** `/da-review-all` classifies the change and
-dispatches to `da-review-backend`, `da-review-frontend` and `da-review-infra` — full skills with their own
-posture, process and perspective clusters, kept out of the `/` menu so there is one thing to type instead
-of four. Naming a layer still reaches it directly: *"review the backend"* fires `da-review-backend`
-without going through classification.
-
-The dispatcher then does the part no layer can: a contract change and its consumer shipping out of order,
-config read live at startup meeting code that has not deployed, a shared default whose correctness depends
-on compensating work in a **different** layer, and — for agent-authored change — a boundary where both
-sides were written together and agree with each other while being wrong about the outside world.
-
-All four share one posture — *"clean" is a conclusion earned with evidence, not a default* — and one
-finding discipline, so a layer review and a cross-layer review calibrate severity the same way.
-
-**Run a second reviewer, and make it a different one.** Four AI reviewers over the same 146 pull requests
-caught **93.4% of findings with exactly one of the four, and none with all four** — diversity of approach
-beats quality of any single reviewer. That is why the bundled `/code-review` and Sentry's `/find-bugs` are
-kept rather than suppressed even though this repository ships its own review machinery.
-
-**Each review runs an adversarial pass** before it reports. Findings at the two highest severities go to
-three `da-review-verifier` subagents with different lenses — is this reachable, is it already guarded
-elsewhere, is the severity right — and two must fail to refute for the finding to survive. A verifier
-that cannot substantiate a claim returns `refuted`, not `uncertain`, which is the opposite of the
-default instinct and the reason the reports stay short.
-
-The full "say this / when" table is [below](#everything-installed-and-when-to-say-it), including the
-built-ins worth knowing: **`/review`** takes a GitHub PR, **`/code-review`** your working diff,
-**`/security-review`** is security-only, and **`/simplify`** is quality only and explicitly not a bug
-hunt. `/find-bugs` and `/da-review-all` both claim "review changes", so a bare "review this" may pick
-either — naming it removes the coin flip.
-
-### 4 — Periodically
-
-```
-/skill-doctor      which loaded skills are unused and costing context  (bundled)
-/doctor            the listing's real context cost, and its biggest contributors  (bundled)
-/da-skills-audit   over-constraint, overlapping triggers, Cursor incompatibility, size
-/skill-scanner     security-scan a newly installed third-party skill before trusting it
-```
-
-**Run `/skill-doctor` before `/da-skills-audit`.** The audit reads files, and files are a minority of the
-surface — see the count below. Neither of them measures whether a skill *helps*; that is
-`anthropic-skills:skill-creator`, which runs paired with-skill / without-skill benchmarks and is already
-installed.
-
-### Two habits worth more than any of the above
-
-**`/clear` between unrelated tasks.** A session carrying the last task's context makes worse decisions
-about this one.
-
-**When the same check fails twice, stop patching.** Write down what you tried, clear, and restart with
-that folded in. Repeated correction accumulates failed approaches and each attempt gets worse. The
-gate escalates its own message on the second failure for exactly this reason.
-
----
+> **Not an unattended-overnight lock.** Arming early raises the odds that a session you are not watching
+> ends green, and that is all. **Claude Code releases a Stop hook after 8 consecutive blocks**, so a
+> genuinely stuck run gets let through; **on Cursor it cannot block at all**, only nudge, and it stops
+> nudging at the third message; and a hook that keeps refusing is not progress — two failed corrections
+> means discard the session, the opposite of holding it open. What survives across sessions is the spec
+> on disk, the checks in CI, and commits as recovery points.
 
 ## What is in here
 
-**Ten skills are written here**; the other seventeen are installed from upstream, because methodology is
+**Ten skills are written here**; the other eleven are installed from upstream, because methodology is
 better maintained by people who work on it full time. Ours are the ones that encode an opinion —
 what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
-work is called done. They are marked **●** in the table below.
+work is called done. They are marked **●** throughout.
 
 Plus two subagents in `agents/`, installed globally so they exist in every repository:
 **`da-review-verifier`** (adversarial, refutes by default, never took part in finding) and
@@ -208,7 +137,7 @@ dispatch to them by name. Before they existed, five files said "prefer a purpose
 repository defines one" — and since this toolkit never adds a file to a product repository, that branch
 could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
 
-## Everything installed, and when to say it
+## The whole surface, and what is suppressed
 
 **Type `/da` and you have exactly this repository's set.** Everything shipped here is prefixed `da-`
 (for dotagents) — ten skills and two subagents. That solves two problems at once: at the `/` menu
@@ -217,64 +146,17 @@ silently, which already happened once when a skill called `review` hid Claude Co
 
 ### How big the surface actually is
 
-**78 names are reachable, not 27.** This matters because the budget they share is 1% of the context
+**72 names are reachable, not 21.** This matters because the budget they share is 1% of the context
 window, and because two earlier audits of this repository were wrong by reading the filesystem:
 
 | Source | Names | Where |
 |---|---|---|
-| On disk | 27 | `~/.agents/skills/` — 10 ours, 17 upstream |
+| On disk | 21 | `~/.agents/skills/` — 10 ours, 11 upstream |
 | Anthropic-managed plugin | 11 | under `~/Library/Application Support/Claude/…`, server-synced |
 | **Compiled into the CLI binary** | **40** | **no files exist** — they live inside the executable |
 
 So a count from `~/.agents/skills` is not the total. `/doctor` and `/skill-doctor` see all of it.
-Six names are suppressed via `skillOverrides` — see [Suppressed](#suppressed-and-why-not-more) below.
-
-### The table
-
-The development loop, in order. **●** marks ours; everything else is upstream or built in.
-
-| Say this | When | |
-|---|---|---|
-| **1. Before you know what to build** | | |
-| `/grill-me` | You have a rough idea and want it interrogated until the requirement is actually pinned down | |
-| `/brainstorming` | Exploring intent and options before any creative work | |
-| `/da-investigate` | "Where does X live", "what depends on this", "what would this change touch" — answered with `file:line` under a budget | ● |
-| **2. Before you write code** | | |
-| `/writing-plans` | You have a spec and want a plan on disk before touching code | |
-| `/da-design-review` | A plan or design doc is ready. Catches what code review cannot fix later — one-way doors, migration order, rollback | ● |
-| `/executing-plans` | You have a written plan and want it executed with review checkpoints | |
-| `/using-git-worktrees` | The work needs isolation from your current workspace | |
-| **3. While writing code** | | |
-| `/test-driven-development` | Implementing any feature or bugfix, before the implementation | |
-| `/systematic-debugging` | A bug, a test failure, or behaviour you cannot explain — before proposing a fix | |
-| `/da-verify` | You want evidence rather than an assertion. Runs *this repository's* configured checks, and **arms the Stop gate** | ● |
-| `/verification-before-completion` | About to claim something is done, in a repository with no profile for `/da-verify` | |
-| `/resolving-merge-conflicts` | A merge or rebase conflict is in progress | |
-| `/verify` | Drive the change end-to-end as a user would, not just tests and typecheck (bundled) | |
-| `/run` | Start the app and look at it (bundled) | |
-| **4. After writing code — review is an escalation, not a ritual** | | |
-| `/da-review-all` | **The review entry point.** Classifies the change, dispatches to the layers that apply, then finds what falls *between* them | ● |
-| `/code-review` | **Your second reviewer.** Differently built, so it finds different things (bundled) | |
-| `/find-bugs` | A third: enumerates the attack surface first, then sweeps the branch diff | |
-| `/simplify` | Quality only — reuse, simplification, altitude. Explicitly *not* a bug hunt (bundled) | |
-| `/security-review` | Security specifically, over the pending branch changes (bundled) | |
-| `/review` | A GitHub pull request rather than your working diff (bundled) | |
-| `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning | |
-| `/receiving-code-review` | Feedback arrived and you want to evaluate it rather than implement it reflexively | |
-| `/da-fix-plan` | More findings than you want to act on. **Decides what not to fix**, orders the rest by irreversibility, writes the plan to disk | ● |
-| `/da-pr-describe` | The PR needs a description a reviewer can read before opening the diff. **Type it — it never fires on its own** | ● |
-| `/finishing-a-development-branch` | Implementation is done and you need to decide how to integrate | |
-| `/handoff` | Compact this conversation so another agent can pick it up | |
-| **5. Periodically** | | |
-| `/skill-doctor` | Which loaded skills are unused and costing context. **Run this first** (bundled) | |
-| `/doctor` | The listing's real context cost and its biggest contributors (bundled) | |
-| `/da-skills-audit` | Over-constraint, overlapping triggers, Cursor incompatibility, size | ● |
-| `/skill-scanner` | Before trusting a newly installed third-party skill. Security, not bloat | |
-| `anthropic-skills:skill-creator` | Whether a skill *helps*: with-skill versus without-skill pass rate, tokens, time | |
-
-**`da-review-backend` / `-frontend` / `-infra` are deliberately absent from this table** — they carry
-`user-invocable: false`, so `/da-review-all` reaches them and so does naming a layer ("review the
-backend"), but they are not in the `/` menu. One thing to type, three layers of depth behind it.
+Eight names are suppressed via `skillOverrides` — see [Suppressed](#suppressed-and-why-not-more) below.
 
 ### Where triggers still overlap, and who wins
 
@@ -282,14 +164,14 @@ backend"), but they are not in the `/` menu. One thing to type, three layers of 
 |---|---|---|
 | "review this" | `/da-review-all` — or `/find-bugs`; a bare phrasing may pick either | `/code-review` |
 | "is this secure" | `/find-bugs` (bugs + security + quality) | `/security-review` |
-| "am I done" | `/da-verify` if the repo has a profile | `/verification-before-completion` where it does not |
+| "am I done" | `/da-verify`. Without a profile it **stops and hands you one to fill in** — there is no fallback skill any more, and no gate until you save it |
 | "clean this up" | `/simplify` — quality only, by design | — |
 | "run it every day" | bundled `/schedule` | `/loop` for a single repeating check |
 
 ### Suppressed, and why not more
 
 Six names are set to `name-only` or `off` in `skillOverrides`, merged by `setup.sh` and reverted exactly
-by `uninstall`: `verification-before-completion` and `claude-api` (both auto-fire on triggers this
+by `uninstall`: `claude-api` (auto-fires on triggers this
 repository hits constantly), `anthropic-skills:schedule` (**two live skills are named `schedule`**), the
 office-file set `docx`/`pptx`/`xlsx`/`pdf` (long descriptions, no dev-loop use), and `morning`/`setup-cowork`.
 
@@ -327,7 +209,7 @@ by symlink, so a change to the discipline reaches every layer and the cross-laye
 Practically: **type `/` and everything is in one list.** Nothing here is invoked a second, different
 way.
 
-### Where the upstream sixteen come from
+### Where the upstream eleven come from
 
 Chosen from collections that are widely used and actively maintained, and **installed selectively** —
 never a whole repository, because every description shares one budget. Only what a flow above actually
@@ -335,8 +217,8 @@ reaches.
 
 | Source | Installed from it | Why this collection |
 |---|---|---|
-| **[obra/superpowers](https://github.com/obra/superpowers)** — 10 | `brainstorming` · `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `verification-before-completion` · `requesting-code-review` · `receiving-code-review` · `using-git-worktrees` · `finishing-a-development-branch` | The methodology backbone: plan → implement → verify, plus the debugging discipline. Multi-harness, `AGENTS.md` and tests of its own. This is where the *process* comes from |
-| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 3 | `grill-me` · `handoff` · `resolving-merge-conflicts` | Sharp, single-purpose tools. `grill-me` is the interrogation that starts the design flow; `handoff` compacts a session for the next one. Both cost zero budget (`disable-model-invocation`) |
+| **[obra/superpowers](https://github.com/obra/superpowers)** — 6 | `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `receiving-code-review` · `using-git-worktrees` | The methodology backbone: plan → implement → verify, plus the debugging discipline. Multi-harness, `AGENTS.md` and tests of its own. This is where the *process* comes from |
+| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2 | `grill-me` · `research` | Sharp, single-purpose tools. `grill-me` is the interrogation that turns an option into a settled requirement, and it costs zero budget (`disable-model-invocation`); `research` is the external survey the design flow starts from |
 | **[getsentry/skills](https://github.com/getsentry/skills)** — 2 | `find-bugs` · `skill-scanner` | From a company whose product is finding production failures. `find-bugs` enumerates the attack surface before it sweeps — a different shape from our layered review, which is exactly why it is the second reviewer. `skill-scanner` found a real defect in this repository's own frontmatter |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1 | `documentation-and-adrs` | Just the ADR practice. The other four from this collection were removed as off-loop; this one was removed too and **reinstated**, because writing the ADR is where the design flow starts |
 
@@ -433,9 +315,9 @@ Both agents are first class, but the surfaces are **not** the same size, and the
 
 | | Claude Code | Cursor |
 |---|---|---|
-| From `~/.agents/skills` | 27, **minus the 3 layer reviews** hidden by `user-invocable: false` | **all 27** — Cursor ignores that field, so the layer reviews appear in its menu |
+| From `~/.agents/skills` | 21, **minus the 3 layer reviews** hidden by `user-invocable: false` | **all 21** — Cursor ignores that field, so the layer reviews appear in its menu |
 | Built-in | ~40 compiled into the CLI | **19 of its own**: `review`, `review-bugbot`, `review-security`, `create-skill`, `create-rule`, `create-subagent`, `loop`, `automate`, `babysit`, `split-to-prs`, `onboard`, `shell`, `sdk`, `canvas`, `statusline`, `migrate-to-skills`, `create-hook`, `update-cli-config`, `update-cursor-settings` |
-| `skillOverrides` suppressions | 9 active | **0** — Cursor does not read `settings.json` |
+| `skillOverrides` suppressions | 8 active | **0** — Cursor does not read `settings.json` |
 
 Two consequences worth being blunt about:
 
@@ -445,10 +327,10 @@ layer directly in Cursor still works correctly — it is the same skill — so t
 behaviour, which is the line [ADR 0003](docs/adr/0003-cursor-compatible-subset.md) draws. It is
 nonetheless the largest remaining divergence, and it is **not fixed**.
 
-**The 9 suppressions do not apply there, and mostly do not need to.** Six of the nine target skills that
+**The 9 suppressions do not apply there, and mostly do not need to.** Six of the eight target skills that
 do not exist in Cursor at all — bundled and Anthropic-plugin ones — so there is nothing to suppress.
-`verification-before-completion` is the one that does exist in Cursor and stays un-suppressed there, so
-its trigger still competes with `/da-verify` on that side.
+All eight now target skills Cursor does not have, so after the latest pruning **there is nothing left
+that needed suppressing on that side.**
 
 **What is not known:** whether Cursor's 19 can be disabled, and where. Its own settings surface was not
 read, so nothing here claims to prune them. If they crowd the menu enough to matter, that is the next
@@ -494,13 +376,12 @@ whole repository costs the selection accuracy of everything else.
 ```bash
 # methodology — obra/superpowers
 npx skills add obra/superpowers -g -a claude-code -a cursor \
-  -s brainstorming -s writing-plans -s executing-plans -s verification-before-completion \
-  -s requesting-code-review -s receiving-code-review -s systematic-debugging \
-  -s test-driven-development -s using-git-worktrees -s finishing-a-development-branch
+  -s writing-plans -s executing-plans -s receiving-code-review \
+  -s systematic-debugging -s test-driven-development -s using-git-worktrees
 
 # practice — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s handoff -s resolving-merge-conflicts -s research
+  -s grill-me -s research
 
 # security — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
@@ -534,8 +415,22 @@ shared trigger vocabulary; these two scored highest and lost:
   all of that in context for the session.
 
 **Eleven more removed on 2026-07-28**, taking the set from 35 skills to 24 and resident descriptions
-from 6,905 to 3,559 characters. Every by-name reference was checked first — the reason `brainstorming`
-and `using-git-worktrees` stayed is that other kept skills dispatch to them.
+from 6,905 to 3,559 characters. Every by-name reference was checked first.
+
+**A third round, on 2026-07-29, took it to 21 — 10 ours and 11 upstream.** Six went because no use case
+above reaches them, which is the only test that matters now that the use cases are written down:
+
+| Removed | Why, and what it cost |
+|---|---|
+| `requesting-code-review` | Nothing referenced it and no use case reaches it. `/da-review-all` is how a review starts here |
+| `brainstorming` | Superseded by `/research` → `/grill-me`. Its own description (*"You MUST use this before any creative work"*) also made it fire ahead of both. **Cost:** a dangling name in upstream `writing-plans`, which cannot be edited without losing the fix on the next update |
+| `finishing-a-development-branch` | Integration decisions are made by hand. **Cost:** a dangling name in `executing-plans` |
+| `handoff` · `resolving-merge-conflicts` | Situational, and the situations were handled without them |
+| `verification-before-completion` | **This one has a real cost, taken deliberately.** It was the fallback when a repository has no profile, so `/da-verify` now *stops* there instead of degrading — and stopping is only acceptable because it was changed to hand back a filled-in profile from the repository's own manifests, and to say plainly that there is no gate until you save it. **Cost:** a dangling name in `systematic-debugging` |
+
+Three dangling names in upstream skills, all accepted for the same reason: editing an upstream file in
+place is lost on the next `npx skills update`, and a stale name costs less than keeping a skill no flow
+uses. Every one of the six was checked for inbound references and recorded usage before removal.
 
 | Removed | Why |
 |---|---|
