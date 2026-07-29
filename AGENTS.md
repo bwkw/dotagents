@@ -64,6 +64,17 @@ work. That is why they are here rather than in a document you would read once.
    rewrites a value it did not write — the agent settings it edits contain other people's
    credentials.
 
+## How implementation is done
+
+**Test first, always.** A failing test before the code that makes it pass — not tests written afterwards
+to describe what was built. This is the default for every feature and every bugfix, not a mode to be
+asked for. `/test-driven-development` has the detailed process; this line is here because the default has
+to hold when nobody invokes it.
+
+Two consequences worth stating: a bugfix starts with a test that reproduces the bug, so "fixed" has a
+meaning; and **a test written after the implementation, from the implementation, tests that the code does
+what it does.** If tests were added last, say so rather than presenting them as verification.
+
 ## Sizes that bite
 
 `SKILL.md` at or under 12 KB. A skill's body stays in context until the session ends and is never

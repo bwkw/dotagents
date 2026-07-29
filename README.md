@@ -41,27 +41,41 @@ abort conditions, and the parts the good sources disagree about. The three rules
 ### Six flows, not one pipeline
 
 Real work does not arrive as one linear loop. Pick the flow, then read only that row.
+**●** is from this repository, **○** upstream, **◆** built into Claude Code.
 
 | Flow | In order |
 |---|---|
-| **Settle a design** — write the ADR, pin the spec, know the blast radius | `/grill-me` → `/da-investigate` (what this would touch) → `/documentation-and-adrs` or `/writing-plans` → **`/da-design-review`** |
-| **Implement** | `gate.sh arm` → `/executing-plans` · `/test-driven-development` → **`/da-verify`** → `gate.sh disarm` |
-| **Review your own work and iterate** | **`/da-review-all`** → a second reviewer (`/code-review` or `/find-bugs`) → **`/da-fix-plan`** → fix → `/da-verify` → `/da-pr-describe` |
-| **Review someone else's** | `/review <PR>` for the GitHub view, or `/da-review-all <base>` for depth → **`/da-fix-plan`** if you are the one collecting the comments |
-| **Investigate an error** | **`/systematic-debugging`** (it owns root-cause first, and refuses to skip to a fix) → `/da-investigate` when you need the blast radius of the suspect code |
-| **Fix the error** | `/systematic-debugging` Phase 4 carries straight through → **`/da-verify`** for the evidence |
+| **Settle a design** — the ADR, the spec, the blast radius | ○ `/grill-me` → ● `/da-investigate` (what this would touch) → ○ `/documentation-and-adrs` or ○ `/writing-plans` → **● `/da-design-review`** |
+| **Implement** | ○ `/executing-plans` if there is a plan — **test-first either way** → **● `/da-verify`** |
+| **Review your own work and iterate** | **● `/da-review-all`** → a second reviewer: ◆ `/code-review` or ○ `/find-bugs` → **● `/da-fix-plan`** → fix → ● `/da-verify` → ● `/da-pr-describe` |
+| **Review someone else's** | ◆ `/review <PR>` for the GitHub view, or ● `/da-review-all <base>` for depth → ● `/da-fix-plan` if you are collecting the comments |
+| **Investigate an error** | **○ `/systematic-debugging`** — root cause before fix, and it refuses to skip → ● `/da-investigate` for the blast radius once you have a suspect |
+| **Fix the error** | ○ `/systematic-debugging` carries through its own Phase 4 → **● `/da-verify`** for the evidence |
 
-Two things about that table are worth stating rather than leaving implicit:
+Four things about that table, all of which used to be implicit:
 
-**Reviewing someone else's work is a different posture, and the toolkit now knows that.** You do not know
-the intent, so the first pass reconstructs it from the PR description, the issue, the commits and any
-referenced spec — and **states it back before producing a single finding**. A difference in approach is
-not a defect; pre-existing problems are labelled as such and do not block. Getting this wrong produces
-confident findings measured against a goal you invented.
+**Not everything is `da-`, on purpose.** The prefix marks what this repository *owns and may rewrite*.
+Upstream skills keep their own names because editing one in place is lost on the next
+`npx skills update` — a `da-` wrapper around `/grill-me` would be a second file that drifts, which is the
+failure this toolkit exists to avoid. `/da` narrows the menu to what is ours; the flows deliberately reach
+past it.
 
-**Error investigation is not a review.** `/systematic-debugging` has an iron law about root cause before
-fix, and reaching for a review skill on a bug is how you get a list of nearby imperfections instead of the
-cause. Use `/da-investigate` only for the blast radius once you have a suspect.
+**Test-first is the base, not a step.** It is a standing rule in `AGENTS.md` rather than a skill you must
+remember, because a default that needs invoking is not a default. `/test-driven-development` holds the
+detailed process when you want it. A bugfix starts with a test that reproduces the bug, and tests written
+*after* the implementation get labelled as such rather than presented as verification.
+
+**`gate.sh arm` is gone from the implement flow, because `/da-verify` arms the gate itself** — its Step 0
+does exactly that. Running `/da-verify` once, typed or auto-fired, makes the end-of-turn gate active for
+the rest of the session. Reach for `arm` directly only in the case verify cannot cover: arming *before*
+any verify has run, for an unattended session you want held from the first turn. `disarm` when the
+repository goes back to answering questions and you do not want a suite on the way out.
+
+**Reviewing someone else's work is a different posture.** You do not know the intent, so the first pass
+reconstructs it from the description, the issue, the commits and any referenced spec, and **states it back
+before producing a single finding**. A difference in approach is not a defect; pre-existing problems are
+labelled and do not block. And **error investigation is not review** — pointing a review skill at a bug
+returns a list of nearby imperfections instead of the cause.
 
 ### 1 — Before there is code
 
@@ -87,19 +101,19 @@ that matters — and names what it did not check.
 
 ### 2 — While writing code
 
+Work: `/executing-plans` for a written plan, `/systematic-debugging` for a bug — **test-first in either
+case**, per `AGENTS.md`. Then `/da-verify` when you want the evidence rather than the assertion.
+
+**The gate is the point, and `/da-verify` is what switches it on.** An agent stops when work *looks*
+done; absent a check it can run, that is the only signal it has, and you become the verification loop.
+`/da-verify` arms the gate as its first step, and from then on the end of every turn runs this
+repository's own commands and refuses to finish while they are red.
+
+So there is no separate arming step in the normal flow. The two cases where you touch it directly:
+
 ```bash
-~/private/dotagents/scripts/gate.sh arm    # hold this repo until its checks pass
-```
-
-Then work — `/executing-plans`, `/tdd`, `/systematic-debugging` from upstream. Run `/da-verify` when you
-want the evidence rather than the assertion.
-
-**The gate is the point.** An agent stops when work *looks* done; absent a check it can run, that is
-the only signal it has, and you become the verification loop. The gate runs your repository's own
-commands at the end of a turn and refuses to finish while they are red.
-
-```bash
-scripts/gate.sh disarm                     # once everything is green
+scripts/gate.sh arm       # hold from the FIRST turn -- an unattended run, before any verify
+scripts/gate.sh disarm    # back to question-answering; no suite on the way out
 ```
 
 ### 3 — After writing code
