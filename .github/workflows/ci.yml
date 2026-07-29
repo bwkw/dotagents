@@ -28,8 +28,13 @@ jobs:
       - name: Report the shell actually in use
         run: bash --version | head -1
 
-      # Syntax, the bash-3.2 sweep, the skills lint and all 93 behavioural assertions. One script so
-      # that what CI runs and what you run locally cannot drift apart.
+      # Syntax, the bash-3.2 sweep, the skills lint and every behavioural suite, through the one
+      # script you run locally -- so this job cannot drift from `./scripts/check.sh`.
+      #
+      # The `content` job below is CI-only, and saying so matters: it holds the authoritative YAML
+      # parse and the profile schema validation, both of which need Python packages. Those are NOT
+      # available offline and gate nothing locally. The claim used to be that local and CI could not
+      # drift apart at all, which was false in seven steps' worth of ways.
       - name: All checks
         run: |
           node --check scripts/lib/merge-settings.mjs

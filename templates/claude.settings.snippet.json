@@ -9,8 +9,10 @@
   },
 
   "$comment-skillOverrides": [
-    "Claude Code ships ~40 skills compiled into its own binary, and an Anthropic-managed plugin adds",
-    "~11 more. None of those exist on disk, so 75 names are reachable -- not the 24 in ~/.agents/skills.",
+    "Claude Code ships a large set of skills compiled into its own binary, and an Anthropic-managed",
+    "plugin adds more. None of those exist on disk, so far more names are reachable than the count in",
+    "~/.agents/skills. No figures here on purpose: this comment said 24/75, the README said 21/72, and",
+    "the real number was 23. /doctor and /skill-doctor see the actual set.",
     "These entries either collide with something here on nearly identical triggers, or spend listing",
     "budget on work outside the development loop.",
     "",
