@@ -71,6 +71,29 @@ grep -q '\$HOME' "$FAKE/.claude/settings.json" \
   && no "a hook command still contains an unexpanded \$HOME" \
   || ok "hook commands are absolute"
 
+# The Stop hook must carry an explicit timeout. Left to the harness default, a slow suite gets the
+# hook killed -- and a killed hook exits with neither 0 nor 2, which is non-blocking. That is the gate
+# turning into a silent pass, the one failure it exists to prevent. It also has to be larger than the
+# gate's own budget, so our clock is the one that fires and the timeout is an event we can record.
+hook_timeout() { # <event> <substring>
+  node -e '
+    const s = require(process.argv[1]);
+    let found = "absent";
+    for (const slot of (s.hooks?.[process.argv[2]] ?? []))
+      for (const h of (slot.hooks ?? []))
+        if (found === "absent" && (h.command ?? "").includes(process.argv[3]))
+          found = h.timeout ?? "absent";
+    console.log(found);
+  ' "$FAKE/.claude/settings.json" "$1" "$2"
+}
+st="$(hook_timeout Stop dotagents-verify-gate)"
+[[ "$st" != "absent" ]] && (( st > 300 )) \
+  && ok "the Stop hook declares a timeout above the gate's own budget (${st}s)" \
+  || no "the Stop hook timeout is $st -- a harness kill is non-blocking, so this fails open"
+[[ "$(hook_timeout PreToolUse dotagents-lint-skill-frontmatter)" != "absent" ]] \
+  && ok "the lint hook declares a timeout too" \
+  || no "the lint hook has no timeout"
+
 # install twice must change nothing further.
 cp "$FAKE/.claude/settings.json" "$TMP/after1"
 run_setup install >/dev/null

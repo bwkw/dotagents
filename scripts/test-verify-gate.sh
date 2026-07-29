@@ -410,6 +410,67 @@ JSON
 check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
+echo "verify-gate — the gate owns its own clock"
+echo
+
+# The most severe fail-open there was. Neither settings snippet declared a hook `timeout`, and nothing
+# bounded `eval "$cmd"`. A hook killed by the harness's own timeout exits with neither 0 nor 2, which
+# is non-blocking -- so a slow suite turned the gate into a silent no-op. And dresscode-frontend.json
+# runs `pnpm run typecheck` and the full test suite at every single turn end.
+#
+# A timeout is a malfunction of the gate, not a finding about the code, so it blocks and is recorded
+# as its own reason. It also counts toward the bound: otherwise a genuinely hanging check would block
+# forever, which is the thing being fixed.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "max_attempts": 1,
+  "checks": [ { "id": "hangs", "cmd": "sleep 30", "gate": true, "agent_may_run": true, "timeout": 1 } ] }
+JSON
+check "a check that outruns its timeout -> blocks, not passes" 2 "$(invoke)"
+grep -qi 'timed out' "$TMP/stderr" \
+  && ok "   says it timed out rather than reporting a failed check" \
+  || no "   does not mention the timeout: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+verdict="$(find "$GATE" -name VERDICT | head -1)"
+[[ -n "$verdict" && "$(sed -n 2p "$verdict")" == "timeout" ]] \
+  && ok "   recorded as 'timeout', not as 'red' -- it says nothing about the code" \
+  || no "   wrong verdict reason: $(sed -n 2p "${verdict:-/dev/null}")"
+
+# A fast check must be unaffected. A watchdog that changed the normal path would be worse than none.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "quick", "cmd": "true", "gate": true, "agent_may_run": true, "timeout": 30 } ] }
+JSON
+check "a check inside its timeout -> still passes" 0 "$(invoke)"
+
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "slow-but-fine", "cmd": "sleep 1; echo done", "gate": true,
+                "agent_may_run": true, "timeout": 30 } ] }
+JSON
+check "a check that takes a second but succeeds -> passes" 0 "$(invoke)"
+
+# N checks x per-check timeout can exceed the harness ceiling, and exceeding THAT is the one failure
+# we cannot observe. So the gate stops starting checks once its own total budget is gone -- and an
+# unrun gating check is not a pass.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "timeout_total": 1,
+  "checks": [ { "id": "first",  "cmd": "sleep 2", "gate": true, "agent_may_run": true, "timeout": 30 },
+              { "id": "second", "cmd": "true",    "gate": true, "agent_may_run": true, "timeout": 30 } ] }
+JSON
+check "the total budget running out -> blocks rather than reporting green" 2 "$(invoke)"
+grep -qi 'not run' "$TMP/stderr" \
+  && ok "   names what it never got to run" \
+  || no "   silent about the checks it skipped: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+grep -q 'second' "$TMP/stderr" \
+  && ok "   ...by check id" \
+  || no "   did not name the unrun check by id"
+
+echo
 echo "verify-gate — blocking is bounded, and giving up is recorded"
 echo
 

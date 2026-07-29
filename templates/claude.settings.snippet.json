@@ -36,6 +36,19 @@
     "setup-cowork": "off"
   },
 
+  "$comment-timeouts": [
+    "The timeouts are declared, not left to the harness default, because a hook killed by the",
+    "harness exits with neither 0 nor 2 -- and that is non-blocking. A slow suite would turn the",
+    "gate into a silent pass, which is the one failure mode the gate exists to prevent.",
+    "",
+    "420 is the gate's own budget with room to spare: timeout_total defaults to 300s and a single",
+    "check to 120s, and the gate checks its budget before starting a check rather than cutting one",
+    "short, so the total can overshoot by one check. Our clock has to be the one that fires, because",
+    "a timeout we cause is an event we can observe, record and block on. Raising timeout_total in a",
+    "profile above 300 means raising this too.",
+    "",
+    "The lint hook only reads frontmatter through node, so 15s is already far more than it needs."
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -43,7 +56,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/dotagents-lint-skill-frontmatter.sh"
+            "command": "$HOME/.claude/hooks/dotagents-lint-skill-frontmatter.sh",
+            "timeout": 15
           }
         ]
       }
@@ -54,7 +68,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/dotagents-verify-gate.sh"
+            "command": "$HOME/.claude/hooks/dotagents-verify-gate.sh",
+            "timeout": 420
           }
         ]
       }
