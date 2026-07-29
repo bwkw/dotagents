@@ -10,6 +10,30 @@ and it is mandatory for every subagent you launch.
 
 ## Step 1. Establish scope
 
+**First: whose change is this?** It decides what you may assume, and getting it wrong is the most common
+way a review lands badly.
+
+| | Your own work | **Someone else's** |
+|---|---|---|
+| The intent | Known — the spec, the plan, the conversation | **Unknown. Reconstruct it before judging anything.** |
+| A different approach than you would take | A design doubt worth raising | **Not a finding.** See below. |
+| "This is missing" | Probably missing | **Possibly elsewhere, or deliberate.** Look before saying it. |
+
+When it is someone else's, spend the first pass on **intent, not defects**:
+
+1. Read the PR description, the linked issue, the commit messages, and any spec or ADR the branch
+   references. State back what you believe the change is for **before** producing a single finding.
+2. If the intent is genuinely unavailable — no description, no issue, no spec — say so in the report and
+   review against the **repository's own conventions** instead. Do not invent a goal and then measure the
+   change against it; a review built on a guessed intent produces confident, wrong findings.
+3. **A difference in approach is not a defect.** "I would have done this with a value object" is a 🧭 at
+   most, and only when you can name a concrete cost. The author had context you do not; the review's job
+   is to find what is *wrong*, not what is *unfamiliar*.
+4. Separate **pre-existing** problems from **introduced** ones, and label them. A defect the diff merely
+   moved past is worth mentioning once, marked as pre-existing, and it does not block the change.
+
+Then the mechanics:
+
 1. `$ARGUMENTS`: empty means the working diff; a branch means the diff against it; a path means an
    audit of that path; `all` means the whole repository.
 

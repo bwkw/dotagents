@@ -33,6 +33,25 @@ cd ~/private/dotagents
 - **計画と実装の間で `/clear` して新セッション。** その時点で計画はディスクにある。
 - **同じ問題で2回修正に失敗したらセッションを捨てる。** 学んだことを織り込んで prompt を書き直す。失敗したアプローチを抱えた長いセッションより、良い prompt の綺麗なセッションが勝つ。
 
+### 1本のパイプラインではなく、6つのフロー
+
+実際の作業は1本の線形ループでは来ません。**フローを選んで、その行だけ読んでください。**
+
+| フロー | 順番 |
+|---|---|
+| **設計を固める** —— ADR を書く、spec を固める、影響範囲を掴む | `/grill-me` → `/da-investigate`（何に触るか） → `/documentation-and-adrs` か `/writing-plans` → **`/da-design-review`** |
+| **実装する** | `gate.sh arm` → `/executing-plans`・`/test-driven-development` → **`/da-verify`** → `gate.sh disarm` |
+| **自分の実装を批判的にレビューして改善を回す** | **`/da-review-all`** → 2本目（`/code-review` か `/find-bugs`） → **`/da-fix-plan`** → 修正 → `/da-verify` → `/da-pr-describe` |
+| **他人のものをレビューする** | GitHub の見え方なら `/review <PR>`、深さが欲しければ `/da-review-all <base>` → 指摘を取りまとめる側なら **`/da-fix-plan`** |
+| **エラーを調査する** | **`/systematic-debugging`**（root cause を先に固め、修正への飛躍を拒否する） → 疑わしい箇所の影響範囲が必要になったら `/da-investigate` |
+| **エラーを修正する** | `/systematic-debugging` の Phase 4 がそのまま繋がる → 証拠のために **`/da-verify`** |
+
+この表について、暗黙にせず書いておくべきことが2つあります。
+
+**他人のものをレビューするのは別の姿勢であり、ツールキットもそれを知っている状態にしました。** 意図が分からないので、最初のパスは PR 説明・issue・コミット・参照されている spec から**意図を再構成し、所見を1つも出す前に言い直します**。**アプローチの違いは欠陥ではありません**。既存の問題は「既存」とラベルし、変更をブロックしません。ここを外すと、**自分が捏造したゴールに対して自信を持った所見**が出ます。
+
+**エラー調査はレビューではありません。** `/systematic-debugging` には「修正より先に root cause」という鉄則があり、バグにレビュースキルを当てると**原因ではなく近所の不完全さの一覧**が出てきます。`/da-investigate` は疑わしい箇所が決まってから影響範囲を見るためだけに使ってください。
+
 ### 1 — コードが存在しない段階
 
 **高価な判断はここで決まり、コードレビューでは取り消せません。**
@@ -104,21 +123,21 @@ scripts/gate.sh disarm                     # 全部緑になったら
 
 ## 何が入っているか
 
-**自作は10スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
+**自作は10スキル**、残り16本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`da-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`da-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
 
 ## 何が入っていて、何と言えばいいか
 
-**`/da` と打てば、このリポジトリのものだけが出ます。** ここで配っているものは全て `da-`（dotagents）を前置しています —— スキル9本とサブエージェント2本。これで2つの問題が同時に解けます: `/` メニューでは自作と第三者製20数本を見分ける手段が他に無いこと、そして**前置なしの名前は組み込みを無言で隠す**こと（`review` という名前のスキルが Claude Code の `/review` を隠す事故が実際に起きました）。
+**`/da` と打てば、このリポジトリのものだけが出ます。** ここで配っているものは全て `da-`（dotagents）を前置しています —— スキル10本とサブエージェント2本。これで2つの問題が同時に解けます: `/` メニューでは自作と第三者製20数本を見分ける手段が他に無いこと、そして**前置なしの名前は組み込みを無言で隠す**こと（`review` という名前のスキルが Claude Code の `/review` を隠す事故が実際に起きました）。
 
 ### 面の実際の大きさ
 
-**到達可能な名前は 24 ではなく 75。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
+**到達可能な名前は 26 ではなく 77。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
 
 | 出所 | 数 | 場所 |
 |---|---|---|
-| ディスク上 | 24 | `~/.agents/skills/` —— 自作9、上流15 |
+| ディスク上 | 26 | `~/.agents/skills/` —— 自作10、上流16 |
 | Anthropic 管理プラグイン | 11 | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
 | **CLI バイナリにコンパイル済み** | **40** | **ファイルとして存在しない** —— 実行ファイルの中 |
 
@@ -270,6 +289,10 @@ npx skills add mattpocock/skills -g -a claude-code -a cursor \
 # セキュリティ — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
+
+# 決定の記録 — addyosmani/agent-skills
+npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
+  -s documentation-and-adrs
 ```
 
 同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
@@ -291,7 +314,8 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 |---|---|
 | `find-skills` | `npx skills add` を **`-s` 無し**で教えていた。このリポジトリが不変条件で禁じている内容 |
 | `using-superpowers` | 「明確化の質問を含むあらゆる応答の前にスキル起動」を強制。**`/da-investigate` と `/da-design-review` の前提条件と矛盾**（両方とも目的が言われていない依頼を拒否する） |
-| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | 専門的な助言スキル。開発ループの外 |
+| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | 専門的な助言スキル。開発ループの外 |
+| ~~`documentation-and-adrs`~~ | **削除して、戻した。** 「専門的な助言」として切ったが、**ADR を書くことが設計フローの最初の一歩**だと知らなかった —— このリポジトリ自体に7本ある。ワークフロー自体ではなく推測から下した誤判断 |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | 相互参照する3本セット。参照切れが出ないようまとめて削除 |
 | `research`, `dispatching-parallel-agents` | ハーネスが WebFetch と並列エージェントをネイティブに持つ |
 

@@ -38,6 +38,31 @@ abort conditions, and the parts the good sources disagree about. The three rules
 - **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what
   you learned. A clean session with a better prompt beats a long one carrying failed approaches.
 
+### Six flows, not one pipeline
+
+Real work does not arrive as one linear loop. Pick the flow, then read only that row.
+
+| Flow | In order |
+|---|---|
+| **Settle a design** — write the ADR, pin the spec, know the blast radius | `/grill-me` → `/da-investigate` (what this would touch) → `/documentation-and-adrs` or `/writing-plans` → **`/da-design-review`** |
+| **Implement** | `gate.sh arm` → `/executing-plans` · `/test-driven-development` → **`/da-verify`** → `gate.sh disarm` |
+| **Review your own work and iterate** | **`/da-review-all`** → a second reviewer (`/code-review` or `/find-bugs`) → **`/da-fix-plan`** → fix → `/da-verify` → `/da-pr-describe` |
+| **Review someone else's** | `/review <PR>` for the GitHub view, or `/da-review-all <base>` for depth → **`/da-fix-plan`** if you are the one collecting the comments |
+| **Investigate an error** | **`/systematic-debugging`** (it owns root-cause first, and refuses to skip to a fix) → `/da-investigate` when you need the blast radius of the suspect code |
+| **Fix the error** | `/systematic-debugging` Phase 4 carries straight through → **`/da-verify`** for the evidence |
+
+Two things about that table are worth stating rather than leaving implicit:
+
+**Reviewing someone else's work is a different posture, and the toolkit now knows that.** You do not know
+the intent, so the first pass reconstructs it from the PR description, the issue, the commits and any
+referenced spec — and **states it back before producing a single finding**. A difference in approach is
+not a defect; pre-existing problems are labelled as such and do not block. Getting this wrong produces
+confident findings measured against a goal you invented.
+
+**Error investigation is not a review.** `/systematic-debugging` has an iron law about root cause before
+fix, and reaching for a review skill on a bug is how you get a list of nearby imperfections instead of the
+cause. Use `/da-investigate` only for the blast radius once you have a suspect.
+
 ### 1 — Before there is code
 
 The expensive decisions get made here, and code review cannot undo them.
@@ -144,7 +169,7 @@ gate escalates its own message on the second failure for exactly this reason.
 
 ## What is in here
 
-**Ten skills are written here**; the other fifteen are installed from upstream, because methodology is
+**Ten skills are written here**; the other sixteen are installed from upstream, because methodology is
 better maintained by people who work on it full time. Ours are the ones that encode an opinion —
 what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
 work is called done. They are marked **●** in the table below.
@@ -159,18 +184,18 @@ could never be taken. See [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-prunin
 ## Everything installed, and when to say it
 
 **Type `/da` and you have exactly this repository's set.** Everything shipped here is prefixed `da-`
-(for dotagents) — nine skills and two subagents. That solves two problems at once: at the `/` menu
+(for dotagents) — ten skills and two subagents. That solves two problems at once: at the `/` menu
 there is otherwise no way to tell ours from everything else, and an unprefixed name can shadow a built-in
 silently, which already happened once when a skill called `review` hid Claude Code's own `/review`.
 
 ### How big the surface actually is
 
-**75 names are reachable, not 24.** This matters because the budget they share is 1% of the context
+**77 names are reachable, not 26.** This matters because the budget they share is 1% of the context
 window, and because two earlier audits of this repository were wrong by reading the filesystem:
 
 | Source | Names | Where |
 |---|---|---|
-| On disk | 24 | `~/.agents/skills/` — 9 ours, 15 upstream |
+| On disk | 26 | `~/.agents/skills/` — 10 ours, 16 upstream |
 | Anthropic-managed plugin | 11 | under `~/Library/Application Support/Claude/…`, server-synced |
 | **Compiled into the CLI binary** | **40** | **no files exist** — they live inside the executable |
 
@@ -372,6 +397,10 @@ npx skills add mattpocock/skills -g -a claude-code -a cursor \
 # security — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
+
+# decision records — addyosmani/agent-skills
+npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
+  -s documentation-and-adrs
 ```
 
 Deliberately omitted, to avoid competing for the same triggers: `mattpocock/tdd` and
@@ -404,7 +433,8 @@ and `using-git-worktrees` stayed is that other kept skills dispatch to them.
 |---|---|
 | `find-skills` | Taught `npx skills add` **without `-s`**, which this repository has an invariant against |
 | `using-superpowers` | Requires skill invocation "before ANY response including clarifying questions", which contradicts `/da-investigate` and `/da-design-review` — both refuse an unstated goal |
-| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | Specialist advisory, off the development loop |
+| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | Specialist advisory, off the development loop |
+| ~~`documentation-and-adrs`~~ | **Removed, then reinstated.** Cut as "specialist advisory" without knowing that writing an ADR is the first step of the design flow — this repository has seven of them. The wrong call, made from a guess about the workflow rather than the workflow itself |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set; removed together so nothing dangles |
 | `research`, `dispatching-parallel-agents` | The harness provides WebFetch and parallel agents natively |
 
