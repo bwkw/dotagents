@@ -410,6 +410,122 @@ JSON
 check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
+echo "verify-gate — an idle gate is reclaimed"
+echo
+
+# Disarming was prose in da-verify/SKILL.md, so a session that ended without reaching step 6 left the
+# repository armed forever. The gate dir on the author's machine had exactly that: a sentinel from a
+# finished session, running five checks at every turn end for hours.
+#
+# Idle time, not time since arming. A TTL from arm would kill the thing being enabled -- a six-hour
+# unattended run would expire mid-flight and the gate would open in silence.
+NOW="$(date +%s)"
+LATER=$(( NOW + 13 * 3600 ))     # past the 12h default
+SOON=$(( NOW + 60 ))
+
+# The invariant that makes expiry structurally unable to fail open: no single invocation both expires
+# a sentinel and passes on the basis of that expiry. The only invocation that can expire gate G is one
+# that is not G's -- and that one was never the invocation G was protecting.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+ex_own="$(DOTAGENTS_GATE_NOW=$LATER invoke_at "$REPO")"
+check "the gate being enforced is never expired by its own invocation" 2 "$ex_own"
+[[ -f "$(gate_dir_for "$REPO")/ACTIVE" ]] \
+  && ok "   ...and its sentinel is still there afterwards" \
+  || no "   the invocation expired the very gate it was enforcing"
+
+# Enforcing it refreshes the heartbeat, which is what lets a long unattended run survive.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+DOTAGENTS_GATE_NOW=$SOON invoke_at "$REPO" >/dev/null
+hb="$(cat "$(gate_dir_for "$REPO")/HEARTBEAT" 2>/dev/null || echo 0)"
+[[ "$hb" == "$SOON" ]] \
+  && ok "a turn that ends green refreshes the heartbeat" \
+  || no "heartbeat not refreshed (wanted $SOON, got $hb)"
+
+# Another repository's turn end is the sweeper. It runs several times a minute across all sessions,
+# which is why no cron job is needed -- and a background process whose job is to un-arm guardrails
+# would be a fail-open machine that runs when nobody is watching.
+rm -rf "$GATE"; arm
+STRANGER="$TMP/stranger"; mkdir -p "$STRANGER"; git -C "$STRANGER" init -q
+git -C "$STRANGER" remote add origin git@github.com:example/stranger.git
+echo s > "$STRANGER/a.txt"; git -C "$STRANGER" add -A
+git -C "$STRANGER" -c user.email=t@t -c user.name=t commit -qm init
+armed_dir="$(gate_dir_for "$REPO")"
+check "a stranger's turn end passes (it was never gated)" 0 "$(DOTAGENTS_GATE_NOW=$LATER invoke_at "$STRANGER")"
+[[ ! -f "$armed_dir/ACTIVE" ]] \
+  && ok "   ...and reclaims the idle sentinel it found on the way" \
+  || no "   the idle sentinel survived a sweep"
+trace_has 'expired' \
+  && ok "   the eviction is traced" \
+  || no "   evicted without a trace line"
+[[ -s "$GATE/verdicts.log" ]] \
+  && ok "   and recorded in verdicts.log, which the trace trimmer does not touch" \
+  || no "   nothing written to verdicts.log"
+[[ -f "$armed_dir/ROOT" ]] \
+  && ok "   ROOT survives the eviction, so status can still say whose gate it was" \
+  || no "   ROOT is gone, so an expired gate is indistinguishable from a clean session"
+
+# A gate that has not been idle long enough must be left alone.
+rm -rf "$GATE"; arm
+armed_dir="$(gate_dir_for "$REPO")"
+DOTAGENTS_GATE_NOW=$SOON invoke_at "$STRANGER" >/dev/null
+[[ -f "$armed_dir/ACTIVE" ]] \
+  && ok "a gate inside its idle window is not reclaimed" \
+  || no "reclaimed a gate that was still fresh"
+
+# A sentinel written by an older gate.sh has no heartbeat at all. Treating that as infinitely idle
+# would evict a gate somebody armed a minute ago, so it is backfilled instead: the upgrade migrates
+# itself, with no command for anyone to remember to run.
+rm -rf "$GATE"; arm
+armed_dir="$(gate_dir_for "$REPO")"
+rm -f "$armed_dir/HEARTBEAT" "$armed_dir/ARMED_AT"
+DOTAGENTS_GATE_NOW=$LATER invoke_at "$STRANGER" >/dev/null
+if [[ -f "$armed_dir/ACTIVE" && "$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)" == "$LATER" ]]; then
+  ok "a pre-upgrade sentinel is given a heartbeat, not evicted"
+else
+  no "a pre-upgrade sentinel was evicted or left without a heartbeat"
+fi
+
+echo
+echo "gate.sh — reclaiming and reporting"
+echo
+
+# status must never be the thing that opens a gate. Reading state is not a licence to change it.
+rm -rf "$GATE"; arm
+armed_dir="$(gate_dir_for "$REPO")"
+DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" >/dev/null 2>&1
+[[ -f "$armed_dir/ACTIVE" ]] \
+  && ok "status reports staleness without evicting" \
+  || no "status evicted the gate -- reading it was enough to open it"
+st="$(DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" 2>&1)"
+grep -qi 'idle' <<<"$st" \
+  && ok "   ...and says how long it has been idle" \
+  || no "   status does not mention idleness: $(tr '\n' '|' <<<"$st")"
+
+# gc is the explicit path, for a driver or CI that wants the sweep without waiting for a turn to end.
+gc_out="$(DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" gc 2>&1)"
+[[ ! -f "$armed_dir/ACTIVE" ]] \
+  && ok "gc reclaims an idle gate" \
+  || no "gc left the idle gate armed"
+grep -q "$(basename "$REPO")" <<<"$gc_out" \
+  && ok "   ...and names what it reclaimed" \
+  || no "   gc was silent about what it did: $(tr '\n' '|' <<<"$gc_out")"
+
+# After eviction, "not armed" alone would be indistinguishable from a session that never armed
+# anything. The whole point of keeping ROOT is that this question has an answer.
+st="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" 2>&1)"
+grep -qi 'expired' <<<"$st" \
+  && ok "status explains that the gate expired rather than just 'not armed'" \
+  || no "status hides the expiry: $(tr '\n' '|' <<<"$st")"
+
+echo
 echo "gate.sh — the arming mechanism"
 echo
 
