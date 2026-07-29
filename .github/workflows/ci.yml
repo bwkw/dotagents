@@ -136,7 +136,7 @@ jobs:
               let p;
               try { p = JSON.parse(fs.readFileSync("profiles/" + f, "utf8")); }
               catch (e) { console.error(`${f}: invalid JSON -- ${e.message}`); bad = 1; continue; }
-              if (f.startsWith("_")) continue;   // schema and example are not profiles
+              if (f.startsWith("_")) continue;   // the schema is not a profile
               if (!p.match?.remote) { console.error(`${f}: missing match.remote`); bad = 1; }
               for (const c of p.checks ?? []) {
                 for (const k of ["id", "cmd", "gate", "agent_may_run"])

@@ -119,6 +119,33 @@ run_setup install >/dev/null
 cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
   && ok "install is idempotent" || no "a second install changed settings again"
 
+# ...and an install that changes nothing must not leave a backup behind. The old code took a
+# timestamped copy on every install whether anything moved or not, and never removed one: 52 files,
+# 208 KB, had accumulated on the author's machine. A backup nobody can distinguish from 51 others is
+# not a safety net, and an unattended loop that re-installs per iteration grows it without limit.
+backups() { ls -1 "$FAKE/.claude/settings.json".dotagents-backup-* 2>/dev/null | wc -l | tr -d ' '; }
+before_n="$(backups)"
+run_setup install >/dev/null
+[[ "$(backups)" == "$before_n" ]] \
+  && ok "an install that changes nothing takes no backup" \
+  || no "a no-op install still took a backup ($before_n -> $(backups))"
+
+# A destination that is not ours must stop the install before anything is written. link_skill returned
+# 1 in that case, and under `set -e` that ended the script partway: some skills linked, no hooks
+# copied, no settings merged, no manifest to uninstall from. The node preflight was added to prevent
+# exactly that state; this reached it by another route.
+CLASH="$TMP/clash-home"
+mkdir -p "$CLASH/.claude" "$CLASH/.agents/skills/da-verify"     # a real directory where a link belongs
+clash_out="$(HOME="$CLASH" bash "$REPO/scripts/setup.sh" install 2>&1; echo "rc=$?")"
+grep -q 'rc=0' <<<"$clash_out" \
+  && no "an install over a foreign directory succeeded -- it should refuse" \
+  || ok "an install over a foreign directory refuses"
+[[ ! -e "$CLASH/.claude/.dotagents-managed.json" ]] && [[ ! -d "$CLASH/.claude/hooks" ]] \
+  && ok "   ...and wrote nothing at all (no manifest, no hooks)" \
+  || no "   it wrote something before refusing: $(ls -a "$CLASH/.claude" | tr '\n' ' ')"
+grep -qi 'nothing has been changed' <<<"$clash_out" \
+  && ok "   ...and says so" || no "   refused without saying nothing changed"
+
 # The reason this file exists: a skill removed from the repo must stop being installed, with no flag.
 mkdir -p "$PROBE_STAGED"
 cat > "$PROBE_STAGED/SKILL.md" <<'SK'
@@ -185,6 +212,66 @@ left="$(ls "$FAKE/.claude/agents" "$FAKE/.cursor/agents" 2>/dev/null | grep -c '
 [[ "$left" == "0" ]] \
   && ok "uninstall leaves no agent links in either directory" \
   || no "$left agent link(s) survived uninstall"
+
+# --- bounded state, after the uninstall comparisons ----------------------------
+# Last, because both of these overwrite the settings fixture to force a real merge, and the uninstall
+# assertions above compare against the original bytes.
+run_setup install >/dev/null
+
+# And the count is bounded. Seeded with distinct old stamps rather than by installing in a loop: the
+# stamp is second-resolution, so five installs inside one second reused one filename and the test
+# passed while proving nothing.
+for d in 20200101000001 20200101000002 20200101000003 20200101000004 20200101000005; do
+  : > "$FAKE/.claude/settings.json.dotagents-backup-$d"
+done
+seeded="$(backups)"
+printf '{"model":"sonnet"}\n' > "$FAKE/.claude/settings.json"   # force a real change
+run_setup install >/dev/null
+(( $(backups) <= 3 )) \
+  && ok "backups are pruned to 3 generations (was $seeded, now $(backups))" \
+  || no "$(backups) backups kept out of $seeded seeded -- the count is unbounded"
+# The newest must be the ones kept, or the pruning threw away the pre-image you would actually want.
+ls -1 "$FAKE/.claude/settings.json".dotagents-backup-* 2>/dev/null | grep -q '20200101000001' \
+  && no "pruning kept the oldest backup and dropped newer ones" \
+  || ok "   the oldest were the ones dropped"
+
+# The manifest is the only record uninstall has of what to take back, so a duplicate entry is a
+# request to remove something that does not exist. `dropOurs` clears every spelling of our hooks from
+# settings.json before rewriting, but the manifest side only appended -- so an old spelling stayed
+# forever. Four records for two hooks, measured.
+mrec() { node -e '
+  const m = require(process.argv[1]);
+  console.log((m[process.argv[2]] ?? []).length);
+' "$FAKE/.claude/.dotagents-managed.json" "$1"; }
+
+# Seeded with the stale spelling, because a clean fake HOME cannot reproduce it -- the four records on
+# the real machine came from a version that recorded an unresolved $HOME. A test that starts clean
+# would pass without the fix.
+node -e '
+  const fs = require("fs"), p = process.argv[1];
+  const m = JSON.parse(fs.readFileSync(p, "utf8"));
+  m.settingsHooks = [
+    { event: "Stop", matcher: "", command: "$HOME/.claude/hooks/dotagents-verify-gate.sh" },
+    ...(m.settingsHooks ?? []),
+    { event: "PreToolUse", matcher: "", command: "someone-elses-hook.sh" },
+  ];
+  m.cursorHooks = [
+    { event: "stop", command: "$HOME/.claude/hooks/dotagents-verify-gate.sh" },
+    ...(m.cursorHooks ?? []),
+  ];
+  fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+' "$FAKE/.claude/.dotagents-managed.json"
+printf '{"model":"haiku"}\n' > "$FAKE/.claude/settings.json"    # force a real merge
+run_setup install >/dev/null
+check "a stale hook spelling is dropped from the manifest, not accumulated" 3 "$(mrec settingsHooks)"
+check "the Cursor side too" 2 "$(mrec cursorHooks)"
+node -e '
+  const m = require(process.argv[1]);
+  process.exit((m.settingsHooks ?? []).some(h => (h.command ?? "").includes("someone-elses-hook")) ? 0 : 1);
+' "$FAKE/.claude/.dotagents-managed.json" \
+  && ok "   ...and a record that is not ours is left on the manifest" \
+  || no "   a foreign manifest record was dropped -- uninstall would stop knowing about it"
+
 
 if (( fail )); then printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1; fi
 

@@ -259,6 +259,55 @@ prune_hooks() {
   done
 }
 
+# How many pre-images to keep per target. Three is enough to undo a bad install and small enough that
+# the directory stays readable; 52 of them had accumulated here, which is not a safety net -- it is a
+# pile nobody can tell apart. An unattended loop that re-installs per iteration grows it without limit.
+BACKUP_KEEP=3
+
+# Run a merge, and keep a backup only if the merge actually changed the target.
+#
+# The pre-image is held in a temp file and promoted to a backup only on a real change, rather than
+# taken unconditionally and deleted afterwards. Both orders end up with the same files, but only this
+# one is never briefly lying about what happened.
+merge_with_backup() { # <target> <label> <merge command...>
+  local target="$1" label="$2"; shift 2
+  local pre="" rc=0
+  if [[ -f "$target" ]]; then
+    pre="$(mktemp "${TMPDIR:-/tmp}/dotagents-pre.XXXXXX" 2>/dev/null)" || pre=""
+    [[ -n "$pre" ]] && cp "$target" "$pre"
+  fi
+
+  "$@" || rc=$?
+
+  if [[ -n "$pre" ]]; then
+    if cmp -s "$pre" "$target"; then
+      rm -f "$pre"
+      note "$label unchanged -- no backup taken"
+    else
+      # $$ as well as the timestamp: the stamp is second-resolution, so two installs inside one second
+      # produced the same name and the second silently overwrote the first pre-image.
+      local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)-$$"
+      mv "$pre" "$backup"
+      note "backup: ${backup/#$HOME/$TILDE}"
+      prune_backups "$target"
+    fi
+  fi
+  return "$rc"
+}
+
+# Keep the newest BACKUP_KEEP. Names sort lexically because the stamp is %Y%m%d%H%M%S.
+prune_backups() { # <target>
+  local target="$1" f n=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    n=$((n+1))
+    if (( n > BACKUP_KEEP )); then
+      run rm -f "$f"
+      did "prune old backup ${f/#$HOME/$TILDE}"
+    fi
+  done < <(ls -1 "$target".dotagents-backup-* 2>/dev/null | sort -r)
+}
+
 # Merge only the keys our template declares. Existing values we did not write -- notably
 # env.OTEL_EXPORTER_OTLP_HEADERS, which holds a plaintext API key -- are never read or rewritten.
 merge_settings() {
@@ -272,9 +321,8 @@ merge_settings() {
     return
   fi
 
-  local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)"
-  [[ -f "$target" ]] && cp "$target" "$backup" && note "backup: ${backup/#$HOME/$TILDE}"
-  node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$target" "$MANIFEST"
+  merge_with_backup "$target" "~/.claude/settings.json" \
+    node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$target" "$MANIFEST"
   ok "merged settings into ~/.claude/settings.json"
 }
 
@@ -292,9 +340,8 @@ merge_cursor_hooks() {
   fi
   mkdir -p "$HOME/.cursor"
 
-  local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)"
-  [[ -f "$target" ]] && cp "$target" "$backup" && note "backup: ${backup/#$HOME/$TILDE}"
-  node "$REPO/scripts/lib/merge-settings.mjs" --cursor "$tmpl" "$target" "$MANIFEST"
+  merge_with_backup "$target" "~/.cursor/hooks.json" \
+    node "$REPO/scripts/lib/merge-settings.mjs" --cursor "$tmpl" "$target" "$MANIFEST"
   ok "merged hooks into ~/.cursor/hooks.json"
 }
 
@@ -316,6 +363,38 @@ write_manifest() {
   ' "$MANIFEST" "$REPO" "$skills" "$hooks" "$agents"
 }
 
+# Everything that can refuse, checked before anything is written.
+#
+# `link_skill` and `link_agent` return 1 when a destination is a real directory or file that is not
+# ours. Under `set -e` that failure was the last command of an `&&` list, so the whole script exited --
+# after some skills were already linked, with no hooks copied, no settings merged and no manifest to
+# uninstall from. Exactly the state the node preflight above exists to prevent, reached by a different
+# route. Refusing up front means the answer is all-or-nothing rather than however far the loop got.
+preflight() {
+  local n blocked=0
+  while read -r n; do
+    [[ -n "$n" ]] || continue
+    if [[ -e "$AGENTS_SKILLS/$n" && ! -L "$AGENTS_SKILLS/$n" ]]; then
+      bad "$AGENTS_SKILLS/$n is a real directory, not ours"; blocked=1
+    fi
+    if [[ -e "$CLAUDE_SKILLS/$n" && ! -L "$CLAUDE_SKILLS/$n" ]]; then
+      bad "$CLAUDE_SKILLS/$n is a real directory, not ours"; blocked=1
+    fi
+  done < <(skill_names)
+  while read -r n; do
+    [[ -n "$n" ]] || continue
+    local d
+    for d in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
+      if [[ -e "$d/$n.md" && ! -L "$d/$n.md" ]]; then
+        bad "$d/$n.md is a real file, not ours"; blocked=1
+      fi
+    done
+  done < <(agent_names)
+
+  (( blocked )) && die "refusing to install: move or remove the paths above first. Nothing has been changed."
+  return 0
+}
+
 cmd_install() {
   # Installing from a linked worktree points every link into that worktree; removing it later
   # would silently delete the whole toolkit.
@@ -327,6 +406,8 @@ cmd_install() {
   # Every settings merge and the manifest go through node. Failing partway leaves skills linked
   # but no guardrails wired and no manifest to uninstall from, so check before changing anything.
   command -v node >/dev/null || die "node is required (>= 18). Nothing has been changed."
+
+  preflight
 
   run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS" \
     "$CLAUDE_AGENTS" "$CURSOR_AGENTS"
@@ -522,6 +603,18 @@ cmd_uninstall() {
       if [[ -L "$a" ]]; then run rm -f "$a"; did "remove ${d/#$HOME/$TILDE}/$n.md"
       elif [[ -e "$a" ]]; then warn "${d/#$HOME/$TILDE}/$n.md is not a symlink -- left in place"; fi
     done
+  done
+
+  # Our backups go with us. They are pre-images of a file we were editing; once we are uninstalled they
+  # are litter, and 52 of them had accumulated because nothing ever removed one.
+  local t
+  for t in "$HOME/.claude/settings.json" "$HOME/.cursor/hooks.json"; do
+    local b
+    while IFS= read -r b; do
+      [[ -n "$b" ]] || continue
+      run rm -f "$b"
+      did "remove ${b/#$HOME/$TILDE}"
+    done < <(ls -1 "$t".dotagents-backup-* 2>/dev/null)
   done
 
   if [[ -f "$REPO/templates/claude.settings.snippet.json" ]]; then
