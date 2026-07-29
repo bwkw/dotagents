@@ -91,6 +91,84 @@ installation is a per-repository change.
 
 ---
 
+## Whose practices this is built from
+
+Almost nothing here is original, and the parts that are should be visible as such. What was taken, from
+where, and — more usefully — **what was rejected and why**.
+
+### The loop shape: [gamonges/gamonges-prompt](https://github.com/gamonges/gamonges-prompt)
+
+The seven-phase shape came from there: **ask → grill → design → review-plan/revise → implement → review →
+fix**. Every phase has a home here, and the last one was missing until it was noticed by comparison:
+
+| Phase | Here |
+|---|---|
+| ask | `/da-investigate` |
+| grill | `/grill-me` (upstream, kept as-is) |
+| design | `/writing-plans` (upstream) |
+| review-plan, revise | `/da-design-review` |
+| implement | `/executing-plans` (upstream) |
+| review | `/da-review-all` |
+| **fix** | **`/da-fix-plan`** — added last, because the loop had been claimed as covered while this end of it was not |
+
+Also adopted, and load-bearing rather than decorative: the **immediate-stop preconditions table** at the
+head of every skill; the split between **"always read"** and **"read only if"** with *"read everything
+just in case" explicitly forbidden*; the **workflow-position table** so each skill states its own upstream
+and downstream; the **read-only declaration** in bold for anything that investigates or reviews; the
+**fact / inference / could-not-confirm** separation; a **frontmatter lint hook** that catches a broken
+`SKILL.md` before it lands; and `_template/` with the `_` prefix keeping templates out of install.
+
+Deliberately not adopted, because that repository names them as its own weak points: personal absolute
+paths in settings (we use `${CLAUDE_SKILL_DIR}` and `${CLAUDE_PROJECT_DIR}`), and a `bypassPermissions`
+default with deny-list reliance.
+
+### Official Anthropic guidance
+
+The loop vocabulary, the verification ladder, the context-management rules, and the taxonomy of
+mechanisms are all official rather than invented. [`workflow.md`](workflow.md) and
+[`mechanisms.md`](mechanisms.md) carry the sources per claim. Two official lines shaped more of this than
+anything else:
+
+> *Put guardrails in hooks. An instruction like "never edit `.env`" in CLAUDE.md or a skill is a request,
+> not a guarantee.*
+
+> *A reviewer prompted to find gaps will usually report some, even when the work is sound… Chasing every
+> finding leads to over-engineering.*
+
+The first is why the verification gate is a hook and not a rule. The second is why the reporting
+discipline is aggressive and why `/da-fix-plan` exists to subtract.
+
+### Practitioners, and where they disagree with the docs
+
+Named because their disagreements are more useful than their agreements, and because a toolkit that only
+cites official guidance will inherit its blind spots:
+
+- **Birgitta Böckeler / Thoughtworks** — the *guides versus sensors* framing, and the argument that this
+  field has over-invested in instructions given up front and under-invested in tools that observe what was
+  actually produced. That is the case for the gate, the linter and the tests over more prose. Also hers:
+  reviewing code occasionally **to check your instrumentation has not drifted** rather than to catch bugs.
+- **Simon Willison** — verification over reading: *"if the code has never been executed it's pure luck if
+  it actually works"*, and **fix the process that generates the code rather than hand-fixing the code**.
+- **Addy Osmani** — *stop reviewing everything to the same depth*, and the measurement that four reviewers
+  over 146 pull requests caught **93.4% of findings with exactly one of the four**. That single number is
+  why the bundled reviewers are kept rather than suppressed.
+- **Armin Ronacher** — the *outer harness loop* framing (this toolkit **is** the outer loop), and *Agent
+  Psychosis* as the warning: a toolkit that becomes the project.
+- **Kent Beck** — *"multi-agent is a feature; outcome-orientation is the thing the feature is supposed to
+  deliver"*, and the failure signal: **the day the setup makes you a dispatcher, it has stopped paying.**
+
+### What was investigated and rejected
+
+Rejections belong in the record as much as adoptions, because otherwise they get re-proposed:
+
+| Considered | Outcome |
+|---|---|
+| **Milvus × Ollama vector index + `claude-context` MCP** for cross-repository search | **Rejected** — indexes per absolute path, so a symlink virtual monorepo double-indexes and goes stale; requires a resident docker stack; and Claude Code itself moved from RAG to agentic search citing staleness. [ADR 0007](adr/0007-cross-repository-search-stays-agentic.md) |
+| **`codegraph`** | **Unevaluated, honestly.** Not rejected. ADR 0007 sets the bar it has to clear. |
+| Plugin/marketplace packaging | Deferred — namespacing breaks by-name dispatch. ADR 0001, revisited in 0003 |
+| `disableBundledSkills` | Rejected — too blunt, and version-dependent. ADR 0006 |
+| Migrating existing product-repository assets | Out of scope by design. This is a personal toolkit, not a migration |
+
 ## Where constraint earns its keep, and where it does not
 
 Current guidance for this generation of models is to constrain less and let judgement work — Claude

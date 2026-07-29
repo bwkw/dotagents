@@ -3,6 +3,9 @@
 - **Status**: accepted, 2026-07-28
 - **Amends**: ADR 0003 (the `disable-model-invocation` blanket ban)
 
+
+> **日本語の要約** — 仕組みの分類（skill / command / subagent / hook / MCP）を公式ガイダンスに基づいて明文化し、**コマンドはスキルに統合済み**であることを記録。`disable-model-invocation` の全面禁止を**「名指し委譲の対象のみ禁止」**に絞る（`da-verify` はゲートを arm する唯一のものなので絶対禁止）。グローバル subagent 2本を定義し、**5ファイルにあった到達不能な分岐**（「リポジトリが専用エージェントを定義していれば」＝プロダクトリポに触らない制約下では永遠に成立しない）を解消。スキル11本を削除。
+
 ## Context
 
 Thirty-five skills were installed, using 7,167 characters of description. The complaint that started

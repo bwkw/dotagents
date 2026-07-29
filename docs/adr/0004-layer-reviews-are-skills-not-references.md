@@ -3,6 +3,9 @@
 - **Status**: accepted, 2026-07-28
 - **Supersedes**: the initial split, where the layer bodies lived as `review-all/reference/{backend,frontend,infra}.md`
 
+
+> **日本語の要約** — 層別レビューを reference ファイルから**スキルに戻した**。reference 化で3つの劣化が起きていた: ① 入口が3つ消えた ② 無音事故パターンが verify フェーズにしか残らず **find フェーズが読まなくなった** ③ 姿勢が使用箇所から2ホップ離れた。②③ は誰にも報告されないまま起きていた。重い観点クラスタは各スキルの `reference/` に残すので context 経済は保たれる。※入口の数は ADR 0006 で1つに再統合。
+
 ## Context
 
 Four review commands existed before this repository: `/da-review-all`, `/da-review-backend`,

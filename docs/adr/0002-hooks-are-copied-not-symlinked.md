@@ -4,6 +4,9 @@
 
 Accepted.
 
+
+> **日本語の要約** — hook は symlink ではなく**実体をコピー**して配る。symlink が切れると hook は `exit 127` を返し、Claude Code はそれを non-blocking として扱う —— つまり**ガードレールが「止まる」のではなく「開く」**。コピーは切れない。代償として、hook を編集しても `setup.sh install` を再実行するまで反映されない。
+
 ## Context
 
 Skills are distributed as symlinks (ADR 0001), so the obvious move is to distribute hooks the same

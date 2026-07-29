@@ -4,6 +4,9 @@
 
 Accepted.
 
+
+> **日本語の要約** — スキルはグローバルに1箇所（`~/.agents/skills/`）だけ置き、Claude Code へは symlink を張る。**Cursor は `~/.agents/skills/` をネイティブに読む**ことが実機で確認できたので、`~/.cursor/skills/` へのリンクは作らない（作っても二重登録されないが、買うものが何も無い）。プロダクトリポジトリには1ファイルも置かないという絶対制約から、配布はグローバル一本になる。
+
 ## Context
 
 The toolkit has to be usable from every repository, in both Claude Code and Cursor, without adding

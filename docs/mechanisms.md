@@ -1,5 +1,7 @@
 # Which mechanism, and why
 
+日本語: [mechanisms.ja.md](mechanisms.ja.md)
+
 Claude Code and Cursor both offer several ways to change how the agent behaves. They are not
 interchangeable, and picking the wrong one is how a rule ends up written down somewhere it is never
 enforced.
@@ -123,9 +125,20 @@ enforce it (see ADR 0005):
   never arms and passes every turn: the guardrail opens.
 - **`da-review-backend` / `da-review-frontend` / `da-review-infra`** — `da-review-all` dispatches to them by name.
 
-`user-invocable: false` (in context, hidden from the menu) is **not used here**: no skill on this
-machine is background knowledge rather than a workflow, and Cursor ignores the field, which would make
-it a Claude-only behaviour difference — the class of thing ADR 0003 exists to prevent.
+### Hiding from the menu is a different field
+
+`user-invocable: false` keeps the skill in the model's context but takes it out of the `/` menu — the
+mirror image of `disable-model-invocation`. The three layer reviews use it, so `/da-review-all` is the
+only review entry you type while the layers stay reachable by dispatch and by naming a layer.
+
+Two things this costs, both accepted:
+
+- **Cursor ignores the field**, so the layers stay in its menu. That is a *presentation* difference, not
+  a behavioural one, which is the line ADR 0003 draws — strip the Claude-only field and the skill still
+  does the same thing.
+- **Combined with `disable-model-invocation` it makes a skill unreachable by every route**, and on a
+  skill nothing dispatches to it is reachable only by description match. `verify-skills.sh` errors on
+  both cases rather than trusting the author to remember.
 
 ---
 

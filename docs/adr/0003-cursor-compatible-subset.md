@@ -4,6 +4,9 @@
 
 Accepted.
 
+
+> **日本語の要約** — **Cursor が読む frontmatter は `name` / `description` / `paths` / `disable-model-invocation` / `metadata` だけ**で、それ以外は拒否ではなく**黙って無視**される。だから規則は「Claude 専用フィールドを全部剥がしてもスキルは同じ挙動をしなければならない」。制約は本文に散文で書き、frontmatter はその上の最適化として扱う。`disable-model-invocation` の全面禁止はこの ADR 内で ADR 0005/0006 に修正されている。
+
 ## Context
 
 Claude Code supports a large skill frontmatter: `allowed-tools`, `disallowed-tools`, `context: fork`,

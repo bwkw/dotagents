@@ -6,7 +6,11 @@
 A personal AI development toolkit for **Claude Code and Cursor**. Installed once, globally, and
 available in every repository. No product repository is ever modified.
 
-日本語版: [README.ja.md](README.ja.md) · Why it is shaped this way: [docs/design.md](docs/design.md)
+日本語版: [README.ja.md](README.ja.md)
+
+The loop, with sources: [docs/workflow.md](docs/workflow.md) · Why it is shaped this way, and whose
+practices it is built from: [docs/design.md](docs/design.md) · Which mechanism to use:
+[docs/mechanisms.md](docs/mechanisms.md) · Decisions: [docs/adr/](docs/adr/)
 
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
@@ -78,6 +82,7 @@ scripts/gate.sh disarm                     # once everything is green
 ```
 /da-review-all        the review entry point — every layer, plus the risks between them
 /code-review          a second opinion, differently built (bundled)
+/da-fix-plan          the findings, triaged into an ordered plan — decides what NOT to fix
 /da-pr-describe       a PR description a reviewer can read before opening the diff
 ```
 
@@ -139,7 +144,7 @@ gate escalates its own message on the second failure for exactly this reason.
 
 ## What is in here
 
-**Nine skills are written here**; the other fifteen are installed from upstream, because methodology is
+**Ten skills are written here**; the other fifteen are installed from upstream, because methodology is
 better maintained by people who work on it full time. Ours are the ones that encode an opinion —
 what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
 work is called done. They are marked **●** in the table below.
@@ -204,6 +209,7 @@ The development loop, in order. **●** marks ours; everything else is upstream 
 | `/review` | A GitHub pull request rather than your working diff (bundled) | |
 | `/requesting-code-review` | You want the *procedure* — a reviewer in a fresh context that never saw your reasoning | |
 | `/receiving-code-review` | Feedback arrived and you want to evaluate it rather than implement it reflexively | |
+| `/da-fix-plan` | More findings than you want to act on. **Decides what not to fix**, orders the rest by irreversibility, writes the plan to disk | ● |
 | `/da-pr-describe` | The PR needs a description a reviewer can read before opening the diff. **Type it — it never fires on its own** | ● |
 | `/finishing-a-development-branch` | Implementation is done and you need to decide how to integrate | |
 | `/handoff` | Compact this conversation so another agent can pick it up | |

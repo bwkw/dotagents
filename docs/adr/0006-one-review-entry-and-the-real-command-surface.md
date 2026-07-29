@@ -4,6 +4,9 @@
 - **Partially reverses**: ADR 0004 (the three layer reviews as typed entry points)
 - **Narrows**: ADR 0005 Decision 4 (no `skillOverrides`)
 
+
+> **日本語の要約** — レビューの入口を `da-review-all` の**1つに統合**（層別3本は `user-invocable: false` でメニューから消し、モデルからは呼べるまま）。そして**面の実数が 24 ではなく 75** だったことを記録: 40本は CLI バイナリにコンパイル済みでファイルとして存在せず、11本はサーバ管理プラグイン。過去の主張を3つ訂正している —— ① 使用実績データは存在した（読み取り失敗だった） ② `skillOverrides` 却下はバンドルスキルには当てはまらない（Cursor に存在しないので乖離しない） ③ 自己選好バイアスの根拠は過剰だった。
+
 ## Context
 
 Two rounds of pruning took the skill set from 35 to 24 and the resident description budget from 6,905 to

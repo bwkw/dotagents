@@ -1,5 +1,7 @@
 # The loop
 
+日本語: [workflow.ja.md](workflow.ja.md)
+
 What to type, when, and why — for the case where most of the code is written by an agent.
 
 This uses the official vocabulary rather than one invented here, because a private vocabulary makes the

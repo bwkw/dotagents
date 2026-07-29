@@ -5,7 +5,11 @@
 
 **Claude Code と Cursor** のための個人用 AI 開発ツールキット。一度グローバルに入れれば、どのリポジトリでも使えます。プロダクトのリポジトリには一切手を入れません。
 
-English: [README.md](README.md) · なぜこの形なのか: [docs/design.ja.md](docs/design.ja.md)
+English: [README.md](README.md)
+
+ループ（出典付き）: [docs/workflow.ja.md](docs/workflow.ja.md) · なぜこの形なのか・誰の実践から組み立てたか:
+[docs/design.ja.md](docs/design.ja.md) · どの仕組みを選ぶか: [docs/mechanisms.ja.md](docs/mechanisms.ja.md) ·
+判断の記録: [docs/adr/](docs/adr/)
 
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
@@ -23,7 +27,7 @@ cd ~/private/dotagents
 
 パイプラインではありません。各ステップは1コマンドで、たいていのセッションは2〜3個しか使いません。
 
-公式のループは **Explore → Plan → Implement → Commit** の4フェーズ。*verify* は「段階」ではなく**どの段階にも必要な性質**、*review* は毎回の儀式ではなく**リスクが高いとき・見ていなかったときのエスカレーション**です。全体像・中断条件・良い出典どうしが食い違う箇所は [`docs/workflow.md`](docs/workflow.md) に。覚える価値があるのは3つ:
+公式のループは **Explore → Plan → Implement → Commit** の4フェーズ。*verify* は「段階」ではなく**どの段階にも必要な性質**、*review* は毎回の儀式ではなく**リスクが高いとき・見ていなかったときのエスカレーション**です。全体像・中断条件・良い出典どうしが食い違う箇所は [`docs/workflow.ja.md`](docs/workflow.ja.md) に。覚える価値があるのは3つ:
 
 - **差分を1文で説明できるなら計画は飛ばす。**
 - **計画と実装の間で `/clear` して新セッション。** その時点で計画はディスクにある。
@@ -63,6 +67,7 @@ scripts/gate.sh disarm                     # 全部緑になったら
 ```
 /da-review-all        レビューの入口 —— 全ての層＋層をまたぐリスク
 /code-review          別の作りの2本目（バンドル）
+/da-fix-plan          所見を順序付きの修正計画に —— 何を直さないかを決める
 /da-pr-describe       diff を開く前に読める PR 説明
 ```
 
@@ -99,7 +104,7 @@ scripts/gate.sh disarm                     # 全部緑になったら
 
 ## 何が入っているか
 
-**自作は9スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
+**自作は10スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`da-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`da-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
 
@@ -151,6 +156,7 @@ scripts/gate.sh disarm                     # 全部緑になったら
 | `/review` | 作業差分ではなく GitHub PR に対して（バンドル） | |
 | `/requesting-code-review` | レポートではなく**手順**が欲しいとき —— 推論を見ていないフレッシュな文脈のレビュアーを立てる | |
 | `/receiving-code-review` | 指摘が来て、反射的に実装せず**評価したい**とき | |
+| `/da-fix-plan` | 所見が多すぎて全部やりたくないとき。**何を直さないかを決め**、残りを不可逆性で並べ、計画をディスクに書く | ● |
 | `/da-pr-describe` | diff を開く前に読める PR 説明が必要なとき。**自分で打つ —— 自動では絶対に起動しません** | ● |
 | `/finishing-a-development-branch` | 実装が終わり、どう統合するか決めるとき | |
 | `/handoff` | この会話を別のエージェントが引き継げる形に圧縮する | |
