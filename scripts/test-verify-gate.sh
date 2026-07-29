@@ -467,6 +467,53 @@ check "   a mutating check that changes nothing -> passes" 0 "$(invoke)"
 rm -f "$REPO/touched-by-the-gate.txt"
 
 echo
+echo "verify-gate — a forbidden command is not run, even by the gate"
+echo
+
+# `forbidden` was prose only. It appears in profiles/_schema.json, in the profiles, and in
+# da-verify/SKILL.md -- and nowhere in hooks/ or scripts/. The gate read the profile's `cmd` and
+# `eval`ed it. So a repository could declare `cdk deploy` forbidden and have the gate run it at the end
+# of every turn, which is the shape docs/mechanisms.md warns about: "a rule written in a skill is a
+# request, not a guarantee. Guardrails go in hooks."
+rm -rf "$GATE"; arm
+# Evidence is a side effect on disk, not a string in the report: the command text appears in the
+# ordinary failure detail too, so grepping stderr for it cannot distinguish "ran" from "was quoted".
+rm -f "$TMP/forbidden-ran"
+cat > "$PROFILES/scratch.json" <<JSON
+{ "match": { "remote": "example/scratch" },
+  "forbidden": [ "prisma migrate deploy", "git push --force" ],
+  "checks": [ { "id": "danger", "cmd": "touch $TMP/forbidden-ran; prisma migrate deploy",
+                "gate": true, "agent_may_run": true } ] }
+JSON
+check "a check whose cmd is forbidden -> blocks" 2 "$(invoke)"
+[[ -e "$TMP/forbidden-ran" ]] \
+  && no "   the forbidden command was executed" \
+  || ok "   ...without running it"
+# Deliberately not grepping for the command text: it appears in the ordinary failure report too, so
+# that assertion passed before the fix existed. The word `forbidden` only appears if the gate declined.
+grep -qi 'forbidden' "$TMP/stderr" \
+  && ok "   ...and says it declined because the profile forbids it" \
+  || no "   reported a failed check, not a refusal: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
+
+# A profile with no `forbidden` must behave exactly as before.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+check "no forbidden list -> unaffected" 0 "$(invoke)"
+
+# And a substring that merely resembles one must not trip it -- the match is on the command, and a
+# check called `deploy-docs` is not `cdk deploy`.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "forbidden": [ "cdk deploy" ],
+  "checks": [ { "id": "docs", "cmd": "echo deploying docs is fine", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a command that does not contain a forbidden phrase still runs" 0 "$(invoke)"
+
+echo
 echo "verify-gate — a subagent finishing is not the end of a turn"
 echo
 

@@ -596,6 +596,28 @@ _gate_work="$work"
 GATE_CHECK_TIMEOUT_DEFAULT=120
 GATE_TOTAL_TIMEOUT_DEFAULT=300
 
+# A command the repository forbids must not be run by the gate either. `forbidden` was declared in the
+# schema, used in three profiles, described in da-verify/SKILL.md -- and read by nothing. The gate
+# `eval`ed whatever `cmd` said, so a repository could forbid `cdk deploy` and have the gate run it at
+# every turn end. docs/mechanisms.md is explicit about this shape: a rule written in a skill is a
+# request, not a guarantee, and guardrails belong in hooks.
+#
+# One per line so a phrase containing spaces survives; `read` gives the whole line to the variable.
+forbidden_list="$(node -e '
+  try { for (const f of require(process.argv[1]).forbidden || []) if (String(f).trim()) console.log(f) }
+  catch {}
+' "$profile" 2>/dev/null)"
+
+# The first forbidden phrase contained in a command, or nothing.
+forbidden_hit() { # <command>
+  local phrase
+  while IFS= read -r phrase; do
+    [[ -n "$phrase" ]] || continue
+    [[ "$1" == *"$phrase"* ]] && { printf '%s' "$phrase"; return 0; }
+  done <<<"$forbidden_list"
+  return 1
+}
+
 budget_total="$(node -e '
   try { const v = require(process.argv[1]).timeout_total;
         console.log(Number.isInteger(v) && v > 0 ? v : "") } catch {}
@@ -724,6 +746,20 @@ while IFS=$'\t' read -r id secs mutates cmd; do
   if (( budget_total - ( $(date +%s) - gate_started ) <= 0 )); then
     unrun="${unrun:+$unrun }$id"
     continue
+  fi
+
+  # Checked after {files} substitution, so what is compared is the command that would actually run.
+  _forbidden="$(forbidden_hit "$cmd" || true)"
+  if [[ -n "$_forbidden" ]]; then
+    { printf '%s\n%s\n%s\n' "$id" "$cmd" "forbidden"
+      printf '%s' "This repository forbids it: the profile lists \"$_forbidden\" under 'forbidden',
+and the '$id' check would have run a command containing that phrase.
+
+The gate did not run it. Nothing was checked by this check -- do not read the block
+as a failing test. Either the profile contradicts itself, or the check needs a
+command that does not do the forbidden thing."
+    } > "$work.fail"
+    break
   fi
 
   before=""

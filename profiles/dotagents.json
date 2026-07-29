@@ -5,15 +5,14 @@
     "Tracked, unlike the others: it names only a public repo and public commands, and it doubles as",
     "the one worked example in the repository, and the only profile here that actually runs."
   ],
-
-  "match": { "remote": "bwkw/dotagents" },
-
+  "match": {
+    "remote": "bwkw/dotagents"
+  },
   "forbidden": [
     "setup.sh uninstall",
     "git push --force",
     "git reset --hard"
   ],
-
   "checks": [
     {
       "id": "shell-syntax",
@@ -51,6 +50,58 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all"
+    },
+    {
+      "id": "claude-md-symlink",
+      "cmd": "[ \"$(git ls-files -s CLAUDE.md | awk '{print $1}')\" = 120000 ] && [ \"$(readlink CLAUDE.md)\" = AGENTS.md ]",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 15,
+      "when": "Claude Code does not read AGENTS.md, so if the symlink becomes a regular file the always-loaded layer silently drifts"
+    },
+    {
+      "id": "exec-bits",
+      "cmd": "! git ls-files -s scripts/*.sh hooks/*.sh | awk '$1!=\"100755\"{print;f=1} END{exit !f}'",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 15,
+      "when": "every suite invokes through `bash <file>`, so a lost +x bit passes all of them and breaks `scripts/gate.sh arm`"
+    },
+    {
+      "id": "lint-hook-tests",
+      "cmd": "./scripts/test-lint-hook.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 120
+    },
+    {
+      "id": "installer-tests",
+      "cmd": "./scripts/test-setup.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 180
+    },
+    {
+      "id": "non-interactive-tests",
+      "cmd": "./scripts/test-non-interactive.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 180
+    },
+    {
+      "id": "gate-covers-check-sh",
+      "cmd": "node -e 'const fs=require(\"fs\");const steps=[...fs.readFileSync(\"scripts/check.sh\",\"utf8\").matchAll(/^[ \\\\t]*step .*?(\\.\\/scripts\\/[a-z-]+\\.sh)/gm)].map(m=>m[1]);const gated=require(\"./profiles/dotagents.json\").checks.filter(c=>c.gate).map(c=>c.cmd).join(\" \");const missing=steps.filter(s=>!gated.includes(s));if(missing.length){console.error(\"not gated by profiles/dotagents.json: \"+missing.join(\" \"));process.exit(1)}console.log(\"all \"+steps.length+\" suites check.sh runs are gated\")'",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 15,
+      "when": "a suite added to check.sh and not to this profile is a suite the gate stops running. Counting steps would not work -- the granularities differ (shell-syntax and no-bash4 are one check.sh step; templates-valid is not a check.sh step at all), so the invariant is coverage of the scripts check.sh invokes, not equal counts. The shell-function steps (syntax, CLAUDE.md symlink, exec bits) have their own checks above; the tree-clean step is about the suites not dirtying the repo and is meaningless inside the gate."
     }
-  ]
+  ],
+  "timeout_total": 600
 }
