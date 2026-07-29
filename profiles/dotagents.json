@@ -39,7 +39,7 @@
     },
     {
       "id": "no-bash4",
-      "cmd": "! grep -rqE '^[^#]*\\b(mapfile|readarray)\\b|declare -A' scripts/ hooks/",
+      "cmd": "! grep -rqE --exclude=check.sh '^[^#]*\\b(mapfile|readarray)\\b|declare -A' scripts/ hooks/",
       "gate": true,
       "agent_may_run": true,
       "scope": "all",

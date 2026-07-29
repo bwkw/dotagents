@@ -33,19 +33,20 @@ cd ~/private/dotagents
 - **計画と実装の間で `/clear` して新セッション。** その時点で計画はディスクにある。
 - **同じ問題で2回修正に失敗したらセッションを捨てる。** 学んだことを織り込んで prompt を書き直す。失敗したアプローチを抱えた長いセッションより、良い prompt の綺麗なセッションが勝つ。
 
-### 1本のパイプラインではなく、6つのフロー
+### 5つのフェーズと、2つの脇道
 
 実際の作業は1本の線形ループでは来ません。**フローを選んで、その行だけ読んでください。**
 **●** はこのリポジトリ製、**○** は上流、**◆** は Claude Code 組み込みです。
 
 | フロー | 順番 |
 |---|---|
-| **設計を固める** —— ADR、spec、影響範囲 | ○ `/grill-me` → ● `/da-investigate`（何に触るか） → ○ `/documentation-and-adrs` か ○ `/writing-plans` → **● `/da-design-review`** |
-| **実装する** | 計画があれば ○ `/executing-plans` —— **いずれにせよテストが先** → **● `/da-verify`** |
-| **自分の実装を批判的にレビューして改善を回す** | **● `/da-review-all`** → 2本目: ◆ `/code-review` か ○ `/find-bugs` → **● `/da-fix-plan`** → 修正 → ● `/da-verify` → ● `/da-pr-describe` |
-| **他人のものをレビューする** | GitHub の見え方なら ◆ `/review <PR>`、深さなら ● `/da-review-all <base>` → 指摘を取りまとめるなら ● `/da-fix-plan` |
-| **エラーを調査する** | **○ `/systematic-debugging`** —— 修正より先に root cause、飛躍を拒否する → 疑わしい箇所が決まったら ● `/da-investigate` で影響範囲 |
-| **エラーを修正する** | ○ `/systematic-debugging` が自身の Phase 4 でそのまま繋がる → 証拠のために **● `/da-verify`** |
+| **0. 地面を調べる** —— 「世の中は実際どうやっているのか」 | ○ `/research` —— 外部の一次情報を当たり、**リポジトリ内のファイルに書き出す**。**選択肢とトレードオフはここから出てきます**。ファイルなので `/clear` を生き延びる |
+| **1. 何を作るかを固める** | 出てきた選択肢に対して ○ `/grill-me` → **この**コードベースで何に触るかは ● `/da-investigate` |
+| **2. 書き下す** | 決定は ○ `/documentation-and-adrs`、spec は openspec か ○ `/writing-plans` → 書いたものに **● `/da-design-review`** → そして `/clear` |
+| **3. 実装する** | 計画があれば ○ `/executing-plans` —— **いずれにせよテストが先** → **● `/da-verify`** |
+| **4. 批判的にレビューして改善を回す** | **● `/da-review-all`** → 2本目: ◆ `/code-review` か ○ `/find-bugs` → **● `/da-fix-plan`** → 修正 → ● `/da-verify` → ● `/da-pr-describe` |
+| *他人の PR* | ◆ `/review <PR>`、深さなら ● `/da-review-all <base>` → 取りまとめるなら ● `/da-fix-plan` |
+| *エラー* | **○ `/systematic-debugging`** —— 修正より先に root cause、飛躍を拒否 → 疑わしい箇所が決まったら ● `/da-investigate` で影響範囲。修正は自身の Phase 4 が担う → ● `/da-verify` |
 
 この表について、これまで暗黙だったことが4つあります。
 
@@ -131,7 +132,7 @@ scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを�
 
 ## 何が入っているか
 
-**自作は10スキル**、残り16本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
+**自作は10スキル**、残り17本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。下の表で **●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。グローバルに入るのでどのリポジトリにも存在します: **`da-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`da-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
 
@@ -141,11 +142,11 @@ scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを�
 
 ### 面の実際の大きさ
 
-**到達可能な名前は 26 ではなく 77。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
+**到達可能な名前は 27 ではなく 78。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
 
 | 出所 | 数 | 場所 |
 |---|---|---|
-| ディスク上 | 26 | `~/.agents/skills/` —— 自作10、上流16 |
+| ディスク上 | 27 | `~/.agents/skills/` —— 自作10、上流17 |
 | Anthropic 管理プラグイン | 11 | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
 | **CLI バイナリにコンパイル済み** | **40** | **ファイルとして存在しない** —— 実行ファイルの中 |
 
@@ -307,7 +308,7 @@ npx skills add obra/superpowers -g -a claude-code -a cursor \
 
 # 実務 — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s handoff -s resolving-merge-conflicts
+  -s grill-me -s handoff -s resolving-merge-conflicts -s research
 
 # セキュリティ — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
@@ -340,7 +341,8 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 | `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | 専門的な助言スキル。開発ループの外 |
 | ~~`documentation-and-adrs`~~ | **削除して、戻した。** 「専門的な助言」として切ったが、**ADR を書くことが設計フローの最初の一歩**だと知らなかった —— このリポジトリ自体に7本ある。ワークフロー自体ではなく推測から下した誤判断 |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | 相互参照する3本セット。参照切れが出ないようまとめて削除 |
-| `research`, `dispatching-parallel-agents` | ハーネスが WebFetch と並列エージェントをネイティブに持つ |
+| `dispatching-parallel-agents` | ハーネスが並列エージェントをネイティブに持つ |
+| ~~`research`~~ | **削除して戻した** —— この誤りは2度目。「ハーネスに WebFetch がある」を理由に切ったが、それは**道具を持っていること**と**実践を持っていること**の混同。一次情報を当たって `/clear` を生き延びるファイルに書き出すのは設計フローの第0段階で、生の WebFetch 呼び出しはそれではない |
 
 **この11本の削除に使用実績の裏付けはありません。**これは明記しておく価値があります: 35本のうち34本は同じ日にインストールされたので、「一度も起動されていない」は「数時間前に入れた」の意味しかありませんでした。根拠は**構造**です —— 参照切れ、挙動の衝突、ネイティブ機能との重複 —— 測定ではありません。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
 
@@ -352,6 +354,24 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 [`_template/SKILL.md`](_template/SKILL.md) から始めて `./scripts/verify-skills.sh`。
 
 不変則は [`AGENTS.md`](AGENTS.md) にあります —— あれが常時ロードされる層で、**無警告で失敗する**ものだけを置いています。全体を規定する1つ: **Claude 固有の frontmatter を全部剥がしても同じ挙動が成立すること。** Cursor はそれらを何も言わずに無視し、しかも**別のモデルファミリー**で動くので。
+
+### Cursor はもっと大きい別のメニューを見ている —— そしてこれは解決しきっていません
+
+両エージェントを一級市民として扱っていますが、**面の大きさは同じではなく**、差は一方向に出ます。
+
+| | Claude Code | Cursor |
+|---|---|---|
+| `~/.agents/skills` から | 27 **− 層別3本**（`user-invocable: false` で隠す） | **27全部** —— このフィールドを無視するので**層別レビューがメニューに出る** |
+| 組み込み | 約40（CLI にコンパイル済み） | **自前で19本**: `review` `review-bugbot` `review-security` `create-skill` `create-rule` `create-subagent` `loop` `automate` `babysit` `split-to-prs` `onboard` `shell` `sdk` `canvas` `statusline` `migrate-to-skills` `create-hook` `update-cli-config` `update-cursor-settings` |
+| `skillOverrides` の抑制 | 9件有効 | **0件** —— `settings.json` を読まない |
+
+はっきり書いておくべき帰結が2つ。
+
+**層別レビューが Cursor のメニューに漏れます。** Claude Code では打つレビュー入口は1つですが、Cursor では自作4本＋`review`＋`review-bugbot`＋`review-security`＋`find-bugs`。Cursor で層別を直接打っても**同じスキルなので正しく動きます** —— 失うのはメニューの見通しであって挙動ではなく、それが [ADR 0003](docs/adr/0003-cursor-compatible-subset.md) の引く線です。ただし**現時点で最大の乖離**であり、**直っていません**。
+
+**9件の抑制は Cursor に効かず、そして大半は効く必要がありません。** 9件のうち6件は**Cursor に存在しないスキル**（バンドルと Anthropic プラグイン）が対象なので、抑制する相手がいません。**Cursor にも存在するのは `verification-before-completion` だけ**で、そちらでは抑制されないまま `/da-verify` とトリガを奪い合います。
+
+**分かっていないこと**: Cursor の19本を無効化できるのか、できるならどこで。Cursor 自身の設定面は読んでいないので、**ここでは剪定できると主張しません**。メニューを圧迫して困るなら、それが次に調べることであって、すでに処理済みのことではありません。
 
 ## スクリプト全部と、それを正当化する理由
 

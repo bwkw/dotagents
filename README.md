@@ -38,19 +38,20 @@ abort conditions, and the parts the good sources disagree about. The three rules
 - **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what
   you learned. A clean session with a better prompt beats a long one carrying failed approaches.
 
-### Six flows, not one pipeline
+### Five phases, plus two side flows
 
 Real work does not arrive as one linear loop. Pick the flow, then read only that row.
 **●** is from this repository, **○** upstream, **◆** built into Claude Code.
 
 | Flow | In order |
 |---|---|
-| **Settle a design** — the ADR, the spec, the blast radius | ○ `/grill-me` → ● `/da-investigate` (what this would touch) → ○ `/documentation-and-adrs` or ○ `/writing-plans` → **● `/da-design-review`** |
-| **Implement** | ○ `/executing-plans` if there is a plan — **test-first either way** → **● `/da-verify`** |
-| **Review your own work and iterate** | **● `/da-review-all`** → a second reviewer: ◆ `/code-review` or ○ `/find-bugs` → **● `/da-fix-plan`** → fix → ● `/da-verify` → ● `/da-pr-describe` |
-| **Review someone else's** | ◆ `/review <PR>` for the GitHub view, or ● `/da-review-all <base>` for depth → ● `/da-fix-plan` if you are collecting the comments |
-| **Investigate an error** | **○ `/systematic-debugging`** — root cause before fix, and it refuses to skip → ● `/da-investigate` for the blast radius once you have a suspect |
-| **Fix the error** | ○ `/systematic-debugging` carries through its own Phase 4 → **● `/da-verify`** for the evidence |
+| **0. Survey the ground** — "what do people actually do about this?" | ○ `/research` — external primary sources, findings written to a file in the repo. **Options with tradeoffs come out of this**, and the file survives `/clear` |
+| **1. Settle what you are building** | ○ `/grill-me` against the options → ● `/da-investigate` for what a change would touch in *this* codebase |
+| **2. Write it down** | ○ `/documentation-and-adrs` for the decision, openspec or ○ `/writing-plans` for the spec → **● `/da-design-review`** on what you wrote → then `/clear` |
+| **3. Implement** | ○ `/executing-plans` if there is a plan — **test-first either way** → **● `/da-verify`** |
+| **4. Review critically and iterate** | **● `/da-review-all`** → a second reviewer: ◆ `/code-review` or ○ `/find-bugs` → **● `/da-fix-plan`** → fix → ● `/da-verify` → ● `/da-pr-describe` |
+| *Someone else's PR* | ◆ `/review <PR>`, or ● `/da-review-all <base>` for depth → ● `/da-fix-plan` if you are collecting the comments |
+| *An error* | **○ `/systematic-debugging`** — root cause before fix, and it refuses to skip → ● `/da-investigate` for the blast radius once you have a suspect. Its own Phase 4 carries the fix → ● `/da-verify` |
 
 Four things about that table, all of which used to be implicit:
 
@@ -195,7 +196,7 @@ gate escalates its own message on the second failure for exactly this reason.
 
 ## What is in here
 
-**Ten skills are written here**; the other sixteen are installed from upstream, because methodology is
+**Ten skills are written here**; the other seventeen are installed from upstream, because methodology is
 better maintained by people who work on it full time. Ours are the ones that encode an opinion —
 what counts as a finding worth reporting, what makes a review trustworthy, what must be true before
 work is called done. They are marked **●** in the table below.
@@ -216,12 +217,12 @@ silently, which already happened once when a skill called `review` hid Claude Co
 
 ### How big the surface actually is
 
-**77 names are reachable, not 26.** This matters because the budget they share is 1% of the context
+**78 names are reachable, not 27.** This matters because the budget they share is 1% of the context
 window, and because two earlier audits of this repository were wrong by reading the filesystem:
 
 | Source | Names | Where |
 |---|---|---|
-| On disk | 26 | `~/.agents/skills/` — 10 ours, 16 upstream |
+| On disk | 27 | `~/.agents/skills/` — 10 ours, 17 upstream |
 | Anthropic-managed plugin | 11 | under `~/Library/Application Support/Claude/…`, server-synced |
 | **Compiled into the CLI binary** | **40** | **no files exist** — they live inside the executable |
 
@@ -426,6 +427,33 @@ non-blocking, so the guardrail would open rather than close
 
 ---
 
+### Cursor sees a different, larger menu — and this is not fully solved
+
+Both agents are first class, but the surfaces are **not** the same size, and the difference runs one way:
+
+| | Claude Code | Cursor |
+|---|---|---|
+| From `~/.agents/skills` | 27, **minus the 3 layer reviews** hidden by `user-invocable: false` | **all 27** — Cursor ignores that field, so the layer reviews appear in its menu |
+| Built-in | ~40 compiled into the CLI | **19 of its own**: `review`, `review-bugbot`, `review-security`, `create-skill`, `create-rule`, `create-subagent`, `loop`, `automate`, `babysit`, `split-to-prs`, `onboard`, `shell`, `sdk`, `canvas`, `statusline`, `migrate-to-skills`, `create-hook`, `update-cli-config`, `update-cursor-settings` |
+| `skillOverrides` suppressions | 9 active | **0** — Cursor does not read `settings.json` |
+
+Two consequences worth being blunt about:
+
+**The layer reviews leak into Cursor's menu.** In Claude Code there is one review entry to type; in
+Cursor there are four of ours plus `review`, `review-bugbot`, `review-security` and `find-bugs`. Typing a
+layer directly in Cursor still works correctly — it is the same skill — so this costs menu clarity, not
+behaviour, which is the line [ADR 0003](docs/adr/0003-cursor-compatible-subset.md) draws. It is
+nonetheless the largest remaining divergence, and it is **not fixed**.
+
+**The 9 suppressions do not apply there, and mostly do not need to.** Six of the nine target skills that
+do not exist in Cursor at all — bundled and Anthropic-plugin ones — so there is nothing to suppress.
+`verification-before-completion` is the one that does exist in Cursor and stays un-suppressed there, so
+its trigger still competes with `/da-verify` on that side.
+
+**What is not known:** whether Cursor's 19 can be disabled, and where. Its own settings surface was not
+read, so nothing here claims to prune them. If they crowd the menu enough to matter, that is the next
+thing to find out rather than something already handled.
+
 ### Every script here, and what justifies it
 
 Script sprawl is the failure mode of a toolkit like this, so each one has to name what it prevents.
@@ -472,7 +500,7 @@ npx skills add obra/superpowers -g -a claude-code -a cursor \
 
 # practice — mattpocock/skills
 npx skills add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s handoff -s resolving-merge-conflicts
+  -s grill-me -s handoff -s resolving-merge-conflicts -s research
 
 # security — getsentry/skills
 npx skills add getsentry/skills -g -a claude-code -a cursor \
@@ -516,7 +544,8 @@ and `using-git-worktrees` stayed is that other kept skills dispatch to them.
 | `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | Specialist advisory, off the development loop |
 | ~~`documentation-and-adrs`~~ | **Removed, then reinstated.** Cut as "specialist advisory" without knowing that writing an ADR is the first step of the design flow — this repository has seven of them. The wrong call, made from a guess about the workflow rather than the workflow itself |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set; removed together so nothing dangles |
-| `research`, `dispatching-parallel-agents` | The harness provides WebFetch and parallel agents natively |
+| `dispatching-parallel-agents` | The harness provides parallel agents natively |
+| ~~`research`~~ | **Removed, then reinstated** — the second time this mistake was made. Cut because "the harness has WebFetch", which confuses *having the tool* with *having the practice*: surveying primary sources and writing the findings to a file that survives `/clear` is the first phase of the design flow, and a raw WebFetch call is not that |
 
 **These removals are not backed by usage data**, and it is worth saying so: 34 of the 35 were installed
 the same day, so "never invoked" meant "installed hours ago". They rest on structure — a dangling
