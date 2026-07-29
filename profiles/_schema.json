@@ -84,6 +84,10 @@
             "minimum": 1,
             "description": "Seconds this check may run before the gate kills it. Default 120. A timeout is treated as a malfunction of the gate rather than a finding about the code -- it blocks, and it is recorded as reason 'timeout' rather than 'red', because it says nothing about whether the code is correct. It counts toward max_attempts, or a genuinely hanging check would block every turn forever."
           },
+          "mutates": {
+            "type": "boolean",
+            "description": "True when running this check can rewrite the working tree -- an auto-fixer such as lint:fix or format:fix. The gate still runs it, but a run that changes the tree blocks instead of reporting green: the hook has just modified the files the agent had decided it was done with, and in a loop the next iteration would read a tree it did not write. Nothing is reverted; the next turn passes once there is nothing left to fix. A gate that repairs things quietly is a gate whose green cannot be trusted."
+          },
           "when": {
             "type": "string",
             "description": "Human-readable condition for conditional checks. Only meaningful when gate is false."
