@@ -26,7 +26,7 @@ it — this removes both the work of invoking each layer by hand and, more impor
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/da-review-all` | triage the findings, then fix |
+| implementation complete, or a PR open | `/da-review-all` | `/da-fix-plan` to triage into an ordered plan, then fix |
 
 ## What this skill delegates to
 
@@ -105,7 +105,7 @@ entire layer, and that is not recoverable by anything later in the process.
 
 For each layer with files, launch a subagent and tell it to use that layer's skill **by name**:
 
-> Use the `review-<layer>` skill and follow it exactly. Your scope is strictly these files:
+> Use the `da-review-<layer>` skill and follow it exactly. Your scope is strictly these files:
 > `<the list>`. Do not re-derive the full diff.
 
 The layer skill handles the rest — it reads its own posture, process, perspectives, and the

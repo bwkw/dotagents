@@ -80,8 +80,8 @@ grep -q 'fails OPEN' <<<"$(reason da-verify)" \
   && ok "verify: the reason says the gate fails OPEN" \
   || bad "verify: the reason does not mention failing open"
 grep -q 'reviewing nothing' <<<"$(reason da-review-backend)" \
-  && ok "review-backend: the reason says the layer would be reported as covered" \
-  || bad "review-backend: the reason does not say what breaks"
+  && ok "da-review-backend: the reason says the layer would be reported as covered" \
+  || bad "da-review-backend: the reason does not say what breaks"
 
 echo
 echo "lint hook: the pre-existing checks still hold"

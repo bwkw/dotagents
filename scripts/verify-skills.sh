@@ -156,9 +156,9 @@ check_skill() {
       # never arms and passes every turn: the guardrail opens instead of closing.
       da-verify)
         err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)" ;;
-      # review-all dispatches to these three by name via a subagent.
+      # da-review-all dispatches to these three by name via a subagent.
       da-review-backend|da-review-frontend|da-review-infra)
-        err "$id" "is a by-name dispatch target of review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so review-all would report this layer as covered while reviewing nothing" ;;
+        err "$id" "is a by-name dispatch target of da-review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so da-review-all would report this layer as covered while reviewing nothing" ;;
       *)
         : ;;  # legitimate: user-invocable only, zero budget cost, nothing dispatches to it
     esac
@@ -198,8 +198,8 @@ check_skill() {
   # --- provenance ------------------------------------------------------------
   # Installed globally, ours sit among two dozen third-party skills. Without a marker there is no
   # way to answer "which of these am I responsible for" -- not for a person reading /skills, and
-  # not for skills-audit deciding what it may propose removing.
-  # Only for skills in this repository. Run over an install directory -- which skills-audit tells you
+  # not for da-skills-audit deciding what it may propose removing.
+  # Only for skills in this repository. Run over an install directory -- which da-skills-audit tells you
   # to do -- every third-party skill would report as missing our marker, which is both wrong and
   # 28 lines of noise in a 35-line report. A report that is mostly noise stops being read, which is
   # the exact failure finding-discipline.md is about.

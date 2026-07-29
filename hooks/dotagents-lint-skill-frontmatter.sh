@@ -85,12 +85,12 @@ process.stdin.on("end", () => {
       );
     }
 
-    // review-all dispatches to these three by name via a subagent.
+    // da-review-all dispatches to these three by name via a subagent.
     if (["da-review-backend", "da-review-frontend", "da-review-infra"].includes(name)) {
       return deny(
-        `'${name}' is a by-name dispatch target of review-all, and ` +
+        `'${name}' is a by-name dispatch target of da-review-all, and ` +
         "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +
-        "Setting it makes review-all report that layer as covered while reviewing nothing, with " +
+        "Setting it makes da-review-all report that layer as covered while reviewing nothing, with " +
         "no error. See docs/adr/0004 and docs/adr/0005.",
       );
     }
