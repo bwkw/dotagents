@@ -54,6 +54,28 @@ disarm(){ DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$REPO" >/dev/null 2
 # So an absent log means "nothing was traced", which is a legitimate answer, not an error.
 trace_has() { grep -q "$1" "$GATE/trace.log" 2>/dev/null; }
 
+# A linked worktree of $REPO. Detached rather than on a branch: the name is irrelevant to what these
+# cases test, and --detach has none to collide with a later case.
+mk_worktree() { # mk_worktree <name> -> prints the worktree path, or fails
+  local p="$TMP/wt-$1"
+  git -C "$REPO" worktree add -q --detach "$p" >/dev/null 2>&1 || return 1
+  printf '%s' "$p"
+}
+
+# The armed directory whose ACTIVE names this repo. The slug is documented as never parsed, so these
+# tests must not derive it either -- they find it by content, the way the hook does. Nothing here
+# recomputes the worktree key: a test that re-implements the mechanism it is checking is how this
+# suite once passed while nothing in the repository could arm the gate at all.
+gate_dir_for() { # gate_dir_for <repo>
+  local want f
+  want="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$1")"
+  for f in "$GATE"/*/ACTIVE; do
+    [[ -f "$f" ]] || continue
+    [[ "$(cat "$f")" == "$want" ]] && { dirname "$f"; return 0; }
+  done
+  return 1
+}
+
 invoke_at() { # invoke_at <dir> [extra-json-fields]
   printf '{"cwd":"%s"%s}' "$1" "${2:+,$2}" \
     | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr"
@@ -311,6 +333,81 @@ invoke >/dev/null
 grep -q 'delegated.json' "$TMP/stderr" \
   && { printf '%s✗%s block message still hands out a way to forge the record\n' "$c_red" "$c_off"; fail=$((fail+1)); } \
   || { printf '%s✓%s block message does not hand out a forgery recipe\n' "$c_green" "$c_off"; pass=$((pass+1)); }
+
+echo
+echo "verify-gate — worktrees inherit the gate"
+echo
+
+# `using-git-worktrees` is a shipped skill whose stated purpose is isolation before executing a plan,
+# so the moment work is serious enough to want a gate is the moment it moves into a worktree. Matching
+# the sentinel against the *toplevel* meant a gate armed in the main checkout answered
+# "armed elsewhere" for every one of them. Observed in the real trace log, not hypothetical:
+#   claude  .../dresscode-backend/.worktrees/typecheck-perf  passed: armed elsewhere
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+WT1="$(mk_worktree one)" || WT1=""
+WT2="$(mk_worktree two)" || WT2=""
+
+if [[ -z "$WT1" || -z "$WT2" ]]; then
+  no "could not create linked worktrees -- the worktree cases did NOT run"
+else
+  check "armed in the main checkout -> the gate holds a linked worktree" 2 "$(invoke_at "$WT1")"
+
+  # Inheriting the gate must not mean sharing its counters. Attempts belong to a working tree: two
+  # worktrees are two pieces of work, and carrying a count across them would escalate at a repo whose
+  # own first attempt had not happened yet.
+  invoke_at "$WT1" >/dev/null              # WT1 now at two consecutive failures
+  grep -qi '2 times' "$TMP/stderr" \
+    && ok "   a second failure in the same worktree escalates" \
+    || no "   second failure in the same worktree did not escalate"
+  invoke_at "$WT2" >/dev/null              # a different worktree, first failure
+  grep -qi '2 times' "$TMP/stderr" \
+    && no "   attempts leaked across worktrees (WT2 escalated on its first failure)" \
+    || ok "   attempts are per worktree, not shared across them"
+
+  # A delegated record is evidence about one working tree. Honouring it everywhere would let a check
+  # confirmed in the main checkout wave through a worktree nobody ran it in.
+  rm -rf "$GATE"; arm
+  write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "typecheck", "cmd": "true", "gate": true, "agent_may_run": false,
+                "delegate_reason": "needs 8GB of heap" } ] }
+JSON
+  DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$REPO" >/dev/null
+  check "   a record in the main checkout does not satisfy a worktree" 2 "$(invoke_at "$WT1")"
+  check "   ...and still satisfies the checkout it was made in" 0 "$(invoke)"
+
+  # gate.sh reaches the same conclusion as the hook. Two implementations that must agree forever is
+  # the coupling gate.sh's own header warns about, so it is asserted rather than assumed.
+  # Captured, not piped into grep. `armed` is the first line status prints, so `grep -q` matches and
+  # exits before gate.sh has finished writing -- gate.sh takes SIGPIPE, and under `pipefail` the
+  # pipeline reports 141 even though the assertion held. The older `| grep -q` cases below get away
+  # with it only because the string they look for is on the last line.
+  wt_status="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$WT1" 2>&1)"
+  grep -q '^armed' <<<"$wt_status" \
+    && ok "   gate.sh status sees the inherited gate from inside the worktree" \
+    || no "   gate.sh status reports not-armed inside a worktree of an armed repo: $(tr '\n' '|' <<<"$wt_status")"
+
+  # Recording from inside the worktree must land where the hook looks for it.
+  DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$WT1" >/dev/null 2>&1
+  check "   a record made in the worktree satisfies that worktree" 0 "$(invoke_at "$WT1")"
+fi
+
+# An unrelated repository must still be none of our business -- inheritance widens the gate to
+# worktrees of the armed repo, and to nothing else.
+UNREL="$TMP/unrelated"; mkdir -p "$UNREL"; git -C "$UNREL" init -q
+git -C "$UNREL" remote add origin git@github.com:example/scratch.git
+echo z > "$UNREL/a.txt"; git -C "$UNREL" add -A
+git -C "$UNREL" -c user.email=t@t -c user.name=t commit -qm init
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
 echo "gate.sh — the arming mechanism"
