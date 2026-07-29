@@ -95,12 +95,23 @@ hook_timeout() { # <event> <substring>
   ' "$FAKE/.claude/settings.json" "$1" "$2"
 }
 st="$(hook_timeout Stop dotagents-verify-gate)"
-[[ "$st" != "absent" ]] && (( st > 300 )) \
-  && ok "the Stop hook declares a timeout above the gate's own budget (${st}s)" \
+[[ "$st" != "absent" ]] && (( st > 420 )) \
+  && ok "the Stop hook timeout exceeds the gate's worst case (300+120) (${st}s)" \
   || no "the Stop hook timeout is $st -- a harness kill is non-blocking, so this fails open"
 [[ "$(hook_timeout PreToolUse dotagents-lint-skill-frontmatter)" != "absent" ]] \
   && ok "the lint hook declares a timeout too" \
   || no "the lint hook has no timeout"
+
+# Subagents have to reach both agents. `setup.sh` used to link only ~/.claude/agents/ on the strength
+# of a comment claiming Cursor reads that directory too -- which is not in Cursor's documentation
+# (it names .cursor/agents/ and ~/.cursor/agents/), and ~/.cursor/agents/ was empty on the author's
+# machine. So the README claimed both subagents existed in every repository while Cursor had neither.
+for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
+  [[ -L "$FAKE/.claude/agents/$a.md" ]] \
+    && ok "agent '$a' is linked for Claude Code" || no "agent '$a' missing from ~/.claude/agents"
+  [[ -L "$FAKE/.cursor/agents/$a.md" ]] \
+    && ok "agent '$a' is linked for Cursor" || no "agent '$a' missing from ~/.cursor/agents"
+done
 
 # install twice must change nothing further.
 cp "$FAKE/.claude/settings.json" "$TMP/after1"
@@ -168,5 +179,13 @@ grep -q 'dotagents' "$FAKE/.claude/settings.json" \
   && ok "no skill links remain" || no "skill links remain after uninstall"
 
 echo
+# Uninstall has to clear both agent directories. Leaving one behind is the same failure as the install
+# side: the toolkit reports itself gone while Cursor still dispatches to a subagent it defines.
+left="$(ls "$FAKE/.claude/agents" "$FAKE/.cursor/agents" 2>/dev/null | grep -c '\.md$' || true)"
+[[ "$left" == "0" ]] \
+  && ok "uninstall leaves no agent links in either directory" \
+  || no "$left agent link(s) survived uninstall"
+
 if (( fail )); then printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1; fi
+
 printf '%s✓ %d passed%s\n' "$c_green" "$pass" "$c_off"

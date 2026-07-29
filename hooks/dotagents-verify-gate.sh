@@ -11,7 +11,8 @@
 #
 # Runs on both agents, with different enforcement strength:
 #
-#   Claude Code  Stop hook.   exit 2 BLOCKS the turn; stderr goes to the agent.
+#   Claude Code  Stop hook.   exit 2 BLOCKS the turn; stderr goes to the agent. Nothing else blocks --
+#                             exit 1 is a non-blocking error and the turn ends. See docs/harness-facts.md.
 #   Cursor       stop hook.   Cannot block. Printing {"followup_message": "..."} auto-submits a
 #                             message so the agent keeps working. Bounded by Cursor's loop_limit
 #                             (default 5), so it cannot spin forever.
@@ -219,6 +220,41 @@ else
   trace "?" "$PWD" "no readable stdin; treating the payload as empty"
   exec 3</dev/null
 fi
+# Something is armed, so from here an unexpected failure must not read as permission to stop.
+#
+# Only exit 2 blocks. The documentation is explicit that exit 1 is a *non-blocking* error and Claude
+# Code proceeds, so a crash here would end the turn with nothing checked and nothing said. This script
+# runs under `set -u`, which makes one unbound variable enough -- and that class already bit this repo
+# once, when a cwd containing a space made an arithmetic comparison exit 127. A trap makes it structural
+# instead of a bug fixed one occurrence at a time.
+#
+# Installed before the payload is even parsed, because "armed, but perhaps not for this repository" is
+# not a conclusion the hook is entitled to draw while it is malfunctioning -- the same reasoning the
+# node-missing block above already uses.
+agent="claude"
+cwd="$PWD"
+slug_dir=""
+_gate_work=""
+gate_on_exit() {
+  local code=$?
+  [[ -n "$_gate_work" ]] && rm -f "$_gate_work" "$_gate_work.fail" "$_gate_work.out" "$_gate_work.timeout"
+  # Cursor cannot be blocked, so converting there would buy nothing and would put noise on a stream it
+  # does not read.
+  if [[ "$code" != "0" && "$code" != "2" && "$agent" != "cursor" ]]; then
+    trace "$agent" "$cwd" "CRASHED with status $code; converted to a block"
+    {
+      echo "[dotagents] The verification gate exited unexpectedly (status $code), so it does not know"
+      echo "whether this repository's checks pass."
+      echo
+      echo "This is a fault in the gate, not in your work -- but only exit 2 blocks, and any other"
+      echo "status would have ended the turn with nothing checked. Report that the gate failed rather"
+      echo "than treating it as a pass${slug_dir:+, or disarm the gate at $slug_dir}."
+    } >&2
+    exit 2
+  fi
+}
+trap gate_on_exit EXIT
+
 payload="$(cat <&3)"
 exec 3<&-
 
@@ -232,11 +268,18 @@ _fields="$(printf '%s' "$payload" | node -e '
     let p = {}; try { p = JSON.parse(s) } catch {}
     const cursor = "loop_count" in p || ("status" in p && !("cwd" in p));
     const n = Number(p.loop_count);
+    // A subagent completing is not the end of the turn. Claude Code converts a registered Stop hook
+    // into SubagentStop for subagents, so this hook fires there too; agent_id is present in that case
+    // even when the event name is not. No apostrophes in here -- this whole script is inside a
+    // single-quoted shell argument, and one would close it and spill script text into the output.
+    const sub = p.hook_event_name === "SubagentStop" || "agent_id" in p ? "1" : "0";
     process.stdout.write([
       cursor ? "cursor" : "claude",
       p.cwd || "-",
       Number.isFinite(n) ? String(Math.trunc(n)) : "0",
       p.stop_hook_active ? "1" : "0",
+      sub,
+      String(p.agent_type || "-"),
     ].join("\n") + "\n");
   });
 ' 2>/dev/null)"
@@ -245,6 +288,10 @@ agent="$(sed -n 1p <<<"$_fields")"
 cwd="$(sed -n 2p <<<"$_fields")"
 loop_count="$(sed -n 3p <<<"$_fields")"
 stop_active="$(sed -n 4p <<<"$_fields")"
+is_subagent="$(sed -n 5p <<<"$_fields")"
+agent_type="$(sed -n 6p <<<"$_fields")"
+[[ "$is_subagent" == "1" ]] || is_subagent=0
+[[ -n "$agent_type" ]] || agent_type="-"
 
 # Defaults, and a numeric guarantee for loop_count so the arithmetic below cannot explode.
 [[ -n "$agent" ]] || agent="claude"
@@ -417,6 +464,17 @@ done
 # Armed somewhere, but not for this repository. Not our business.
 [[ -n "$slug_dir" ]] || pass "armed elsewhere, not for $gate_repo_root"
 
+# ---------------------------------------------------------------- a subagent is not a turn
+# Claude Code converts a registered Stop hook into SubagentStop for subagents, so this hook fires every
+# time one completes. That is the wrong question to ask here: the gate decides whether the *user's turn*
+# may end. Left alone it meant da-review-all's three layer subagents each triggered a full run of the
+# gating suite, exit 2 *prevented a review subagent from stopping* because the repository's tests were
+# red, and the attempt budget was spent three times over by work that was not the user's turn.
+if [[ "$is_subagent" == "1" ]]; then
+  pass "subagent completed (${agent_type}); the gate applies to the turn, not to a subagent"
+fi
+
+
 # Armed for this repo, so from here a malfunction must block rather than pass. See docs/decisions.md.
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
   block "The verification gate needs node and cannot find it on PATH, so it cannot check anything.
@@ -516,7 +574,9 @@ if [[ -z "$work" || ! -f "$work" ]]; then
 This is a fault in the gate itself, not in your work. Either fix it or disarm the sentinel at
 $slug_dir before continuing -- do not treat this as a pass."
 fi
-trap 'rm -f "$work" "$work.fail" "$work.out" "$work.timeout"' EXIT
+# Registered through the same handler rather than as a second trap: a bare `trap ... EXIT` here would
+# replace the crash guard installed above, and losing it is invisible until the gate crashes.
+_gate_work="$work"
 
 # Defaults, not measurements. They have to be generous enough for a real suite and finite enough that
 # a hung check cannot hold a turn open indefinitely.

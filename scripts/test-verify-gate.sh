@@ -467,6 +467,65 @@ check "   a mutating check that changes nothing -> passes" 0 "$(invoke)"
 rm -f "$REPO/touched-by-the-gate.txt"
 
 echo
+echo "verify-gate — a subagent finishing is not the end of a turn"
+echo
+
+# Official docs: "For subagents, `Stop` hooks are automatically converted to `SubagentStop` since that
+# is the event that fires when a subagent completes." So this hook has been running at every subagent
+# completion all along -- da-review-all dispatches three layer subagents, which meant three extra full
+# runs of the gating suite per review, exit 2 *preventing a review subagent from stopping* because the
+# repo's tests were red, and three spurious increments of the attempt budget.
+#
+# The gate is about whether the user's turn may end. A subagent finishing is not that.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "SubagentStop with a red check -> passes, does not block the subagent" 0 \
+  "$(invoke_at "$REPO" '"hook_event_name":"SubagentStop"')"
+check "   a Stop payload carrying agent_id -> also passes" 0 \
+  "$(invoke_at "$REPO" '"hook_event_name":"Stop","agent_id":"a1","agent_type":"x-review-backend"')"
+trace_has 'subagent' \
+  && ok "   and says so, so the trace does not look like a clean pass" \
+  || no "   passed silently: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 160)"
+
+# The real turn end must still block, or the fix would have removed the gate.
+check "   the user's own turn end still blocks" 2 "$(invoke)"
+
+# A subagent stop must not spend the attempt budget either.
+rm -rf "$GATE"; arm
+invoke_at "$REPO" '"hook_event_name":"SubagentStop"' >/dev/null
+invoke_at "$REPO" '"hook_event_name":"SubagentStop"' >/dev/null
+invoke >/dev/null
+grep -qi 'attempt 1 of' "$TMP/stderr" \
+  && ok "   subagent stops do not consume the attempt budget" \
+  || no "   the budget was spent by subagent stops: $(grep -o 'attempt [0-9] of [0-9]' "$TMP/stderr" | head -1)"
+
+echo
+echo "verify-gate — an unexpected crash must not read as permission to stop"
+echo
+
+# Official docs: "Claude Code treats exit code 1 as a non-blocking error and proceeds, even though 1 is
+# the conventional Unix failure code." Only exit 2 blocks. This hook runs under `set -u`, so an unbound
+# variable exits 1 -- non-blocking -- and the turn ends with nothing checked. That class already bit
+# this repo once (a cwd containing a space made an arithmetic comparison exit 127).
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+# Injected fault: a copy of the hook with an unbound variable reference partway through.
+CRASH="$TMP/crashing-hook.sh"
+sed 's|^payload="\$(cat <&3)"|payload="$(cat <\&3)"; : "$DOTAGENTS_DELIBERATELY_UNSET_FOR_TEST"|' \
+  "$HOOK" > "$CRASH"
+crash_code="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
+  | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$CRASH" 2>/dev/null; echo $?)"
+[[ "$crash_code" == "2" ]] \
+  && ok "an armed gate that crashes exits 2, not 1 -- only 2 blocks" \
+  || no "a crash exited $crash_code, which Claude Code treats as non-blocking: the turn ends unchecked"
+
+echo
 echo "verify-gate — the gate owns its own clock"
 echo
 
