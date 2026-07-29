@@ -36,6 +36,25 @@ The distinguishing question of a design review: **what becomes irreversible, and
 For each: **at what moment** does it become irreversible — merge, deploy, first request, first
 record? That moment is where a gate has to sit, if one is needed.
 
+## Landing boundaries
+
+Where the work divides into separate changes to ship. The inputs are the two sections around this one:
+what is irreversible, and what must deploy in order.
+
+- **A one-way door is its own landing.** Shipped alongside reversible work, reverting it takes back
+  things that did not need taking back.
+- **A contract and its consumer: same landing, or ordered?** `da-review-all` raises this as a finding
+  after the code exists. Answered here, it never becomes one.
+- **expand → migrate → contract is three landings**, not one. "Add the column, backfill it, drop the
+  old one" is three.
+- **Fold together anything with no ordering constraint.** Splitting has a cost -- each landing is
+  another review, another gate run, another merge. Separate only what must be.
+- **Every landing needs a gate you can name.** `gate.sh verify` is what runs it. If you cannot say
+  what proves a landing is done, it cannot be verified, and the plan is not finished.
+
+A plan that is genuinely one landing is one row with a reason. An absent table means nobody decided,
+which is the state this section exists to end.
+
 ## 2. Migration and ordering
 
 - Is the change **additive-first**? Is anything destructive split into expand → migrate → contract?

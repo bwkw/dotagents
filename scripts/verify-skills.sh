@@ -389,6 +389,25 @@ if [[ -f "$gate_sh" && -f "$gate_hook" ]]; then
   fi
 fi
 
+# --- the design review has to emit a landing plan ---------------------------
+# Where a body of work divides into separate changes to ship is decided nowhere else: da-fix-plan orders
+# fixes into commits inside one change, da-review-all asks whether two layers ship together only as a
+# finding. So plans used to reach implementation with the split unmade, and it got made ad hoc by
+# whoever was typing. The section is in da-design-review's required output -- checked here, because a
+# required section that only prose asks for is a section that quietly stops being produced.
+dr="$REPO/skills/da-design-review/SKILL.md"
+if [[ -f "$dr" ]]; then
+  echo
+  echo "checking the design review's landing plan"
+  if ! grep -q 'Landing plan' "$dr"; then
+    err "landing-plan" "skills/da-design-review no longer emits a 'Landing plan' section -- nothing else in the toolkit decides how work divides into separate changes to ship"
+  elif ! grep -q 'What gates it' "$dr"; then
+    err "landing-plan" "the landing plan table lost its 'What gates it' column -- a landing nobody can name a gate for cannot be verified, which is the column that makes the table more than a list"
+  else
+    printf '%s✓%s the design review emits a landing plan, with a gate per landing\n' "$c_green" "$c_off"
+  fi
+fi
+
 # --- the two 'when to use' enforcers must agree -----------------------------
 # This file warns when a description has no when-clause; the lint hook says the same thing to whoever
 # is writing the file. They disagreed, and the hook was the stricter one: it did not accept a Japanese
