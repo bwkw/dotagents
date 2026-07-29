@@ -410,6 +410,119 @@ JSON
 check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
+echo "verify-gate — blocking is bounded, and giving up is recorded"
+echo
+
+# `attempts >= 2` only ever escalated the *message*, and what it escalated to was "run /clear and
+# restart" -- an action no unattended loop can take. The gate blocked once per turn cycle forever,
+# which for a human is a nudge and for a loop is a wall with no door.
+#
+# So blocking is bounded. But silence would be a lie: the terminal state has to be a file that is
+# PRESENT, because if giving up only removed ACTIVE the next session's status would say "not armed",
+# which is indistinguishable from work nobody ever gated.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "echo 'still broken'; false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "attempt 1 of 3 -> blocks" 2 "$(invoke)"
+grep -qi 'attempt 1 of 3' "$TMP/stderr" \
+  && ok "   states the budget, so the agent is not thrashing blind" \
+  || no "   does not say which attempt this is: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
+check "attempt 2 of 3 -> still blocks" 2 "$(invoke)"
+check "attempt 3 of 3 -> blocks once more, and this is the last one" 2 "$(invoke)"
+
+# The invocation that crosses the threshold must exit 2, not release. exit 2 is what feeds stderr to
+# the model; a non-blocking exit does not reliably. Releasing on the crossing turn would let the agent
+# stop without ever learning the gate gave up.
+grep -qi 'not verified' "$TMP/stderr" \
+  && ok "   the terminal message says the work is not verified" \
+  || no "   terminal message does not say the work is unverified: $(tr '\n' '|' < "$TMP/stderr" | head -c 300)"
+grep -qi '/clear' "$TMP/stderr" \
+  && no "   terminal message still tells an unattended loop to run /clear" \
+  || ok "   terminal message does not prescribe /clear, which is unreachable unattended"
+
+verdict="$(find "$GATE" -name VERDICT | head -1)"
+[[ -n "$verdict" ]] \
+  && ok "   a VERDICT file is written" \
+  || no "   no VERDICT file anywhere under the gate dir"
+if [[ -n "$verdict" ]]; then
+  [[ "$(sed -n 2p "$verdict")" == "red" ]] \
+    && ok "   its reason is 'red' -- the check kept failing" \
+    || no "   wrong reason: $(sed -n 2p "$verdict")"
+  [[ "$(sed -n 3p "$verdict")" == "boom" ]] \
+    && ok "   it names the check" \
+    || no "   verdict does not name the check: $(sed -n 3p "$verdict")"
+fi
+grep -q 'red' "$GATE/verdicts.log" 2>/dev/null \
+  && ok "   and it is appended to verdicts.log" \
+  || no "   nothing in verdicts.log"
+trace_has 'GAVE UP' \
+  && ok "   the give-up is traced" \
+  || no "   gave up without a trace line"
+
+# From here the gate must stop blocking -- that is the whole point -- but it must not look green.
+check "after giving up -> stops blocking" 0 "$(invoke)"
+trace_has 'gave up earlier' \
+  && ok "   and the pass is textually distinct from 'all gating checks green'" \
+  || no "   a given-up pass is indistinguishable from a clean pass in the trace"
+
+# Re-arming is the one code path a new session is guaranteed to reach, via /da-verify. So it is where
+# a prior verdict has to surface.
+arm_out="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$REPO" 2>&1)"
+grep -qi 'verdict' <<<"$arm_out" \
+  && ok "re-arming echoes the verdict the previous session left" \
+  || no "re-arming says nothing about the prior verdict: $(tr '\n' '|' <<<"$arm_out" | head -c 200)"
+check "   ...and the gate blocks again after re-arming" 2 "$(invoke)"
+
+# A delegated check nobody confirms is the unattended case with no door at all: it blocked and never
+# counted. Bounded by the same budget, but recorded as a different finding -- "the human has not
+# confirmed" is not "the code is broken".
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "typecheck", "cmd": "true", "gate": true, "agent_may_run": false,
+                "delegate_reason": "needs 8GB of heap" } ] }
+JSON
+invoke >/dev/null; invoke >/dev/null
+check "an unconfirmed delegated check is bounded too" 2 "$(invoke)"
+check "   ...and then stops blocking" 0 "$(invoke)"
+verdict="$(find "$GATE" -name VERDICT | head -1)"
+[[ -n "$verdict" && "$(sed -n 2p "$verdict")" == "needs_human" ]] \
+  && ok "   recorded as needs_human, not as red" \
+  || no "   wrong reason for an unconfirmed delegated check: $(sed -n 2p "${verdict:-/dev/null}")"
+
+# The budget is configurable, because the tests need it short and a slow repo may want it longer.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "DOTAGENTS_GATE_MAX_ATTEMPTS=1 -> gives up on the first failure" 2 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
+check "   ...and stops blocking immediately after" 0 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
+
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "max_attempts": 1,
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a profile may set max_attempts" 2 "$(invoke)"
+check "   ...and it is honoured" 0 "$(invoke)"
+
+# Giving up in one worktree must not release the gate for another. The counters are per worktree, so
+# the verdict has to be too, or one dead end would open the gate for every parallel piece of work.
+if [[ -n "${WT1:-}" ]]; then
+  rm -rf "$GATE"; arm
+  write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+  DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke >/dev/null          # main checkout gives up
+  check "giving up in one working tree does not release another" 2 "$(invoke_at "$WT1")"
+fi
+
+echo
 echo "verify-gate — an idle gate is reclaimed"
 echo
 

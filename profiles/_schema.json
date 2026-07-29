@@ -24,6 +24,11 @@
       "type": "string",
       "description": "Directory relative to the repo root where checks run. Omit to run at the root."
     },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Consecutive failures of the same check before the gate stops blocking and records that it gave up. Default 3. Blocking forever is not a guardrail: the escalation it used to print told the agent to run /clear, which nothing running unattended can do. Giving up is recorded in a VERDICT file so it cannot be mistaken for a pass."
+    },
     "forbidden": {
       "type": "array",
       "items": { "type": "string" },

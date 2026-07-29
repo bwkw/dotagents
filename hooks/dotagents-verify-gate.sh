@@ -243,31 +243,37 @@ fi
 # $1 = message
 # $2 = what is red, for the trace. Passed explicitly rather than read from a global because block()
 #      is reached from several places, and the earliest of them run before any check has an id.
+# Cursor cannot be blocked; a stop hook there answers with a message that is auto-submitted as the
+# next user turn. Shared by block() and the terminal give-up, so both speak the same dialect and both
+# respect Cursor's own loop budget.
+emit_cursor_followup() { # $1 = message, $2 = what is red (for the trace)
+  if [[ "$loop_count" -ge 3 ]]; then
+    trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count while ${2:-the gate} red"
+    printf '%s' '{}'
+    exit 0
+  fi
+  trace "$agent" "$cwd" "injected a follow-up while ${2:-the gate} red (cannot block in Cursor)"
+  # followup_message is auto-submitted *as a user message*, so without attribution the agent
+  # cannot tell this from the human typing it -- and may then treat a hook's demand as the
+  # user's stated intent, or attribute the interruption to them. Say what it is.
+  {
+    echo "[dotagents] Automated message from the verification gate. The user did not write this,"
+    echo "and did not ask you to stop -- a hook did, because a check is failing."
+    echo
+    printf '%s\n' "$1"
+  } | node -e '
+    let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
+      process.stdout.write(JSON.stringify({ followup_message: s.trimEnd() }));
+    });
+  '
+  exit 0
+}
+
 block() {
   local _what="${2:-the gate}"
   if [[ "$agent" == "cursor" ]]; then
-    # Cursor cannot be blocked. Feed the failure back as the next user message instead, and stop
-    # doing so before the loop_limit so the budget is not silently exhausted by us.
-    if [[ "$loop_count" -ge 3 ]]; then
-      trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count while $_what red"
-      printf '%s' '{}'
-      exit 0
-    fi
-    trace "$agent" "$cwd" "injected a follow-up while $_what red (cannot block in Cursor)"
-    # followup_message is auto-submitted *as a user message*, so without attribution the agent
-    # cannot tell this from the human typing it -- and may then treat a hook's demand as the
-    # user's stated intent, or attribute the interruption to them. Say what it is.
-    {
-      echo "[dotagents] Automated message from the verification gate. The user did not write this,"
-      echo "and did not ask you to stop -- a hook did, because a check is failing."
-      echo
-      printf '%s\n' "$1"
-    } | node -e '
-      let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
-        process.stdout.write(JSON.stringify({ followup_message: s.trimEnd() }));
-      });
-    '
-    exit 0
+    # Stop injecting before the loop_limit so the budget is not silently exhausted by us.
+    emit_cursor_followup "$1" "$_what"
   fi
   # Claude Code re-invokes this hook after a block, and the agent cannot reach the user without
   # ending a turn. Blocking indefinitely would trap it: the instruction "ask the user" is
@@ -417,6 +423,15 @@ if [[ ! -e "$delegated_file" && -e "$slug_dir/delegated.json" ]]; then
   delegated_file="$slug_dir/delegated.json"
 fi
 
+# A verdict beside the counters means this working tree's gate has already given up. It stops
+# blocking -- that is the point of bounding it -- but it must not read as green, so the trace line is
+# deliberately different from the all-clear one. Per working tree, not per repository: a dead end in
+# one worktree must not release the gate for every other piece of work in parallel.
+verdict_file="$state_dir/VERDICT"
+if [[ -f "$verdict_file" ]]; then
+  pass "gave up earlier on $(sed -n 3p "$verdict_file" 2>/dev/null) after $(sed -n 4p "$verdict_file" 2>/dev/null) attempts -- the work was NOT verified"
+fi
+
 # ---------------------------------------------------------------- resolve the profile
 
 remote="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
@@ -492,6 +507,21 @@ failed_id=""
 failed_cmd=""
 failed_out=""
 failed_code=0
+# Which finding this is, and therefore which verdict it would become. "the human has not confirmed"
+# is not "the code is broken", and a record that conflated them would be useless to read later.
+failed_kind="red"
+
+# How many consecutive failures before this gate stops holding. Not 2: 2 is where the message already
+# escalates, and the terminal point has to be strictly later or the escalation never gets a turn to
+# work. The env var takes precedence so the tests can shorten it without editing a profile.
+max_attempts="${DOTAGENTS_GATE_MAX_ATTEMPTS:-}"
+if [[ -z "$max_attempts" ]]; then
+  max_attempts="$(node -e '
+    try { const v = require(process.argv[1]).max_attempts;
+          console.log(Number.isInteger(v) && v > 0 ? v : "") } catch {}
+  ' "$profile" 2>/dev/null)"
+fi
+case "$max_attempts" in ''|*[!0-9]*|0) max_attempts=3 ;; esac
 
 while IFS=$'\t' read -r id cmd; do
   [[ -n "$id" ]] || continue
@@ -548,20 +578,18 @@ if [[ -z "$failed_id" ]]; then
       if (c.gate && !c.agent_may_run) console.log([c.id, c.delegate_reason || ""].join("\t"));
   ' "$profile" > "$work"
 
+  # Recorded rather than blocked on the spot. Blocking here bypassed the attempt counter entirely, so
+  # a delegated check with nobody around to run it was a wall with no door: it blocked every turn
+  # cycle forever and never moved any counter. It goes through the same budget as everything else now.
   while IFS=$'\t' read -r id reason; do
     [[ -n "$id" ]] || continue
     if ! grep -qs "\"$id\"" "$delegated_file" 2>/dev/null; then
-      block "$(
-        echo "Cannot finish: the '$id' check has not been confirmed."
-        echo
-        echo "$reason"
-        echo
-        echo "Ask the user to run it and wait for their output. Once they report it, /da-verify"
-        echo "records the result. Do not write that record yourself -- the whole point of this"
-        echo "check is that the result came from them."
-        echo
-        echo "Do not end the turn claiming success while this is outstanding."
-      )" "$id (delegated, unconfirmed)"
+      failed_id="$id"
+      failed_kind="needs_human"
+      failed_cmd="(delegated -- the agent may not run this)"
+      failed_code="-"
+      failed_out="$reason"
+      break
     fi
   done < "$work"
 fi
@@ -575,30 +603,80 @@ fi
 
 # ---------------------------------------------------------------- blocked
 
+# Written through a temp file and renamed. Two concurrent writers could otherwise leave a truncated
+# attempts.json, which JSON.parse inside the catch below turns into {} -- silently resetting the count
+# so the bound is never reached. That is a fail-open wearing a parse error as a disguise.
 attempts="$(node -e '
   const fs=require("fs"); const [f,id]=process.argv.slice(1);
   let a={}; try{a=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
   a[id]=(a[id]||0)+1;
-  fs.writeFileSync(f, JSON.stringify(a,null,2)+"\n");
+  const tmp = f + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(a,null,2)+"\n");
+  fs.renameSync(tmp, f);
   console.log(a[id]);
 ' "$attempts_file" "$failed_id" 2>/dev/null || echo 1)"
+case "$attempts" in ''|*[!0-9]*) attempts=1 ;; esac
 
-block "$(
-  if (( attempts >= 2 )); then
-    # Repeated correction piles failed approaches into the context and makes each attempt worse.
-    echo "The '$failed_id' check has now failed $attempts times in a row."
-    echo
-    echo "Stop patching. Each further attempt adds a failed approach to this context and makes"
-    echo "the next one less likely to work. Write down what you tried and why it failed, then"
-    echo "run /clear and restart with that knowledge folded into the prompt."
-  else
-    echo "Cannot finish: the '$failed_id' check is failing."
-  fi
-  echo
+failed_detail="$(
   echo "  command : $failed_cmd"
   echo "  cwd     : $run_dir"
   echo "  exit    : $failed_code"
   echo
   echo "last 20 lines of output:"
   tail -20 <<<"$failed_out" | sed 's/^/  /'
+)"
+
+# The order below is the fix, not just the bound. The terminal decision has to come BEFORE the
+# re-entry release, because the release short-circuits everything -- so the verdict would never be
+# written on the turn it was due.
+if (( attempts >= max_attempts )); then
+  gate_write_verdict "$state_dir" "$failed_kind" "$failed_id" "$attempts" "$failed_code" \
+    "$agent" "$failed_cmd" "$failed_out"
+  gate_log_verdict "$gate_repo_root" "$failed_kind" "gave up on $failed_id after $attempts attempts"
+  trace "$agent" "$cwd" "GAVE UP on $failed_id after $attempts attempts ($failed_kind)"
+
+  terminal_msg="$(
+    printf 'The gate has given up on the %s check after %s attempts.\n' "$failed_id" "$attempts"
+    echo
+    echo "$failed_detail"
+    echo
+    echo "This gate is now releasing and will not block again for this check."
+    echo "The work is NOT verified. Do not describe it as done, do not commit it as passing, and"
+    echo "do not open a PR claiming green. Say plainly what is still red and what you could not fix."
+    echo
+    echo "Recorded at $state_dir/VERDICT. Re-arming the gate starts a fresh budget."
+  )"
+
+  # Deliberately not routed through block(): block() releases on re-entry, and this message is the one
+  # that must not be swallowed. On Claude Code the crossing invocation still exits 2, because exit 2
+  # is what routes stderr to the model and a non-blocking exit does not reliably -- releasing here
+  # would let the agent stop without ever learning the gate gave up. One more blocked turn is cheap,
+  # and it puts the failure in the transcript.
+  if [[ "$agent" == "cursor" ]]; then
+    emit_cursor_followup "$terminal_msg" "$failed_id (gave up)"
+  fi
+  {
+    printf '[dotagents] %s\n' "$terminal_msg"
+    echo
+    echo "This is a hook speaking, not the user."
+  } >&2
+  exit 2
+fi
+
+block "$(
+  if (( attempts >= 2 )); then
+    # Repeated correction piles failed approaches into the context and makes each attempt worse.
+    echo "The '$failed_id' check has now failed $attempts times in a row (attempt $attempts of $max_attempts)."
+    echo
+    echo "Stop patching. Each further attempt adds a failed approach to this context and makes"
+    echo "the next one less likely to work. Write down what you tried and why it failed, then"
+    echo "run /clear and restart with that knowledge folded into the prompt."
+  else
+    echo "Cannot finish: the '$failed_id' check is failing (attempt $attempts of $max_attempts)."
+  fi
+  echo
+  echo "After $max_attempts this gate stops blocking and records that it gave up. It will not"
+  echo "become green on its own."
+  echo
+  echo "$failed_detail"
 )" "$failed_id"
