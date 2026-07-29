@@ -225,7 +225,9 @@ for d in 20200101000001 20200101000002 20200101000003 20200101000004 20200101000
   : > "$FAKE/.claude/settings.json.dotagents-backup-$d"
 done
 seeded="$(backups)"
-printf '{"model":"sonnet"}\n' > "$FAKE/.claude/settings.json"   # force a real change
+# Deliberately NOT forcing a change: the cap has to apply on a no-op install too. Enforcing it only on
+# the path that creates a backup left ~/.cursor/hooks.json with 24 of them, because that file had
+# stopped changing and nothing reached the pile again.
 run_setup install >/dev/null
 (( $(backups) <= 3 )) \
   && ok "backups are pruned to 3 generations (was $seeded, now $(backups))" \

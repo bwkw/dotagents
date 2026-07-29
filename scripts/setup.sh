@@ -289,9 +289,14 @@ merge_with_backup() { # <target> <label> <merge command...>
       local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)-$$"
       mv "$pre" "$backup"
       note "backup: ${backup/#$HOME/$TILDE}"
-      prune_backups "$target"
     fi
   fi
+
+  # Pruned every time, not only when a backup was just taken. Enforcing the cap on the creating path
+  # alone leaves a pile that nothing ever touches again: ~/.cursor/hooks.json stopped changing, so its
+  # 24 pre-existing backups were never reached. A bound that only applies while you keep adding is not
+  # a bound.
+  prune_backups "$target"
   return "$rc"
 }
 
