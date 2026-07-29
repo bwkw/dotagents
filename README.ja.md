@@ -81,9 +81,13 @@ cd ~/private/dotagents
 つまり通常のフローに**別途 arm するステップはありません**。直接触るのは次の2ケースだけです。
 
 ```bash
-scripts/gate.sh arm       # 最初のターンから保留したい —— 無人実行で、まだ verify が走っていない段階
+scripts/gate.sh arm       # まだ verify が走っていない段階から、最初のターンから保留したい
 scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを走らせたくない
 ```
+
+> **これは「深夜に無人で回すためのロック」ではありません。** 早めに arm しておくと、見ていないセッションが緑で終わる確率は上がります。それだけです。ゲート側では直せない制限が3つあります。**Claude Code は Stop hook を8回連続ブロックで解除する**ので、本当に詰まった実行は通されて赤のまま終わります。**Cursor ではそもそもブロックできません** —— follow-up メッセージを注入するだけで、3回目でそれも止めるので歩いて通り抜けられます。そして**拒否し続ける hook は前進ではありません** —— 同じチェックが2回落ちたら正しい手はセッションを捨てることで、保留し続けることの逆です。
+>
+> 本当に寝ている間に回す作業で頼れるのは、**セッションを越えて残るもの**です: ディスクの spec、CI のチェック、復帰点としてのコミット。ゲートは**1セッション内のガードレール**であって、複数セッションを見張る監督者ではありません。
 
 ### 3 — 書いた後
 
@@ -221,6 +225,21 @@ scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを�
 プロンプトテンプレートの用途が消えたわけではなく、今は `disable-model-invocation: true` という綴りになりました。**description が context から完全に消えるので予算コストがゼロ**になります。`/da-pr-describe` がこれです（GitHub に書き込むので、タイミングはあなたのもの）。逆に **`/da-verify` と層別3本には絶対に付けません** —— 名前で到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。分類の全体像と出典は [`docs/mechanisms.md`](docs/mechanisms.md) にあります。
 
 実際の使い勝手: **`/da` を打てば自作のものだけが1つのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
+
+### 上流16本はどこから来たか
+
+**広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
+
+| 出所 | そこから入れたもの | なぜこのコレクションか |
+|---|---|---|
+| **[obra/superpowers](https://github.com/obra/superpowers)** — 10本 | `brainstorming` · `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `verification-before-completion` · `requesting-code-review` · `receiving-code-review` · `using-git-worktrees` · `finishing-a-development-branch` | **方法論の背骨**: plan → implement → verify と、デバッグの規律。マルチハーネス対応で、自前の `AGENTS.md` とテストを持つ。**プロセスはここから来ています** |
+| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 3本 | `grill-me` · `handoff` · `resolving-merge-conflicts` | **鋭くて単一目的**の道具。`grill-me` は設計フローを始める質問攻め、`handoff` はセッションを次に渡す圧縮。どちらも予算コストゼロ（`disable-model-invocation`） |
+| **[getsentry/skills](https://github.com/getsentry/skills)** — 2本 | `find-bugs` · `skill-scanner` | **本番の障害を見つけることが製品の会社**から。`find-bugs` は攻撃面を全列挙してからスイープする —— 層別レビューとは**形が違う**ので、まさに2本目のレビュアに適しています。`skill-scanner` はこのリポジトリ自身の frontmatter の実バグを見つけました |
+| **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1本 | `documentation-and-adrs` | **ADR の実践だけ。** このコレクションの他4本は「ループ外」として削除。これも一度削除して、**戻しました** —— ADR を書くことが設計フローの出発点だからです |
+
+**抑制せずに使っている Claude Code 組み込み**: `/code-review` · `/review` · `/security-review` · `/simplify` · `/verify` · `/run` · `/doctor` · `/skill-doctor`。加えて `anthropic-skills:skill-creator` —— **スキルが役に立っているかを測れる唯一のもの**です。
+
+**選定の規則と、なぜ vendoring しないか。** 方法論はそれを本業にしている人たちが維持した方が良いので、コピーせず**並べて入れます** —— `npx skills check` で上流の差分を確認してから `npx skills update` で取り込む。vendored なコピーは**誰もメンテしない fork** です。この選択の代償は、**上流スキルはここで編集できない**こと: その場で直しても次の update で失われるので、レバーは install と remove だけ。**だから `da-` prefix が自作を示し、上流は元の名前のままなのです。**
 
 ここに置くかの判定基準: **「違う意見を持つ人にとっても同じくらい有用か？」** Yes なら上流に属します。残るのは**特定の意見をエンコードしたもの** —— 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。
 

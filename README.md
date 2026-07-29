@@ -112,9 +112,21 @@ repository's own commands and refuses to finish while they are red.
 So there is no separate arming step in the normal flow. The two cases where you touch it directly:
 
 ```bash
-scripts/gate.sh arm       # hold from the FIRST turn -- an unattended run, before any verify
+scripts/gate.sh arm       # hold from the FIRST turn, before any verify has run
 scripts/gate.sh disarm    # back to question-answering; no suite on the way out
 ```
+
+> **Do not treat this as an unattended-overnight lock.** Arming early raises the odds that a session you
+> are not watching finishes green, and that is all. Three limits, none of which the gate can fix:
+> **Claude Code releases a Stop hook after 8 consecutive blocks**, so a genuinely stuck run gets let
+> through and finishes red. **On Cursor it cannot block at all** — it injects a follow-up message and
+> stops doing even that at the third one, so the run can be walked past. And a hook that keeps refusing
+> is not progress; if the same check fails twice the right move is to discard the session, which is the
+> opposite of holding it open.
+>
+> For work that genuinely runs while you sleep, the durable parts are the ones that survive the session:
+> the spec on disk, the checks in CI, and commits as recovery points. The gate is a guardrail inside one
+> session, not a supervisor across many.
 
 ### 3 — After writing code
 
@@ -313,6 +325,30 @@ by symlink, so a change to the discipline reaches every layer and the cross-laye
 
 Practically: **type `/` and everything is in one list.** Nothing here is invoked a second, different
 way.
+
+### Where the upstream sixteen come from
+
+Chosen from collections that are widely used and actively maintained, and **installed selectively** —
+never a whole repository, because every description shares one budget. Only what a flow above actually
+reaches.
+
+| Source | Installed from it | Why this collection |
+|---|---|---|
+| **[obra/superpowers](https://github.com/obra/superpowers)** — 10 | `brainstorming` · `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `verification-before-completion` · `requesting-code-review` · `receiving-code-review` · `using-git-worktrees` · `finishing-a-development-branch` | The methodology backbone: plan → implement → verify, plus the debugging discipline. Multi-harness, `AGENTS.md` and tests of its own. This is where the *process* comes from |
+| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 3 | `grill-me` · `handoff` · `resolving-merge-conflicts` | Sharp, single-purpose tools. `grill-me` is the interrogation that starts the design flow; `handoff` compacts a session for the next one. Both cost zero budget (`disable-model-invocation`) |
+| **[getsentry/skills](https://github.com/getsentry/skills)** — 2 | `find-bugs` · `skill-scanner` | From a company whose product is finding production failures. `find-bugs` enumerates the attack surface before it sweeps — a different shape from our layered review, which is exactly why it is the second reviewer. `skill-scanner` found a real defect in this repository's own frontmatter |
+| **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1 | `documentation-and-adrs` | Just the ADR practice. The other four from this collection were removed as off-loop; this one was removed too and **reinstated**, because writing the ADR is where the design flow starts |
+
+Bundled in Claude Code and used rather than suppressed: `/code-review`, `/review`, `/security-review`,
+`/simplify`, `/verify`, `/run`, `/doctor`, `/skill-doctor`. Plus `anthropic-skills:skill-creator`, which
+is the only thing here that can measure whether a skill helps.
+
+**The selection rule, and why nothing is vendored.** Methodology is better maintained by people who work
+on it full time, so it is installed alongside rather than copied in — `npx skills check` shows what
+changed upstream before `npx skills update` takes it. A vendored copy would be a fork nobody maintains.
+The cost of that choice is that an upstream skill **cannot be edited here**: a fix in place is lost on the
+next update, so the only levers are install and remove. That is why the `da-` prefix marks ours and
+upstream keeps its own names.
 
 The line for what belongs here: **would this be equally useful to someone with different opinions?**
 If yes, it belongs upstream. What stays encodes a particular opinion — what counts as a finding worth
