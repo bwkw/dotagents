@@ -4,7 +4,8 @@
 #   gate.sh arm [dir]            hold this repository's session until its checks pass
 #   gate.sh disarm [dir]         release it
 #   gate.sh record <check> [dir] note that the user ran a delegated check themselves
-#   gate.sh status [dir]         is it armed, and what has been recorded
+#   gate.sh status [dir]         is it armed, how idle, and what has been recorded
+#   gate.sh gc                   reclaim gates left armed by sessions that ended
 #
 # The gate hook does nothing unless armed. Skills call this; nothing else needs to.
 #
@@ -26,11 +27,12 @@ GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 
 die() { printf 'gate: %s\n' "$1" >&2; exit 1; }
 
-# >>> dotagents:gate-identity -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
+# >>> dotagents:gate-shared -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
 # Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
 # can go missing, and a lib under the repo can. scripts/verify-skills.sh asserts the copies match.
 #
-# Two levels of identity, because they answer different questions.
+# --- identity ---------------------------------------------------------------
+# Two levels, because they answer different questions.
 #   Whether a repository is gated is a property of the *repository*, so it keys on the shared git
 #   directory -- which is what makes a linked worktree inherit its main checkout's gate.
 #   Attempts and delegated records are properties of a *working tree*, so they key per worktree.
@@ -58,7 +60,92 @@ gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tre
   c="$(gate_abs "$1" --git-common-dir)"
   if [[ -n "$g" && -n "$c" && "$g" != "$c" ]]; then basename "$g"; else printf 'main'; fi
 }
-# <<< dotagents:gate-identity
+
+# Where a working tree's own counters live. One level below the sentinel, so a gate inherited by
+# several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
+state_dir_for() { # <armed-dir> <dir>
+  printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
+}
+
+# --- the clock --------------------------------------------------------------
+# Epochs are stored as file *contents*, not as mtimes: `touch -t` arithmetic differs between BSD and
+# GNU, and the tests have to move time deterministically. `date +%s` is identical on both.
+# DOTAGENTS_GATE_NOW exists for those tests. Nothing else sets it.
+gate_now() {
+  local n="${DOTAGENTS_GATE_NOW:-}"
+  case "$n" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$n" ;; esac
+}
+
+# 12 hours is chosen, not measured. It has to outlast a long unattended run without outlasting a night.
+gate_ttl_seconds() {
+  local h="${DOTAGENTS_GATE_TTL_HOURS:-12}"
+  case "$h" in ''|*[!0-9]*) h=12 ;; esac
+  printf '%s' $(( h * 3600 ))
+}
+
+# Seconds since this gate last saw a turn end -- idle time, not age. A TTL counted from arming would
+# kill the case this exists for: a six-hour unattended run would expire mid-flight and the gate would
+# open in silence. Empty when there is no heartbeat to compare against, which callers must NOT read as
+# "infinitely idle": that would evict a gate somebody armed a minute ago with an older gate.sh.
+gate_idle_seconds() { # <armed-dir>
+  local hb now
+  hb="$(cat "$1/HEARTBEAT" 2>/dev/null || true)"
+  case "$hb" in ''|*[!0-9]*) return 0 ;; esac
+  now="$(gate_now)"
+  printf '%s' $(( now - hb ))
+}
+
+gate_touch_heartbeat() { # <armed-dir>
+  local tmp="$1/HEARTBEAT.tmp.$$"
+  gate_now > "$tmp" 2>/dev/null && mv -f "$tmp" "$1/HEARTBEAT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# --- verdicts ---------------------------------------------------------------
+# A verdict is a file that is *present*, not a state that is absent. If ending a gate only removed
+# ACTIVE, the next session's `status` would say "not armed" -- indistinguishable from a session that
+# never armed anything, which is the exact lie this is here to prevent.
+#
+# One field per line, read with `sed -n Np`, the same idiom the hook already uses for its work file.
+#   1 timestamp   2 reason   3 check id   4 attempts   5 exit code   6 agent   7 command   8+ output
+gate_write_verdict() { # <dir> <reason> <check> <attempts> <exit> <agent> <command> [output]
+  local d="$1" tmp="$1/VERDICT.tmp.$$"
+  {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+    printf '%s\n%s\n%s\n%s\n%s\n' "${2:--}" "${3:--}" "${4:-0}" "${5:--}" "${6:--}"
+    # Flattened to one line: every field above is addressed by line number, so a command containing a
+    # newline would push the output tail into the middle of the record.
+    printf '%s' "${7:--}" | tr '\n' ' '
+    printf '\n%s\n' "${8:-}"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$d/VERDICT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# Beside trace.log, but never trimmed. The trace self-trims at 200 lines by design, so a verdict
+# recorded only there would be deleted by ordinary operation.
+gate_log_verdict() { # <root> <reason> <detail>
+  printf '%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:--}" "${2:--}" "${3:-}" \
+    >> "$GATE_DIR/verdicts.log" 2>/dev/null || true
+  return 0
+}
+
+# Reclaim an idle sentinel. ACTIVE goes, so the gate correctly becomes inert. ROOT and VERDICT stay,
+# so `status` can still answer whose gate it was and why it ended. Prints the root it reclaimed.
+gate_expire() { # <armed-dir> <idle-seconds>
+  local d="$1" idle="${2:-0}" root ttl
+  root="$(cat "$d/ROOT" 2>/dev/null || true)"
+  [[ -n "$root" ]] || root="$(cat "$d/ACTIVE" 2>/dev/null || true)"
+  ttl="$(gate_ttl_seconds)"
+  [[ -n "$root" ]] && printf '%s' "$root" > "$d/ROOT" 2>/dev/null
+  gate_write_verdict "$d" expired - 0 - - - \
+"Reclaimed after $(( idle / 3600 ))h idle (ttl $(( ttl / 3600 ))h). The session that armed this gate
+ended without disarming it. Nothing was checked by this verdict -- it records only that the gate
+stopped holding, not that the work was verified."
+  rm -f "$d/ACTIVE"
+  printf '%s' "$root"
+}
+# <<< dotagents:gate-shared
 
 # Absolute repository root, or the directory itself when it is not a repo.
 repo_root() {
@@ -80,24 +167,37 @@ state_dir_for() { # <armed-dir> <dir>
   printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
 }
 
-# The armed directory for this repository, found by the root recorded inside the sentinel -- or by
-# the shared git directory, so a worktree finds the gate its main checkout armed.
-find_armed() {
-  local root="$1" f armed common armed_common
+# The directory holding a given marker for this repository, found by the root recorded inside it --
+# or by the shared git directory, so a worktree finds the gate its main checkout armed.
+#
+# ACTIVE answers "is it armed". ROOT answers "whose was this" and outlives eviction, which is the
+# only reason `status` can tell an expired gate apart from a session that never armed anything.
+find_marked() { # <marker-filename> <root>
+  local marker="$1" root="$2" f armed common armed_common
   common="$(gate_common_dir "$root")"
   shopt -s nullglob
-  for f in "$GATE_DIR"/*/ACTIVE; do
+  for f in "$GATE_DIR"/*/"$marker"; do
     armed="$(cat "$f" 2>/dev/null)"
     [[ -n "$armed" ]] || continue
     [[ "$armed" == "$root" ]] && { dirname "$f"; return 0; }
-    # Only when the armed path still resolves. If the repository moved, string equality above is the
-    # only claim we are entitled to make.
+    # Only when the recorded path still resolves. If the repository moved, string equality above is
+    # the only claim we are entitled to make.
     if [[ -n "$common" && -d "$armed" ]]; then
       armed_common="$(gate_common_dir "$armed")"
       [[ -n "$armed_common" && "$armed_common" == "$common" ]] && { dirname "$f"; return 0; }
     fi
   done
   return 1
+}
+
+find_armed() { find_marked ACTIVE "$1"; }
+find_ended() { find_marked ROOT   "$1"; }
+
+# How long a gate has been idle, in whole hours, for humans.
+idle_hours() { # <armed-dir>
+  local s; s="$(gate_idle_seconds "$1")"
+  [[ -n "$s" ]] || { printf 'unknown'; return; }
+  printf '%sh' $(( s / 3600 ))
 }
 
 # Is there a profile for this repository? Arming one without a profile produces a gate that reports
@@ -156,12 +256,23 @@ cmd_arm() {
   local base n=0
   base="$GATE_DIR/$(slug_for "$root")"
   dir="$base"
-  while [[ -e "$dir/ACTIVE" ]]; do
+  # Reuse our own expired directory -- that is how a prior verdict gets echoed below -- but never one
+  # that is armed, and never one whose ROOT names a different repository.
+  while [[ -e "$dir/ACTIVE" ]] \
+     || { [[ -e "$dir/ROOT" ]] && [[ "$(cat "$dir/ROOT" 2>/dev/null)" != "$root" ]]; }; do
     n=$((n+1))
     dir="$base-$n"
   done
   mkdir -p "$dir" || die "could not create $dir"
   printf '%s' "$root" > "$dir/ACTIVE" || die "could not write the sentinel"
+  # ROOT is the same content, and is never removed. It is what lets `status` and `gc` report on a gate
+  # that is no longer armed, instead of falling back to a bare "not armed".
+  printf '%s' "$root" > "$dir/ROOT"
+  gate_now > "$dir/ARMED_AT"
+  gate_touch_heartbeat "$dir"
+  # A stale verdict from a previous session would otherwise make this freshly armed gate look like one
+  # that had already given up -- and it would not block. Kept as VERDICT.prev so it is still reportable.
+  [[ -f "$dir/VERDICT" ]] && mv -f "$dir/VERDICT" "$dir/VERDICT.prev" 2>/dev/null
   state="$(state_dir_for "$dir" "$root")"
   mkdir -p "$state" || die "could not create $state"
   printf '{}\n' > "$state/attempts.json"
@@ -169,6 +280,13 @@ cmd_arm() {
   echo "armed: $dir"
   echo "  the turn will not end while $(basename "$root")'s gating checks fail"
   echo "  worktrees of this repository inherit it, each with its own attempt count"
+  echo "  reclaimed automatically after $(( $(gate_ttl_seconds) / 3600 ))h with no turn ending here"
+  if [[ -f "$dir/VERDICT.prev" ]]; then
+    echo
+    echo "  NOTE: the previous gate here ended with a verdict rather than being disarmed:"
+    sed -n '2p;3p' "$dir/VERDICT.prev" 2>/dev/null | sed 's/^/    /'
+    echo "  Read $dir/VERDICT.prev before treating that work as verified."
+  fi
   warn_if_no_profile "$root"
 }
 
@@ -180,11 +298,40 @@ cmd_disarm() {
     return 0
   fi
   # Named paths only, never a glob: this runs under $HOME.
-  rm -f "$dir/ACTIVE"
+  # A deliberate disarm is a clean end, so it leaves no verdict behind -- unlike eviction, which has
+  # to explain itself. That is the difference the three-state design exists to express.
+  rm -f "$dir/ACTIVE" "$dir/ROOT" "$dir/ARMED_AT" "$dir/HEARTBEAT" "$dir/VERDICT" "$dir/VERDICT.prev"
   rm -rf "$dir/wt"
   rm -f "$dir/attempts.json" "$dir/delegated.json"   # pre-worktree layout
   rmdir "$dir" 2>/dev/null || true
   echo "disarmed: $dir"
+}
+
+# Reclaim every idle gate now, rather than waiting for some other repository's turn to end. For a
+# driver or a CI step that wants the sweep on demand. Prints what it reclaimed -- a sweep that says
+# nothing is indistinguishable from a sweep that found nothing.
+cmd_gc() {
+  local f dir idle root ttl found=0
+  ttl="$(gate_ttl_seconds)"
+  shopt -s nullglob
+  for f in "$GATE_DIR"/*/ACTIVE; do
+    dir="$(dirname "$f")"
+    idle="$(gate_idle_seconds "$dir")"
+    if [[ -z "$idle" ]]; then
+      # Armed by a version that kept no heartbeat. Start its clock rather than treat it as ancient.
+      gate_touch_heartbeat "$dir"
+      echo "clock started: $(cat "$f" 2>/dev/null) (no heartbeat recorded until now)"
+      found=1
+      continue
+    fi
+    if (( idle > ttl )); then
+      root="$(gate_expire "$dir" "$idle")"
+      gate_log_verdict "${root:-$dir}" expired "idle $(( idle / 3600 ))h, reclaimed by gc"
+      echo "reclaimed: ${root:-$dir} (idle $(( idle / 3600 ))h, ttl $(( ttl / 3600 ))h)"
+      found=1
+    fi
+  done
+  (( found )) || echo "nothing to reclaim (no gate idle beyond $(( ttl / 3600 ))h)"
 }
 
 cmd_record() {
@@ -204,14 +351,31 @@ Run 'gate.sh arm' first, or let /da-verify do it."
 
 cmd_status() {
   local root; root="$(repo_root "${1:-}")"
-  local dir state deleg attempts
+  local dir state deleg attempts ended
   if ! dir="$(find_armed "$root")"; then
-    echo "not armed  ($root)"
+    # Nothing armed. But "not armed" alone cannot be the whole answer: it reads identically whether
+    # this session never armed anything or a gate was reclaimed out from under an abandoned one.
+    # Reporting only, never evicting -- reading state must not be what opens a gate.
+    if ended="$(find_ended "$root")" && [[ -f "$ended/VERDICT" ]]; then
+      echo "not armed  ($root)"
+      echo "  ended    $(sed -n 2p "$ended/VERDICT" 2>/dev/null) at $(sed -n 1p "$ended/VERDICT" 2>/dev/null)"
+      [[ "$(sed -n 3p "$ended/VERDICT" 2>/dev/null)" == "-" ]] \
+        || echo "  check    $(sed -n 3p "$ended/VERDICT" 2>/dev/null)"
+      echo "  verdict  $ended/VERDICT"
+      echo "  The work this gate was holding was NOT verified. Read the verdict before calling it done."
+    else
+      echo "not armed  ($root)"
+    fi
     return 0
   fi
   state="$(state_dir_for "$dir" "$root")"
   echo "armed      $dir"
   echo "  repo     $root"
+  echo "  idle     $(idle_hours "$dir") (reclaimed past $(( $(gate_ttl_seconds) / 3600 ))h)"
+  if [[ -f "$dir/VERDICT" ]]; then
+    echo "  GAVE UP  $(sed -n 2p "$dir/VERDICT" 2>/dev/null) on $(sed -n 3p "$dir/VERDICT" 2>/dev/null) after $(sed -n 4p "$dir/VERDICT" 2>/dev/null) attempts"
+    echo "           this gate no longer blocks; see $dir/VERDICT"
+  fi
   [[ "$(cat "$dir/ACTIVE" 2>/dev/null)" == "$root" ]] \
     || echo "  inherited from $(cat "$dir/ACTIVE" 2>/dev/null)"
   # Pre-worktree layout kept the records beside the sentinel. Read them rather than lose a delegated
@@ -238,6 +402,7 @@ case "$cmd" in
   disarm)    cmd_disarm "${1:-}" ;;
   record)    cmd_record "${1:-}" "${2:-}" ;;
   status)    cmd_status "${1:-}" ;;
+  gc)        cmd_gc ;;
   -h|--help) usage ;;
   *) die "unknown command: $cmd" ;;
 esac

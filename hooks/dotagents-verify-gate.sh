@@ -42,11 +42,12 @@ trace() {
   fi
 }
 
-# >>> dotagents:gate-identity -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
+# >>> dotagents:gate-shared -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
 # Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
 # can go missing, and a lib under the repo can. scripts/verify-skills.sh asserts the copies match.
 #
-# Two levels of identity, because they answer different questions.
+# --- identity ---------------------------------------------------------------
+# Two levels, because they answer different questions.
 #   Whether a repository is gated is a property of the *repository*, so it keys on the shared git
 #   directory -- which is what makes a linked worktree inherit its main checkout's gate.
 #   Attempts and delegated records are properties of a *working tree*, so they key per worktree.
@@ -74,7 +75,92 @@ gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tre
   c="$(gate_abs "$1" --git-common-dir)"
   if [[ -n "$g" && -n "$c" && "$g" != "$c" ]]; then basename "$g"; else printf 'main'; fi
 }
-# <<< dotagents:gate-identity
+
+# Where a working tree's own counters live. One level below the sentinel, so a gate inherited by
+# several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
+state_dir_for() { # <armed-dir> <dir>
+  printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
+}
+
+# --- the clock --------------------------------------------------------------
+# Epochs are stored as file *contents*, not as mtimes: `touch -t` arithmetic differs between BSD and
+# GNU, and the tests have to move time deterministically. `date +%s` is identical on both.
+# DOTAGENTS_GATE_NOW exists for those tests. Nothing else sets it.
+gate_now() {
+  local n="${DOTAGENTS_GATE_NOW:-}"
+  case "$n" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$n" ;; esac
+}
+
+# 12 hours is chosen, not measured. It has to outlast a long unattended run without outlasting a night.
+gate_ttl_seconds() {
+  local h="${DOTAGENTS_GATE_TTL_HOURS:-12}"
+  case "$h" in ''|*[!0-9]*) h=12 ;; esac
+  printf '%s' $(( h * 3600 ))
+}
+
+# Seconds since this gate last saw a turn end -- idle time, not age. A TTL counted from arming would
+# kill the case this exists for: a six-hour unattended run would expire mid-flight and the gate would
+# open in silence. Empty when there is no heartbeat to compare against, which callers must NOT read as
+# "infinitely idle": that would evict a gate somebody armed a minute ago with an older gate.sh.
+gate_idle_seconds() { # <armed-dir>
+  local hb now
+  hb="$(cat "$1/HEARTBEAT" 2>/dev/null || true)"
+  case "$hb" in ''|*[!0-9]*) return 0 ;; esac
+  now="$(gate_now)"
+  printf '%s' $(( now - hb ))
+}
+
+gate_touch_heartbeat() { # <armed-dir>
+  local tmp="$1/HEARTBEAT.tmp.$$"
+  gate_now > "$tmp" 2>/dev/null && mv -f "$tmp" "$1/HEARTBEAT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# --- verdicts ---------------------------------------------------------------
+# A verdict is a file that is *present*, not a state that is absent. If ending a gate only removed
+# ACTIVE, the next session's `status` would say "not armed" -- indistinguishable from a session that
+# never armed anything, which is the exact lie this is here to prevent.
+#
+# One field per line, read with `sed -n Np`, the same idiom the hook already uses for its work file.
+#   1 timestamp   2 reason   3 check id   4 attempts   5 exit code   6 agent   7 command   8+ output
+gate_write_verdict() { # <dir> <reason> <check> <attempts> <exit> <agent> <command> [output]
+  local d="$1" tmp="$1/VERDICT.tmp.$$"
+  {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+    printf '%s\n%s\n%s\n%s\n%s\n' "${2:--}" "${3:--}" "${4:-0}" "${5:--}" "${6:--}"
+    # Flattened to one line: every field above is addressed by line number, so a command containing a
+    # newline would push the output tail into the middle of the record.
+    printf '%s' "${7:--}" | tr '\n' ' '
+    printf '\n%s\n' "${8:-}"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$d/VERDICT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# Beside trace.log, but never trimmed. The trace self-trims at 200 lines by design, so a verdict
+# recorded only there would be deleted by ordinary operation.
+gate_log_verdict() { # <root> <reason> <detail>
+  printf '%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:--}" "${2:--}" "${3:-}" \
+    >> "$GATE_DIR/verdicts.log" 2>/dev/null || true
+  return 0
+}
+
+# Reclaim an idle sentinel. ACTIVE goes, so the gate correctly becomes inert. ROOT and VERDICT stay,
+# so `status` can still answer whose gate it was and why it ended. Prints the root it reclaimed.
+gate_expire() { # <armed-dir> <idle-seconds>
+  local d="$1" idle="${2:-0}" root ttl
+  root="$(cat "$d/ROOT" 2>/dev/null || true)"
+  [[ -n "$root" ]] || root="$(cat "$d/ACTIVE" 2>/dev/null || true)"
+  ttl="$(gate_ttl_seconds)"
+  [[ -n "$root" ]] && printf '%s' "$root" > "$d/ROOT" 2>/dev/null
+  gate_write_verdict "$d" expired - 0 - - - \
+"Reclaimed after $(( idle / 3600 ))h idle (ttl $(( ttl / 3600 ))h). The session that armed this gate
+ended without disarming it. Nothing was checked by this verdict -- it records only that the gate
+stopped holding, not that the work was verified."
+  rm -f "$d/ACTIVE"
+  printf '%s' "$root"
+}
+# <<< dotagents:gate-shared
 
 # Installed copies live in ~/.claude/hooks, away from the repo, so the manifest records where the
 # repo is. DOTAGENTS_PROFILES overrides both, which is how the test suite stays hermetic.
@@ -263,6 +349,43 @@ This agent reports no working directory, and ${#active[@]} repositories are arme
 you are not working in with 'scripts/gate.sh disarm' so there is a single answer. Nothing was
 checked -- do not treat this as a pass."
 fi
+
+# ---------------------------------------------------------------- reclaim idle sentinels
+# The sweeper is the glob above, which every turn end in every repository already walks. It runs
+# several times a minute across all sessions, so it costs nothing -- and a launchd job whose purpose
+# was to un-arm guardrails would be a fail-open machine running when nobody is watching.
+#
+# The rule that makes expiry structurally unable to fail open:
+#
+#   an invocation may evict a sentinel only if that sentinel is NOT the one it is about to enforce.
+#
+# So the only invocation that can expire gate G is one that was never protecting G, and no single
+# invocation can both expire a gate and pass on the basis of that expiry. Placed after the match and
+# after the Cursor inference: if the one armed sentinel is stale and we inferred it, enforcing it is
+# the fail-closed answer, and the heartbeat refresh below keeps it.
+_ttl="$(gate_ttl_seconds)"
+for _sentinel in "${active[@]}"; do
+  _d="$(dirname "$_sentinel")"
+  [[ -n "$slug_dir" && "$_d" == "$slug_dir" ]] && continue
+  _idle="$(gate_idle_seconds "$_d")"
+  if [[ -z "$_idle" ]]; then
+    # Armed by a version that kept no heartbeat. Start its clock instead of reading the absence as
+    # infinite idleness, which would evict a gate somebody armed a minute ago. The upgrade migrates
+    # itself; there is no command for anyone to remember to run.
+    gate_touch_heartbeat "$_d"
+    continue
+  fi
+  if (( _idle > _ttl )); then
+    _root="$(gate_expire "$_d" "$_idle")"
+    trace "$agent" "$cwd" "expired ${_root:-$_d} (idle $(( _idle / 3600 ))h, ttl $(( _ttl / 3600 ))h)"
+    gate_log_verdict "${_root:-$_d}" expired "idle $(( _idle / 3600 ))h, reclaimed during a turn end in $gate_repo_root"
+  fi
+done
+
+# Ours: refreshed, not expired. This is also what backfills a pre-upgrade sentinel of our own, and
+# what lets a long unattended run keep its gate -- idle time is measured from the last turn to end
+# here, not from when the gate was armed.
+[[ -n "$slug_dir" ]] && gate_touch_heartbeat "$slug_dir"
 
 # Armed somewhere, but not for this repository. Not our business.
 [[ -n "$slug_dir" ]] || pass "armed elsewhere, not for $gate_repo_root"

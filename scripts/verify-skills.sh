@@ -310,7 +310,7 @@ if [[ -d "$REPO/skills" ]]; then
     "$c_green" "$c_off" "$(tr '\n' ' ' <<<"$linter_names")"
 fi
 
-# --- the shared gate identity block ----------------------------------------
+# --- the shared gate block -------------------------------------------------
 # scripts/gate.sh and hooks/dotagents-verify-gate.sh both decide which repository a sentinel belongs
 # to and where a working tree's counters live. The code is duplicated rather than sourced from a lib
 # because invariant 4 says a hook must not depend on a path that can go missing -- and a lib under the
@@ -321,23 +321,23 @@ gate_sh="$REPO/scripts/gate.sh"
 gate_hook="$REPO/hooks/dotagents-verify-gate.sh"
 if [[ -f "$gate_sh" && -f "$gate_hook" ]]; then
   echo
-  echo "checking the shared gate identity block"
+  echo "checking the shared gate block"
   extract_identity() {
-    sed -n '/^# >>> dotagents:gate-identity/,/^# <<< dotagents:gate-identity/p' "$1"
+    sed -n '/^# >>> dotagents:gate-shared/,/^# <<< dotagents:gate-shared/p' "$1"
   }
   ident_a="$(extract_identity "$gate_sh")"
   ident_b="$(extract_identity "$gate_hook")"
   if [[ -z "$ident_a" ]]; then
-    err "gate-identity" "scripts/gate.sh has no '# >>> dotagents:gate-identity' block -- the marker is what makes the duplication checkable, so removing it removes the check"
+    err "gate-shared" "scripts/gate.sh has no '# >>> dotagents:gate-shared' block -- the marker is what makes the duplication checkable, so removing it removes the check"
   elif [[ -z "$ident_b" ]]; then
-    err "gate-identity" "hooks/dotagents-verify-gate.sh has no '# >>> dotagents:gate-identity' block -- the marker is what makes the duplication checkable, so removing it removes the check"
+    err "gate-shared" "hooks/dotagents-verify-gate.sh has no '# >>> dotagents:gate-shared' block -- the marker is what makes the duplication checkable, so removing it removes the check"
   elif [[ "$ident_a" != "$ident_b" ]]; then
-    err "gate-identity" "the two copies have drifted -- gate.sh would resolve a repository or worktree differently from the hook, so one could arm a directory the other never enforces"
+    err "gate-shared" "the two copies have drifted -- gate.sh would resolve a repository or worktree differently from the hook, so one could arm a directory the other never enforces"
     printf '%s  first difference:%s\n' "$c_dim" "$c_off"
     diff <(printf '%s\n' "$ident_a") <(printf '%s\n' "$ident_b") | head -8 | sed "s/^/$(printf '%s' "$c_dim")    /"
     printf '%s%s\n' "$c_off" ""
   else
-    printf '%s✓%s the gate identity block is byte-identical in gate.sh and the hook (%s lines)\n' \
+    printf '%s✓%s the shared gate block is byte-identical in gate.sh and the hook (%s lines)\n' \
       "$c_green" "$c_off" "$(printf '%s\n' "$ident_a" | wc -l | tr -d ' ')"
   fi
 fi
