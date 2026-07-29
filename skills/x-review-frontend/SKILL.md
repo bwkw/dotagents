@@ -34,7 +34,7 @@ not a control. When you find one, the finding is that the server does not enforc
 do not let "the button is not shown" close it.
 
 The full discipline — two tiers, the confidence score and its discard threshold, the false-positive
-taxonomy, the return schema — is in `reference/finding-discipline.md` and is **mandatory**.
+taxonomy, the return schema — is in `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` and is **mandatory**.
 
 ## Preconditions
 
@@ -60,18 +60,18 @@ differs. `user-invocable: false` is what keeps it out of the menu — it must ne
 
 | File | Why |
 |---|---|
-| `reference/finding-discipline.md` | posture, two tiers, confidence, return schema |
-| `reference/review-process.md` | the seven steps and the guardrails |
-| `reference/perspectives.md` | what to trace, and the perspective clusters |
-| `reference/silent-failure-patterns.md` | the cross-cutting patterns, in **both** phases |
-| `reference/llm-authored-code.md` | where the defects are when the diff is agent-authored -- assume it is |
+| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | posture, two tiers, confidence, return schema |
+| `${CLAUDE_SKILL_DIR}/reference/review-process.md` | the seven steps and the guardrails |
+| `${CLAUDE_SKILL_DIR}/reference/perspectives.md` | what to trace, and the perspective clusters |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | the cross-cutting patterns, in **both** phases |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | where the defects are when the diff is agent-authored -- assume it is |
 
 ### Read only if
 
 | File | Trigger condition |
 |---|---|
-| `reference/verification.md` | entering the verify phase (Step 6) |
-| `reference/report-format.md` | writing the final report (Step 7) |
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the verify phase (Step 6) |
+| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the final report (Step 7) |
 
 > "Read everything just in case" is forbidden. Each subagent reads what its own phase needs.
 
@@ -102,10 +102,10 @@ first commit) use the empty tree and **say so**:
 
 ## Steps 2–7
 
-`reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
+`${CLAUDE_SKILL_DIR}/reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
 project context, fan out to perspective subagents, refute and hunt for what was missed, then report.
 
-`reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
+`${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
 in Step 2**, and the **perspective clusters for Step 5**.
 
 Two rules that are load-bearing here and get dropped when the fan-out is collapsed:

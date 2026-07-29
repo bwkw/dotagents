@@ -195,6 +195,89 @@ grep -q "^✗ skills/da-doubly-hidden:.*unreachable by every route" <<<"$uiout" 
   || bad "linter did NOT catch the both-fields case"
 
 echo
+echo "verify-skills.sh: reference files are addressed absolutely, and exist"
+
+# The old form of this check also required that CLAUDE_SKILL_DIR appear nowhere in the body, so a
+# skill that mentioned the right idiom once in prose passed while every real path stayed relative.
+# All three x-review-* skills were in that state: they told subagents to use the absolute form and
+# then handed them relative ones. A check on state rather than on mechanism.
+REFP="$(mktemp -d "${TMPDIR:-/tmp}/dotagents-ref-test.XXXXXX")" || { echo "mktemp failed"; exit 1; }
+trap 'rm -rf "$PROBE" "$UIP" "$REFP"' EXIT
+
+mkref() { # <name> <body line>
+  mkdir -p "$REFP/$1/reference"
+  { printf '%s\n' "---" "name: $1" "description: Use when testing this check." \
+      "metadata:" "  source: bwkw/dotagents" "---" "" "## Preconditions" "none" "" "$2"; } \
+    > "$REFP/$1/SKILL.md"
+}
+# One absolute path and one relative one, in a file that therefore does mention CLAUDE_SKILL_DIR.
+mkref probe-mixed 'Read `${CLAUDE_SKILL_DIR}/reference/a.md` and also `reference/b.md`.'
+: > "$REFP/probe-mixed/reference/a.md"; : > "$REFP/probe-mixed/reference/b.md"
+# A file named in the body that is not there. The old check only looked the other way round.
+mkref probe-ghost 'Follow `${CLAUDE_SKILL_DIR}/reference/ghost.md` for the rules.'
+: > "$REFP/probe-ghost/reference/real.md"
+
+refout="$("$LINTER" "$REFP" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
+grep -q '^✗ skills/probe-mixed:.*relative path' <<<"$refout" \
+  && ok "a relative path is caught even when the body mentions CLAUDE_SKILL_DIR elsewhere" \
+  || bad "the relative path was not caught -- the check still reads the mention, not the paths"
+grep -q '^✗ skills/probe-ghost:.*no such file' <<<"$refout" \
+  && ok "a reference named in the body but absent is caught" \
+  || bad "a mentioned-but-missing reference file went unreported"
+
+echo
+echo "verify-skills.sh: the two enforcers are cross-checked for every protected name"
+
+# AGENTS.md invariant 7 claims verify-skills.sh "cross-checks that every protected name resolves, that
+# the two enforcers agree". It did not: both extraction patterns were hardcoded to `da-[a-z-]+`, so the
+# comparison only ever saw `da-verify`. The x-review-* protections -- added precisely because the `x-`
+# rename broke a guardrail once -- were unguarded, while the check printed a green tick naming one name
+# as though that were the whole set.
+#
+# Asserted by breaking one side and requiring a failure. A cross-check that cannot fail is the thing it
+# exists to prevent.
+SCOPE="$(mktemp -d "${TMPDIR:-/tmp}/dotagents-scope-test.XXXXXX")" || { echo "mktemp failed"; exit 1; }
+trap 'rm -rf "$PROBE" "$UIP" "$SCOPE"' EXIT
+
+# A whole fake repo, because the check reads $REPO/hooks and $REPO/skills, not a skills root argument.
+mkdir -p "$SCOPE/hooks" "$SCOPE/scripts" "$SCOPE/skills"
+cp "$LINTER" "$SCOPE/scripts/verify-skills.sh"
+cp "$HOOK" "$SCOPE/hooks/dotagents-lint-skill-frontmatter.sh"
+cp "$REPO/scripts/gate.sh" "$SCOPE/scripts/gate.sh" 2>/dev/null || true
+cp "$REPO/hooks/dotagents-verify-gate.sh" "$SCOPE/hooks/" 2>/dev/null || true
+for n in da-verify x-review-backend x-review-frontend x-review-infra; do
+  mkdir -p "$SCOPE/skills/$n"
+  { printf '%s\n' "---" "name: $n" "description: Use when testing." \
+      "metadata:" "  source: bwkw/dotagents" "---" "" "## Preconditions" "none"; } \
+    > "$SCOPE/skills/$n/SKILL.md"
+done
+
+scope_run() { bash "$SCOPE/scripts/verify-skills.sh" "$SCOPE/skills" 2>&1 | sed $'s/\033\\[[0-9;]*m//g'; }
+
+base="$(scope_run)"
+grep -q '^✗ scope:' <<<"$base" \
+  && bad "the unmodified copies already disagree: $(grep '^✗ scope:' <<<"$base" | head -1)" \
+  || ok "unmodified copies agree on the protected names"
+for n in da-verify x-review-backend x-review-frontend x-review-infra; do
+  grep -q "both enforcers agree.*$n" <<<"$base" \
+    && ok "   '$n' is named in the agreement line" \
+    || bad "   '$n' is protected but never appears in the cross-check"
+done
+
+# Remove one protected name from the hook's declaration only. The linter must notice.
+perl -pi -e 's/"x-review-frontend",\s*//' "$SCOPE/hooks/dotagents-lint-skill-frontmatter.sh"
+grep -q 'x-review-frontend' "$SCOPE/hooks/dotagents-lint-skill-frontmatter.sh" \
+  && bad "   (the perturbation did not take -- the assertion below would be vacuous)" \
+  || ok "   the perturbation removed the name from the hook"
+drift="$(scope_run)"
+grep -q '^✗ scope:' <<<"$drift" \
+  && ok "dropping 'x-review-frontend' from the hook alone is reported" \
+  || bad "the hook stopped protecting x-review-frontend and the linter said nothing"
+bash "$SCOPE/scripts/verify-skills.sh" "$SCOPE/skills" >/dev/null 2>&1 \
+  && bad "   ...but the run still exited 0" \
+  || ok "   ...and the run fails"
+
+echo
 if (( fail )); then
   printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"
   exit 1

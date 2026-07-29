@@ -2,6 +2,7 @@
 name: da-fix-plan
 description: Turn a review report into an ordered fix plan on disk. Use after a code review or PR feedback, when there are more findings than you want to act on. Decides what NOT to fix and why, orders what remains by irreversibility and dependency, and writes the plan to a file. Read-only until the plan is agreed.
 argument-hint: "[path to the review report | 'the review above'] (default: the report in this conversation)"
+allowed-tools: Read, Grep, Glob, Bash(git:*), Bash(gh:*), Write
 metadata:
   source: bwkw/dotagents
 ---

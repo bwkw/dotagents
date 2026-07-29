@@ -79,9 +79,16 @@ process.stdin.on("end", () => {
   if (/^disable-model-invocation\s*:\s*(true|yes|on|1)\s*$/m.test(fm)) {
     const name = key("name") ?? String(path).replace(/.*\/([^/]+)\/SKILL\.md$/, "$1");
 
+    // Declared as data so the list has one home per file. scripts/verify-skills.sh reads these two
+    // lines and asserts its own copies match, which is why the marker comments are load-bearing: the
+    // cross-check that exists to catch a rename was itself hardcoded to the `da-` prefix, so the
+    // x-review-* names below were unguarded while it printed a green tick.
+    const DMI_GATE = ["da-verify"];                                                  // dotagents:dmi-gate
+    const DMI_DISPATCH = ["x-review-backend", "x-review-frontend", "x-review-infra"]; // dotagents:dmi-dispatch
+
     // /da-verify is the only thing in the toolkit that runs `gate.sh arm`. Without its auto-invocation
     // the Stop gate never arms, so it passes every turn: the guardrail opens instead of closing.
-    if (name === "da-verify") {
+    if (DMI_GATE.includes(name)) {
       return deny(
         "Never set 'disable-model-invocation' on 'verify'. It is the only thing that runs " +
         "'gate.sh arm', so disabling auto-invocation leaves the Stop gate unarmed and it passes " +
@@ -89,8 +96,8 @@ process.stdin.on("end", () => {
       );
     }
 
-    // da-review-all dispatches to these three by name via a subagent.
-    if (["x-review-backend", "x-review-frontend", "x-review-infra"].includes(name)) {
+    // da-review-all dispatches to these by name via a subagent.
+    if (DMI_DISPATCH.includes(name)) {
       return deny(
         `'${name}' is a by-name dispatch target of da-review-all, and ` +
         "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +
