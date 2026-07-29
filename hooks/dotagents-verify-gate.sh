@@ -28,6 +28,13 @@ set -uo pipefail
 GATE_NODE_MISSING=0
 command -v node >/dev/null 2>&1 || GATE_NODE_MISSING=1
 
+# Set by `gate.sh verify`, never by an agent harness. In dry mode the hook resolves the profile and
+# runs the checks exactly as it would at a turn end, and then touches nothing: no attempt counted, no
+# verdict, no heartbeat, no arming required. That is what makes self-checking free -- a check that
+# spent the budget would make the budget depend on how often you looked at your own work.
+GATE_DRY="${DOTAGENTS_GATE_DRY:-0}"
+[[ "$GATE_DRY" == "1" ]] || GATE_DRY=0
+
 GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 TRACE="$GATE_DIR/trace.log"
 
@@ -192,7 +199,11 @@ fi
 
 shopt -s nullglob
 active=("$GATE_DIR"/*/ACTIVE)
-if (( ${#active[@]} == 0 )); then
+if (( ${#active[@]} == 0 )) && (( GATE_DRY )); then
+  # Nothing armed, but a dry run is not asking whether the gate holds -- it is asking whether the
+  # checks pass. Carry on with an empty sentinel list.
+  :
+elif (( ${#active[@]} == 0 )); then
   trace "?" "$PWD" "invoked; nothing armed; passed"
   exit 0
 fi
@@ -383,6 +394,12 @@ block() {
 # Let the turn end.
 pass() {
   trace "$agent" "$cwd" "passed${1:+: $1}"
+  if (( GATE_DRY )); then
+    # Said out loud, because "green" and "there was nothing to check" are different answers and only
+    # one of them means the work is verified.
+    printf 'gate: nothing blocking%s\n' "${1:+ -- $1}"
+    exit 0
+  fi
   [[ "$agent" == "cursor" ]] && printf '%s' '{}'
   exit 0
 }
@@ -398,7 +415,7 @@ pass() {
 gate_repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 gate_common="$(gate_common_dir "$cwd")"
 slug_dir=""
-for _sentinel in "${active[@]}"; do
+for _sentinel in ${active[@]+"${active[@]}"}; do
   _armed="$(cat "$_sentinel" 2>/dev/null)"
   [[ -n "$_armed" ]] || continue
   if [[ "$_armed" == "$gate_repo_root" ]]; then
@@ -451,7 +468,7 @@ fi
 # after the Cursor inference: if the one armed sentinel is stale and we inferred it, enforcing it is
 # the fail-closed answer, and the heartbeat refresh below keeps it.
 _ttl="$(gate_ttl_seconds)"
-for _sentinel in "${active[@]}"; do
+for _sentinel in ${active[@]+"${active[@]}"}; do
   _d="$(dirname "$_sentinel")"
   [[ -n "$slug_dir" && "$_d" == "$slug_dir" ]] && continue
   _idle="$(gate_idle_seconds "$_d")"
@@ -472,10 +489,14 @@ done
 # Ours: refreshed, not expired. This is also what backfills a pre-upgrade sentinel of our own, and
 # what lets a long unattended run keep its gate -- idle time is measured from the last turn to end
 # here, not from when the gate was armed.
-[[ -n "$slug_dir" ]] && gate_touch_heartbeat "$slug_dir"
+(( GATE_DRY )) || { [[ -n "$slug_dir" ]] && gate_touch_heartbeat "$slug_dir"; }
 
-# Armed somewhere, but not for this repository. Not our business.
-[[ -n "$slug_dir" ]] || pass "armed elsewhere, not for $gate_repo_root"
+# Armed somewhere, but not for this repository. Not our business -- unless this is a dry run, which is
+# not asking whether a gate holds. `gate.sh verify` deliberately works with nothing armed, because
+# checking your own work is what you do *while* implementing, before any gate exists.
+if [[ -z "$slug_dir" ]] && ! (( GATE_DRY )); then
+  pass "armed elsewhere, not for $gate_repo_root"
+fi
 
 # ---------------------------------------------------------------- a subagent is not a turn
 # Claude Code converts a registered Stop hook into SubagentStop for subagents, so this hook fires every
@@ -653,7 +674,13 @@ tree_fingerprint() {
 run_check() { # <seconds> <command>  -> sets check_out and check_code; touches $work.timeout on a kill
   local secs="$1" c="$2" pid dog waited
   rm -f "$work.timeout" "$work.out"
-  ( cd "$run_dir" && eval "$c" ) > "$work.out" 2>&1 &
+  # The gate's own control variables are unset for the child. A check is repository code, not gate
+  # internals, and leaking them changes what it does: `gate.sh verify` sets DOTAGENTS_GATE_DRY=1, the
+  # profile gates ./scripts/test-verify-gate.sh, and that suite then ran every one of its hook
+  # invocations in dry mode -- so verifying this repository reported its own gate suite as failing.
+  ( cd "$run_dir" \
+    && unset DOTAGENTS_GATE_DRY DOTAGENTS_GATE_NOW DOTAGENTS_GATE_TTL_HOURS DOTAGENTS_GATE_MAX_ATTEMPTS \
+    && eval "$c" ) > "$work.out" 2>&1 &
   pid=$!
   (
     waited=0
@@ -868,6 +895,27 @@ if [[ -z "$failed_id" ]]; then
       break
     fi
   done < "$work"
+fi
+
+# ---------------------------------------------------------------- dry run: report, touch nothing
+# Everything below this point writes state -- the attempt counter, a verdict, the pass/block dialect.
+# A dry run has produced its answer by now, so it stops here.
+if (( GATE_DRY )); then
+  if [[ -z "$failed_id" ]]; then
+    printf 'gate: all gating checks green (%s)\n' "$gate_repo_root"
+    exit 0
+  fi
+  {
+    printf 'gate: %s\n' "$failed_id"
+    printf '  kind    : %s\n' "$failed_kind"
+    printf '  command : %s\n' "$failed_cmd"
+    printf '  cwd     : %s\n' "$run_dir"
+    printf '  exit    : %s\n' "$failed_code"
+    echo
+    echo "output:"
+    tail -20 <<<"$failed_out" | sed 's/^/  /'
+  } >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------- all clear

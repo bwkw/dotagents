@@ -863,6 +863,100 @@ grep -qi 'expired' <<<"$st" \
   || no "status hides the expiry: $(tr '\n' '|' <<<"$st")"
 
 echo
+echo "gate.sh verify — check without ending a turn, and without touching the gate"
+echo
+
+# Until now the only way to run a repository's checks was to end a turn. So an agent could not verify
+# its own work mid-implementation, and da-verify re-implemented the hook's loop in prose -- which had
+# already drifted: the skill told the model to use `git diff --name-only HEAD` while the hook also
+# includes untracked files, deliberately, because "a turn that only adds new files produced an empty
+# list, which skipped the check entirely". The skill would skip a check the gate runs.
+#
+# So `verify` drives the hook rather than reimplementing it. One implementation, no second copy to
+# drift -- and nothing to delete later, which removes a planned one-way door.
+verify() { # verify [--json] [dir]
+  DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
+    bash "$GATE_SH" verify "$@" >"$TMP/vout" 2>"$TMP/verr"
+  echo $?
+}
+
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+check "verify with everything green -> exit 0" 0 "$(verify "$REPO")"
+
+# The point of the whole thing: it works with no gate armed. Verifying is what you do *while* working.
+[[ ! -e "$GATE" ]] || [[ -z "$(find "$GATE" -name ACTIVE 2>/dev/null)" ]] \
+  && ok "   ...with nothing armed, which is when you actually want it" \
+  || no "   verify armed something"
+
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "echo the-real-failure; false", "gate": true, "agent_may_run": true } ] }
+JSON
+vrc="$(verify "$REPO")"
+[[ "$vrc" != "0" ]] \
+  && ok "verify with a red check -> non-zero" \
+  || no "verify reported success on a red check"
+grep -q 'boom' "$TMP/vout" "$TMP/verr" 2>/dev/null \
+  && ok "   ...and names the check" || no "   did not name the failing check"
+grep -q 'the-real-failure' "$TMP/vout" "$TMP/verr" 2>/dev/null \
+  && ok "   ...and shows its output" || no "   did not show the check output"
+
+# It must not spend the gate's state. A self-check that consumed an attempt would make the budget
+# depend on how often you checked your own work, which is the opposite of encouraging it.
+rm -rf "$GATE"; arm
+armed_dir="$(gate_dir_for "$REPO")"
+hb_before="$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)"
+verify "$REPO" >/dev/null
+att="$(find "$armed_dir" -name attempts.json | head -1)"
+[[ "$(tr -d ' \n' < "$att" 2>/dev/null)" == "{}" ]] \
+  && ok "verify does not consume an attempt" \
+  || no "verify spent the attempt budget: $(cat "$att" 2>/dev/null | tr -d '\n')"
+[[ -z "$(find "$armed_dir" -name VERDICT 2>/dev/null)" ]] \
+  && ok "   ...and writes no verdict" || no "   verify wrote a VERDICT"
+[[ "$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)" == "$hb_before" ]] \
+  && ok "   ...and does not refresh the heartbeat" \
+  || no "   verify refreshed the heartbeat, so checking your work would keep a stale gate alive"
+[[ -f "$armed_dir/ACTIVE" ]] \
+  && ok "   ...and leaves the gate armed" || no "   verify disarmed the gate"
+
+# --json for a driver, same as status --json.
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+verify --json "$REPO" >/dev/null
+vj() { node -e '
+  let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try { console.log(String(JSON.parse(s)[process.argv[1]])) } catch { console.log("parse-error") }
+  });' "$1" < "$TMP/vout"; }
+[[ "$(vj ok)" == "false" ]] \
+  && ok "verify --json reports ok=false" || no "verify --json ok=$(vj ok) (raw: $(head -c 120 "$TMP/vout"))"
+[[ "$(vj check)" == "boom" ]] \
+  && ok "   ...and names the check in a field, not in prose" || no "   check=$(vj check)"
+
+# The gate's own control variables must not reach the check. Found by running `gate.sh verify` against
+# this repository: DOTAGENTS_GATE_DRY=1 was inherited by ./scripts/test-verify-gate.sh, which then ran
+# every one of its hook invocations in dry mode, so verifying the repo reported its own gate suite as
+# failing. A check is repository code, not gate internals.
+rm -rf "$GATE"
+cat > "$PROFILES/scratch.json" <<JSON
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "env-leak",
+                "cmd": "printenv DOTAGENTS_GATE_DRY > $TMP/leaked 2>&1; printenv DOTAGENTS_GATE_NOW >> $TMP/leaked 2>&1; true",
+                "gate": true, "agent_may_run": true } ] }
+JSON
+rm -f "$TMP/leaked"
+DOTAGENTS_GATE_NOW=1 verify "$REPO" >/dev/null
+[[ ! -s "$TMP/leaked" ]] \
+  && ok "the gate's control variables do not reach the check" \
+  || no "leaked into the check: $(tr '\n' ' ' < "$TMP/leaked")"
+
+echo
 echo "gate.sh — the machine-readable surface"
 echo
 

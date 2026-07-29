@@ -6,6 +6,7 @@
 #   gate.sh record <check> [dir] note that the user ran a delegated check themselves
 #   gate.sh status [dir]         is it armed, how idle, and what has been recorded
 #   gate.sh status --json [dir]  the same, for a driver rather than a human
+#   gate.sh verify [--json] [dir] run this repository's gating checks now, without ending a turn
 #   gate.sh gc                   reclaim gates left armed by sessions that ended
 #
 # The gate hook does nothing unless armed. Skills call this; nothing else needs to.
@@ -481,6 +482,59 @@ cmd_status() {
 
 # Matched, not addressed by line number: adding a subcommand to the header above used to silently
 # push one out of the range and `gate.sh -h` stopped listing it.
+# Run the repository's gating checks now. Drives the Stop hook rather than reimplementing its loop:
+# there is one implementation of "what this repository checks and how", and no second copy to drift.
+#
+# That mattered. da-verify/SKILL.md described the loop in prose and had already diverged -- it told the
+# model to use `git diff --name-only HEAD` while the hook also includes untracked files, deliberately,
+# because a turn that only adds new files produced an empty list and skipped the check entirely. The
+# skill would have skipped a check the gate runs.
+#
+# DOTAGENTS_GATE_DRY makes the hook resolve the profile, run the checks, report, and touch nothing:
+# no attempt counted, no verdict written, no heartbeat refreshed, and no sentinel required. Checking
+# your own work has to be free, or the attempt budget would depend on how often you looked.
+cmd_verify() {
+  local as_json=0
+  [[ "${1:-}" == "--json" ]] && { as_json=1; shift; }
+  local root; root="$(repo_root "${1:-}")"
+
+  # The copy in this repository, not the installed one. gate.sh ships with the repository and its job
+  # is to run these checks with this repository's logic; the installed copy can be older, and
+  # `setup.sh doctor` is what reports that gap. Preferring the installed copy meant `verify` silently
+  # exercised a version that predated the feature being tested -- which is how I found this.
+  local hook; hook="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hooks/dotagents-verify-gate.sh"
+  [[ -f "$hook" ]] || die "cannot find hooks/dotagents-verify-gate.sh next to this script"
+
+  local out err rc=0
+  out="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
+  err="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
+  # shellcheck disable=SC2064
+  trap "rm -f '$out' '$err'" EXIT
+
+  printf '{"cwd":"%s","hook_event_name":"Stop"}' "$root" \
+    | DOTAGENTS_GATE_DRY=1 bash "$hook" >"$out" 2>"$err" || rc=$?
+
+  if (( as_json )); then
+    node -e '
+      const fs = require("fs");
+      const [outP, errP, rc, root] = process.argv.slice(1);
+      const read = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return "" } };
+      const detail = (read(outP) + read(errP)).trim();
+      // The hook prints "gate: <check id>" on the first line of a failure report.
+      const m = detail.match(/^gate:\s*(\S+)/m);
+      const id = m && m[1] !== "all" && m[1] !== "nothing" ? m[1] : null;
+      const kind = (detail.match(/^\s*kind\s*:\s*(\S+)/m) || [])[1] ?? null;
+      process.stdout.write(JSON.stringify({
+        repo: root, ok: rc === "0", exit: Number(rc), check: id, kind, detail,
+      }, null, 2) + "\n");
+    ' "$out" "$err" "$rc" "$root"
+  else
+    cat "$out"
+    cat "$err" >&2
+  fi
+  return "$rc"
+}
+
 usage() { grep -E '^#   gate\.sh ' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [[ $# -gt 0 ]] || usage 1
@@ -491,6 +545,7 @@ case "$cmd" in
   record)    cmd_record "${1:-}" "${2:-}" ;;
   status)    cmd_status "${1:-}" "${2:-}" ;;
   gc)        cmd_gc ;;
+  verify)    cmd_verify "${1:-}" "${2:-}" ;;
   -h|--help) usage ;;
   *) die "unknown command: $cmd" ;;
 esac

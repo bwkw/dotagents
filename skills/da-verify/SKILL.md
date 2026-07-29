@@ -117,16 +117,26 @@ what makes a wrong profile obvious in one glance instead of one confusing failur
 
 ### Step 3. Run the checks you are permitted to run
 
-For each check with `agent_may_run: true`, in profile order:
+**Run them through the gate, not by hand:**
 
-- Run it from the profile's `cwd` (relative to the repository root).
-- Where `scope` is `changed`, substitute `{files}` with the changed files
-  (`git diff --name-only --diff-filter=d HEAD`). **If nothing changed, skip the check** — do not run
-  the whole suite as a substitute.
-- Where a command matches anything in the profile's `forbidden` list, **do not run it**, and say why.
-  That list exists because these repositories contain `deploy:production` and `destroy:production`.
-- On failure, stop and report. Do not push on to the remaining checks — the first failure is the
-  information the user needs.
+```bash
+<dotagents>/scripts/gate.sh verify --json     # or without --json to read it yourself
+```
+
+This is the same code the Stop hook runs — profile order, the profile's `cwd`, `{files}` substitution,
+`forbidden` refusals, per-check timeouts, the total budget. It reports and **touches nothing**: no
+attempt counted, no verdict, no heartbeat, and no gate needs to be armed. So you can run it as often
+as you like while implementing.
+
+**Do not reimplement the loop here.** These instructions used to describe it step by step and had
+already drifted from the gate: they said to substitute `{files}` from
+`git diff --name-only --diff-filter=d HEAD`, while the gate also includes untracked files —
+deliberately, because a turn that only adds new files produced an empty list and skipped the check
+entirely. **The skill would have skipped a check the gate runs.** Two implementations of one rule
+disagree eventually; that is what this repository keeps finding.
+
+On failure, stop and report. Do not push on to the remaining checks — `verify` already stops at the
+first failure, and that failure is the information the user needs.
 
 ### Step 4. Delegate what you are not permitted to run
 
