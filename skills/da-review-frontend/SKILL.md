@@ -1,7 +1,7 @@
 ---
 name: da-review-frontend
 description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Read-only.
-argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff)"
+user-invocable: false
 metadata:
   source: bwkw/dotagents
 ---
@@ -47,10 +47,12 @@ taxonomy, the return schema — is in `reference/finding-discipline.md` and is *
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| implementation complete, or a PR open | `/da-review-frontend` | triage the findings, then fix |
+| `/da-review-all` classified the change, or a request named this layer | this skill | its findings go back to the dispatcher, or to you |
 
-Use `/da-review-all` instead when the change also touches backend or infrastructure — a contract change
-and the component consuming it shipping out of order is invisible from inside this layer.
+**This skill is not in the `/` menu.** It is reached two ways: `/da-review-all` dispatches to it
+by name after classifying the change, or you ask for this layer directly ("review the frontend") and the description matches. Both give the same review; only the classification step
+differs. `user-invocable: false` is what keeps it out of the menu — it must never carry
+`disable-model-invocation`, which would block both routes at once.
 
 ## Files to read
 
@@ -77,7 +79,8 @@ and the component consuming it shipping out of order is invisible from inside th
 
 ## Step 1. Establish scope
 
-**If a file list was handed to you** — by `/da-review-all` or by the user — that list *is* your scope.
+**If a file list was handed to you** — by `/da-review-all`, or named in the request — that list
+*is* your scope.
 Do not re-derive the diff, and do not widen it.
 
 Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against

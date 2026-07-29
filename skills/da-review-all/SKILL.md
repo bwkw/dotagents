@@ -30,8 +30,12 @@ it — this removes both the work of invoking each layer by hand and, more impor
 
 ## What this skill delegates to
 
-Each layer is a **skill in its own right**, directly invokable on its own. This one classifies the
-change and runs the ones that apply, then does the part none of them can.
+**This is the only review entry point in the `/` menu.** The three layer reviews are full skills with
+their own posture, process and perspective clusters, but they carry `user-invocable: false` — reachable
+by this dispatcher and by a request that names a layer, not by typing. One menu entry, three layers of
+depth behind it.
+
+This skill classifies the change and runs the layers that apply, then does the part none of them can.
 
 | Layer skill | Owns |
 |---|---|

@@ -135,6 +135,39 @@ done
                                    || ok "linter exits non-zero on the denied cases"
 
 echo
+echo "verify-skills.sh: user-invocable: false only on a dispatch target"
+
+UIP="$(mktemp -d "${TMPDIR:-/tmp}/dotagents-ui-test.XXXXXX")" || { echo "mktemp failed"; exit 1; }
+trap 'rm -rf "$PROBE" "$UIP"' EXIT
+
+mkui() { # name, extra frontmatter lines...
+  local n="$1"; shift
+  mkdir -p "$UIP/$n"
+  { printf '%s\n' "---" "name: $n" "description: Use when testing this check." \
+      "user-invocable: false" "$@" "metadata:" "  source: bwkw/dotagents" "---" "" \
+      "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$UIP/$n/SKILL.md"
+}
+# Legitimate: dispatched by da-review-all.
+for n in da-review-backend da-review-frontend da-review-infra; do mkui "$n"; done
+# Not dispatched to by anything -- unreachable except by description match.
+mkui da-orphan
+# Unreachable by every route.
+mkui da-doubly-hidden "disable-model-invocation: true"
+
+uiout="$("$LINTER" "$UIP" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
+for n in da-review-backend da-review-frontend da-review-infra; do
+  grep -q "^✗ skills/$n:.*user-invocable" <<<"$uiout" \
+    && bad "linter wrongly errors on dispatch target '$n'" \
+    || ok "linter allows 'user-invocable: false' on dispatch target '$n'"
+done
+grep -q "^✗ skills/da-orphan:.*nothing dispatches to it" <<<"$uiout" \
+  && ok "linter errors on 'user-invocable: false' where nothing dispatches" \
+  || bad "linter did NOT catch the unreachable orphan"
+grep -q "^✗ skills/da-doubly-hidden:.*unreachable by every route" <<<"$uiout" \
+  && ok "linter errors when combined with disable-model-invocation" \
+  || bad "linter did NOT catch the both-fields case"
+
+echo
 if (( fail )); then
   printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"
   exit 1

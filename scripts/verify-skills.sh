@@ -242,6 +242,25 @@ check_skill() {
     done
   fi
 
+  # --- invariant: user-invocable: false only on a dispatch target ------------
+  # It removes the skill from the / menu but leaves it model-invocable. On something nothing
+  # dispatches to, that makes the skill nearly unreachable: it cannot be typed, and only a
+  # description match can find it. Combined with disable-model-invocation, unreachable outright.
+  if has_frontmatter_key "$skill" user-invocable; then
+    local ui
+    ui="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill" \
+          | sed -n 's/^user-invocable:[[:space:]]*//p' | tr -d '"'"'"' ')"
+    if [[ "$ui" == "false" ]]; then
+      case "$name" in
+        da-review-backend|da-review-frontend|da-review-infra) : ;;  # dispatched by da-review-all
+        *)
+          err "$id" "sets 'user-invocable: false' but nothing dispatches to it -- gone from the / menu and reachable only by description match. Add it to the dispatch-target list in this check, or drop the field." ;;
+      esac
+      has_frontmatter_key "$skill" disable-model-invocation \
+        && err "$id" "sets both 'user-invocable: false' and 'disable-model-invocation' -- the first blocks typing and the second blocks the model, leaving the skill unreachable by every route"
+    fi
+  fi
+
   # --- structure ------------------------------------------------------------
   grep -qiE '^##+ .*(precondition|実行条件)' <<<"$body" \
     || warn "$id" "no Preconditions section -- the skill cannot stop cleanly on bad input"
