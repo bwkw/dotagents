@@ -50,7 +50,22 @@ work. That is why they are here rather than in a document you would read once.
 6. **The gate is inert until a skill arms it**, and `gate.sh arm` is the only thing that does.
    An armed gate with no matching profile passes every turn while reporting itself active; arming
    warns about that. `~/.claude/.dotagents-gate/trace.log` records every invocation and why it
-   passed — read it before believing the gate did nothing.
+   passed — read it before believing the gate did nothing. **`verdicts.log` beside it is the durable
+   one**: the trace self-trims at 200 lines, so anything recorded only there is deleted by ordinary
+   operation.
+
+   A gate stops being **armed** by exactly two events — `disarm`, and idle eviction after 12h with no
+   turn ending in that repository. It stops **blocking** by a third: a recorded `VERDICT`, written
+   after `max_attempts` (3) consecutive failures of the same check. **A released gate is not a green
+   one.** `status`, `verdicts.log` and the next `arm` all say it gave up and that the work is
+   unverified — if you find yourself reading "not armed" and nothing else, that is a clean session,
+   not a reclaimed one, and the difference is the whole point of keeping `ROOT`.
+
+   Arming a repository arms its **linked worktrees** too, matched on the shared git dir. Counters stay
+   per worktree: inheriting a gate must not mean sharing an attempt count with another piece of work.
+   The functions that decide both live in a `dotagents:gate-shared` block duplicated byte-for-byte in
+   `scripts/gate.sh` and the hook — duplicated because invariant 4 forbids a hook depending on a path
+   that can go missing, and `verify-skills.sh` asserts the copies match.
 
 7. **Two prefixes, and the split is what keeps the menu honest.**
    **`da-*` is what you type.** **`x-*` is internal** — dispatch targets and subagents, never typed.
@@ -61,9 +76,17 @@ work. That is why they are here rather than in a document you would read once.
    Renaming any of them breaks **three** places, and all three fail silently: the
    `disable-model-invocation` scope in `verify-skills.sh`, the same list in the lint hook, and **template
    placeholders like `` `x-review-<layer>` `` that no name-based sweep matches.** The first two broke on
-   the `da-` rename and the third broke on the `x-` rename, in the same session. `verify-skills.sh` now
+   the `da-` rename and the third broke on the `x-` rename, in the same session. `verify-skills.sh`
    cross-checks that every protected name resolves, that the two enforcers agree, and that no placeholder
    carries the wrong prefix.
+
+   **This paragraph was false for a while, and the way it was false is the lesson.** The cross-check's
+   extraction patterns were hardcoded to `da-[a-z-]+` on both sides, so it compared exactly one name —
+   and then printed "both enforcers agree", naming that one name as though it were the whole set. The
+   `x-review-*` protections, added *because* the `x-` rename broke a guardrail, were never compared.
+   Both files now declare the list as data on a `dotagents:dmi-gate` / `dotagents:dmi-dispatch` line and
+   drive their behaviour from it, so the check is prefix-agnostic. **The marker comments are
+   load-bearing**: removing one removes the check, so the linter errors when either is missing.
 
 8. **Every skill carries `metadata.source: bwkw/dotagents`.**
    Ours sit among two dozen third-party skills, and the difference decides what may be done: ours can

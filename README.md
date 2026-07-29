@@ -103,11 +103,20 @@ cd ~/private/dotagents
 `/da-verify` が最初のステップでゲートを arm するので、**上のどのユースケースにも別途 arm するステップはありません。** arm 後はターン終了ごとにこのリポジトリのチェックが走り、赤い間は終了を拒否します。
 
 ```bash
-scripts/gate.sh arm       # まだ verify が走っていない段階から、最初のターンから保留したい
-scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを走らせたくない
+scripts/gate.sh arm            # まだ verify が走っていない段階から、最初のターンから保留したい
+scripts/gate.sh disarm         # 質問応答に戻る。終了時にスイートを走らせたくない
+scripts/gate.sh status         # armed か、どれだけ idle か、諦めた記録があるか
+scripts/gate.sh status --json   # 同じ内容を、人間ではなくドライバ向けに
+scripts/gate.sh gc             # 終了したセッションが残した armed 状態を回収する
 ```
 
-> **深夜に無人で回すためのロックではありません。** 早めに arm すると、見ていないセッションが緑で終わる確率が上がる。それだけです。**Claude Code は Stop hook を8回連続ブロックで解除**するので本当に詰まった実行は通る。**Cursor ではブロックできず**、nudge するだけで3回目に止める。そして**拒否し続ける hook は前進ではない** —— 2回失敗したらセッションを捨てるのが正しく、保留し続けるのはその逆。セッションを越えて残るのは**ディスクの spec、CI のチェック、復帰点としてのコミット**です。
+> **無人で回しても壊れない形にしてあります。** 以前ここには「深夜に無人で回すためのロックではありません」と書いてありました。**その立場が誤りだったのではなく、立場の話をしている間に状態機械が壊れていた**のが問題でした —— `arm` に期限が無く、ブロックに上限が無く、諦めたことが記録されない。[判断の記録](docs/decisions.md) に反転として記録しています。
+>
+> **gate が armed でなくなるのは2通り**: `disarm` と、**12時間ターンが終わらなかったときの自動回収**（idle 基準。arm からの経過ではないので、長時間の無人実行は途中で切れません）。**ブロックをやめるのは3つ目の出来事** —— 同じチェックが3回落ちると `VERDICT` を書いて解放します。**解放は緑ではありません**: `status` と `verdicts.log` と次の `arm` が「諦めた」と言い、作業は未検証だと明言します。
+>
+> **worktree は継承します。** `using-git-worktrees` がこのツールキット自身の推奨する分離手段なので、main で arm すれば linked worktree にも掛かります。attempt 数は worktree ごとに別です。
+>
+> **Cursor ではブロックできず**、nudge するだけで3回目に止めます。そして**拒否し続ける hook は前進ではない** —— だから上限があります。セッションを越えて残るのは**ディスクの spec、CI のチェック、復帰点としてのコミット、そして `VERDICT`** です。
 
 ## 何が入っているか
 
@@ -125,15 +134,18 @@ scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを�
 
 ### 面の実際の大きさ
 
-**到達可能な名前は 21 ではなく 72。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です:
+**到達可能な名前はディスク上の数の3倍以上あります。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です。
 
-| 出所 | 数 | 場所 |
-|---|---|---|
-| ディスク上 | 21 | `~/.agents/skills/` —— 自作10、上流11 |
-| Anthropic 管理プラグイン | 11 | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
-| **CLI バイナリにコンパイル済み** | **40** | **ファイルとして存在しない** —— 実行ファイルの中 |
+**数はここに書きません。** 以前は「21 ではなく 72」と書いてあり、`templates/claude.settings.snippet.json` は同じものを「24 / 75」と書いていて、実測は23でした ——
+**3箇所が3つの違う数を主張していた。** stale な記述を欠陥として扱うリポジトリで手書きの数を持つのは、欠陥の常設発生装置です。数が要るときは `/doctor` と `/skill-doctor` が全部を見ます:
 
-`~/.agents/skills` を数えても全体にはなりません。`/doctor` と `/skill-doctor` が全部を見ます。6件は `skillOverrides` で抑制しています（下記）。
+| 出所 | 場所 |
+|---|---|
+| ディスク上 | `~/.agents/skills/` —— 自作10、残りは上流 |
+| Anthropic 管理プラグイン | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
+| **CLI バイナリにコンパイル済み** | **ファイルとして存在しない** —— 実行ファイルの中。ここが最も多い |
+
+`~/.agents/skills` を数えても全体にはなりません。`/doctor` と `/skill-doctor` が全部を見ます。一部は `skillOverrides` で抑制しています（下記）。
 
 ### トリガが重なる場所と、どちらが勝つか
 
@@ -291,7 +303,7 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 
 **層別レビューが Cursor のメニューに漏れます。** Claude Code では打つレビュー入口は1つですが、Cursor では自作4本＋`review`＋`review-bugbot`＋`review-security`＋`find-bugs`。Cursor で層別を直接打っても**同じスキルなので正しく動きます** —— 失うのはメニューの見通しであって挙動ではなく、それが [判断の記録 §3](docs/decisions.md) の引く線です。ただし**現時点で最大の乖離**であり、**直っていません**。
 
-**9件の抑制は Cursor に効かず、そして大半は効く必要がありません。** 9件のうち6件は**Cursor に存在しないスキル**（バンドルと Anthropic プラグイン）が対象なので、抑制する相手がいません。**最新の剪定後、8件すべてが Cursor に存在しないスキルを対象にしている**ので、そちら側で抑制すべきものは残っていません。
+**抑制は Cursor に効かず、そして効く必要もありません。** 対象は**すべて Cursor に存在しないスキル**（バンドルと Anthropic プラグイン）なので、あちらには抑制する相手がいません。実際の件数は `templates/claude.settings.snippet.json` の `skillOverrides` が唯一の出典です —— この段落は以前「9件のうち6件」と書き、別の段落は「6件」、さらに別の段落は「8件」と書いていました。**同じ数を3箇所で手で維持すると3つの数になる。**
 
 **分かっていないこと**: Cursor の19本を無効化できるのか、できるならどこで。Cursor 自身の設定面は読んでいないので、**ここでは剪定できると主張しません**。メニューを圧迫して困るなら、それが次に調べることであって、すでに処理済みのことではありません。
 
@@ -299,18 +311,19 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 
 **スクリプトの増殖はこの種のツールキットの failure mode** なので、1本ごとに「何を防ぐか」を言えなければいけません。9ファイルあり、**2つはこのテストに落ちて削除しました。**
 
-| ファイル | 行数 | なぜ存在するか |
-|---|---|---|
-| `scripts/setup.sh` | 557 | **配布の機構。** スキルと agent を link、hook をコピー、設定をキー単位でマージ、リポジトリが配らなくなったものを prune、追加したものだけを正確に revert。これが無いと何もインストールされない |
-| `scripts/lib/merge-settings.mjs` | 271 | その安全な半分: 宣言したキーだけをマージし、自分が書いていない値は書き換えず、触ったものを記録する。**他人の API キーを含むファイルを編集する**ので |
-| `hooks/dotagents-verify-gate.sh` | 407 | **ゲート。** 価値提案の本体 —— エージェントは「完了したように見えた」時点で止まる |
-| `hooks/dotagents-lint-skill-frontmatter.sh` | 124 | **壊れた状態でインストールされて何も言わない** `SKILL.md` を拒否する |
-| `scripts/gate.sh` | 158 | ゲートの操作面: arm / disarm / 委譲チェックの記録 / 状態表示。通常はあなたではなく `/da-verify` が呼ぶ |
-| `scripts/verify-skills.sh` | 360 | `AGENTS.md` の不変条件をチェックに落としたもの。**実際に捕まえた**: どの YAML パーサも受け付けない frontmatter、本文が使うツールを欠いた `allowed-tools`、本文から言及されていない reference、到達不能な `user-invocable: false` |
-| `scripts/test-verify-gate.sh` | 405 | 42 assertion。**ゲートは唯一「閉じて落ちる」ことが必須のもの**で、これが無かった時代に2回 fail-open した |
-| `scripts/test-lint-hook.sh` | 175 | 33 assertion。**このリポジトリ最悪のバグを捕まえた**: scope チェックが誤った変数を見ていて**一度も発火していなかった** —— インストール済みで、何も強制していない状態 |
-| `scripts/test-setup.sh` | 141 | 偽の `$HOME` に対する 18 assertion。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
-| `scripts/check.sh` | 68 | 上記すべてを1コマンドに。**4つ覚える代わりに1つ** |
+| ファイル | なぜ存在するか |
+|---|---|
+| `scripts/setup.sh` | **配布の機構。** スキルと agent を link、hook をコピー、設定をキー単位でマージ、リポジトリが配らなくなったものを prune、追加したものだけを正確に revert。これが無いと何もインストールされない |
+| `scripts/lib/merge-settings.mjs` | その安全な半分: 宣言したキーだけをマージし、自分が書いていない値は書き換えず、触ったものを記録する。**他人の API キーを含むファイルを編集する**ので |
+| `hooks/dotagents-verify-gate.sh` | **ゲート。** 価値提案の本体 —— エージェントは「完了したように見えた」時点で止まる |
+| `hooks/dotagents-lint-skill-frontmatter.sh` | **壊れた状態でインストールされて何も言わない** `SKILL.md` を拒否する |
+| `scripts/gate.sh` | ゲートの操作面: arm / disarm / 委譲チェックの記録 / 状態表示。通常はあなたではなく `/da-verify` が呼ぶ |
+| `scripts/verify-skills.sh` | `AGENTS.md` の不変条件をチェックに落としたもの。**実際に捕まえた**: どの YAML パーサも受け付けない frontmatter、本文が使うツールを欠いた `allowed-tools`、本文から言及されていない reference、到達不能な `user-invocable: false` |
+| `scripts/test-verify-gate.sh` | **ゲートは唯一「閉じて落ちる」ことが必須のもの**で、これが無かった時代に2回 fail-open した |
+| `scripts/test-lint-hook.sh` | **このリポジトリ最悪のバグを捕まえた**: scope チェックが誤った変数を見ていて**一度も発火していなかった** —— インストール済みで、何も強制していない状態 |
+| `scripts/test-setup.sh` | 偽の `$HOME` に対して。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
+| `scripts/check.sh` | 上記すべてを1コマンドに。**5つ覚える代わりに1つ** |
+| `scripts/test-non-interactive.sh` | **人間を待つものが1つも無いことを主張する。** `--non-interactive` フラグは作りません —— 設定時にだけ通る第2の経路ができ、既定の経路がプロンプトへ退行してもフラグ付きテストは緑のままになる。実際に**stdin を閉じるとゲートがハングする**バグを見つけた（ハングすればハーネスに殺され、それは non-blocking = fail-open） |
 
 **削除したもの（同じテストに落ちた）:**
 
@@ -324,11 +337,11 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ## テスト
 
 ```bash
-./scripts/check.sh              # 全部: 構文、symlink、lint、93 の振る舞い assertion
+./scripts/check.sh              # 全部: 構文、symlink、lint、振る舞いスイート4本、作業ツリーの汚れ
 ./scripts/check.sh --fast       # 構文と lint だけ
 ```
 
-個別に走らせるのは、そのどれかを触っているときだけ: `verify-skills.sh`（lint）、`test-verify-gate.sh`（42）、`test-lint-hook.sh`（33）、`test-setup.sh`（18）。
+個別に走らせるのは、そのどれかを触っているときだけ: `verify-skills.sh`（lint）、`test-verify-gate.sh`、`test-lint-hook.sh`、`test-setup.sh`、`test-non-interactive.sh`。**assertion 数は書きません** —— 手で維持する数はコミットごとに古くなり、stale な記述を欠陥として扱うリポジトリではそれ自体が欠陥です。
 
 CI は両スイートを **Linux と macOS の両方**で走らせます。壊れ方が両方向に出たからです —— bash 4 構文は Linux で通り macOS で落ち、`mktemp -t` の綴りは BSD で通り GNU coreutils で落ちる。
 
