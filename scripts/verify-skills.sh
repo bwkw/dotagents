@@ -155,17 +155,23 @@ check_skill() {
   # programmatic Skill calls and subagent preloading -- with no error. See docs/decisions.md.
   # Match on $name, not $id -- $id is "skills/<name>" and a bare case pattern never matches it.
   if has_frontmatter_key "$skill" disable-model-invocation; then
-    case "$name" in
-      # /da-verify is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate
-      # never arms and passes every turn: the guardrail opens instead of closing.
-      da-verify)
-        err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)" ;;
-      # da-review-all dispatches to these three by name via a subagent.
-      x-review-backend|x-review-frontend|x-review-infra)
-        err "$id" "is a by-name dispatch target of da-review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so da-review-all would report this layer as covered while reviewing nothing" ;;
-      *)
-        : ;;  # legitimate: user-invocable only, zero budget cost, nothing dispatches to it
-    esac
+    # Declared as data so the list has one home per file, and matched against rather than spelled out
+    # in case patterns. The cross-check below reads these two lines out of both this file and the hook.
+    # It used to extract case patterns with a regex hardcoded to `da-[a-z-]+`, so it compared exactly
+    # one name and reported "both enforcers agree" -- while the x-review-* protections, added because
+    # the `x-` rename broke a guardrail once, were not compared at all.
+    DMI_GATE="da-verify"                                                  # dotagents:dmi-gate
+    DMI_DISPATCH="x-review-backend x-review-frontend x-review-infra"      # dotagents:dmi-dispatch
+
+    # /da-verify is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate
+    # never arms and passes every turn: the guardrail opens instead of closing.
+    if [[ " $DMI_GATE " == *" $name "* ]]; then
+      err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)"
+    # da-review-all dispatches to these by name via a subagent.
+    elif [[ " $DMI_DISPATCH " == *" $name "* ]]; then
+      err "$id" "is a by-name dispatch target of da-review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so da-review-all would report this layer as covered while reviewing nothing"
+    fi
+    # Anything else is legitimate: user-invocable only, zero budget cost, nothing dispatches to it.
   fi
 
   # --- invariant: Cursor sees only name/description/paths -------------------
@@ -234,15 +240,32 @@ check_skill() {
   # --- reference files must be addressed absolutely -------------------------
   # A relative path does not resolve inside a subagent, whose cwd differs.
   if [[ -d "$dir/reference" ]]; then
-    if grep -qE '(^|[^/${])reference/[a-z0-9_-]+\.md' <<<"$body" \
-       && ! grep -q 'CLAUDE_SKILL_DIR' <<<"$body"; then
-      err "$id" "references reference/*.md by relative path -- use \${CLAUDE_SKILL_DIR}/reference/... so subagents can resolve it"
+    # Per path, not per file. The old form also required that CLAUDE_SKILL_DIR appear nowhere in the
+    # body -- so a skill that mentioned the right idiom once, in prose, passed while every actual path
+    # in its Files-to-read table stayed relative. All three x-review-* skills were in exactly that
+    # state: they instructed subagents to use the absolute form and then handed them relative ones.
+    # The lint passed because the file talked about the rule, which is a check on state rather than on
+    # mechanism -- the thing docs/decisions.md says not to do.
+    local bare
+    bare="$(grep -oE '(^|[^/${])reference/[a-z0-9_-]+\.md' <<<"$body" | sed 's/^[^r]*//' | sort -u | tr '\n' ' ')"
+    if [[ -n "${bare// /}" ]]; then
+      err "$id" "addresses reference files by relative path (${bare% }) -- a subagent's cwd is not yours, so use \${CLAUDE_SKILL_DIR}/reference/..."
     fi
+
     local ref
     for ref in "$dir"/reference/*; do
       [[ -f "$ref" ]] || continue
       grep -qF "$(basename "$ref")" <<<"$body" \
         || warn "$id" "reference/$(basename "$ref") is never mentioned in SKILL.md"
+    done
+
+    # And the other direction. The existing check only caught a file nobody mentions; a mention with no
+    # file behind it is worse -- da-review-all told the reader to follow report-format.md, which was not
+    # in its reference/ at all, so anyone following that sentence had nothing to open.
+    local mentioned
+    for mentioned in $(grep -oE 'reference/[a-z0-9_-]+\.md' <<<"$body" | sed 's|^reference/||' | sort -u); do
+      [[ -e "$dir/reference/$mentioned" ]] \
+        || err "$id" "names reference/$mentioned but no such file exists -- anyone following that instruction has nothing to open"
     done
   fi
 
@@ -276,7 +299,7 @@ for root in "${ROOTS[@]}"; do
   [[ -d "$root" ]] || { err "$root" "not a directory"; continue; }
   for dir in "$root"/*/; do
     [[ -d "$dir" ]] || continue
-    [[ "$(basename "$dir")" == _* ]] && continue   # _template, _shared
+    [[ "$(basename "$dir")" == _* ]] && continue   # _shared (and any other _-prefixed helper dir; _template lives at the repo root, not here)
     check_skill "${dir%/}"
   done
 done
@@ -290,20 +313,40 @@ if [[ -d "$REPO/skills" ]]; then
   echo "checking the disable-model-invocation scope"
   hook_file="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
 
-  # The names this script protects, read back out of its own case patterns.
-  linter_names="$(sed -n '/case "\$name" in/,/esac/p' "$0" \
-    | grep -oE '^[[:space:]]+(da-[a-z-]+\|?)+\)' | tr -d ' )' | tr '|' '\n' | sort -u)"
-  # The names the hook protects.
-  hook_names="$(grep -oE '"da-[a-z-]+"' "$hook_file" 2>/dev/null | tr -d '"' | sort -u)"
+  # Both files declare the list on a line carrying a marker, and both drive their behaviour from that
+  # declaration. Read here by marker rather than by parsing case patterns: the previous version's
+  # extraction regex was hardcoded to `da-[a-z-]+` on both sides, so it compared exactly one name --
+  # and then printed "both enforcers agree", naming that one name as if it were the whole set. The
+  # x-review-* protections, added because the `x-` rename broke a guardrail for real, were never
+  # compared. Prefix-agnostic now, so a future prefix is covered without anyone remembering to widen it.
+  # ${BASH_SOURCE[0]}, not $0: $0 is the caller when this file is sourced.
+  # The marker comment is stripped before names are extracted, so `dmi-gate` and `dmi-dispatch` are not
+  # themselves read as skill names. `#` and `//` both accepted: one side is bash, the other is the JS
+  # embedded in the hook.
+  marked_names() { # <file> <marker>
+    grep -E "dotagents:$2([^-a-z0-9]|$)" "$1" 2>/dev/null \
+      | sed 's|[#/]*[[:space:]]*dotagents:.*$||' \
+      | grep -oE '[a-z][a-z0-9]*(-[a-z0-9]+)+' | sort -u
+  }
+  linter_names="$( { marked_names "${BASH_SOURCE[0]}" dmi-gate; marked_names "${BASH_SOURCE[0]}" dmi-dispatch; } | sort -u)"
+  hook_names="$(   { marked_names "$hook_file"        dmi-gate; marked_names "$hook_file"        dmi-dispatch; } | sort -u)"
 
   scope_ok=1
+  if [[ -z "$linter_names" ]]; then
+    err "scope" "no 'dotagents:dmi-gate'/'dotagents:dmi-dispatch' declaration found in verify-skills.sh -- the marker is what makes the two lists comparable, so removing it removes the check"
+    scope_ok=0
+  fi
+  if [[ -z "$hook_names" ]]; then
+    err "scope" "no 'dotagents:dmi-gate'/'dotagents:dmi-dispatch' declaration found in the lint hook -- the marker is what makes the two lists comparable, so removing it removes the check"
+    scope_ok=0
+  fi
   while read -r pn; do
     [[ -n "$pn" ]] || continue
     [[ -f "$REPO/skills/$pn/SKILL.md" ]] \
       || { err "scope" "'$pn' is protected from disable-model-invocation but skills/$pn does not exist -- it was renamed and the list was not updated, so the guardrail now protects nothing"; scope_ok=0; }
   done <<<"$linter_names"
 
-  if [[ -n "$hook_names" ]] && [[ "$linter_names" != "$hook_names" ]]; then
+  if [[ -n "$hook_names" && -n "$linter_names" ]] && [[ "$linter_names" != "$hook_names" ]]; then
     err "scope" "verify-skills.sh and the lint hook protect different names -- both must agree or one of them silently stops enforcing"
     printf '%s  linter: %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$linter_names")" "$c_off"
     printf '%s  hook:   %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$hook_names")" "$c_off"
