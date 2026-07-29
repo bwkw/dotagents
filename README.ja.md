@@ -346,29 +346,6 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 
 スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 
-## Advisor（オプトイン）
-
-メインモデルに、より強いモデルを**相談役**として組み合わせます。Claude が判断の分岐点で呼びます —— アプローチを決める前、同じエラーが繰り返すとき、完了を宣言する前。**subagent が継承する**ので、`/da-review-all` の層別サブエージェントも同じ advisor を得ます。
-
-```bash
-./scripts/setup.sh install --advisor      # advisorModel: opus を設定
-```
-
-オプトインにした理由は公式ドキュメントが明記している3点です: **experimental**、**Anthropic API 専用**（Bedrock / AWS / GCP Agent Platform / Foundry では使えない）、そして **advisor モデルのレートで追加トークンを消費する**。呼び出し回数の上限も強制もありません —— Claude が判断し、唯一の制御はプロンプトで「consult the advisor before you continue」と言うことです。
-
-止めるには `/advisor off`、ツール自体を無効化するなら `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`。切り替えてもメインモデルの prompt cache は無効化されません。
-
-**「オーケストレータ＋hot path 外の相談役」パターンの、公式に出荷された形**です。自分で似たものを作る前に知っておく価値があります。
-
-## ステータスライン（オプトイン）
-
-コンテキスト使用率・モデル・worktree・ブランチ・セッション費用。使用率が常時表示に値するのは、ここの規律がほぼ**コンテキストの使い方**の話だからです（67%未満で緑、85%超で赤）。
-
-```bash
-./scripts/setup.sh install --statusline
-```
-
-取得できないフィールドは「unknown」ではなく**消えます**。フィールド名はバージョンで変わり、古い数字を出し続けるステータスラインは短いものより悪いので。
 
 ## スキルの書き方
 
@@ -376,13 +353,40 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 
 不変則は [`AGENTS.md`](AGENTS.md) にあります —— あれが常時ロードされる層で、**無警告で失敗する**ものだけを置いています。全体を規定する1つ: **Claude 固有の frontmatter を全部剥がしても同じ挙動が成立すること。** Cursor はそれらを何も言わずに無視し、しかも**別のモデルファミリー**で動くので。
 
+## スクリプト全部と、それを正当化する理由
+
+**スクリプトの増殖はこの種のツールキットの failure mode** なので、1本ごとに「何を防ぐか」を言えなければいけません。9ファイルあり、**2つはこのテストに落ちて削除しました。**
+
+| ファイル | 行数 | なぜ存在するか |
+|---|---|---|
+| `scripts/setup.sh` | 557 | **配布の機構。** スキルと agent を link、hook をコピー、設定をキー単位でマージ、リポジトリが配らなくなったものを prune、追加したものだけを正確に revert。これが無いと何もインストールされない |
+| `scripts/lib/merge-settings.mjs` | 271 | その安全な半分: 宣言したキーだけをマージし、自分が書いていない値は書き換えず、触ったものを記録する。**他人の API キーを含むファイルを編集する**ので |
+| `hooks/dotagents-verify-gate.sh` | 407 | **ゲート。** 価値提案の本体 —— エージェントは「完了したように見えた」時点で止まる |
+| `hooks/dotagents-lint-skill-frontmatter.sh` | 124 | **壊れた状態でインストールされて何も言わない** `SKILL.md` を拒否する |
+| `scripts/gate.sh` | 158 | ゲートの操作面: arm / disarm / 委譲チェックの記録 / 状態表示。通常はあなたではなく `/da-verify` が呼ぶ |
+| `scripts/verify-skills.sh` | 360 | `AGENTS.md` の不変条件をチェックに落としたもの。**実際に捕まえた**: どの YAML パーサも受け付けない frontmatter、本文が使うツールを欠いた `allowed-tools`、本文から言及されていない reference、到達不能な `user-invocable: false` |
+| `scripts/test-verify-gate.sh` | 405 | 42 assertion。**ゲートは唯一「閉じて落ちる」ことが必須のもの**で、これが無かった時代に2回 fail-open した |
+| `scripts/test-lint-hook.sh` | 175 | 33 assertion。**このリポジトリ最悪のバグを捕まえた**: scope チェックが誤った変数を見ていて**一度も発火していなかった** —— インストール済みで、何も強制していない状態 |
+| `scripts/test-setup.sh` | 141 | 偽の `$HOME` に対する 18 assertion。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
+| `scripts/check.sh` | 68 | 上記すべてを1コマンドに。**4つ覚える代わりに1つ** |
+
+**削除したもの（同じテストに落ちた）:**
+
+| 削除 | 理由 |
+|---|---|
+| `hooks/dotagents-statusline.sh` ＋ template ＋ `--statusline` | **一度もオプトインされなかったオプトイン。** 72行とインストーラの関数を使って、誰も求めていないステータスラインを描画していた。しかも「全 hook はブロックできなければならない」チェックに**例外を強制**していた —— ブロックできない唯一の hook だったので |
+| `templates/claude.advisor.snippet.json` ＋ `--advisor` | 同じく**一度も有効化されなかった**。しかも背後の機能は experimental で Anthropic API 専用なので、**大半の環境に存在しない能力**をフラグが説明していた |
+
+両方に共通するパターン: **一度も ON にされなかった、何かのためのオプション。** ツールキットの所有が煩わしくなる原因は**ファイル数ではなく**、「保持するか判断する前に、まず目的を再構成しないといけないファイル」です。ここにあるもので**「何を防ぐか」を1行で答えられないものは、同じように消すべき**です。
+
 ## テスト
 
 ```bash
-./scripts/verify-skills.sh      # スキルの lint
-./scripts/test-verify-gate.sh   # 42テスト — ゲート
-./scripts/test-setup.sh         # 14テスト — インストーラ（偽の HOME に対して）
+./scripts/check.sh              # 全部: 構文、symlink、lint、93 の振る舞い assertion
+./scripts/check.sh --fast       # 構文と lint だけ
 ```
+
+個別に走らせるのは、そのどれかを触っているときだけ: `verify-skills.sh`（lint）、`test-verify-gate.sh`（42）、`test-lint-hook.sh`（33）、`test-setup.sh`（18）。
 
 CI は両スイートを **Linux と macOS の両方**で走らせます。壊れ方が両方向に出たからです —— bash 4 構文は Linux で通り macOS で落ち、`mktemp -t` の綴りは BSD で通り GNU coreutils で落ちる。
 

@@ -28,35 +28,12 @@ jobs:
       - name: Report the shell actually in use
         run: bash --version | head -1
 
-      - name: Syntax
+      # Syntax, the bash-3.2 sweep, the skills lint and all 93 behavioural assertions. One script so
+      # that what CI runs and what you run locally cannot drift apart.
+      - name: All checks
         run: |
-          for f in scripts/*.sh hooks/*.sh; do bash -n "$f" || exit 1; done
           node --check scripts/lib/merge-settings.mjs
-
-      - name: No bash 4+ constructs
-        run: |
-          if grep -rnE '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/; then
-            echo "::error::bash 4+ construct found; macOS ships bash 3.2"
-            exit 1
-          fi
-
-      - name: Skills lint
-        run: ./scripts/verify-skills.sh
-
-      - name: Verify-gate tests
-        run: ./scripts/test-verify-gate.sh
-
-      # The disable-model-invocation scope is enforced in two places that must agree: the lint hook
-      # and the linter. A first attempt matched on the wrong variable in the linter and silently
-      # never fired -- installed, and enforcing nothing. Asserted here rather than assumed.
-      - name: Lint-hook tests
-        run: ./scripts/test-lint-hook.sh
-
-      # The installer edits files it does not own -- agent settings holding credentials, hooks
-      # registered by other tools. It had syntax checks and nothing else while the gate had 42
-      # behavioural tests, which was the wrong way round. Runs against a fake HOME.
-      - name: Installer tests
-        run: ./scripts/test-setup.sh
+          ./scripts/check.sh
 
       # printf, not echo: some shells expand the \n inside the JSON string literal and hand the
       # hook invalid JSON, which it correctly ignores -- making the test pass for the wrong reason.

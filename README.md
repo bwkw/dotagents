@@ -426,6 +426,36 @@ non-blocking, so the guardrail would open rather than close
 
 ---
 
+### Every script here, and what justifies it
+
+Script sprawl is the failure mode of a toolkit like this, so each one has to name what it prevents.
+Nine files, and **two were deleted for failing this test.**
+
+| File | Lines | Why it exists |
+|---|---|---|
+| `scripts/setup.sh` | 557 | The distribution mechanism. Links skills and agents, copies hooks, merges settings key-scoped, prunes what the repo no longer ships, and reverts exactly what it added. Without it nothing installs |
+| `scripts/lib/merge-settings.mjs` | 271 | The safe half of that: merges only declared keys, never rewrites a value it did not write, records what it touched. It edits a file holding someone else's API key |
+| `hooks/dotagents-verify-gate.sh` | 407 | The gate. The whole value proposition — an agent stops when work *looks* done |
+| `hooks/dotagents-lint-skill-frontmatter.sh` | 124 | Refuses a `SKILL.md` that would install broken and never say so |
+| `scripts/gate.sh` | 158 | The gate's control surface: arm, disarm, record a delegated check, report state. Called by `/da-verify`, not usually by you |
+| `scripts/verify-skills.sh` | 360 | The `AGENTS.md` invariants, as checks. **Caught:** frontmatter that no YAML parser accepts, `allowed-tools` omitting a tool the body uses, references never mentioned in the body, an unreachable `user-invocable: false` |
+| `scripts/test-verify-gate.sh` | 405 | 42 assertions. The gate is the one thing that must fail *closed*, and it failed open twice before these existed |
+| `scripts/test-lint-hook.sh` | 175 | 33 assertions. **Caught the worst bug in this repository:** a scope check that matched the wrong variable and therefore never fired — installed, and enforcing nothing |
+| `scripts/test-setup.sh` | 141 | 18 assertions against a fake `$HOME`. The installer edits files holding credentials and other tools' hooks |
+| `scripts/check.sh` | 68 | One command for all of the above, so it is one thing to remember instead of four |
+
+**Deleted, because they failed the same test:**
+
+| Removed | Why |
+|---|---|
+| `hooks/dotagents-statusline.sh` + its template + `--statusline` | An opt-in that was **never opted into.** 72 lines plus an installer function, rendering a status line nothing ever asked for. It also forced an exception into the "every hook must be able to block" check, because it was the only hook that could not |
+| `templates/claude.advisor.snippet.json` + `--advisor` | Same: **never enabled.** And the feature behind it is experimental and Anthropic-API-only, so the flag documented a capability most environments do not have |
+
+The pattern in both: **an option, for a thing, that was never turned on.** That is what makes a toolkit
+annoying to own — not the count of files, but files whose purpose you have to reconstruct before you can
+decide whether to keep them. Anything here that cannot answer "what does it prevent" in one line should
+go the same way.
+
 ## Upstream skills
 
 Not vendored here. Installed alongside, updated with `npx skills check` / `npx skills update`.
@@ -497,38 +527,6 @@ Skills run with full agent permissions. `/skill-scanner` audits one for prompt i
 supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is
 for.
 
-## Advisor (opt-in)
-
-Pairs your main model with a stronger one that Claude consults at decision points — before committing
-to an approach, when an error keeps recurring, before declaring a task done. **Subagents inherit it**,
-so `/da-review-all`'s per-layer subagents get the same advisor.
-
-```bash
-./scripts/setup.sh install --advisor      # sets advisorModel: opus
-```
-
-Opt-in for three reasons the official docs state plainly: it is **experimental**, it requires the
-**Anthropic API** (not Bedrock, AWS, GCP Agent Platform, or Foundry), and it **spends extra tokens** at
-the advisor model's rates. There is no setting to cap or force calls — Claude decides, and the only
-lever is saying "consult the advisor before you continue" in a prompt.
-
-`/advisor off` to stop, or `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` to disable the tool entirely.
-Toggling it does not invalidate the main model's prompt cache.
-
-This is the officially shipped form of the orchestrator-plus-consulted-critic pattern, and it is worth
-knowing about before building anything like it by hand.
-
-## Status line (opt-in)
-
-Context percentage, model, worktree, branch, session cost. Context percentage earns permanent screen
-space because most of the discipline here is about spending it well — green under 67%, red past 85%.
-
-```bash
-./scripts/setup.sh install --statusline
-```
-
-Missing fields are omitted rather than shown as "unknown": field names change between versions, and a
-status line reporting stale numbers is worse than a short one.
 
 ## Writing a skill
 
@@ -542,10 +540,12 @@ runs a different model family besides.
 ## Tests
 
 ```bash
-./scripts/verify-skills.sh      # skill lint
-./scripts/test-verify-gate.sh   # 42 tests — the gate
-./scripts/test-setup.sh         # 14 tests — the installer, against a fake HOME
+./scripts/check.sh              # everything: syntax, symlink, lint, 93 behavioural assertions
+./scripts/check.sh --fast       # syntax and lint only
 ```
+
+Individually, when one of them is what you are working on: `verify-skills.sh` (lint),
+`test-verify-gate.sh` (42), `test-lint-hook.sh` (33), `test-setup.sh` (18).
 
 CI runs both suites on **Linux and macOS**, because breakage has gone in both directions: bash 4
 constructs that pass on Linux and fail on macOS, and `mktemp -t` spellings that work on BSD and fail

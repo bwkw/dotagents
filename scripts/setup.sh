@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dotagents installer.
 #
-#   install [--dry-run] [--statusline]     link skills, copy hooks, merge settings, and remove
+#   install [--dry-run]     link skills, copy hooks, merge settings, and remove
 #                                          anything we installed that the repo no longer ships
 #   status                                  what is installed and whether it is current
 #   doctor                                  diagnose drift and breakage
@@ -25,8 +25,6 @@ CLAUDE_AGENTS="$HOME/.claude/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
-WITH_STATUSLINE=0
-WITH_ADVISOR=0
 
 # Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
 TILDE="~"
@@ -268,39 +266,6 @@ merge_settings() {
   ok "merged settings into ~/.claude/settings.json"
 }
 
-# Cursor keeps its hooks in a different file with a different shape. Same rule: only the entries
-# our snippet declares, appended alongside whatever is already registered there.
-merge_statusline() {
-  (( WITH_STATUSLINE )) || return 0
-  local tmpl="$REPO/templates/claude.statusline.snippet.json"
-  # Explicitly requested, so a missing template is an error rather than a shrug.
-  [[ -f "$tmpl" ]] || die "--statusline was requested but the snippet is missing: $tmpl"
-
-  if (( DRY_RUN )); then
-    note "would: enable the status line in ~/.claude/settings.json"
-    return 0
-  fi
-  node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$HOME/.claude/settings.json" "$MANIFEST"
-  ok "enabled the status line"
-}
-
-# The advisor lets a cheaper main model consult a stronger one at decision points, and subagents
-# inherit it. Opt-in rather than default: the docs mark it experimental, it is Anthropic-API-only, and
-# it spends extra tokens. Those are the user's calls to make, not this installer's.
-merge_advisor() {
-  (( WITH_ADVISOR )) || return 0
-  local tmpl="$REPO/templates/claude.advisor.snippet.json"
-  [[ -f "$tmpl" ]] || die "--advisor was requested but the snippet is missing: $tmpl"
-
-  if (( DRY_RUN )); then
-    note "would: set advisorModel in ~/.claude/settings.json"
-    return 0
-  fi
-  node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$HOME/.claude/settings.json" "$MANIFEST"
-  ok "paired the main model with an advisor"
-  note "experimental, Anthropic API only, and it spends extra tokens. /advisor off to stop."
-}
-
 merge_cursor_hooks() {
   local tmpl="$REPO/templates/cursor.hooks.snippet.json"
   local target="$HOME/.cursor/hooks.json"
@@ -365,8 +330,6 @@ cmd_install() {
   prune_hooks
   prune_agents
   merge_settings
-  merge_statusline
-  merge_advisor
   merge_cursor_hooks
   write_manifest
 
@@ -498,8 +461,8 @@ cmd_doctor() {
   local f
   for f in "$REPO"/hooks/*.sh; do
     [[ -f "$f" ]] || continue
-    # The status line only renders; it has nothing to block. Guardrails do.
-    [[ "$(basename "$f")" == *statusline* ]] && continue
+    # Every hook shipped here is a guardrail, so every one must have a blocking path. The exception
+    # for a render-only status line went away with the status line itself.
     grep -qE 'exit 2|permissionDecision|followup_message' "$f" \
       || { warn "$(basename "$f") has no blocking path (no 'exit 2', no permissionDecision) -- it cannot stop anything"; found=1; }
   done
@@ -579,8 +542,6 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
     --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
-    --statusline)    WITH_STATUSLINE=1 ;;
-    --advisor)       WITH_ADVISOR=1 ;;
     -h|--help)       usage ;;
     *) die "unknown option: $arg" ;;
   esac

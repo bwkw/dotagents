@@ -39,7 +39,9 @@ when there is one.
 
 ## What changes
 
-<!-- Observable changes, one topic per bullet, in the reader's words, each standing on its own. -->
+<!-- Observable changes, one topic per bullet. Each bullet states what changed AND why that shape
+     was chosen (the constraint, measurement, or failure mode that ruled out the obvious alternatives).
+     In the reader's words; each standing on its own. -->
 -
 -
 
@@ -83,6 +85,15 @@ ticket-tag convention). Match the language the repository's other PR titles use.
 **Do not make a class, function, or flag the subject.** Not "added `LoadOutboundUsecase`" but
 "customer-facing CSV can now be exported". One topic per bullet, each meaningful on its own without
 the lines around it. Nothing from the "leave out" list.
+
+**Every bullet must carry the why.** State what changed, then why that shape was chosen — the
+constraint, measurement, or failure mode that ruled out the obvious alternatives. A reviewer should
+not have to open the diff or ask "なぜこの形？" to understand the decision. Prefer one sentence that
+pairs change + reason over a bare fact followed by a separate justification paragraph.
+
+Bad: "`pnpm run typecheck` now uses `--singleThreaded`"
+Good: "`pnpm run typecheck` is fixed to `--singleThreaded`, because on this codebase `--checkers 2`
+was ~2.4× slower and used ~40% more memory"
 
 **Before → After.** Only where **existing behaviour changes** and the contrast prevents a
 misunderstanding — for example, "records with an empty unique key were counted as successful rows →

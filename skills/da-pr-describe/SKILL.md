@@ -15,8 +15,8 @@ not something to infer from the code looking finished. `disable-model-invocation
 description out of context entirely, which costs nothing and frees budget for the skills that do need
 to fire on their own. Nothing dispatches to this skill by name.
 
-Generate a title and description that let a reviewer grasp **what changes** without opening the
-diff. Optimise for being understood, not for being exhaustive.
+Generate a title and description that let a reviewer grasp **what changes** and **why that shape
+was chosen** without opening the diff. Optimise for being understood, not for being exhaustive.
 
 **This skill never modifies files in the repository.** It edits the PR on GitHub, and writes its
 draft body to a temporary file outside the repo.
@@ -76,6 +76,12 @@ git log --oneline "$BASE"..HEAD
 From the diff, pull out **what changes for a user, an operator, or a caller** — see the selection
 rules in the reference.
 
+For each retained change, also extract **why that shape was chosen**: the constraint, measurement,
+or failure mode that ruled out the obvious alternatives (e.g. a slower flag, a narrower exclude that
+would hide real errors, a deploy-time failure that CI never saw). A bullet that only states the
+fact without the decision reason is incomplete — the reviewer will ask "なぜこの形？" and open the
+diff anyway.
+
 Separately, collect candidates for **manual verification**: things automated tests cannot cover and
 that must be checked by hand or in a real environment before merge. Real external API behaviour,
 real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
@@ -108,6 +114,7 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 ## Done when
 
 - [ ] The reviewer can tell what changes from the description alone
+- [ ] Every "What changes" bullet includes why that shape was chosen (not just the fact)
 - [ ] No internal-only churn made it into the body
 - [ ] Everything requiring manual verification is listed, unchecked, with a reason
 - [ ] Cross-repository references use full URLs or `owner/repo#number`, never a bare `#number`
