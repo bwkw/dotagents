@@ -67,6 +67,18 @@ syntax() {
 rewritable() { git ls-files | while read -r f; do [[ -f "$f" && ! -L "$f" ]] && printf '%s\n' "$f"; done; }
 [[ "${1:-}" == "--rewritable" ]] && { rewritable; exit 0; }
 
+# Every shipped script has to be executable. The suites all invoke through `bash <file>`, so a lost
+# +x bit passes every test here and in CI -- and then `scripts/gate.sh arm`, which is how the README
+# tells you to run it, fails with permission denied. Lost for real by a rewrite that wrote to a new
+# file and renamed it over the original, which is how a new file gets 644.
+executable_bits() {
+  local bad
+  bad="$(git ls-files -s scripts/*.sh hooks/*.sh | awk '$1!="100755"{print $4}')"
+  [[ -z "$bad" ]] && return 0
+  printf 'not executable (mode should be 100755):\n%s\n' "$bad"
+  return 1
+}
+
 symlink_intact() {
   # Claude Code does not read AGENTS.md, so if CLAUDE.md stops being a symlink the always-loaded
   # layer silently drifts. `perl -pi` on a symlink replaces it with a regular file; this caught it.
@@ -76,6 +88,7 @@ symlink_intact() {
 
 step "shell syntax, and no bash 4 constructs" syntax
 step "CLAUDE.md is still a symlink to AGENTS.md" symlink_intact
+step "every shipped script is executable" executable_bits
 step "skills lint (invariants, budget, agents, override scope)" ./scripts/verify-skills.sh
 
 if (( ! FAST )); then
