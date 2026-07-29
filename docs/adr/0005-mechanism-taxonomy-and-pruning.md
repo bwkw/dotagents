@@ -85,7 +85,7 @@ an unmanaged `~/.claude/agents/` would be invariant 4's problem in a new costume
 `~/.cursor/agents/`; the symptom would be a visible fallback to `general-purpose`, not a silent
 failure, which is why shipping on documentation alone is acceptable here.
 
-## Decision 3 — eleven skills uninstalled
+## Decision 3 — eleven skills uninstalled, two of them wrongly
 
 Kept: the basic development loop, the official-best-practice sets, and what was already in use.
 Removed: specialist advisory skills, duplicates of what the harness now provides natively, and one
@@ -99,9 +99,20 @@ that did are kept **for that reason**: `brainstorming` (referenced by our own `d
 |---|---|
 | `find-skills` | 303 chars teaching `npx skills add` **without `-s`**, which AGENTS.md has an invariant against |
 | `using-superpowers` | Mandates skill invocation "before ANY response including clarifying questions", which contradicts `da-investigate` and `da-design-review` — both of which refuse an unstated goal. It also hard-wires brainstorming → writing-plans, a funnel that structurally cannot reach `/grill-me` or `/da-design-review` |
-| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration`, `documentation-and-adrs` | Specialist advisory, off the development loop |
+| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | Specialist advisory, off the development loop |
+| ~~`documentation-and-adrs`~~ | **Reinstated.** Cut as "specialist advisory" — writing an ADR is the *first step* of the design flow here, and this directory holds seven of them |
 | `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set, removed together so no reference dangles |
-| `research`, `dispatching-parallel-agents` | The harness provides WebFetch and parallel agents natively |
+| `dispatching-parallel-agents` | The harness provides parallel agents natively |
+| ~~`research`~~ | **Reinstated.** Cut because "the harness has WebFetch", which confuses *having the tool* with *having the practice* |
+
+**Two of these were wrong, in the same way, twice.** Both `documentation-and-adrs` and `research` were
+cut against a guess at the development flow rather than the flow itself. Once the actual phases were
+stated — external survey first, then ADR, then implementation — both turned out to sit on it. The
+correction that matters is not the two reinstatements but the rule they produce:
+
+> **Do not remove a skill against an assumed workflow.** Removal needs the flow stated by the person who
+> uses it. Structural evidence — a dangling reference, a behavioural conflict, a duplicate of a native
+> capability — is a reason to remove. "It looks off the loop to me" is not, and cost two reversals.
 
 **One accepted dangling reference.** `executing-plans` names `using-superpowers`. It is upstream, so
 editing it in place is lost on the next `npx skills update` (invariant 7). A stale name in one upstream

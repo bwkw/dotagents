@@ -8,8 +8,7 @@ available in every repository. No product repository is ever modified.
 
 日本語版: [README.ja.md](README.ja.md)
 
-The loop, with sources: [docs/workflow.md](docs/workflow.md) · Why it is shaped this way, and whose
-practices it is built from: [docs/design.md](docs/design.md) · Which mechanism to use:
+Why it is shaped this way, with sources: [docs/design.md](docs/design.md) · Which mechanism to use:
 [docs/mechanisms.md](docs/mechanisms.md) · Decisions: [docs/adr/](docs/adr/)
 
 ```bash
@@ -102,8 +101,9 @@ reaches them, and so does naming a layer ("review the backend"). One thing to ty
 - **Two failed corrections on the same issue → discard the session** and rewrite the prompt with what you
   learned. A clean session with a better prompt beats a long one carrying failed approaches.
 
-[`docs/workflow.md`](docs/workflow.md) has the reasoning, the sources, and the places good sources
-disagree.
+[`docs/design.md`](docs/design.md) has the reasoning, the sources, and the places good sources disagree
+— including the fact that **there is no canonical phase count**; the five use cases above are a
+convenience, not a finding.
 
 ### The gate, and when you touch it directly
 
@@ -190,31 +190,22 @@ This machine has both versions. See [ADR 0006](docs/adr/0006-one-review-entry-an
 
 ### Why these are skills, and not "commands"
 
-There is no separate commands directory here, and that is deliberate rather than an omission.
-[Official guidance](https://code.claude.com/docs/en/skills) is explicit: *"Custom commands have been
-merged into skills… Skills are recommended."* There is no documented case where a bare
-`commands/*.md` is preferable. Cursor's commands documentation page is now a 404.
+Official guidance merged commands into skills, and there is no documented case where a bare
+`commands/*.md` is preferable — so there is no `commands/` directory here. The full taxonomy, with
+sources, is in [`docs/mechanisms.md`](docs/mechanisms.md#commands-are-skills-now).
 
-A **slash command** was a prompt template: you typed `/name`, it expanded, that was the whole
-mechanism. A **skill** is a directory — `SKILL.md` plus reference files it loads only when needed — and
-it can be reached three ways: you type `/name`, the model picks it from the `description` because the
-request matched, or another skill calls it by name. The first way is a strict subset of what a skill
-does, so anything written as a command is a skill with two capabilities switched off.
+What follows from it operationally:
 
-The prompt-template case has not disappeared; it is now spelled `disable-model-invocation: true`, which
-also drops the description from context entirely and so costs no budget. `/da-pr-describe` uses it — it
-writes to GitHub, so the timing is yours. `/da-verify` and the three layer reviews must never use it,
-because something reaches them by name; both the lint hook and the linter enforce that, with tests.
-[`docs/mechanisms.md`](docs/mechanisms.md) has the full taxonomy with sources.
-
-That matters concretely for these four. `/x-review-backend` is one skill that has to work when **you**
-invoke it directly and when **`/da-review-all`** invokes it as one of several layers. As a command it
-would need to be two files that drift apart, which is exactly how this repository's predecessor
-decayed. The single reference set — posture, process, discipline, silent-failure patterns — is shared
-by symlink, so a change to the discipline reaches every layer and the cross-layer pass at once.
-
-Practically: **type `/` and everything is in one list.** Nothing here is invoked a second, different
-way.
+- **Type `/` and everything is in one list.** Nothing here is invoked a second, different way.
+- The prompt-template case is now spelled `disable-model-invocation: true`, which also drops the
+  description from context and so costs no budget. `/da-pr-describe` uses it — it writes to GitHub, so
+  the timing is yours.
+- **`/da-verify` and the three layer reviews must never use it**, because something reaches them *by
+  name*. The lint hook and the linter both enforce that, with tests.
+- One skill serving both a direct invocation and a dispatch from `/da-review-all` is why the layer
+  reviews are skills and not two files that drift apart — which is how this repository's predecessor
+  decayed. Their shared reference set is symlinked, so a change to the discipline reaches every layer
+  and the cross-layer pass at once.
 
 ### Where the upstream eleven come from
 
@@ -412,47 +403,19 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ```
 
 **Removed after measuring**, not on a hunch. `/da-skills-audit` compares descriptions pairwise for
-shared trigger vocabulary; these two scored highest and lost:
+shared trigger vocabulary, and **13 were removed across three rounds** — taking the set from 35 skills
+to 21 and resident descriptions from 6,905 to about 3,500 characters. Each removal, its reason and its
+cost are in [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) and
+[ADR 0006](docs/adr/0006-one-review-entry-and-the-real-command-surface.md), including **two that were
+wrong and reinstated** — both cut against a guess at the development flow rather than the flow itself.
 
-- `getsentry/security-review` — 33% overlap with `find-bugs`, which covers bugs *and* security *and*
-  quality over the same branch diff. Claude Code bundles its own `security-review`, and a personal
-  skill of that name shadows it, so removing this one gives the built-in back rather than losing
-  anything.
-- `obra/subagent-driven-development` — 28 KB, more than twice the size limit, and invoking it parks
-  all of that in context for the session.
+Two consequences are live rather than historical:
 
-**Eleven more removed on 2026-07-28**, taking the set from 35 skills to 24 and resident descriptions
-from 6,905 to 3,559 characters. Every by-name reference was checked first.
-
-**A third round, on 2026-07-29, took it to 21 — 10 ours and 11 upstream.** Six went because no use case
-above reaches them, which is the only test that matters now that the use cases are written down:
-
-| Removed | Why, and what it cost |
-|---|---|
-| `requesting-code-review` | Nothing referenced it and no use case reaches it. `/da-review-all` is how a review starts here |
-| `brainstorming` | Superseded by `/research` → `/grill-me`. Its own description (*"You MUST use this before any creative work"*) also made it fire ahead of both. **Cost:** a dangling name in upstream `writing-plans`, which cannot be edited without losing the fix on the next update |
-| `finishing-a-development-branch` | Integration decisions are made by hand. **Cost:** a dangling name in `executing-plans` |
-| `handoff` · `resolving-merge-conflicts` | Situational, and the situations were handled without them |
-| `verification-before-completion` | **This one has a real cost, taken deliberately.** It was the fallback when a repository has no profile, so `/da-verify` now *stops* there instead of degrading — and stopping is only acceptable because it was changed to hand back a filled-in profile from the repository's own manifests, and to say plainly that there is no gate until you save it. **Cost:** a dangling name in `systematic-debugging` |
-
-Three dangling names in upstream skills, all accepted for the same reason: editing an upstream file in
-place is lost on the next `npx skills update`, and a stale name costs less than keeping a skill no flow
-uses. Every one of the six was checked for inbound references and recorded usage before removal.
-
-| Removed | Why |
-|---|---|
-| `find-skills` | Taught `npx skills add` **without `-s`**, which this repository has an invariant against |
-| `using-superpowers` | Requires skill invocation "before ANY response including clarifying questions", which contradicts `/da-investigate` and `/da-design-review` — both refuse an unstated goal |
-| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | Specialist advisory, off the development loop |
-| ~~`documentation-and-adrs`~~ | **Removed, then reinstated.** Cut as "specialist advisory" without knowing that writing an ADR is the first step of the design flow — this repository has seven of them. The wrong call, made from a guess about the workflow rather than the workflow itself |
-| `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | A mutually-referencing set; removed together so nothing dangles |
-| `dispatching-parallel-agents` | The harness provides parallel agents natively |
-| ~~`research`~~ | **Removed, then reinstated** — the second time this mistake was made. Cut because "the harness has WebFetch", which confuses *having the tool* with *having the practice*: surveying primary sources and writing the findings to a file that survives `/clear` is the first phase of the design flow, and a raw WebFetch call is not that |
-
-**These removals are not backed by usage data**, and it is worth saying so: 34 of the 35 were installed
-the same day, so "never invoked" meant "installed hours ago". They rest on structure — a dangling
-reference, a behavioural conflict, a duplicate of a native capability — not measurement. See
-[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md).
+- **Three upstream skills name a skill that is no longer installed** — `writing-plans`,
+  `executing-plans` and `systematic-debugging`. Accepted: editing an upstream file in place is lost on
+  the next `npx skills update`, silently.
+- **`/da-verify` has no fallback.** The skill that used to cover a repository with no profile is gone,
+  so it stops and hands you a profile to fill in instead of guessing at commands.
 
 Skills run with full agent permissions. `/skill-scanner` audits one for prompt injection and
 supply-chain risk — it found a real defect in this repository's own frontmatter, which is what it is

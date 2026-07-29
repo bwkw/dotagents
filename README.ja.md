@@ -7,9 +7,8 @@
 
 English: [README.md](README.md)
 
-ループ（出典付き）: [docs/workflow.ja.md](docs/workflow.ja.md) · なぜこの形なのか・誰の実践から組み立てたか:
-[docs/design.ja.md](docs/design.ja.md) · どの仕組みを選ぶか: [docs/mechanisms.ja.md](docs/mechanisms.ja.md) ·
-判断の記録: [docs/adr/](docs/adr/)
+なぜこの形なのか（出典付き）: [docs/design.ja.md](docs/design.ja.md) · どの仕組みを選ぶか:
+[docs/mechanisms.ja.md](docs/mechanisms.ja.md) · 判断の記録: [docs/adr/](docs/adr/)
 
 ```bash
 git clone https://github.com/bwkw/dotagents ~/private/dotagents
@@ -97,7 +96,7 @@ cd ~/private/dotagents
 - **計画と実装の間で `/clear`**、そして無関係なタスクの間でも。
 - **同じ問題で2回修正に失敗したらセッションを捨てる。** 学んだことを織り込んで prompt を書き直す。失敗したアプローチを抱えた長いセッションより、良い prompt の綺麗なセッションが勝つ。
 
-理由・出典・良い出典どうしが食い違う箇所は [`docs/workflow.ja.md`](docs/workflow.ja.md) に。
+理由・出典・良い出典どうしが食い違う箇所は [`docs/design.ja.md`](docs/design.ja.md) に。**正典と呼べる段階数は存在しない**という事実も含めて —— 上の5ユースケースは便宜であって、発見ではありません。
 
 ### ゲートと、直接触る場合
 
@@ -154,19 +153,16 @@ scripts/gate.sh disarm    # 質問応答に戻る。終了時にスイートを�
 
 ### なぜ「コマンド」ではなく全部スキルなのか
 
-**このリポジトリに commands ディレクトリはありません。**これは抜けているのではなく意図的です。
+公式がコマンドをスキルに統合し、素の `commands/*.md` が好ましいケースは公式に1つもない —— なのでここに `commands/` ディレクトリはありません。分類の全体像と出典は [`docs/mechanisms.ja.md`](docs/mechanisms.ja.md) にあります。
 
-[公式](https://code.claude.com/docs/en/skills)が明言しています: *「Custom commands have been merged into skills… Skills are recommended」*。素の `commands/*.md` が好ましいケースは公式に1つもありません。Cursor の commands ドキュメントページは現在 404 です。
+そこから出てくる運用上の帰結:
 
-**スラッシュコマンド**はプロンプトのテンプレートでした。`/name` と打つと展開される、それが機構の全部です。**スキル**はディレクトリ（`SKILL.md` ＋ 必要になった時だけ読む reference 群）で、**3通りで到達できます**: `/name` と打つ、リクエストが `description` に一致してモデルが選ぶ、別のスキルが名前で呼ぶ。1つ目は3つ目までの機能の**部分集合**なので、コマンドとして書いたものは**機能を2つ切ったスキル**にすぎません。
+- **`/da` を打てば自作のものだけが1つのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
+- プロンプトテンプレートの用途は今 `disable-model-invocation: true` という綴りで、**description が context から完全に消えるので予算コストがゼロ**です。`/da-pr-describe` がこれ（GitHub に書き込むので、タイミングはあなたのもの）。
+- 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
+- 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-この4本では具体的に効いています。`/x-review-backend` は、**あなたが直接呼んだとき**と **`/da-review-all` が層の1つとして呼んだとき**の両方で動く必要があります。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セット（姿勢・プロセス・所見の規律・無音事故パターン）は symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
-
-プロンプトテンプレートの用途が消えたわけではなく、今は `disable-model-invocation: true` という綴りになりました。**description が context から完全に消えるので予算コストがゼロ**になります。`/da-pr-describe` がこれです（GitHub に書き込むので、タイミングはあなたのもの）。逆に **`/da-verify` と層別3本には絶対に付けません** —— 名前で到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。分類の全体像と出典は [`docs/mechanisms.md`](docs/mechanisms.md) にあります。
-
-実際の使い勝手: **`/da` を打てば自作のものだけが1つのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
-
-### 上流16本はどこから来たか
+### 上流11本はどこから来たか
 
 **広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
@@ -265,36 +261,12 @@ npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
 diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ```
 
-**測ってから削除したもの**（勘ではなく）。`/da-skills-audit` が description のトリガ語彙を総当たりで比較し、この2つが最高スコアで落ちました:
+**測ってから削除しています**（勘ではなく）。`/da-skills-audit` が description のトリガ語彙を総当たりで比較し、トリガの語彙が重なっていた**13本を3ラウンドで削除**しました —— 35本 → 21本、resident な description は 6,905字 → 約3,500字になりました。1本ごとの理由と代償は [ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) と [ADR 0006](docs/adr/0006-one-review-entry-and-the-real-command-surface.md) にあります。**うち2本は誤りで、戻しました** —— どちらも開発フロー自体ではなく、それについての推測に対して切ったものです。
 
-- `getsentry/security-review` — `find-bugs` と **33% 重複**。`find-bugs` は同じブランチ差分に対してバグ**と**セキュリティ**と**品質を見ます。しかも Claude Code は自前の `security-review` を同梱していて、同名の個人スキルがそれを隠すので、**外すと組み込みが戻ってきます** —— 何も失いません。
-- `obra/subagent-driven-development` — **28KB**、サイズ上限の2倍以上。呼び出すとそれ全部がセッション中コンテキストに居座ります。
+歴史ではなく**今も生きている影響**が2つ:
 
-**2026-07-28 にさらに11本削除**し、35本 → 24本、resident な description は 6,905字 → 3,559字になりました。先に名指し参照を全数確認しています。
-
-**2026-07-29 の第3ラウンドで 21本（自作10・上流11）に。** 6本が消えた理由は**上のユースケースのどれも到達しないから**で、ユースケースを書き下した今、それが唯一意味のあるテストです。
-
-| 削除 | 理由と、その代償 |
-|---|---|
-| `requesting-code-review` | 参照ゼロ、到達するユースケースもゼロ。ここでレビューが始まるのは `/da-review-all` |
-| `brainstorming` | `/research` → `/grill-me` に置き換わった。しかも自身の description（*「あらゆる creative work の前に必ず使え」*）が両者より先に発火していた。**代償**: 上流 `writing-plans` に参照切れが1件（その場で直しても次の update で失われる） |
-| `finishing-a-development-branch` | 統合の判断は手でやっている。**代償**: `executing-plans` に参照切れ |
-| `handoff`・`resolving-merge-conflicts` | 状況依存で、その状況はこれら無しで処理された |
-| `verification-before-completion` | **これだけは実コストがあり、意図して払っています。** profile が無いリポジトリでの代替だったので、`/da-verify` はそこで**縮退せず停止**するようになった —— 停止が許容できるのは、**リポジトリ自身のマニフェストから埋めた profile を返し、保存するまでゲートが無いと明言する**ように変えたからです。**代償**: `systematic-debugging` に参照切れ |
-
-上流スキルへの参照切れが3件、すべて同じ理由で受容しています —— 上流ファイルをその場で編集しても次の `npx skills update` で失われ、**古い名前1つのコストは、どのフローも使わないスキルを保持するコストより小さい**。6本すべて、削除前に**流入参照と使用実績を確認**しました。
-
-| 削除したもの | 理由 |
-|---|---|
-| `find-skills` | `npx skills add` を **`-s` 無し**で教えていた。このリポジトリが不変条件で禁じている内容 |
-| `using-superpowers` | 「明確化の質問を含むあらゆる応答の前にスキル起動」を強制。**`/da-investigate` と `/da-design-review` の前提条件と矛盾**（両方とも目的が言われていない依頼を拒否する） |
-| `observability-and-instrumentation`, `performance-optimization`, `deprecation-and-migration` | 専門的な助言スキル。開発ループの外 |
-| ~~`documentation-and-adrs`~~ | **削除して、戻した。** 「専門的な助言」として切ったが、**ADR を書くことが設計フローの最初の一歩**だと知らなかった —— このリポジトリ自体に7本ある。ワークフロー自体ではなく推測から下した誤判断 |
-| `codebase-design`, `domain-modeling`, `improve-codebase-architecture` | 相互参照する3本セット。参照切れが出ないようまとめて削除 |
-| `dispatching-parallel-agents` | ハーネスが並列エージェントをネイティブに持つ |
-| ~~`research`~~ | **削除して戻した** —— この誤りは2度目。「ハーネスに WebFetch がある」を理由に切ったが、それは**道具を持っていること**と**実践を持っていること**の混同。一次情報を当たって `/clear` を生き延びるファイルに書き出すのは設計フローの第0段階で、生の WebFetch 呼び出しはそれではない |
-
-**この11本の削除に使用実績の裏付けはありません。**これは明記しておく価値があります: 35本のうち34本は同じ日にインストールされたので、「一度も起動されていない」は「数時間前に入れた」の意味しかありませんでした。根拠は**構造**です —— 参照切れ、挙動の衝突、ネイティブ機能との重複 —— 測定ではありません。[ADR 0005](docs/adr/0005-mechanism-taxonomy-and-pruning.md) 参照。
+- **上流3本が、もう入っていないスキルを名指ししています** —— `writing-plans`・`executing-plans`・`systematic-debugging`。受容しています: 上流ファイルをその場で編集しても次の `npx skills update` で、無言で失われるので。
+- **`/da-verify` に代替がありません。** profile が無いリポジトリを覆っていたスキルを外したので、コマンドを推測せず、**停止して埋める用の profile を返します**。
 
 スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
 

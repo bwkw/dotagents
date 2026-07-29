@@ -93,41 +93,28 @@ installation is a per-repository change.
 
 ## Whose practices this is built from
 
-Almost nothing here is original, and the parts that are should be visible as such. What was taken, from
-where, and — more usefully — **what was rejected and why**.
+Almost nothing here is original, and the parts that are should be visible as such. What was taken, and —
+more usefully — **what was rejected and why**.
 
-### The loop shape: [gamonges/gamonges-prompt](https://github.com/gamonges/gamonges-prompt)
+### The structural patterns every skill follows
 
-The seven-phase shape came from there: **ask → grill → design → review-plan/revise → implement → review →
-fix**. Every phase has a home here, and the last one was missing until it was noticed by comparison:
+Not decoration — each of these was added because its absence had already cost something:
 
-| Phase | Here |
+| Pattern | What it prevents |
 |---|---|
-| ask | `/da-investigate` |
-| grill | `/grill-me` (upstream, kept as-is) |
-| design | `/writing-plans` (upstream) |
-| review-plan, revise | `/da-design-review` |
-| implement | `/executing-plans` (upstream) |
-| review | `/da-review-all` |
-| **fix** | **`/da-fix-plan`** — added last, because the loop had been claimed as covered while this end of it was not |
-
-Also adopted, and load-bearing rather than decorative: the **immediate-stop preconditions table** at the
-head of every skill; the split between **"always read"** and **"read only if"** with *"read everything
-just in case" explicitly forbidden*; the **workflow-position table** so each skill states its own upstream
-and downstream; the **read-only declaration** in bold for anything that investigates or reviews; the
-**fact / inference / could-not-confirm** separation; a **frontmatter lint hook** that catches a broken
-`SKILL.md` before it lands; and `_template/` with the `_` prefix keeping templates out of install.
-
-Deliberately not adopted, because that repository names them as its own weak points: personal absolute
-paths in settings (we use `${CLAUDE_SKILL_DIR}` and `${CLAUDE_PROJECT_DIR}`), and a `bypassPermissions`
-default with deny-list reliance.
+| An **immediate-stop preconditions table** at the head of every skill | A skill running against a repository it cannot actually work in, and reporting a result anyway |
+| **"Always read"** split from **"read only if"**, with *"read everything just in case" explicitly forbidden* | The skill spending its budget on files irrelevant to this invocation |
+| A **workflow-position table** naming each skill's own upstream and downstream | Skills that work individually and connect to nothing |
+| A bold **read-only declaration** on anything that investigates or reviews | A review that edits the code it was reviewing |
+| **Fact / inference / could-not-confirm** kept separate | An inference being read as a finding |
+| A **frontmatter lint hook** | A broken `SKILL.md` landing and failing silently later |
+| `_template/`, whose `_` prefix keeps it out of install | The template being installed as a skill |
 
 ### Official Anthropic guidance
 
 The loop vocabulary, the verification ladder, the context-management rules, and the taxonomy of
-mechanisms are all official rather than invented. [`workflow.md`](workflow.md) and
-[`mechanisms.md`](mechanisms.md) carry the sources per claim. Two official lines shaped more of this than
-anything else:
+mechanisms are all official rather than invented. [`mechanisms.md`](mechanisms.md) and the Sources
+section below carry the sources per claim. Two official lines shaped more of this than anything else:
 
 > *Put guardrails in hooks. An instruction like "never edit `.env`" in CLAUDE.md or a skill is a request,
 > not a guarantee.*
@@ -299,3 +286,51 @@ Stated plainly, because a design document that only justifies is not useful:
 - **Whether the mandatory section structure in skills is signal or ritual.** It makes skills
   scannable and gives the linter something to check; it may also be overhead that a capable model
   does not need.
+
+### And what is not settled about the loop itself
+
+- **There is no canonical five-phase loop.** Official is three (mechanical) or four (workflow), with
+  review as an escalation. Practitioners disagree meaningfully: one framing is nested loops with a
+  *harness* deciding whether a session's ending was really an ending; another rejects phases entirely in
+  favour of *guides* (given up front) versus *sensors* (observing what was produced), arguing the field
+  has over-invested in guides. The five-phase shape is a convenience, not a finding.
+- **Where the human belongs is contested.** Official guidance puts them inside the loop — approve the
+  plan, read the evidence. A strong practitioner argument says line-by-line review becomes
+  counterproductive once agents outpace human reading, and proposes intervening only on threshold
+  violations plus periodic deep dives *to check the instrumentation has not drifted*. That second idea is
+  the good one: you read code occasionally not to catch bugs but to confirm your sensors still work.
+- **Productivity numbers for agentic coding are not trustworthy.** The most careful measurement attempt
+  abandoned its own design, reporting −18% (CI −38% to +9%) for experienced developers and calling its
+  own data *very weak evidence*. Anyone quoting a clean figure is not reading the source.
+- **Plan-to-disk has no measured effect size.** The mechanism is clear and the practice is officially
+  recommended; the widely repeated "3–10× first-pass success" figure traces to a vendor blog citing
+  unnamed reports. Do not repeat it.
+
+---
+
+## Sources
+
+**Official (Anthropic)** — [Best practices](https://code.claude.com/docs/en/best-practices) ·
+[How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works) ·
+[Skills](https://code.claude.com/docs/en/skills) ·
+[Run agents in parallel](https://code.claude.com/docs/en/agents) ·
+[Code Review](https://code.claude.com/docs/en/code-review) ·
+[Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ·
+[Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) ·
+[When to use multi-agent systems](https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them) ·
+[Building verification loops](https://claude.com/blog/building-verification-loops-in-claude-code-with-skills)
+
+**Opinion** — [Ronacher, The Coming Loop](https://lucumr.pocoo.org/2026/6/23/the-coming-loop/) ·
+[Ronacher, Agent Psychosis](https://lucumr.pocoo.org/2026/1/18/agent-psychosis/) ·
+[Böckeler, AI coding sensors](https://www.thoughtworks.com/en-de/insights/blog/generative-ai/harness-engineering-agent-feedback-exploring-ai-coding-sensors) ·
+[Böckeler, human-on-the-loop](https://www.thoughtworks.com/en-de/insights/blog/generative-ai/cybernetics-and-human-on-the-loop-in-agentic-coding) ·
+[Willison, Agentic Engineering Patterns](https://simonw.substack.com/p/agentic-engineering-patterns) ·
+[Osmani, Agentic Code Review](https://addyosmani.com/blog/agentic-code-review/) ·
+[Beck, Genie Lessons](https://newsletter.kentbeck.com/p/genie-lessons-nobody-wants-agents) ·
+[Cognition, Don't Build Multi-Agents](https://cognition.com/blog/dont-build-multi-agents)
+
+**Research** — [METR, changing the experiment design](https://metr.org/blog/2026-02-24-uplift-update/) ·
+[Huang et al., LLMs Cannot Self-Correct Reasoning Yet](https://arxiv.org/abs/2310.01798) ·
+[Cross-Context Review](https://arxiv.org/pdf/2603.12123) ·
+[Klein, Performing a Project Premortem](https://www.researchgate.net/publication/3229642_Performing_a_Project_Premortem) ·
+[Are LLM Evaluators Really Narcissists?](https://arxiv.org/pdf/2601.22548)

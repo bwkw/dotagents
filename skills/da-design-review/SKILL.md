@@ -47,6 +47,7 @@ a separate act, done deliberately.
 | File | Trigger condition |
 |---|---|
 | `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the refutation pass (Step 5) |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | when the plan introduces a fallback, a shared default, or an irreversible action — `verification.md` sends you here, and it is listed at this level so it is not reached only through another reference |
 | `${CLAUDE_SKILL_DIR}/reference/report-format.md` | when writing the report, for bucketing and presentation |
 | `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | if the repository has them — the project's own conventions are the standard |
 | the code the plan names | always for the high-risk claims; see Step 2 |

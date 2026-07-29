@@ -123,7 +123,8 @@ right on both granularity and version portability.
 
 ## Decision 3 — the loop is documented in official vocabulary
 
-`docs/workflow.md`, replacing a five-phase shape invented here. Official is three phases mechanically
+Documented in `docs/design.md` (originally a separate `docs/workflow.md`, folded in once the READMEs
+became the use-case entry point), replacing a five-phase shape invented here. Official is three phases mechanically
 (*gather → act → verify*) or four as a workflow (*Explore → Plan → Implement → Commit*), with **verify as
 a cross-cutting property and review as an escalation, not a phase**. Worth stating because this
 repository's largest investment is review machinery, and the guidance says to reach for it when a change
@@ -144,6 +145,29 @@ bundled and reports which loaded skills are unused and costing context.
 So the gap is now smaller and more embarrassing: the instruments have not been run. First targets are the
 calls made on judgement rather than evidence — `da-verify` against `verification-before-completion`,
 `x-review-backend` against `find-bugs`, `da-review-all` against bundled `code-review`.
+
+## Decision 5 — eight further removals, recorded here because nowhere else had them
+
+Round one (two skills) and round three (six) previously existed only in `README.md`. Moved here so the
+READMEs can describe the current set rather than its history.
+
+| Removed | Why, and what it cost |
+|---|---|
+| `getsentry/security-review` | 33% trigger overlap with `find-bugs`, which covers bugs *and* security *and* quality over the same diff. A personal skill of this name also **shadows Claude Code's own bundled `security-review`**, so removing it gives the built-in back |
+| `obra/subagent-driven-development` | 28 KB — more than twice the size limit — and invoking it parks all of it in context for the session |
+| `requesting-code-review` | No use case reaches it; `/da-review-all` is how a review starts here |
+| `brainstorming` | Superseded by `/research` → `/grill-me`, and its own description (*"You MUST use this before any creative work"*) made it fire ahead of both. **Cost:** a dangling name in `writing-plans` |
+| `finishing-a-development-branch` | Integration decisions are made by hand. **Cost:** a dangling name in `executing-plans` |
+| `handoff`, `resolving-merge-conflicts` | Situational, and the situations were handled without them |
+| `verification-before-completion` | The deliberate one. It was the no-profile fallback, so `/da-verify` now **stops** instead of degrading — acceptable only because it was changed to hand back a profile filled in from the repository's own manifests and to say plainly that there is no gate until it is saved. **Cost:** a dangling name in `systematic-debugging` |
+
+Three accepted dangling names, all for the reason in invariant 7: editing an upstream file in place is
+lost on the next `npx skills update`, and silently. A stale name costs less than keeping a skill no flow
+uses.
+
+**The test applied was "does a written-down use case reach it".** That test only became available once
+the use cases were written down — which is also why the two reversals in
+[ADR 0005](0005-mechanism-taxonomy-and-pruning.md) happened before it existed.
 
 ## Consequences
 

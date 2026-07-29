@@ -37,8 +37,8 @@ exit 2 blocks.
   the cost, and it is worth paying: `doctor` reports when an installed copy differs from the source.
 - Copies cannot dangle, so the fail-open path is removed rather than mitigated.
 
-## Provenance
+## The failure mode this avoids
 
-Observed in `gamonges/gamonges-prompt`, whose own notes record hitting exactly this: symlinked
-scripts became unresolvable while the main checkout sat on a branch without them, every hook returned
-127, and the guardrails opened.
+A symlinked hook resolves through the dotagents checkout. Put that checkout on a branch that does not
+contain the hook — or move it — and every hook invocation returns 127. Hooks that cannot run do not
+announce it: the guardrails simply stop holding, and the session looks normal.

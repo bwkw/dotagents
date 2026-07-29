@@ -88,29 +88,25 @@ absorb   profiles/ — リポジトリ固有の事実。gitignore され、プ�
 
 ## 誰の実践から組み立てたか
 
-ここにあるものはほとんど独自ではありません。そして独自な部分は、独自だと分かるようにしておくべきです。何をどこから取り、そして——より役に立つ方——**何を却下したか**。
+ここにあるものはほとんど独自ではありません。そして独自な部分は、独自だと分かるようにしておくべきです。何を取り、そして——より役に立つ方——**何を却下したか**。
 
-### ループの形: [gamonges/gamonges-prompt](https://github.com/gamonges/gamonges-prompt)
+### 全スキルが従う構造パターン
 
-7段階の形はここから来ています: **ask → grill → design → review-plan/revise → implement → review → fix**。全段階に対応物がありますが、**最後の1つは比較して初めて欠落に気づきました**。
+飾りではなく、どれも「無かったせいで何かを損なった」から入っています:
 
-| 段階 | ここでの実装 |
+| パターン | 何を防ぐか |
 |---|---|
-| ask | `/da-investigate` |
-| grill | `/grill-me`（上流をそのまま） |
-| design | `/writing-plans`（上流） |
-| review-plan, revise | `/da-design-review` |
-| implement | `/executing-plans`（上流） |
-| review | `/da-review-all` |
-| **fix** | **`/da-fix-plan`** —— 最後に追加。「ループは覆えている」と言っていた間、この端は覆えていなかった |
-
-構造パターンも採用していて、飾りではなく実際に効いています: 全スキル冒頭の**即時停止する前提条件テーブル**、**「必ず読む」と「条件付きで読む」の2表**（*「念のため全部読む」を明示的に禁止*）、各スキルが前工程と後工程を自己申告する**ワークフロー位置テーブル**、調査・レビュー系の冒頭太字の**読み取り専用宣言**、**事実 / 推測 / 確認できなかった**の3分離、壊れた `SKILL.md` が着地する前に捕まえる **frontmatter lint hook**、そして `_` 前置で install 対象外にする `_template/`。
-
-**採用しなかったもの**は、あちらが自ら弱点として挙げている2点です: settings への個人固有の絶対パス（こちらは `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PROJECT_DIR}` を使う）と、`bypassPermissions` 前提の deny リスト依存。
+| 全スキル冒頭の**即時停止する前提条件テーブル** | 実際には作業できないリポジトリでスキルが走り、それでも結果を報告すること |
+| **「必ず読む」**と**「条件付きで読む」**の2表（*「念のため全部読む」を明示的に禁止*） | その呼び出しに無関係なファイルで予算を使い切ること |
+| 各スキルが前工程と後工程を自己申告する**ワークフロー位置テーブル** | 個別には動くが何にも繋がらないスキル |
+| 調査・レビュー系の冒頭太字の**読み取り専用宣言** | レビュー対象のコードをレビューが書き換えること |
+| **事実 / 推測 / 確認できなかった**の3分離 | 推測が指摘として読まれること |
+| **frontmatter lint hook** | 壊れた `SKILL.md` が着地し、後で無警告に失敗すること |
+| `_` 前置で install 対象外にする `_template/` | テンプレートがスキルとして配布されること |
 
 ### 公式の Anthropic ガイダンス
 
-ループの語彙、検証のはしご、コンテキスト管理の規則、仕組みの分類は**すべて公式であって発明ではありません**。主張ごとの出典は [`workflow.md`](workflow.md) と [`mechanisms.md`](mechanisms.md) にあります。この設計を最も規定した公式の2行:
+ループの語彙、検証のはしご、コンテキスト管理の規則、仕組みの分類は**すべて公式であって発明ではありません**。主張ごとの出典は [`mechanisms.ja.md`](mechanisms.ja.md) と下の出典節にあります。この設計を最も規定した公式の2行:
 
 > *ガードレールは hook に置け。CLAUDE.md やスキルに書いた「`.env` を絶対に編集するな」は**お願いであって保証ではない**。*
 
@@ -222,3 +218,39 @@ config が未デプロイのコードに出会う、といったもの。そし�
   **書き方を狭めている**かもしれません
 - **スキルの必須節構成は signal か儀式か。** スキルを走り読み可能にし、linter に検査対象を与えますが、
   有能なモデルには不要なオーバーヘッドかもしれません
+
+### そして、ループ自体について確定していないこと
+
+- **正典の5段階ループは存在しません。** 公式は3（機構）か4（ワークフロー）で、review はエスカレーション。実践者は意味のある形で食い違っています: 一方は**ハーネス**がセッションの終わりを本当に終わりと見なすか判定する入れ子ループという捉え方、もう一方は段階を退けて *guides（先に与える）と sensors（作られたものを観測する）* の対比を採り、この分野は guides に過剰投資していると論じます。**5段階という形は便宜であって発見ではありません。**
+- **人間がどこに居るべきかは論争中です。** 公式はループの内側（計画を承認し、証拠を読む）。強い実践者の主張は、エージェントが人間の読む速度を超えた時点で行単位のレビューは逆効果になる、というもので、閾値違反時＋定期的な深掘りだけに介入することを提案します。**その定期的な深掘りの目的が「計装がずれていないかの確認」**であるのが良いところです。
+- **エージェント開発の生産性の数値は信用できません。** 最も慎重な測定の試みは自らの設計を放棄し、経験者で **−18%（信頼区間 −38% 〜 +9%）** を報告し、自分のデータを *very weak evidence* と呼んでいます。綺麗な数字を引用している人は原典を読んでいません。
+- **plan をディスクに書くことの効果量は測られていません。** 機構は明らかで公式も推奨していますが、広く引用される「初回成功率 3〜10倍」はベンダーのブログが匿名の報告を引いたものです。**繰り返さないこと。**
+
+---
+
+## 出典
+
+**Official（Anthropic）** — [Best practices](https://code.claude.com/docs/en/best-practices) ·
+[How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works) ·
+[Skills](https://code.claude.com/docs/en/skills) ·
+[Run agents in parallel](https://code.claude.com/docs/en/agents) ·
+[Code Review](https://code.claude.com/docs/en/code-review) ·
+[Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ·
+[Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) ·
+[When to use multi-agent systems](https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them) ·
+[Building verification loops](https://claude.com/blog/building-verification-loops-in-claude-code-with-skills)
+
+**Opinion** — [Ronacher, The Coming Loop](https://lucumr.pocoo.org/2026/6/23/the-coming-loop/) ·
+[Ronacher, Agent Psychosis](https://lucumr.pocoo.org/2026/1/18/agent-psychosis/) ·
+[Böckeler, AI coding sensors](https://www.thoughtworks.com/en-de/insights/blog/generative-ai/harness-engineering-agent-feedback-exploring-ai-coding-sensors) ·
+[Böckeler, human-on-the-loop](https://www.thoughtworks.com/en-de/insights/blog/generative-ai/cybernetics-and-human-on-the-loop-in-agentic-coding) ·
+[Willison, Agentic Engineering Patterns](https://simonw.substack.com/p/agentic-engineering-patterns) ·
+[Osmani, Agentic Code Review](https://addyosmani.com/blog/agentic-code-review/) ·
+[Beck, Genie Lessons](https://newsletter.kentbeck.com/p/genie-lessons-nobody-wants-agents) ·
+[Cognition, Don't Build Multi-Agents](https://cognition.com/blog/dont-build-multi-agents)
+
+**Research** — [METR, changing the experiment design](https://metr.org/blog/2026-02-24-uplift-update/) ·
+[Huang et al., LLMs Cannot Self-Correct Reasoning Yet](https://arxiv.org/abs/2310.01798) ·
+[Cross-Context Review](https://arxiv.org/pdf/2603.12123) ·
+[Klein, Performing a Project Premortem](https://www.researchgate.net/publication/3229642_Performing_a_Project_Premortem) ·
+[Are LLM Evaluators Really Narcissists?](https://arxiv.org/pdf/2601.22548)
