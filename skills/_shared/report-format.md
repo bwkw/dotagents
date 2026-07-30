@@ -12,15 +12,16 @@ sentence.
 These instructions are in English because they are read by the model; the report is read by a person.
 Do not mirror the language of this file into the output.
 
-## The four things every review must contain
+## The five things every review must contain
 
-Not a template to fill in — the four things a review is *for*. A report missing any of them is
+Not a template to fill in — the five things a review is *for*. A report missing any of them is
 incomplete regardless of how many findings it has, and the last row is the one usually skipped.
 
 | | Required | Where |
 |---|---|---|
+| **0** | **変更マップ** — the findings placed on a diagram of what the change touches, when the change has a shape. Skipped is fine; **silently skipped is not.** | 「変更マップ」節 |
 | **1** | **What actually changed.** The units, the observable difference for someone else, the mechanism, and the blast radius. **Written first, and written even when nothing was found.** | [Change summary](#change-summary--always-first-always-present) |
-| **2** | **A critical multi-perspective review as a tech lead for that domain**, with **architecture, aggregate and transaction boundaries, and security weighted highest** and never collapsed away. | The layer's perspective clusters; the four that survive every collapse are listed in `review-process.md` |
+| **2** | **A critical multi-perspective review as a tech lead for that domain**, with **architecture, aggregate and transaction boundaries, and security weighted highest** and never collapsed away. | The layer's perspective clusters; the **five** that survive every collapse are listed in `review-process.md` |
 | **3** | **For every finding: why this implementation is wrong, in detail** — mechanism, the concrete failure, the path that reaches it, and whether the *shape* causes it — **plus the exact line and the comment to leave there.** | [How each finding is presented](#how-each-finding-is-presented) |
 | **4** | **Severity as levels, with the criteria stated**, so the reader knows what blocks and what does not. | [Bucketing](#bucketing) |
 
@@ -120,12 +121,56 @@ bodies above are used verbatim.
 
 ---
 
+## 変更マップ — 一枚絵、所見を載せたもの
+
+**A Mermaid block, first in the report, before the change summary.** GitHub, GitLab and most Markdown
+viewers render ` ```mermaid ` fences natively, so this needs no tool and looks the same from Claude and
+from Cursor.
+
+**What makes it worth drawing is not the change — it is the findings placed on it.** A diagram of what a
+diff touches is something the file list already says. A diagram that shows **where the risk sits** is the
+one thing a reader cannot reconstruct from a list of findings, because a finding names a file and the
+reader has to hold the topology in their head to see that two of them are the same edge.
+
+Rules, and each exists because the obvious version of this is worse than nothing:
+
+- **Nodes are what the reader recognises** — a screen, an endpoint, a table, a queue, a resource. **Not
+  file paths and not class names.** A map of internal structure is the diff again.
+- **Edges are the ones the change affects**, and an edge carries its risk marker: `⛔` irreversible,
+  `🔴` critical, `🧭` design doubt. **An unmarked edge means it was looked at and nothing was found** —
+  say so in the legend, so a clean edge is a statement rather than an omission.
+- **Only findings at ⛔ / 🔴 / 🧭 go on the map.** 🟡 and 💡 belong in the table; putting them on the map
+  flattens severity into "everything is marked" and the map stops carrying information.
+- **A finding on the map is also in the table.** The map is an index, never the only place something
+  appears — a reader who skips the diagram must lose nothing.
+- **Cap it at roughly a dozen nodes.** Past that a reader scans it like a list, which the table already
+  does better. When the change is genuinely wider, group by area and name what was collapsed.
+- **Skip it when the change has no shape.** One file, one flag, one value — the table says everything and
+  a diagram of one node is noise. **Say that you skipped it and why**, so a missing map is never read as
+  a forgotten one.
+
+```mermaid
+flowchart LR
+  FE["注文画面"] -->|"🔴 契約変更<br/>フロント先行で壊れる"| API["POST /orders"]
+  API -->|"⛔ NOT NULL 追加"| DB[("orders")]
+  API --> Q["決済キュー"]
+  Q -->|"🧭 再送で二重課金？"| PAY["決済サービス"]
+  IAM["IAM ロール"] -.->|"🔴 wildcard 拡大"| Q
+  %% 印の無い辺 = 見た上で所見なし
+```
+
+For a cross-layer review the map is **the only place both sides of a boundary appear at once**, which is
+what the layer reviews structurally cannot produce. For a single-layer review it is optional — draw it
+when the layer has internal topology worth showing, skip it when it does not.
+
 ## Report skeleton
 
 Replace `<Layer>` with Backend, Frontend, or Infra.
 
 ```markdown
 ## <Layer> Review Report
+
+<!-- 変更マップ（Mermaid）。形がある場合のみ。無い場合は飛ばした旨を書く -->
 
 ### Change summary — always first, always present
 
