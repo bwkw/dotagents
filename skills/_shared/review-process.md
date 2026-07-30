@@ -59,6 +59,32 @@ Then the mechanics:
    - If the default branch that `symbolic-ref` returned looks like it is not the real PR base, ask.
    - If the change also touches other layers, say so and suggest `/da-review-all` across all of them.
 
+## Step 1b. 差分の大きさを測る —— 大きければ「レビュー」と呼ばない
+
+**Before reading anything, count the diff**: changed lines and changed files. This is the one measurement
+that decides whether the output is a review or a sample, and **it has to be taken before the reading
+starts**, because afterwards it is indistinguishable from an excuse.
+
+```bash
+git diff --shortstat "$BASE"...HEAD && git diff --name-only "$BASE"...HEAD | wc -l
+```
+
+| Size | What the report is, and what it must say |
+|---|---|
+| **≲ 400 changed lines** | A review. Read every changed file in full. |
+| **400 – 1,000 lines** | Still a review, but **name which files were read in full and which were skimmed.** A reader cannot calibrate a clean result without knowing which half it came from. |
+| **> 1,000 lines, or > 40 files** | **Not a review — a sample.** Say so **at the top, next to the map**, not buried in 🔎. State how the sample was chosen (highest-risk paths from the Step 2 trace, the irreversible surfaces, the files the change centres on) and **what was not opened at all**. |
+
+**Why the threshold is here and not higher.** A large diff does not degrade the review gently; the model
+loses coherence and **falls back to pattern-matching on style**, which is exactly the output that looks
+like a thorough review and contains none of the findings that matter. Producing plausible style comments
+on a 2,000-line diff and calling it reviewed is worse than saying it was sampled — the first hides the
+gap, the second hands it to the human.
+
+**The right move above the threshold is usually to send it back.** Say plainly that the change is too
+large to review as one unit and name the split you would make. `da-design-review` decides that split at
+design time; a change that arrives unsplit missed that step, and reviewing it anyway rewards skipping it.
+
 ## Step 2. Impact mapping — mandatory, before reading for defects
 
 Do not stop at the changed lines. **Map the blast radius first**, then decide what to read.
