@@ -45,7 +45,24 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
   hiding UI, a persisted-schema change with no fallback, a form with no double-submit guard? → 🧭
 - Naming, responsibility, over- and under-engineering: component decomposition, where state lives.
 
-### 1. Breaking changes and irreversibility ★highest priority
+### 1. Intent and semantic correctness ★always covered
+
+**The largest category of bugs that survive review, by a wide margin.** The component renders, and
+renders something other than what was asked for.
+
+- **Against the stated intent.** Read the spec, ticket, or design first. Does the change produce what it
+  describes? **If there is no stated intent, that is the finding** → 👤.
+- **Error and empty states — the most missed sub-cause here too.** What renders while loading, on a
+  failed request, on an empty list, on a partial response? A swallowed fetch error that leaves the
+  previous data on screen is worse than an error message.
+- **Missing cases.** Zero items, one item, very many; the longest realistic string; a null optional
+  field; a user without the permission the component assumes.
+- **Wrong condition or wrong value displayed.** An inverted boolean, a wrong class or variant, the wrong
+  field of the right object, a stale value from a closure. Read the JSX against the intended output.
+- **Incomplete change.** One usage of a component updated and its other call sites not; a prop added and
+  a default missing; a new variant added and the styles for it not.
+
+### 2. Breaking changes and irreversibility ★highest priority
 
 - Changing, removing, or redirecting a **public URL or route** — broken bookmarks, inbound links,
   shared links, SEO.
@@ -60,7 +77,7 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
 > fallback, are **not** irreversible. Reserve `irreversible=true` for state that is genuinely
 > unrecoverable.
 
-### 2. Security, authorization bypass, secret exposure ★focus
+### 3. Security, authorization bypass, secret exposure ★focus
 
 - XSS: `dangerouslySetInnerHTML`, `v-html`, direct DOM insertion, unsanitised input.
 - **Authorization bypass**: is access enforced only by hiding UI? Is the server-side check actually
@@ -77,13 +94,13 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
   script added: what can it reach, is it pinned by integrity hash, and does it see PII it should not?
   The dependency checks in `llm-authored-code.md` apply to client packages too.
 
-### 3. State and data consistency
+### 4. State and data consistency
 
 - Cache invalidation (query invalidation and key design); rollback consistency for optimistic
   updates; guarding against discarding unsaved form input; multiple submission and race conditions;
   how a global state change ripples to other screens.
 
-### 4. Accessibility — against WCAG 2.2
+### 5. Accessibility — against WCAG 2.2
 
 **2.2 is the current standard** and supersedes 2.1; it adds nine criteria aimed at low vision,
 cognitive and motor disability, and touch devices. Check against it rather than against a general sense
@@ -103,7 +120,7 @@ of "accessible".
 - **Target size (2.5.8)** — interactive targets at least 24×24 CSS pixels, or adequately spaced.
 - Respect `prefers-reduced-motion` on any new animation or transition.
 
-### 5. Performance, bundle, UX
+### 6. Performance, bundle, UX
 
 Measure against the current Core Web Vitals thresholds rather than "feels fast": **LCP ≤ 2.5s,
 INP ≤ 200ms, CLS ≤ 0.1**.
@@ -119,13 +136,14 @@ INP ≤ 200ms, CLS ≤ 0.1**.
 - Bundle size from a heavy new dependency — and whether it is tree-shakeable and actually needed on the
   critical path.
 
-### 6. Robustness, observability, compatibility
+### 7. Robustness, observability, platform compatibility
 
 - **Error boundaries**; complete handling of loading, error, and empty states; client error
   reporting and analytics — **and whether PII is being put into that telemetry**; browser and device
   compatibility; responsive and mobile behaviour; feature flags and staged release.
 
-### 7. i18n and type/contract consistency
+### 8. i18n and type/contract consistency
+
 
 - Hardcoded strings; whether all required locales are present; agreement with generated API types;
   type safety eroded by `any` or unnecessary `as`.

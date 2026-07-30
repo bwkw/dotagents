@@ -55,7 +55,25 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
   environment? → 🧭
 - Naming, tagging, governance; over- and under-engineering.
 
-### 1. Destructive resource change and replacement ★highest irreversibility
+### 1. Intent and semantic correctness ★always covered
+
+**The largest category of bugs that survive review, by a wide margin.** In this layer it is usually
+configuration that is syntactically valid and semantically wrong — and it applies cleanly.
+
+- **Against the stated intent.** Does the resource definition express what was asked for? **If there is
+  no stated intent, that is the finding** → 👤.
+- **Values that are wrong rather than absent.** A timeout in seconds where the API takes milliseconds, a
+  retention of 1 where 1 day was meant, a CIDR one bit wider than intended, a memory limit below what
+  the process needs. **A plan that shows no error says nothing about whether the value is right.**
+- **Wrong operator or condition in a policy or rule.** `Allow` where `Deny` was meant, a condition key
+  that never matches so the guard never applies, `NotAction` semantics, a wildcard that widens more than
+  the author read it as.
+- **Missing mechanism.** The parameter is set but nothing reads it; the alarm exists but has no action;
+  the rule is defined but not attached; the schedule exists but the target does not.
+- **Incomplete change.** One environment updated and the others not; a resource renamed in one module
+  and referenced by the old name elsewhere.
+
+### 2. Destructive resource change and replacement ★highest irreversibility
 
 - Does a changed or moved **logical ID or address** cause a **replace or delete**?
 - Replacement, deletion, or rename of **stateful** resources (RDS/Aurora, S3, DynamoDB, EBS,
@@ -66,7 +84,7 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
   domains) causing unreachability or expiry. This is a distinct category of irreversible risk from
   replacement and state loss.
 
-### 2. State loss, protection, backup and DR ★highest irreversibility
+### 3. State loss, protection, backup and DR ★highest irreversibility
 
 - `RemovalPolicy`, `deletionProtection`, `prevent_destroy`, `lifecycle`: is a stateful resource set
   to DESTROY or otherwise deletable, and has RETAIN been removed unintentionally?
@@ -93,7 +111,7 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
 > own attention on blast radius, intent, and ordering, which they cannot see. If you cannot run them,
 > say so; do not silently substitute eyeballing for a scan.
 
-### 3. IAM, permissions, exposure, networking ★security focus
+### 4. IAM, permissions, exposure, networking ★security focus
 
 - Least privilege: `*` actions or resources, `iam:PassRole`, widening `AssumeRole` trust.
 - Widened exposure: security groups, NACLs, bucket policies, public settings (`0.0.0.0/0`,
@@ -104,7 +122,7 @@ Required even for a small diff. When collapsing the fan-out, this must still lan
 - CDN and caching: cache keys, caching of authenticated responses, header forwarding, signed URLs
   and OAI — could this cause cross-tenant leakage or cache poisoning?
 
-### 4. Availability, deploy safety, rollback
+### 5. Availability, deploy safety, rollback
 
 One-way deletions and irreversible migrations are filed with `irreversible=true`.
 
@@ -114,17 +132,17 @@ One-way deletions and irreversible migrations are filed with `irreversible=true`
 - Multi-AZ and redundancy; creation ordering and circular dependencies; the effect of schedule and
   concurrency changes.
 
-### 5. Cost, scale, runaway prevention
+### 6. Cost, scale, runaway prevention
 
 - Timeouts, memory, concurrency; unbounded retries and runaway pagination; autoscaling ceilings;
   unintended expense (NAT gateways, large instances, provisioned capacity); log and data retention.
 
-### 6. Idempotency and consistency in pipelines and jobs
+### 7. Idempotency and consistency in pipelines and jobs
 
 - Re-runs, partial failures, and duplicate delivery must not double-process or corrupt data
   (chunking, checkpoints); dead-letter handling; failure handling.
 
-### 7. Observability, alerting, operability
+### 8. Observability, alerting, operability
 
 - Do new resources and paths get **monitoring, alarms, and dashboards**? Log aggregation. On-call
   runbook and recovery procedure. Tagging, naming, governance. Data residency and compliance.
