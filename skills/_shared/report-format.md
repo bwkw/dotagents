@@ -20,7 +20,7 @@ incomplete regardless of how many findings it has, and the last row is the one u
 | | Required | Where |
 |---|---|---|
 | **0** | **変更マップ** — the findings placed on a diagram of what the change touches, when the change has a shape. Skipped is fine; **silently skipped is not.** | 「変更マップ」節 |
-| **1** | **What actually changed.** The units, the observable difference for someone else, the mechanism, and the blast radius. **Written first, and written even when nothing was found.** | [Change summary](#change-summary--always-first-always-present) |
+| **1** | **What actually changed.** The units, the observable difference for someone else, the mechanism, and the blast radius. **Written first, and written even when nothing was found.** | 「変更内容」節 |
 | **2** | **A critical multi-perspective review as a tech lead for that domain**, with **architecture, aggregate and transaction boundaries, and security weighted highest** and never collapsed away. | The layer's perspective clusters; the **five** that survive every collapse are listed in `review-process.md` |
 | **3** | **For every finding: why this implementation is wrong, in detail** — mechanism, the concrete failure, the path that reaches it, and whether the *shape* causes it — **plus the exact line and the comment to leave there.** | [How each finding is presented](#how-each-finding-is-presented) |
 | **4** | **Severity as levels, with the criteria stated**, so the reader knows what blocks and what does not. | [Bucketing](#bucketing) |
@@ -168,52 +168,53 @@ when the layer has internal topology worth showing, skip it when it does not.
 Replace `<Layer>` with Backend, Frontend, or Infra.
 
 ```markdown
-## <Layer> Review Report
+## <層> レビュー報告
 
 <!-- 変更マップ（Mermaid）。形がある場合のみ。無い場合は飛ばした旨を書く -->
 
-### Change summary — always first, always present
+### 変更内容 — 常に最初、所見が無くても書く
 
-**Written before any finding, and written even when there are no findings.** A reader who does not
-already know the diff cannot judge a single severity without it, and a review that opens with problems
-has skipped establishing what is being reviewed.
+**所見より先に書き、所見がゼロでも書く。** 差分を知らない読者は、これ無しにどの重要度も判断できない。問題から始まるレビューは、**何をレビューしているのかを確立する工程を飛ばしている。**
 
-- **What changed**, concretely: the units added, changed or removed — functions, classes, types, tables,
-  contracts, endpoints, resources, components. Names, not adjectives.
-- **What it changes for someone else**: the observable difference in behaviour, contract, or output. If
-  there is none — a pure refactor — say that explicitly, because it changes what the review is looking
-  for.
-- **How it works**: the mechanism, in two or three sentences. If you cannot describe the mechanism, you
-  are not ready to review it.
-- **Blast radius**: the related domains, modules, screens, or stacks the Step 2 trace turned up — and
-  anything in that list you did **not** read.
+**表で書く。** 散文の箇条書きだと「観測できる変化」と「実装の説明」が混ざり、混ざったものは読者が仕分ける羽目になる。列があれば空欄が見える。
 
-### ⛔ Irreversibility hotspots (highest priority, verified)
+| 領域 | 変更前 | 変更後 | なぜ（読み取れた意図） |
+|---|---|---|---|
+| 読者が認識するもの（画面・エンドポイント・テーブル・キュー・リソース）。**ファイルパスとクラス名は禁止** | 現在の挙動や値、短く。新規追加は `—` | 何になるか。短く | 差分・spec・PR 説明から読み取れる意図。**読み取れなければ「不明」と書く** —— それ自体が所見（👤）で、意図が無ければ意味的な正しさは判定できない |
+
+`/da-pr-describe` と同じ4列にしてある。**同じ変更について2つの語彙を持つと、レビューと PR 説明が食い違って読者が突き合わせる作業を負う。**
+
+表の下に2つ、散文で:
+
+- **仕組み**: 2〜3文。**仕組みを説明できないなら、まだレビューできる状態ではない。**
+- **影響範囲**: Step 2 の追跡で出た関連ドメイン・モジュール・画面・スタック —— **そのうち読まなかったものも名指しする。**
+
+### ⛔ 不可逆な箇所（最優先・検証済み）
 | Location | Kind | Why it cannot be undone | Must confirm before release |
 |---|---|---|---|
 | `file:line` | dropped column / API break / deletion / shared-function fan-out / resource replacement | … | … |
 
 (each row followed by one 💬 suggested comment with its line)
 
-### 🔴 Critical / 🟡 Warning / 💡 Info / 👤 Needs human
+### 🔴 重大 / 🟡 警告 / 💡 参考 / 👤 人間の判断が必要
 Each finding in the three-part set above. 💡 may be one line.
 
-### 🧭 Design and system-wide doubts
+### 🧭 設計とシステム全体への疑い
 Each item: the doubt — why it is concerning — how to settle it. May fall outside the diff.
 
-### 🔎 Confidence of this review — required reading before trusting a clean result
+### 🔎 このレビューの確度 —— 綺麗な結果を信じる前に必ず読む
 - **What was read versus what was assumed.** Especially: did you actually open the shared or base
   code that the high-risk parts lean on? Cite `file:line`.
 - Areas covered only shallowly, and what could not be confirmed. Honestly.
 - The caveat: this result means "no defect was detected locally in the diff at this depth". It does
   not mean "a senior signed off on the design".
 
-### 🔬 Filtered out (reference, counts only)
+### 🔬 除外したもの（参考・件数のみ）
 - N refuted during verification
 - N scored below the confidence threshold
 (one-line summaries only if useful — do not restate them)
 
-### 📊 Summary
+### 📊 集計
 | Bucket | Count |
 |---|---|
 | ⛔ Irreversibility hotspots | |

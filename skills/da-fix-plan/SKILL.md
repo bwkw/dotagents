@@ -162,6 +162,9 @@ involved, state what is out of scope, and end with a verification step**.
 
 ## Verification
 <the command or check that proves the accepted set is done — this is what /da-verify runs>
+
+## 採択率
+<accepted N / total M = XX%>。前回の記録があれば併記する。
 ```
 
 ## Step 5. Report the shape, not the contents
@@ -175,6 +178,25 @@ The file has the detail. In the conversation, say only:
 **If nothing was declined, say so and treat it as a warning sign.** Either the review was unusually
 clean, or this pass transcribed instead of triaging. Both are worth knowing before acting on it.
 
+### The decline count is the only measurement of whether the reviewer is trusted
+
+**Report it as a rate, not just a count**: accepted (Fix now + Fix now smaller + Follow-up) over total
+findings. Write it into the plan file so it accumulates across reviews — one number from one review says
+nothing, and this is the only place the number exists.
+
+It is the industry's trust signal for an automated reviewer, and it reads in both directions:
+
+| Acceptance rate | What it means |
+|---|---|
+| **below ~50%** | The reviewer is producing noise. **Do not tune the plan — tune the review.** More than half of what it raised was not worth acting on, and a reviewer at that rate gets routed around rather than read. |
+| **~50–80%** | Working, worth reading, not worth gating on. |
+| **above ~80%** | Trusted enough that a failing review could hold a merge. |
+| **100%, repeatedly** | Not a good sign. Either this pass transcribed, or the review is only raising the safe and obvious. |
+
+**A rate this skill never records is a rate nobody can act on.** That is the whole reason for the line —
+the refutation pass already suppresses false positives before they reach a report, but nothing has ever
+measured whether it worked.
+
 ## Done when
 
 - [ ] Every finding is in exactly one bucket, and none was dropped
@@ -183,7 +205,7 @@ clean, or this pass transcribed instead of triaging. Both are worth knowing befo
 - [ ] The order is justified by irreversibility and dependency, not by severity
 - [ ] Fixes on the same root cause are merged, and conflicting ones are sequenced
 - [ ] The plan is on disk, names its files, states what is out of scope, and ends with a verification step
-- [ ] The declined count was reported out loud
+- [ ] The declined count was reported out loud, **as a rate**, and written into the plan file
 
 ## Guardrails
 
