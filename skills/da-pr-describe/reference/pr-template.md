@@ -29,48 +29,50 @@ Use only the sections you need. Never emit an empty section. The visual summary 
 when there is one.
 
 ```markdown
-📋 **Change summary (visual)** → <artifact URL>
+📋 **変更サマリ（ビジュアル）** → <artifact URL>
 
-> An at-a-glance view of what changes, before opening the diff. May need sharing enabled to open.
+> 差分を開く前に、変わることを一目で。共有を有効にしないと開けない場合があります。
 
-## Overview
+## 概要
 
-<!-- 2-3 sentences: what changes and why. The point should land from this alone. -->
+<!-- 2〜3文。何が変わり、なぜやるのか。ここだけで趣旨が伝わること。 -->
 
-## What changes
+## 変わること
 
-<!-- Observable changes, one topic per bullet. Each bullet states what changed AND why that shape
-     was chosen (the constraint, measurement, or failure mode that ruled out the obvious alternatives).
-     In the reader's words; each standing on its own. -->
--
--
+<!-- 観測できる変化を1行1件。「領域」は読み手の語彙で（画面名・API・CSV出力・運用手順など）、
+     クラス名や関数名を主語にしない。各セルは1文。理由が1文に収まらないときは1行だけ補足へ。 -->
 
-## Before → After (optional)
+| 領域 | 何が変わるか | 変更目的 | この形にした理由 |
+|---|---|---|---|
+| | | | |
 
-<!-- Only for items where existing behaviour changes and the contrast prevents a misreading.
-     Not for new additions (where Before is empty) and not for internal changes.
-     Omit the whole section when there is nothing worth contrasting. -->
+## 変更前 → 変更後（任意）
 
-| Item | Before | After |
+<!-- 既存の挙動が変わる項目だけ。対比が誤読を防ぐ場合に限る。
+     新規追加（変更前が空になるもの）と内部変更は対象外。該当が無ければ節ごと省く。 -->
+
+| 項目 | 変更前 | 変更後 |
 |---|---|---|
 | | | |
 
-## Tests
+## テスト
 
-<!-- What automated tests and CI already cover, at a granularity that shows what was verified. -->
+<!-- 自動テストと CI が実際に何を担保しているか。「テストを追加した」ではなく検証された挙動を書く。 -->
 - [x]
 
-## Manual verification (local / real environment)
+## 手動確認（ローカル / 実環境）
 
-<!-- What automated tests cannot cover and must be checked before merge. Keep separate from Tests.
-     Unchecked items stay `- [ ]`. One line each: what to check and why it matters. Omit if none. -->
+<!-- 自動テストで覆えず、マージ前に人が確かめるもの。テストの節とは混ぜない。
+     未確認は `- [ ]` のまま。1行につき「何を確認するか」と「飛ばすと何が壊れるか」。無ければ省く。 -->
 - [ ]
 
-## Notes (optional)
+## 補足（任意）
 
-<!-- Deliberate design decisions a reviewer would otherwise stop on, and known gaps deferred to a
-     next phase. Minimal. Omit if none. -->
+<!-- レビュアが引っかかるであろう意図的な設計判断と、次フェーズに送った既知の欠落だけ。最小限に。 -->
 ```
+
+**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `概要`=Overview / `変わること`=What changes / `変更前 → 変更後`=Before → After / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と列は言語によらず同じです。**
+
 
 ---
 
@@ -79,41 +81,55 @@ when there is one.
 **Title.** Concise, around 50 characters. No `feat:`-style prefix (follow the repository's own
 ticket-tag convention). Match the language the repository's other PR titles use.
 
-**Overview.** Two or three sentences: what changes, and why.
+**概要 (Overview).** Two or three sentences: what changes, and why. The point must land from
+this alone, because it is the only part some reviewers read.
 
-**What changes.** Observable changes as bullets, in the words of the user, operator, or API caller.
-**Do not make a class, function, or flag the subject.** Not "added `LoadOutboundUsecase`" but
-"customer-facing CSV can now be exported". One topic per bullet, each meaningful on its own without
-the lines around it. Nothing from the "leave out" list.
+**変わること (What changes) — the table.** One row per observable change. Four columns, and each
+earns its place:
 
-**Every bullet must carry the why.** State what changed, then why that shape was chosen — the
-constraint, measurement, or failure mode that ruled out the obvious alternatives. A reviewer should
-not have to open the diff or ask "なぜこの形？" to understand the decision. Prefer one sentence that
-pairs change + reason over a bare fact followed by a separate justification paragraph.
+| Column | What goes in it | The failure it prevents |
+|---|---|---|
+| **領域** | The area **in the reader's vocabulary** — a screen, an API, a CSV export, an operational procedure. **Never a class, function, or flag.** | "added `LoadOutboundUsecase`" instead of "customer-facing CSV export" |
+| **何が変わるか** | The observable difference. What became possible, what stopped being possible. | A row that describes the implementation rather than the effect |
+| **変更目的** | **Why this is being done at all** — the problem, the request, the incident, the goal. | A change nobody can tell was worth making |
+| **この形にした理由** | **Why this shape and not the obvious alternative** — the constraint, measurement, or failure mode that ruled the alternative out. | The reviewer opening the diff to ask 「なぜこの形？」 |
 
-Bad: "`pnpm run typecheck` now uses `--singleThreaded`"
-Good: "`pnpm run typecheck` is fixed to `--singleThreaded`, because on this codebase `--checkers 2`
-was ~2.4× slower and used ~40% more memory"
+**The last two columns are different questions and both are required.** 変更目的 is *why do this*;
+この形にした理由 is *why like this*. A row with only the first reads as an unjustified implementation
+choice; a row with only the second reads as a solution to an unstated problem.
 
-**Before → After.** Only where **existing behaviour changes** and the contrast prevents a
+**Keep every cell to one sentence.** Four columns of prose renders cramped on GitHub. When a reason
+genuinely needs more than a sentence, put the short version in the cell and one line in 補足.
+
+Bad row: | typecheck | `--singleThreaded` を指定 | 高速化 | 速いから |
+Good row: | CI の typecheck | 実行時間が約2.4倍短縮 | CI 待ちがレビューの律速になっていた | `--checkers 2` はこのコードベースでは約2.4倍遅くメモリも約40%多かったため、`--singleThreaded` に固定 |
+
+The bad row fails three ways: the 領域 is a flag rather than something a reader experiences, 変更目的
+restates the change instead of the problem, and この形にした理由 gives no measurement — so nothing
+rules out the alternative.
+
+**Nothing from the "leave out" list goes in the table.** When an internal change *is* the crux of the
+review, it gets one line under 補足, not a row.
+
+**変更前 → 変更後 (Before → After).** Only where **existing behaviour changes** and the contrast prevents a
 misunderstanding — for example, "records with an empty unique key were counted as successful rows →
 they are now excluded as errors". New additions and internal changes do not belong in a table; the
 bullets are enough. Optional; omit the section when nothing qualifies.
 
-**Tests.** What automated tests and CI actually cover, one line each, describing the *behaviour
+**テスト (Tests).** What automated tests and CI actually cover, one line each, describing the *behaviour
 verified* rather than "added tests". Done is `- [x]`; outstanding is `- [ ]`. CI coverage as
 `- [x] CI: typecheck / lint / unit`. **Anything that cannot be verified automatically goes in the
 next section, not here.**
 
-**Manual verification.** Checkboxes for what must be confirmed by hand or in a real environment
+**手動確認 (Manual verification).** Checkboxes for what must be confirmed by hand or in a real environment
 before merge. Typical: real external API response shapes, real integration behaviour, migrations
 against production-like data, a typecheck the agent is not permitted to run, end-to-end against a
 real tenant, environment-dependent configuration and permissions. Each line states **what to check
 and why it matters — what breaks if it is skipped**. This section is a hold on merging until it is
 filled in. Omit it entirely when automated tests genuinely suffice. Where useful, add one line to
-Notes about how the item could become an automated test later, so this list shrinks over time.
+補足 about how the item could become an automated test later, so this list shrinks over time.
 
-**Notes.** Only deliberate design decisions and known deferred gaps. No listing of implementation,
+**補足 (Notes).** Only deliberate design decisions and known deferred gaps. No listing of implementation,
 nothing self-evident. Omit if empty.
 
 ---
@@ -122,13 +138,16 @@ nothing self-evident. Omit if empty.
 
 Only when the Artifact tool is available in the current environment.
 
-- Publish the summary as an HTML Artifact and link the URL at the top of the body. **Never inline an
-  HTML table into the PR body** — the at-a-glance view belongs in the artifact.
-- Read the `artifact-design` skill first. Page structure: at-a-glance table (area × observable
-  change), then detail by area, then tests and notes. Same selection rules as the body.
+- **The at-a-glance view is the body's 変わること table, not the artifact.** Markdown tables are the
+  thing to put in a PR body; **raw HTML is not** — GitHub strips much of it and what survives renders
+  badly. That distinction is the whole rule: a Markdown table in the body, yes; an HTML table in the
+  body, never.
+- So an artifact now has to earn its place by doing what Markdown cannot — grouping by area,
+  before/after side by side, a diagram. **A page that restates the table is one more link to open and
+  dismiss.** Read the `artifact-design` skill first. Same selection rules as the body.
 - **Artifacts are private by default.** Add one line telling the reviewer that sharing may need to be
   enabled, so they are not met with a dead link.
-- Overlap between the artifact and Overview / What changes is fine: the artifact is for scanning, the
-  body for detail.
+- Some overlap with 概要 is fine. Overlap with the 変わること table is not — that is the duplication
+  this section exists to avoid now that the body carries the scannable view.
 - For a set of PRs spanning several repositories, publish one artifact per PR and link each to its
   own.
