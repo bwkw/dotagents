@@ -1,5 +1,17 @@
 # Report format
 
+## Output language
+
+**Write the report in Japanese.** Headings, findings, explanations, and suggested comments — all of it.
+
+Leave these in their original form, because changing them breaks them or loses precision: file paths,
+identifiers, commands, code excerpts, log output, severity emoji, error strings, and quoted text from
+the diff. A suggested comment names real symbols, so the symbols stay as they are inside a Japanese
+sentence.
+
+These instructions are in English because they are read by the model; the report is read by a person.
+Do not mirror the language of this file into the output.
+
 ## The four things every review must contain
 
 Not a template to fill in — the four things a review is *for*. A report missing any of them is

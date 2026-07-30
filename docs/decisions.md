@@ -103,29 +103,37 @@ Milvus×Ollama のローカルベクトル DB を claude-context MCP から引�
 
 ## 10. 上流スキルの監査結果（2026-07-29 実施）
 
-**上流11本は、このリポジトリに入っていません。** `~/.agents/skills/` に住むので CI は見ておらず、監査したのは**このマシンの今日の中身**です。
+### 内容の監査
 
-`skill-scanner` を21本すべてに実走させた結果:
+`skill-scanner` を全21本に実走させ、**上流11本は critical / high / medium すべて0件**。手作業でも確認:
 
-| 対象 | critical | high | medium |
-|---|---|---|---|
-| 上流11本すべて | **0** | **0** | **0** |
-| 自作スキル（symlink 由来） | 26 | 0 | 0 |
-| `skill-scanner` 自身 | 23 | 12 | 1 |
-
-手作業の走査でも確認した内容:
-
-- **実行コードは3ファイルだけ** —— `skill-scanner/scripts/scan_skill.py`（stdlib＋yaml のみ、`subprocess` / `requests` / `urllib` / `socket` 無し、書き込み無しの静的解析器）、`systematic-debugging/find-polluter.sh`（テスト二分探索、`npm test` を回すだけ）、`grill-me` と `research` の `openai.yaml`（4〜5行の表示メタデータ）
+- **実行コードは3ファイルだけ** —— `skill-scanner/scripts/scan_skill.py`（stdlib＋yaml のみ、`subprocess` / `requests` / `urllib` / `socket` 無し、書き込み無しの静的解析器）、`systematic-debugging/find-polluter.sh`（テスト二分探索、`npm test` を回すだけ）、`grill-me` と `research` の `openai.yaml`（4〜5行の表示メタデータ。名前に反して送信は一切しない）
 - **`.env` / 資格情報 / base64 / `curl` / 「以前の指示を無視」の該当は全て `skill-scanner` 内**の検出パターン。それ以外の該当3件は `cp .env.example .env` と `process.env.NODE_ENV` で良性
 - **URL 8個のうち6個は `evil.com`**（検出パターンの悪例）、1個が `api.github.com`（パターン）、1個が uv のインストール手順。**外部取得を指示している上流スキルは無い**
-- インストール後に改変されたファイルは**0件**
-- 出所は4つとも身元の分かる個人・組織: `obra/superpowers`(6本) `getsentry/skills`(2) `mattpocock/skills`(2) `addyosmani/agent-skills`(1)
+- **不可視文字の混入0件。** Unicode Tag（U+E0000–E007F）・bidi 上書き・private use はどこにも無い。検出されたのは絵文字の異体字セレクタ（U+FE0F）と、検出器自身のパターン例の U+200B だけ
 
-**残っている本当の露出は内容ではなく供給経路です:**
+### 供給経路の監査
 
-1. **`npx skills update` は既定ブランチの最新を引きます。** lock の `skillFolderHash` はインストール時の記録で、**ローカル改変の検出には使えるがバージョン固定ではありません。** 次の update は、メンテナが push したものを未レビューで持ってきます
-2. **スキルはエージェントの全権限で動きます。** サンドボックスは無いので、内容レビューが唯一の統制です
-3. だから **update した直後に `skill-scanner` を回すのが唯一の実効的な運用**です。監査は一度やって終わるものではありません
+- **11本すべて、現在の上流 HEAD と完全一致。** 4リポジトリを clone して差分を取った結果、今 `npx skills update` を打っても変わるものは無い。つまり上の内容監査は「今日の上流」も覆っている
+- **4リポジトリとも実在の人物・組織が活発に保守**: `obra/superpowers`（Jesse Vincent、直近50件中46件）/ `getsentry/skills`（Sentry、20人）/ `mattpocock/skills`（Matt Pocock、199件）/ `addyosmani/agent-skills`（Addy Osmani ほか61人）
+- **`getsentry/skills` には `sentry-junior[bot]` が書き込みます**（直近50件中8件）。導入した2本のうち `skill-scanner` を1回触っており、内容は PR #146 経由の `${CLAUDE_SKILL_ROOT}` → 相対パスのリファクタで良性。**PR 番号が付く = 人間のレビュー関門を通っている**
+- スキル内容を自動生成・自動コミットする workflow はどのリポジトリにも無い
+
+### レジストリ経由ではないこと —— ここが効いている
+
+2026年に報告されたスキルのサプライチェーン攻撃（ClawHub 経由の30本超のマルウェア、Snyk が **ClawHub と skills.sh の3,984本**を走査して確認したマルウェア76本）は、**公開レジストリの母集団の話**です。ClawHub の公開障壁は「SKILL.md と1週間前に作った GitHub アカウント」で、署名もレビューも既定のサンドボックスもありません。
+
+**ここはその索引を引いていません。** lock は `sourceType: github` / `sourceUrl: https://github.com/<owner>/<repo>.git` を記録していて、`npx skills add <owner>/<repo> -s <skill>` は**名指ししたリポジトリを直接 clone**します。Snyk の調査で4リポジトリはいずれも評価対象になっておらず、名前が挙がった脅威アクターは使い捨てアカウントです。
+
+**選定規則としてこれを明文化します: 名指しした既知の保守者のリポジトリからのみ入れる。レジストリの索引から探して入れない。**
+
+### 残る露出は3つ
+
+1. **`npx skills` 自体が固定されていません。** これは `vercel-labs/skills`（現 v1.5.20）の npm パッケージで、**このエコシステムからこのマシンで実際に実行される唯一のコード**です（スキル本体はテキストにすぎない）。`npx` は毎回最新を取ってきてファイルシステム権限付きで走ります。**緩和策は `npx skills@1.5.20 add …` のようにバージョンを固定すること。** 現在の README は固定していません
+2. **`skillFolderHash` はバージョン固定ではありません。** インストール時の記録で、ローカル改変の検出には使えますが、`update` は既定ブランチの最新を持ってきます
+3. **上流11本はこのリポジトリに入っていないので CI が見ていません。** 監査したのは「このマシンの今日の中身」です
+
+だから運用規則は: **`npx skills update` の直後に `skill-scanner` を回す。** 監査は一度で終わりません。
 
 ### 管理された例外: 自作スキルの symlink 26本が critical に出る
 

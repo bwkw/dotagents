@@ -66,6 +66,10 @@ the shape for review. A loop with no Decline is a loop with no exit.
 
 ---
 
+**Write the report in Japanese**, keeping paths, identifiers, commands, code excerpts and log output in
+their original form. These instructions are English because the model reads them; the report is read by
+a person.
+
 ## Step 1. Restate what the change was for
 
 One or two sentences, from the spec or PR description. Confirm it before triaging.

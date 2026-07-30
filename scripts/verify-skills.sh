@@ -482,6 +482,41 @@ if [[ -d "$REPO/agents" ]]; then
     done
   done
 
+  # Invisible characters. Unicode Tag (U+E0000-E007F) renders as nothing and carries instructions the
+  # human reviewer cannot see -- the documented smuggling vector for agent skills, which Claude Code only
+  # started refusing in Feb 2026. Bidi overrides can make a line read as the opposite of what it does.
+  # This repository is public and takes pull requests, so a diff that looks empty must not be.
+  # U+FE0F (emoji variation selector) and U+200B inside a pattern-documentation file are expected.
+  while read -r bad; do
+    [[ -n "$bad" ]] || continue
+    err "unicode" "$bad"
+  done < <(python3 - "$REPO" <<'PYEOF'
+import pathlib, sys, unicodedata
+root = pathlib.Path(sys.argv[1])
+BAD = {
+    "Unicode Tag": lambda o: 0xE0000 <= o <= 0xE007F,
+    "bidi override": lambda o: 0x202A <= o <= 0x202E or 0x2066 <= o <= 0x2069,
+    "zero-width": lambda o: o in (0x200B, 0x200C, 0x200D, 0xFEFF),
+    "private use": lambda o: 0xE000 <= o <= 0xF8FF,
+}
+for f in sorted(root.rglob("*.md")):
+    if ".git" in f.parts:
+        continue
+    try:
+        text = f.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        continue
+    for label, test in BAD.items():
+        hits = sorted({ord(c) for c in text if test(ord(c))})
+        if not hits:
+            continue
+        if label == "zero-width" and "injection" in f.name:
+            continue
+        codes = " ".join(f"U+{h:04X}" for h in hits[:4])
+        print(f"{f.relative_to(root)} contains {label} characters ({codes}) -- invisible to a reviewer, readable by the model")
+PYEOF
+)
+
   # Every agent named by a skill must exist, or the dispatch degrades with no error.
   while read -r ref; do
     [[ -n "$ref" ]] || continue

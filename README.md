@@ -263,24 +263,30 @@ dotagents/skills/<name>/
 
 ここには取り込まず、横に並べて `npx skills check` / `npx skills update` で更新します。
 
+**2つの規則があり、どちらも安全側の理由で入っています。**
+
+- **名指しした既知の保守者のリポジトリからだけ入れる。レジストリの索引から探して入れない。** 2026年に報告されたスキルのサプライチェーン攻撃は公開レジストリの母集団で起きています（ClawHub 経由のマルウェア30本超、Snyk が ClawHub と skills.sh の3,984本を走査してマルウェア76本を確認）。ClawHub の公開障壁は「SKILL.md と1週間前の GitHub アカウント」で、署名もレビューもサンドボックスもありません。`npx skills add <owner>/<repo>` は**索引を引かずに名指しのリポジトリを直接 clone** するので、この母集団に触れません（[判断の記録 §10](docs/decisions.md)）。
+- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.5.20` と書いてあるのはそのためです。スキル本体はテキストにすぎませんが、**この CLI はこのエコシステムからこのマシンで実際に実行される唯一のコード**で、`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。
+- **`npx skills update` の直後に `/skill-scanner` を回す。** `skillFolderHash` はインストール時の記録で、バージョン固定ではありません。update は既定ブランチの最新を持ってきます。監査は一度で終わりません。
+
 **選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
 
 ```bash
 # 方法論 — obra/superpowers
-npx skills add obra/superpowers -g -a claude-code -a cursor \
+npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
   -s writing-plans -s executing-plans -s receiving-code-review \
   -s systematic-debugging -s test-driven-development -s using-git-worktrees
 
 # 実務 — mattpocock/skills
-npx skills add mattpocock/skills -g -a claude-code -a cursor \
+npx skills@1.5.20 add mattpocock/skills -g -a claude-code -a cursor \
   -s grill-me -s research
 
 # セキュリティ — getsentry/skills
-npx skills add getsentry/skills -g -a claude-code -a cursor \
+npx skills@1.5.20 add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
 
 # 決定の記録 — addyosmani/agent-skills
-npx skills add addyosmani/agent-skills -g -a claude-code -a cursor \
+npx skills@1.5.20 add addyosmani/agent-skills -g -a claude-code -a cursor \
   -s documentation-and-adrs
 ```
 

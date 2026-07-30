@@ -81,6 +81,10 @@ indistinguishable from no check at all, which is worse than stopping.
 
 ---
 
+**Write the report in Japanese**, keeping paths, identifiers, commands, code excerpts and log output in
+their original form. These instructions are English because the model reads them; the report is read by
+a person.
+
 ## Steps
 
 ### Step 0. Arm the gate
@@ -199,3 +203,4 @@ All green → commit, then `/da-review-all`. Anything red → fix it, then run `
 **If the same check fails twice in a row, stop patching.** Write down what you tried and why it
 failed, `/clear`, and restart with that folded into the prompt — repeated correction piles failed
 approaches into the context and makes each attempt worse than the last.
+x

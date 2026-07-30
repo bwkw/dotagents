@@ -98,6 +98,13 @@ body — no internal refactoring, renaming, or seed data. Publish it and keep th
 
 ### Step 5. Compose the title and body
 
+**Language: match the repository, do not assume.** Unlike every other skill here, this output has an
+audience that is not you. Read the last few merged PR bodies (`gh pr list --state merged --limit 5
+--json title,body`) or recent commit subjects and write in whatever language they use. Say which you
+chose and why. If they are mixed or there is nothing to go on, ask — guessing wrong here is visible to
+everyone on the PR. Paths, identifiers and commands stay verbatim either way.
+
+
 Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL, link it at the very
 top of the body. Never inline an HTML table into the body.
 
