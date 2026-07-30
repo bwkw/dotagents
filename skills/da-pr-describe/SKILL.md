@@ -76,39 +76,47 @@ git log --oneline "$BASE"..HEAD
 From the diff, pull out **what changes for a user, an operator, or a caller** — see the selection
 rules in the reference.
 
-For each retained change, extract **two separate things**, because they answer different questions and
-a row with only one of them is incomplete:
+For each retained change, extract **the problem it solves** — the incident, the request, the goal.
+Without it the change reads as a solution to an unstated problem.
 
-- **変更目的 — why this is being done at all.** The problem, the request, the incident, the goal.
-  Without it the change reads as a solution to an unstated problem.
-- **この形にした理由 — why this shape and not the obvious alternative.** The constraint, measurement,
-  or failure mode that ruled the alternative out (a slower flag, a narrower exclude that would hide
-  real errors, a deploy-time failure CI never saw). Without it the reviewer opens the diff to ask
-  「なぜこの形？」 anyway.
+**Then ask whether an obvious alternative was rejected.** If one was, name it and the evidence that
+ruled it out (a slower flag, a narrower exclude that would hide real errors, a deploy-time failure CI
+never saw) **in the same cell** — otherwise the reviewer opens the diff to ask 「なぜこの形？」. If no
+real alternative existed, say nothing; **do not restate the problem in different words to fill space.**
 
-Also name the **領域** for each: the area in the reader's vocabulary — a screen, an API, a CSV export,
-an operational procedure. **Never a class, function, or flag.** These three plus the observable change
-are the four columns of the table.
+Also pin down, for each change:
+
+- the **領域** — the area in the reader's vocabulary: a screen, an API, a CSV export, an operational
+  procedure. **Never a class, function, or flag.**
+- the **変更前 / 変更後 pair** — the current value or behaviour and what it becomes, both short. `—` for
+  a pure addition. **If a change cannot be written as a before/after pair, that is the signal it is
+  internal churn** and does not belong in the table.
+
+Those four are the table's columns.
 
 Separately, collect candidates for **manual verification**: things automated tests cannot cover and
 that must be checked by hand or in a real environment before merge. Real external API behaviour,
 real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
 environment-specific configuration or permissions.
 
-### Step 4. Publish the visual summary — only where the Artifact tool exists
+### Step 4. Put a visual at the top — by whichever route this environment has
 
-**This step is Claude-specific, and it is now optional in both agents.** The at-a-glance view lives in
-the body's 変わること table, which is plain Markdown and renders identically from Claude and from
-Cursor. That is deliberate: this step used to be the only at-a-glance view, so a PR written from Cursor
-silently got none. **Skip this step and the description is complete** — in Cursor, where the Artifact
-tool does not exist, and in Claude whenever the change is small enough that a second view adds nothing.
-Never fabricate a URL.
+**First ask whether the change has a shape at all**: a flow that changed, a sequence, which layers are
+touched, a state machine. A flag value changing has no shape, and the table already says everything —
+**skip this step rather than draw something to fill the slot.** Never fabricate a URL.
 
-When you do publish one, read the `artifact-design` skill first, then build one HTML page that earns
-its place by doing what a Markdown table cannot: grouping by area, showing before/after side by side,
-or carrying a diagram. Same selection rules as the body — no internal refactoring, renaming, or seed
-data. **Do not just restate the table**; a duplicate of the body is an extra link for the reviewer to
-open and dismiss.
+When it does have a shape, take the route the environment supports:
+
+| Environment | Route |
+|---|---|
+| **Artifact tool available (Claude)** | Read `artifact-design`, publish one HTML page, link the URL at the top. Add the line about sharing possibly needing to be enabled — artifacts are private by default. |
+| **No Artifact tool (Cursor, or anywhere else)** | A **Mermaid block inline at the top of the body.** GitHub renders ` ```mermaid ` fences natively in PR descriptions, so it needs no tool and no hosting. |
+
+**Say which route you took.** This used to be Artifact-only, which meant a PR written from Cursor
+silently had no visual — the divergence this step now closes.
+
+Either way, **do not restate the 変わること table.** The body already carries the scannable view; a page
+or diagram that repeats it is one more thing to open and dismiss.
 
 ### Step 5. Compose the title and body
 
@@ -129,8 +137,8 @@ commands and code excerpts stay verbatim inside a sentence of either language.
 
 
 Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL, link it at the very
-top of the body. **The 変わること table is a Markdown table in the body; raw HTML never is** — GitHub
-strips much of it and what survives renders badly.
+top of the body — or the Mermaid block, if that was the route. **Markdown tables and Mermaid fences go
+inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
 
 ### Step 6. Show it, then update
 
@@ -145,11 +153,14 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 ## Done when
 
 - [ ] The reviewer can tell what changes from the description alone
-- [ ] Every 変わること row fills all four columns, and **変更目的 and この形にした理由 say different
-      things** — one is why do this, the other is why like this. A row where they restate each other
-      has answered only one of the two questions
+- [ ] Every 変わること row names the **problem** in なぜ, not a benefit — and where an alternative was
+      rejected, the evidence that ruled it out sits in the same cell
 - [ ] No 領域 cell names a class, function, or flag
-- [ ] Every cell is one sentence; anything longer moved its detail to 補足
+- [ ] No なぜ cell restates the 変更前 → 変更後 pair in different words
+- [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
+      internal churn and was dropped
+- [ ] A visual is at the top, or the change genuinely has no shape and that was stated
+- [ ] Every cell is one or two sentences; anything longer moved its detail to 補足
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
 - [ ] No internal-only churn made it into the body
 - [ ] Everything requiring manual verification is listed, unchecked, with a reason
