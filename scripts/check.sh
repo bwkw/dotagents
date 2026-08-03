@@ -90,6 +90,7 @@ step "shell syntax, and no bash 4 constructs" syntax
 step "CLAUDE.md is still a symlink to AGENTS.md" symlink_intact
 step "every shipped script is executable" executable_bits
 step "skills lint (invariants, budget, agents, override scope)" ./scripts/verify-skills.sh
+step "da-review-all Canvas output contract" ./scripts/test-da-review-all-canvas.sh
 
 if (( ! FAST )); then
   # The installer suite has to create and delete a skill inside this repository, because pruning is
