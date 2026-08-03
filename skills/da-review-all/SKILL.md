@@ -2,7 +2,7 @@
 name: da-review-all
 description: Review a change across every layer it touches, as a tech lead. Use for code review, PR review, or checking work before shipping — especially when a change spans backend, frontend, and infrastructure. Reviews each layer in its own subagent, then finds the irreversible risks that fall between them, like a contract and its consumer shipping out of order. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff and its blast radius)"
-allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(gh:*)
+allowed-tools: Task, Read, Grep, Glob, Write, Bash(git:*), Bash(gh:*)
 metadata:
   source: bwkw/dotagents
 ---
@@ -14,7 +14,8 @@ change spans several layers — a schema change, the code that reads it, the inf
 it — this removes both the work of invoking each layer by hand and, more importantly, the
 **cross-layer irreversibility risks that are invisible from inside any single layer**.
 
-**Important: this skill never modifies code or configuration. It reports findings only.**
+**Important: this skill never modifies code or configuration. It reports findings only.** The
+one-page Canvas described in Step 5 is a review artifact, not a source or configuration change.
 
 ## Preconditions
 
@@ -161,6 +162,16 @@ cross-layer findings you raise here — and for a backend ↔ frontend contract 
 already reads. It lives there rather than here because it is only needed once the layer reports
 are in, and a template parked in this context from the first turn is the cost the split avoids.
 
+## Step 5. One-page Canvas review summary
+
+After the layer reports and cross-layer synthesis are complete, use the `canvas` skill and follow it
+exactly. In Cursor, you must create exactly one Canvas as the primary review deliverable. Read
+`${CLAUDE_SKILL_DIR}/reference/canvas-review-summary.md` for its required change summary and review
+findings. The response must link the Canvas.
+
+If Canvas support is unavailable, say so explicitly and provide the same one-page structure in
+Markdown; do not silently omit the artifact.
+
 ## Done when
 
 The four requirements in `report-format.md` apply to the layer reports; these are the dispatcher's own,
@@ -183,6 +194,8 @@ and it is the only place they can be checked because no layer can see them.
       is not a sign-off
 - [ ] If only one layer was touched, the report says explicitly that there is **no cross-layer impact** —
       rather than implying a synthesis happened
+- [ ] In Cursor, exactly one Canvas summarizes the change content and review outcome, and the final
+      response links to it
 
 ## Guardrails
 
