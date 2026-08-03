@@ -94,6 +94,15 @@
       "timeout": 180
     },
     {
+      "id": "da-review-all-canvas-contract",
+      "cmd": "./scripts/test-da-review-all-canvas.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 15,
+      "when": "da-review-all must keep creating its one-page Canvas review artifact"
+    },
+    {
       "id": "gate-covers-check-sh",
       "cmd": "node -e 'const fs=require(\"fs\");const steps=[...fs.readFileSync(\"scripts/check.sh\",\"utf8\").matchAll(/^[ \\\\t]*step .*?(\\.\\/scripts\\/[a-z-]+\\.sh)/gm)].map(m=>m[1]);const gated=require(\"./profiles/dotagents.json\").checks.filter(c=>c.gate).map(c=>c.cmd).join(\" \");const missing=steps.filter(s=>!gated.includes(s));if(missing.length){console.error(\"not gated by profiles/dotagents.json: \"+missing.join(\" \"));process.exit(1)}console.log(\"all \"+steps.length+\" suites check.sh runs are gated\")'",
       "gate": true,
