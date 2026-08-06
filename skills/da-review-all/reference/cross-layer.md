@@ -145,6 +145,10 @@ line in each repository or directory — and one 💬 suggested comment.
 
 A cross-layer finding whose 📍 points at only one layer has not been traced across the boundary yet.
 
+**Attach the three-part set only to the 🔗 findings raised here.** Each layer report already carries its
+own 📍 location, plain explanation, and 💬 suggested comment per finding — **do not restate them.** The
+dispatcher adds presentation to what it newly raises, and passes the rest through untouched.
+
 ---
 
 ## The report skeleton

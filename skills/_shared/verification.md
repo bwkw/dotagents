@@ -43,9 +43,16 @@ budget table in `review-process.md`. One number, so the two caps below cannot co
 
 | Find tier | 6a refutation + 6b skeptic | Three-lens headroom | Verify ceiling |
 |---|---|---|---|
-| 1 finder | **1** — the same subagent refutes and plays skeptic | 3 | **4** |
+| **inline (0 finders)** | **1** — one subagent refutes and plays skeptic | 2 | **3** |
 | 3 finders | **3** — batched by cluster, one of them the skeptic | 3 | **6** |
 | 5 finders | **5** — batched by cluster, one of them the skeptic | 3 | **8** |
+
+**The inline tier still spends a subagent here, and this is the one place that is not negotiable.** The
+find phase went inline because context isolation is proportional to the reading; verification is not
+about context at all. A verifier must not have watched the finding get made — that is the entire
+mechanism, and you cannot refute your own reasoning from inside the context that produced it. So: zero
+find subagents, **one verifier, always**. A review that skips it to reach zero has removed the part that
+suppresses false positives, which is the half the reader actually relies on.
 
 The `+3` is the three-lens pass and **nothing else may spend it.** It covers the single most irreversible
 ⛔/🔴 in the layer; at the 5-finder tier it may cover a second if the first came back unanimous and slots

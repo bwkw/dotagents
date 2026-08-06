@@ -32,9 +32,9 @@ one-page Canvas described in Step 5 is a review artifact, not a source or config
 
 ## What this skill delegates to
 
-The three layer reviews are full skills with their own posture, process and perspective clusters. They
-are not typed — this dispatcher reaches them, and so does a request that names a layer. This skill
-classifies the change, runs the layers that apply, then does the part none of them can.
+The three layer reviews are full skills with their own posture, process and perspective clusters. They are
+not typed — this dispatcher reaches them, and so does a request naming a layer. This skill classifies the
+change, runs the layers that apply, then does the part none of them can.
 
 | Layer skill | Owns |
 |---|---|
@@ -120,13 +120,18 @@ direct `/x-review-backend` invocation also benefits from it.
 > **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
 > so this step becomes a silent no-op. The linter and the lint hook both check for it.
 
-Run the layers **sequentially**, and do not "fix" this into parallel. There *is* parallelism to gain, but
-a subagent does not inherit this session's cached prefix, so three layers at once re-buys the same files
-cold at the uncached rate: measured **2.6–5.9× the tokens, and not faster** (`docs/decisions.md` §16).
+Run the layers **sequentially**, and do not "fix" this into parallel: a subagent does not inherit this
+session's cached prefix, so three at once re-buys the same files cold — measured **2.6–5.9× the tokens,
+and not faster** (`docs/decisions.md` §16).
 
 **Tell each layer its budget tier** from the Step 1b table in `review-process.md`, computed on **that
 layer's file list, not the whole diff** — a one-file frontend change riding along with a large backend
-change is a one-subagent layer, and only the dispatcher sees both halves.
+change is an inline layer, and only the dispatcher sees both halves.
+
+**One layer at the inline tier: no layer subagent either.** Invoke that layer's skill **inline here**.
+Wrapping a sixty-line, zero-find-subagent review in a subagent buys nothing — nothing to isolate it from,
+no synthesis to crowd — and costs a cold start that re-reads the whole reference set. The review is then
+**one subagent, the verifier**. Say so in 🔎.
 
 The dispatcher **dispatches**. It does not duplicate the layer checks — each layer maps its own
 internal blast radius in its Step 2.
@@ -153,11 +158,6 @@ sub-report. The dispatcher does not get to sit on them.
 **Merge cross-layer duplicates.** When different layers raise the **same root cause** (the same
 contract, schema, or shared file), combine them into one cross-layer finding naming both layers. The
 summary table counts the merged finding once — do not double-count by adding the per-layer totals.
-
-**Presentation.** Each layer report already carries 📍 location, plain explanation, and 💬 suggested
-comment per finding. **Do not restate them.** Attach the same three-part set only to the new 🔗
-cross-layer findings you raise here — and for a backend ↔ frontend contract issue, give the line on
-*both* sides.
 
 ## Step 5. One-page Canvas review summary
 

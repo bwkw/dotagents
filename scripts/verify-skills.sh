@@ -448,6 +448,16 @@ if [[ -d "$REPO/agents" ]]; then
     grep -q '^description:' <<<"$afm" || err "agents/$aid" "frontmatter is missing 'description'"
     [[ "$(grep '^name:' <<<"$afm" | sed 's/^name:[[:space:]]*//')" == "$aid" ]] \
       || err "agents/$aid" "frontmatter 'name' disagrees with the filename -- Cursor requires them to match"
+    # No agent may pin a model. A pin silently overrides the model the user chose for the session --
+    # they pick Opus, a subagent runs on something else, and nothing in the prompt or the transcript
+    # says so. It shipped once as a token optimization, was reverted, and is exactly the kind of thing
+    # that comes back the next time someone measures cost. `model:` is also Claude-only, so a pin
+    # desyncs Claude Code from Cursor on top of overriding the user. Take cost out of how MANY
+    # subagents run (the fan-out budget in review-process.md), never out of what they run on.
+    amodel="$(grep '^model:' <<<"$afm" | sed 's/^model:[[:space:]]*//')"
+    if [[ -n "$amodel" && "$amodel" != "inherit" ]]; then
+      err "agents/$aid" "pins 'model: $amodel' -- this overrides the model the user chose for the session, silently. Use 'model: inherit'"
+    fi
     # Cursor reads name/description/model/readonly only, so a tool restriction expressed solely in
     # `tools:` is absent there. The body must state it too.
     if grep -q '^tools:' <<<"$afm"; then

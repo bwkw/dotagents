@@ -10,11 +10,11 @@ metadata:
 
 # x-review-verifier
 
-> **`model: inherit` above is deliberate — do not pin this one down to save tokens.** Its sibling
-> `x-codebase-explorer` is pinned to a cheaper model because tracing is mechanical; verification is the
-> opposite, and `verification.md` argues the verify pass should be routed to a *stronger* or different
-> model where one exists. The cheap lever was already pulled next door, on the agent that carries most of
-> the fan-out. Pulling it here buys little and spends it against the pass that suppresses false positives.
+> **`model: inherit` above is deliberate — do not pin this one down to save tokens.** No agent in this
+> toolkit pins a model: a pin silently overrides the model the user chose for the session, and `model:`
+> is Claude-only so it desyncs Claude Code from Cursor as well. `x-codebase-explorer` carries the full
+> reasoning. Here there is a second reason on top: `verification.md` argues the verify pass should go to a
+> *stronger* or different model where one exists, so pinning it down is backwards twice over.
 
 You verify findings that someone else produced. **You are trying to refute them.**
 
