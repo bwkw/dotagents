@@ -66,8 +66,20 @@ differs. `user-invocable: false` is what keeps it out of the menu — it must ne
 | `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | posture, two tiers, confidence, return schema |
 | `${CLAUDE_SKILL_DIR}/reference/review-process.md` | the seven steps and the guardrails |
 | `${CLAUDE_SKILL_DIR}/reference/perspectives.md` | what to trace, and the perspective clusters |
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | the cross-cutting patterns, in **both** phases |
-| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | where the defects are when the diff is agent-authored -- assume it is |
+
+### Hand down, do not read
+
+These two are **applied in the find phase and again in the verify phase** — both of which are subagents,
+never you. Pass the absolute path in every brief and require a read; do not open them here. Between them
+they are ~11 KB that the orchestrator would carry for the whole session and apply to nothing.
+
+| File | Who applies it |
+|---|---|
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | every find subagent, and the verifier again in Step 6 |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | every find subagent — the diff is agent-authored, assume it is |
+
+**Your job is that both got applied, not that you read them.** The Step 6 pass is the one that gets
+dropped; `verification.md` is where you check it happened.
 
 ### Read only if
 
@@ -76,7 +88,8 @@ differs. `user-invocable: false` is what keeps it out of the menu — it must ne
 | `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the verify phase (Step 6) |
 | `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the final report (Step 7) |
 
-> "Read everything just in case" is forbidden. Each subagent reads what its own phase needs.
+> "Read everything just in case" is forbidden. Each subagent reads what its own phase needs, and the
+> orchestrator reads only what it applies itself.
 
 ---
 

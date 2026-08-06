@@ -141,11 +141,54 @@ Hand every subagent:
 - "irreversibility is the highest priority"
 - "in high-risk areas, do not settle for 'same as existing' — read the actual guard and cite
   `file:line`, or state explicitly that it is unverified"
-- the contents of `finding-discipline.md`, including the return schema
+- **three absolute paths, with an instruction to read them first — not their contents:**
+  `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md`,
+  `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md`,
+  `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md`.
 
-**Scale the fan-out to the change.** For a small or narrow diff, collapse adjacent clusters into two
-or three subagents; expand to every cluster only when the impact map is wide. Keep concurrency at about
-eight and queue the rest.
+  Paths, because pasting a file in makes you hold a copy you never apply on top of the copy each subagent
+  pays for anyway, and a pasted copy is the one that gets silently abridged when the prompt grows. The
+  last two you do **not** read at all — see "Hand down, do not read" in the layer file. **If a brief omits
+  them, that subagent reviews without the silent-failure patterns**, which is the miss they exist to
+  prevent, so it is worth checking the briefs rather than assuming.
+
+### The fan-out budget — how many subagents, decided by the number from Step 1b
+
+**This is a budget, not a suggestion.** "Scale the fan-out to the change" was the instruction here for a
+while, and it produced maximum fan-out every time, because nothing in it could be checked. The layer
+files list 9 to 11 clusters; one subagent per cluster on a three-layer change is 29 find subagents before
+verification has spent anything.
+
+Take the changed-line count from Step 1b — it is already measured by then — and spend accordingly:
+
+| Diff, from Step 1b | Find subagents **per layer** |
+|---|---|
+| ≤ 80 lines, ≤ 5 files | **1** — it carries all five always-covered clusters below |
+| ≤ 400 lines | **3** |
+| > 400 lines, or > 15 files | **5** |
+
+**Five is the ceiling, and it does not rise.** Not for a 3,000-line diff, not for a wide impact map. Two
+independent measurements put the ceiling there: multi-agent code review F1 **plateaus around n=5–10**, and
+scaling *homogeneous* agents — which these are, same model and same discipline — shows marginal gain per
+agent collapsing toward zero, because copies of one reviewer converge on the same blind spot. Above the
+ceiling the honest move is the one Step 1b already names: **say it is a sample, and send the change back
+to be split.** Buying a sixth subagent instead is paying for coverage the measurement says you do not get.
+
+**The budget counts subagents, not clusters, and one subagent can carry several.** That is the whole
+mechanism: at 5 subagents a layer's 9–11 clusters are *grouped* into 5 briefs, not cut down to 5. At 1
+subagent, all five always-covered clusters below go into that one brief. What the budget limits is how
+many times you pay the cold-start and the re-read, not how many questions get asked.
+
+**Concurrency:** launch a layer's find subagents in one message, but **do not launch two layers' fan-outs
+at once.** Every subagent starts cold — a subagent does not inherit the parent's cached prefix, so it pays
+full uncached price for everything it reads — and overlapping cold fan-outs turn one cache miss into a
+stampede. Measured fan-out multipliers sit at **2.6–5.9× the sequential token cost**, and in the same
+measurements the fan-out was **not faster in wall-clock** (five subagents at 4:45 against 4:15 sequential).
+Width is bought with tokens and does not come back as speed.
+
+**Say the shape in 🔎: the budget tier you used, how many find subagents ran, and which clusters were
+collapsed into which.** A reader cannot calibrate a clean result without it, and it is the only record of
+what a review cost — this toolkit has no other cost instrumentation.
 
 **Five clusters survive every collapse.** They are the ones where a miss is expensive and a late catch is
 a rewrite, so they are never merged away, never sampled, and never dropped for a "small" diff:
@@ -158,9 +201,16 @@ a rewrite, so they are never merged away, never sampled, and never dropped for a
 | **Aggregates and transaction boundaries (DDD)** | Aggregate granularity, cross-aggregate invariants, what a single transaction is allowed to span. These are decided once and inherited by everything after. |
 | **Security, authorization and tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The only category where being wrong once is already the incident. |
 
-For a one-line diff that means one subagent still carries all five. Say in the report which clusters were
-collapsed together and which ran alone — a reader cannot calibrate a clean result without knowing how the
-fan-out was shaped.
+**These five are placed first, then the layer's remaining clusters are distributed across the same
+subagents** in the order the layer file lists them. Grouping is what shrinks — never the list of questions.
+
+But grouping is not free, and this is the part to be honest about in the report: **six clusters in one
+brief get less attention each than one cluster in one brief.** Depth per question falls as the budget
+falls, which is correct — a 40-line diff does not need the depth a 900-line one does — and it is the thing
+a reader cannot see. So 🔎 names the grouping, and any cluster that got only a token pass is said to have
+got one. The cap does not make a narrow review wide; it makes a narrow review **honest about being
+narrow**, which the uncapped version was not either — it was equally shallow at 29 subagents and reported
+nothing about it.
 
 ## Step 6. Verify
 

@@ -9,9 +9,35 @@ same five patterns, in the shape they take when the cause and the consequence si
 Do not stop at re-applying the patterns as written — a pattern applied within one layer has already
 been applied, by that layer.
 
+**When only one layer ran, this file is the only one to read** — skip `silent-failure-patterns.md` and
+`llm-authored-code.md`. The layer skill already applied both internally, in its find phase *and* its
+verify phase, and with no boundary for a cross-layer pattern to straddle, re-reading them here just
+re-applies a single-layer lens to a single layer and re-finds what the layer already reported. What is
+left for the dispatcher is this file's skeleton and the pull-up of 🧭 and 👤.
+
 Severity and discipline are unchanged: [`finding-discipline.md`](finding-discipline.md) governs, and a
 finding here needs the same traced path and confidence score as anywhere else. Being a known
 cross-layer shape is not evidence.
+
+---
+
+## The four structural forms — take these before the five patterns
+
+These are about **order and ownership** rather than about a pattern in the code, which is why they come
+first: they are answerable from the layer reports you already have, without opening anything.
+
+- **Schema ↔ code deploy-order coupling.** Do the database or contract change (backend), the code that
+  reads it, and the infrastructure deploy survive being applied in the **real** order? Is it a
+  backward-compatible staged rollout, or does it only work if everything lands at once?
+- **API contract, backend ↔ frontend.** Does the contract change land in the same PR or release as the
+  frontend that consumes it, or does one side shipping first break the other?
+- **Infrastructure change versus application assumptions.** Does renaming, replacing, or re-scoping a
+  resource break a runtime assumption held in backend or frontend code?
+- **Release order and rollback.** The safe order to ship this change, and what stays consistent if only
+  one side is rolled back.
+
+Then the five patterns below, and the sixth that exists only across a boundary. All ten checks are what
+"applied the cross-layer forms" means.
 
 ---
 

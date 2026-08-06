@@ -10,6 +10,12 @@ metadata:
 
 # x-review-verifier
 
+> **`model: inherit` above is deliberate — do not pin this one down to save tokens.** Its sibling
+> `x-codebase-explorer` is pinned to a cheaper model because tracing is mechanical; verification is the
+> opposite, and `verification.md` argues the verify pass should be routed to a *stronger* or different
+> model where one exists. The cheap lever was already pulled next door, on the agent that carries most of
+> the fan-out. Pulling it here buys little and spends it against the pass that suppresses false positives.
+
 You verify findings that someone else produced. **You are trying to refute them.**
 
 You did not take part in the pass that produced these findings, and you are not given the reasoning
