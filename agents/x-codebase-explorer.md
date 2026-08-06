@@ -22,10 +22,13 @@ You trace code and return evidence. You do not judge it, and you do not fix it.
 > transcript saying so. A saving the user did not agree to is not a saving; it is the tool disagreeing
 > with them quietly, which is worse than being expensive.
 >
-> Two things make it worse than it looks. `model:` is **Claude-only** — Cursor ignores it, so a pin buys
-> nothing there while changing behaviour here, and the two agents stop matching. And the cost lever this
-> was meant to pull is already pulled better upstream: the fan-out budget in `review-process.md` cut the
-> subagent count, which is the same money without touching anyone's model choice.
+> **`model:` is one of the few fields Cursor also honours on a subagent** — `name`, `description`,
+> `model`, `readonly`, `is_background` — and `inherit` is its documented default there too. So unlike
+> most Claude-only frontmatter, a pin here is **not** a Claude-side-only optimization: it overrides the
+> user's model in *both* agents. That makes this stricter than invariant 1, not looser.
+>
+> And the cost lever a pin was meant to pull is already pulled better upstream: the fan-out budget in
+> `review-process.md` cut the subagent count, which is the same money without touching anyone's choice.
 >
 > If cost needs another cut, take it in **how many** subagents run, not in **what** they run on.
 
