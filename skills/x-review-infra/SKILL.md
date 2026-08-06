@@ -124,11 +124,32 @@ project context, fan out to perspective subagents, refute and hunt for what was 
 `${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
 in Step 2**, and the **perspective clusters for Step 5**.
 
+### The fan-out budget — decide this before launching anything
+
+`review-process.md` carries the full table and the evidence. **The three rows are repeated here, in the
+body, on purpose:** reference resolution is a Claude Code extension, and a rule that only exists behind
+`${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both.
+
+| Diff — changed lines, measured in Step 1b | Find subagents |
+|---|---|
+| ≤ 80 lines, ≤ 5 files | **0 — work the always-covered clusters inline, in this context** |
+| ≤ 400 lines | **3** |
+| > 400 lines, or > 15 files | **5 — the ceiling. It does not rise.** |
+
+**One subagent may carry several clusters.** The budget counts subagents, not questions: clusters are
+grouped into that many briefs, never deleted. Say the grouping in 🔎, and say "inline, no find
+subagents" when that is what happened — never imply agents ran that did not.
+
+**The verify phase spends at most `find + 3`, and always keeps one verifier — including at the inline
+tier.** That subagent is not about context isolation, which is why the inline tier does not remove it: a
+verifier that watched the finding get made cannot refute it.
+
 Two rules that are load-bearing here and get dropped when the fan-out is collapsed:
 
-- **Cluster 0 — design soundness and the question one level up — must always land in a subagent**,
-  even for a one-line diff. A single changed attribute can force a replacement; the cluster that asks
-  "should this resource exist in this shape at all" is what catches it.
+- **Cluster 0 — design soundness and the question one level up — is never dropped**, even for a
+  one-line diff. A single changed attribute can force a replacement, and the cluster asking "should this
+  resource exist in this shape at all" is what catches it. Above the inline tier it lands in a subagent;
+  at the inline tier you work it yourself. **A smaller budget groups it, it does not delete it.**
 - **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
   verify only. Pattern 4 — config read live, against deploy ordering — is native to this layer: a
   parameter store value or a seeded catalog takes effect the moment it is written, not when the
