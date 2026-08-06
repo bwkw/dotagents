@@ -115,6 +115,18 @@ check_skill() {
   [[ -n "$fm_name" ]] || err "$id" "frontmatter is missing 'name'"
   [[ -n "$desc"    ]] || err "$id" "frontmatter is missing 'description'"
 
+  # Same rule as the agents loop below, and it needs stating in both places because a skill can pin a
+  # model too. A skill's `model:` switches the model for its whole run -- the user picks one at the top
+  # and silently gets another, which is the thing invariant 10 exists to stop. Unlike a subagent's, this
+  # field IS Claude-only (Cursor drops it from skill frontmatter), so a pin here also splits behaviour
+  # between the two agents. There is no legitimate use: if a skill needs a different model, that is the
+  # user's call to make at the top, not the skill's to make on their behalf.
+  if has_frontmatter_key "$skill" model; then
+    smodel="$(frontmatter_value "$skill" model)"
+    [[ "$smodel" == "inherit" ]] \
+      || err "$id" "frontmatter pins 'model: $smodel' -- a skill must not switch the model the user chose. Remove the field"
+  fi
+
   # The invoke name comes from the directory, so a mismatched `name` misleads the reader
   # about what to type.
   if [[ -n "$fm_name" && "$fm_name" != "$name" ]]; then
