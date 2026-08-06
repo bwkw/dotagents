@@ -120,52 +120,18 @@ Score these below 80 by definition, however real they look:
 - "Consider adding" tests, logging, or error handling where no new failure mode was introduced
 - A failure requiring a state the code makes unreachable
 
-## The verifier is biased too — three measured ways
+## The verifier is biased too
 
-Adversarial verification is the strongest tool here, and it is not neutral. When a model judges output,
-three biases are measured and reproducible. They matter because this toolkit's verification pass *is* a
-model judging output, and a bias you have not accounted for reads as a result.
+Adversarial verification is the strongest tool here and it is **not neutral**. The measured biases are in
+[`verification.md`](verification.md) — the phase that acts on them.
 
-**A verifier's verdicts are systematically tilted, and the tilt is not mainly about self-flattery.**
-The obvious story is self-preference — a model rating its own family's output higher, reported in the
-range of 10–25%. But that finding is contested: sanity-check work pushes back on it, and one analysis
-attributes most of the effect to a **flat per-reviewer disposition** rather than to self-favouring, with
-about a 2.8-point spread between the strictest and most lenient reviewer. Read together, the reliable
-claim is narrower and more useful: **a verifier has a fixed lean, and you do not know which way yours
-leans.**
+One of them applies to *writing* findings, so it stays here: **a longer finding is judged 15–30 points
+more favourably than a short one.** Length is not evidence. Do not pad; a finding is worth what its
+`file:line` is worth.
 
-Two things follow, and the second is the one that changes what to build.
-
-> **`refuted` is the default because the lean is unknown, not because models are vain.** Three separate
-> effects push toward over-confirming: anchoring on a claim that is already written down, the reviewer's
-> own disposition, and the fact that models do not reliably self-correct without external evidence. The
-> asymmetry is the counterweight to all three at once, and it does not depend on the self-preference
-> number being right.
-
-> **Different prompting matters more than a different instance.** If the lean is per-reviewer rather
-> than self-directed, then a second look from the same model with the *same* framing buys little, while a
-> genuinely different framing buys a lot. This is why the three lenses below are *lenses* and not
-> repetitions, and why the toolkit deliberately keeps a second, differently-built reviewer around
-> (`/find-bugs`, `/code-review`) instead of treating its own review as sufficient. A measurement of four
-> reviewers over the same 146 pull requests found **93.4% of findings were caught by exactly one of the
-> four, and none by all four** — diversity of approach, not quality of a single reviewer, is what moves
-> coverage. Where a stronger or different model is available (this toolkit's `--advisor`), route the
-> verify pass to it and say so in 🔎.
-
-**Verbosity: a longer answer is judged 15–30 points more favourably.** An elaborate finding with three
-paragraphs of reasoning reads as more credible than a one-line one citing a real line of code. **Length
-is not evidence.** Judge the cited `file:line` and whether the path is reachable. If a finding's
-persuasiveness drops once you look only at what it points at, that is a refutation.
-
-**Position: order of presentation changes the verdict.** Do not judge findings in severity order and let
-the first ⛔ set the tone for the rest. Each finding is judged against the code, not against its
-neighbours.
-
-**What this means for the three-lens pass.** Three lenses reduce *variance* — one verifier having an off
-run — and, because the framings genuinely differ, they buy some real coverage. What they do **not** buy
-is independence: the same model with the same disposition is behind all three. So three agreeing lenses
-are not three independent opinions, and a report must not imply they are. Say "checked from three
-angles", never "three independent verifiers agreed".
+> **This file is the most-duplicated text in the toolkit** — every find subagent reads it, cold, at full
+> uncached price. Before adding anything here, check that *every* reader needs it. If one phase needs it,
+> it belongs in that phase's file.
 
 ## Return schema
 
