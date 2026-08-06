@@ -97,6 +97,21 @@ work. That is why they are here rather than in a document you would read once.
    rewrites a value it did not write — the agent settings it edits contain other people's
    credentials.
 
+10. **No agent pins a model. `model: inherit`, always.**
+    A pin **silently overrides the model chosen for the session** — you pick Opus, a subagent runs on
+    something else, and neither the prompt nor the transcript says so. This is the invariant most likely
+    to be broken *on purpose*, because a pin genuinely is cheaper (~37% fewer tokens) and the reasoning
+    for it always sounds good: "tracing is mechanical, it doesn't need the big model." It shipped once on
+    exactly that argument and was reverted.
+
+    The rule is about **whose decision it is**, not about the size of the saving. A saving the user did
+    not agree to is the tool disagreeing with them quietly. `model:` is Claude-only on top of that, so a
+    pin buys nothing in Cursor while changing behaviour here, desyncing the two agents (invariant 1).
+
+    **Take cost out of how *many* subagents run — never out of what they run on.** The fan-out budget in
+    `skills/_shared/review-process.md` is where that money is, and it is the same money.
+    `verify-skills.sh` errors on any `model:` that is not `inherit`.
+
 ## How implementation is done
 
 **Test first, always.** A failing test before the code that makes it pass — not tests written afterwards

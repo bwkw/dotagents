@@ -129,9 +129,14 @@ because the ideal agent for it is unavailable.
 > every repository. Do not wait for a repository to define an agent — by design this toolkit never
 > adds a file to a product repository, so a repository-local agent will never appear.
 
-> **Never run perspective review inline in the main context.** Dispatch to subagents and wait for
-> all of them before synthesising. The reason is not speed: a perspective read in the main context
-> stays in the main context, and crowds out the synthesis that follows.
+> **Above the inline tier, never run perspective review in the main context.** Dispatch to subagents and
+> wait for all of them before synthesising. The reason is not speed: a perspective read in the main
+> context stays in the main context, and crowds out the synthesis that follows.
+>
+> **That reason is proportional to the reading, which is why the inline tier exists.** A 60-line diff
+> does not produce enough context to crowd anything out, and isolating it costs a full cold subagent —
+> one that re-reads 9 KB of discipline plus the diff plus the impact map to look at sixty lines. Below
+> the threshold the isolation is pure overhead, so the budget spends zero there.
 
 Hand every subagent:
 
@@ -163,9 +168,15 @@ Take the changed-line count from Step 1b — it is already measured by then — 
 
 | Diff, from Step 1b | Find subagents **per layer** |
 |---|---|
-| ≤ 80 lines, ≤ 5 files | **1** — it carries all five always-covered clusters below |
+| ≤ 80 lines, ≤ 5 files | **0 — run the five always-covered clusters inline, in this context** |
 | ≤ 400 lines | **3** |
 | > 400 lines, or > 15 files | **5** |
+
+**The bottom tier spends no find subagents at all.** Read the diff yourself and work the five clusters
+below in order. You already have the diff, the impact map and the discipline loaded; a subagent would
+start cold and buy all three again to look at sixty lines. **Subagents are not the unit of rigour** —
+the clusters are. Running them inline is the same review with the courier removed, and the report says
+so plainly: "inline, no find subagents" in 🔎, never a claim that five agents ran.
 
 **Five is the ceiling, and it does not rise.** Not for a 3,000-line diff, not for a wide impact map. Two
 independent measurements put the ceiling there: multi-agent code review F1 **plateaus around n=5–10**, and
