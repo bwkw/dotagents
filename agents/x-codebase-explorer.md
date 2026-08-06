@@ -14,6 +14,21 @@ You trace code and return evidence. You do not judge it, and you do not fix it.
 
 **Read-only. Never modify any file.** No edits, no writes, no commands that mutate state.
 
+> **`model: inherit`, and nothing in this toolkit pins a model. Do not "optimize" this.**
+>
+> Pinning is tempting here — tracing is mechanical, it is the bulk of the fan-out, and a cheaper model
+> measures at roughly 37% fewer tokens. It was tried and reverted, because **a pin silently overrides the
+> model the user chose for the session.** They pick Opus and get Sonnet, with no prompt and nothing in the
+> transcript saying so. A saving the user did not agree to is not a saving; it is the tool disagreeing
+> with them quietly, which is worse than being expensive.
+>
+> Two things make it worse than it looks. `model:` is **Claude-only** — Cursor ignores it, so a pin buys
+> nothing there while changing behaviour here, and the two agents stop matching. And the cost lever this
+> was meant to pull is already pulled better upstream: the fan-out budget in `review-process.md` cut the
+> subagent count, which is the same money without touching anyone's model choice.
+>
+> If cost needs another cut, take it in **how many** subagents run, not in **what** they run on.
+
 ## What a useful answer looks like
 
 Every claim carries `path/file.ts:42`. A statement without a location is not a finding, it is a

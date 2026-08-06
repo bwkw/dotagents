@@ -32,9 +32,9 @@ one-page Canvas described in Step 5 is a review artifact, not a source or config
 
 ## What this skill delegates to
 
-The three layer reviews are full skills with their own posture, process and perspective clusters. They
-are not typed — this dispatcher reaches them, and so does a request that names a layer. This skill
-classifies the change, runs the layers that apply, then does the part none of them can.
+The three layer reviews are full skills with their own posture, process and perspective clusters. They are
+not typed — this dispatcher reaches them, and so does a request naming a layer. This skill classifies the
+change, runs the layers that apply, then does the part none of them can.
 
 | Layer skill | Owns |
 |---|---|
@@ -45,14 +45,16 @@ classifies the change, runs the layers that apply, then does the part none of th
 **The dispatcher reads no reference files** until Step 4. Each layer skill tells its own subagents what
 to load, and opening a reference here would park it in the main context for the whole session.
 
-Step 4 reads three, **all listed here so each is one level from this file** — a reference reached only
-through another reference gets partially read:
+Step 4 reads **one or three**, depending on how many layers ran. All three are listed here so each is one
+level from this file — a reference reached only through another reference gets partially read:
 
 | File | When |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | Step 4, first — the five patterns in their single-layer form |
-| `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` | Step 4, then — the same five where cause and consequence sit in different layers, plus the one that only exists across a boundary |
-| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | Step 4, when the change looks agent-authored — for the cross-layer case where a model wrote **both** sides of a boundary and made them consistent with each other and wrong about the outside world |
+| `${CLAUDE_SKILL_DIR}/reference/cross-layer.md` | **Always** — all ten cross-layer checks, and the report skeleton |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | **Two or more layers only** — the single-layer form, to re-read across the boundary |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | **Two or more layers only**, and the change looks agent-authored — for when a model wrote **both** sides of a boundary and made them agree with each other and wrong about the world |
+
+**One layer means read only the first**, then say **no cross-layer impact** and pass the report through.
 
 ---
 
@@ -96,8 +98,12 @@ For a monorepo or several repositories, classify per repository and per director
 Files you cannot place: read them and classify by content. If still unclear, list them as
 **unclassified** — never drop them silently.
 
-**Present the classification to the user before going on to Step 3.** A misclassification loses an
-entire layer, and that is not recoverable by anything later in the process.
+**Print the classification, then keep going — do not wait for confirmation.** It must be *visible* (a
+misclassification loses a whole layer, and the printed table stays in the report), not *approved*:
+blocking bought no accuracy and cost a human round trip every run.
+
+**Stop for one case only — an unclassified file.** Ask which layer it belongs to. That is the sole branch
+where continuing means guessing.
 
 ## Step 3. Run the layer reviews
 
@@ -114,8 +120,18 @@ direct `/x-review-backend` invocation also benefits from it.
 > **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
 > so this step becomes a silent no-op. The linter and the lint hook both check for it.
 
-Run the layers **sequentially**. Each one fans out to its own subagents internally, so there is no
-parallelism to gain here, and attempting it just makes the transcript harder to follow.
+Run the layers **sequentially**, and do not "fix" this into parallel: a subagent does not inherit this
+session's cached prefix, so three at once re-buys the same files cold — measured **2.6–5.9× the tokens,
+and not faster** (`docs/decisions.md` §16).
+
+**Tell each layer its budget tier** from the Step 1b table in `review-process.md`, computed on **that
+layer's file list, not the whole diff** — a one-file frontend change riding along with a large backend
+change is an inline layer, and only the dispatcher sees both halves.
+
+**One layer at the inline tier: no layer subagent either.** Invoke that layer's skill **inline here**.
+Wrapping a sixty-line, zero-find-subagent review in a subagent buys nothing — nothing to isolate it from,
+no synthesis to crowd — and costs a cold start that re-reads the whole reference set. The review is then
+**one subagent, the verifier**. Say so in 🔎.
 
 The dispatcher **dispatches**. It does not duplicate the layer checks — each layer maps its own
 internal blast radius in its Step 2.
@@ -126,23 +142,13 @@ confirmation"** in the report. Never let one fall off quietly.
 
 ## Step 4. Cross-layer synthesis — what only this skill can do
 
-**Wait until every layer report is in.** Then look specifically for the risks that appear *between*
-layers, which no single-layer review can see:
+**Wait until every layer report is in.** Then read `${CLAUDE_SKILL_DIR}/reference/cross-layer.md`, which
+holds all ten checks: the **four structural forms** — deploy order, the backend ↔ frontend contract,
+infrastructure versus application assumptions, rollback — then the **five patterns in their cross-layer
+shape**, plus the sixth that only exists across a boundary.
 
-- **Schema ↔ code deploy-order coupling.** Do the database or contract change (backend), the code
-  that reads it, and the infrastructure deploy survive being applied in the real order? Is it a
-  backward-compatible staged rollout?
-- **API contract, backend ↔ frontend.** Does the contract change land in the same PR or release as
-  the frontend that consumes it, or does one side shipping first break the other?
-- **Infrastructure change versus application assumptions.** Does renaming, replacing, or re-scoping a
-  resource break a runtime assumption in backend or frontend code?
-- **Release order and rollback.** The safe order to ship a cross-layer change, and what stays
-  consistent if only one side is rolled back.
-
-**Then the silent, irreversible failures in their cross-layer form.** Read
-`${CLAUDE_SKILL_DIR}/reference/cross-layer.md` and work through all five. Do not settle for
-re-applying the patterns as written — each has a shape that appears only when the cause and the
-consequence sit in **different layers**, and no layer review can reach any of them because every copy,
+Do not settle for re-applying the patterns as written — each has a shape that appears only when cause and
+consequence sit in **different layers**, and no layer review can reach any of them, because every copy,
 every half, every side is locally correct.
 
 **Always pull each layer's 🧭 and unverified clears (👤) to the top.** Design doubts, system-wide
@@ -152,15 +158,6 @@ sub-report. The dispatcher does not get to sit on them.
 **Merge cross-layer duplicates.** When different layers raise the **same root cause** (the same
 contract, schema, or shared file), combine them into one cross-layer finding naming both layers. The
 summary table counts the merged finding once — do not double-count by adding the per-layer totals.
-
-**Presentation.** Each layer report already carries 📍 location, plain explanation, and 💬 suggested
-comment per finding. **Do not restate them.** Attach the same three-part set only to the new 🔗
-cross-layer findings you raise here — and for a backend ↔ frontend contract issue, give the line on
-*both* sides.
-
-**The report skeleton is in `${CLAUDE_SKILL_DIR}/reference/cross-layer.md`**, which this step
-already reads. It lives there rather than here because it is only needed once the layer reports
-are in, and a template parked in this context from the first turn is the cost the split avoids.
 
 ## Step 5. One-page Canvas review summary
 
@@ -177,15 +174,16 @@ Markdown; do not silently omit the artifact.
 The four requirements in `report-format.md` apply to the layer reports; these are the dispatcher's own,
 and it is the only place they can be checked because no layer can see them.
 
-- [ ] The layer classification was shown **before** any review ran, and every file is in a layer or listed
-      as unclassified
+- [ ] The layer classification was shown **before** any review ran, and every file is in a layer — an
+      unclassified file stopped the run and was asked about, rather than being carried forward
+- [ ] 🔎 reports **the budget tier and the subagent count per layer**, and names what it did not reach —
+      the toolkit's only cost measurement, so a review that omits it cannot be tuned
 - [ ] Every layer with files was dispatched to **by skill name**, and the transcript shows it ran — a
       layer reported as covered with no subagent behind it is the failure this dispatcher exists to avoid
 - [ ] **The change summary spans layers**: what changed in each, and what the change is *as one thing*
       rather than three unrelated diffs
-- [ ] **All six cross-layer forms were applied**, not just the four structural ones — including the
-      agent-authored case where both sides of a boundary agree with each other and are wrong about the
-      outside world
+- [ ] **All ten checks in `cross-layer.md` were applied** — not just the four structural ones, and
+      including the agent-authored case where both sides of a boundary agree and are wrong about the world
 - [ ] Every 🔗 finding names **both** layers and carries a 📍 on **each** side, plus the detailed
       why-this-is-wrong and a pasteable comment
 - [ ] Every layer's 🧭 and 👤 were **pulled up**, not left inside a sub-report

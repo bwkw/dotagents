@@ -34,8 +34,34 @@ so it exists in every repository.
 Applies only to findings with `severity=critical` or `irreversible=true`.
 
 **Batch by perspective cluster.** One verification subagent handles all of one cluster's findings.
-Never spawn one agent per finding. Keep concurrency at the same ceiling as the find phase; when
-there are more, prioritise by severity and irreversibility and send the remainder to 👤.
+Never spawn one agent per finding.
+
+### The verify budget
+
+**Verify spends at most `find + 3` subagents per layer**, where `find` is the tier this layer got from the
+budget table in `review-process.md`. One number, so the two caps below cannot contradict each other:
+
+| Find tier | 6a refutation + 6b skeptic | Three-lens headroom | Verify ceiling |
+|---|---|---|---|
+| **inline (0 finders)** | **1** — one subagent refutes and plays skeptic | 2 | **3** |
+| 3 finders | **3** — batched by cluster, one of them the skeptic | 3 | **6** |
+| 5 finders | **5** — batched by cluster, one of them the skeptic | 3 | **8** |
+
+**The inline tier still spends a subagent here, and this is the one place that is not negotiable.** The
+find phase went inline because context isolation is proportional to the reading; verification is not
+about context at all. A verifier must not have watched the finding get made — that is the entire
+mechanism, and you cannot refute your own reasoning from inside the context that produced it. So: zero
+find subagents, **one verifier, always**. A review that skips it to reach zero has removed the part that
+suppresses false positives, which is the half the reader actually relies on.
+
+The `+3` is the three-lens pass and **nothing else may spend it.** It covers the single most irreversible
+⛔/🔴 in the layer; at the 5-finder tier it may cover a second if the first came back unanimous and slots
+remain. Everything else at ⛔/🔴 gets one verifier from the base allocation.
+
+**When there are more findings than slots, prioritise by irreversibility then severity, and send the
+remainder to 👤** — labelled as unverified rather than silently downgraded. Never buy another agent.
+A diff that justified three finders does not justify eight verifiers, and a layer that produces more
+⛔/🔴 than its budget can verify is telling you something the extra verifiers would not.
 
 Instruction to the verifier, including the tie-breaking rule:
 
@@ -85,10 +111,60 @@ Rules that make the diversity worth its cost:
   that escalates is no longer verifying.
 - **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
   of the report for findings nobody was going to act on urgently.
+- **Bounded by the `+3` headroom in the verify budget above** — normally the single most irreversible
+  ⛔/🔴 in the layer. The pass multiplies, and that is why it is metered: three lenses on three findings
+  across three layers is 27 subagents re-reading one diff. **A layer with more ⛔/🔴 than its budget can
+  three-lens has a bigger problem than verification depth** — say so, and 🔎 states which findings got
+  three lenses and which got one.
 - **Do not claim independence you do not have.** Three lenses reduce the chance of one bad run; they do
-  not remove bias shared by all three, because it is the same model each time. `finding-discipline.md`
-  has the measured numbers. Report it as "checked from three angles", not "three verifiers agreed", and
-  route the pass to a different or stronger model when one is available.
+  not remove bias shared by all three, because it is the same model each time. Report it as "checked
+  from three angles", not "three verifiers agreed", and route the pass to a different or stronger model
+  when one is available.
+
+### The verifier is biased too — three measured ways
+
+The biases below are why `refuted` is the default and why the three lenses are *lenses* rather than
+repetitions. **This is the only copy**, and it sits in the verify phase's own file because only the
+verify phase acts on it.
+
+**A verifier's verdicts are systematically tilted, and the tilt is not mainly about self-flattery.**
+The obvious story is self-preference — a model rating its own family's output higher, reported in the
+range of 10–25%. But that finding is contested: sanity-check work pushes back on it, and one analysis
+attributes most of the effect to a **flat per-reviewer disposition** rather than to self-favouring, with
+about a 2.8-point spread between the strictest and most lenient reviewer. Read together, the reliable
+claim is narrower and more useful: **a verifier has a fixed lean, and you do not know which way yours
+leans.**
+
+> **`refuted` is the default because the lean is unknown, not because models are vain.** Three separate
+> effects push toward over-confirming: anchoring on a claim that is already written down, the reviewer's
+> own disposition, and the fact that models do not reliably self-correct without external evidence. The
+> asymmetry is the counterweight to all three at once, and it does not depend on the self-preference
+> number being right.
+
+> **Different prompting matters more than a different instance.** If the lean is per-reviewer rather
+> than self-directed, then a second look from the same model with the *same* framing buys little, while a
+> genuinely different framing buys a lot. That is also the measured reason the **find** phase is capped
+> rather than widened: scaling *homogeneous* agents — same model, same prompt, same discipline — shows
+> marginal gain per agent collapsing toward zero, while a measurement of four differently-built reviewers
+> over the same 146 pull requests found **93.4% of findings were caught by exactly one of the four, and
+> none by all four**. Coverage comes from a different reviewer, not a sixth copy of this one — which is
+> why the toolkit keeps `/find-bugs` and `/code-review` around instead of treating its own review as
+> sufficient. Where a stronger or different model is available (this toolkit's `--advisor`), route the
+> verify pass to it and say so in 🔎.
+
+**Verbosity: a longer answer is judged 15–30 points more favourably.** An elaborate finding with three
+paragraphs of reasoning reads as more credible than a one-line one citing a real line of code. **Length
+is not evidence.** Judge the cited `file:line` and whether the path is reachable. If a finding's
+persuasiveness drops once you look only at what it points at, that is a refutation.
+
+**Position: order of presentation changes the verdict.** Do not judge findings in severity order and let
+the first ⛔ set the tone for the rest. Each finding is judged against the code, not against its
+neighbours.
+
+**What this means for the three-lens pass.** Three lenses reduce *variance* — one verifier having an off
+run — and, because the framings genuinely differ, they buy some real coverage. What they do **not** buy
+is independence: the same model with the same disposition is behind all three. So three agreeing lenses
+are not three independent opinions, and a report must not imply they are.
 
 **The infrastructure exception overrides the reachability lens.** For a destructive or
 permission-widening change — resource replacement, state loss, a delete that takes data with it, a
