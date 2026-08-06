@@ -105,8 +105,13 @@ work. That is why they are here rather than in a document you would read once.
     exactly that argument and was reverted.
 
     The rule is about **whose decision it is**, not about the size of the saving. A saving the user did
-    not agree to is the tool disagreeing with them quietly. `model:` is Claude-only on top of that, so a
-    pin buys nothing in Cursor while changing behaviour here, desyncing the two agents (invariant 1).
+    not agree to is the tool disagreeing with them quietly.
+
+    **This one is not a Claude-only field, and getting that backwards is easy.** Invariant 1 says
+    `model:` is dropped by Cursor — that is true of **skill** frontmatter. On a **subagent** Cursor reads
+    `name`, `description`, `model`, `readonly`, `is_background`, and `inherit` is its documented default
+    too. So a pin overrides the user in *both* agents. The reflex "it's Claude-only, so it's just an
+    optimization" is the wrong reflex here, and it was written into this file once already.
 
     **Take cost out of how *many* subagents run — never out of what they run on.** The fan-out budget in
     `skills/_shared/review-process.md` is where that money is, and it is the same money.
