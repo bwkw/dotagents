@@ -408,6 +408,30 @@ if [[ -f "$dr" ]]; then
   fi
 fi
 
+# --- the fan-out budget has to be in the body, not only in reference/ -------
+# Cursor has no ${CLAUDE_SKILL_DIR} and no documented equivalent -- its docs say relative paths from the
+# skill root. So a rule that lives only in reference/ is a rule Claude Code follows and Cursor may not,
+# and the failure is invisible: Cursor just fans out to every cluster like before, produces a normal
+# report, and nothing says the budget was never read. That is the same shape as invariant 1 (state the
+# constraint in the body; treat the Claude-only path as optimization on top), applied to the one rule
+# whose whole purpose is to stop spending subagents.
+echo
+echo "checking the fan-out budget is stated in the body"
+budget_missing=""
+for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
+  bf="$REPO/skills/$bs/SKILL.md"
+  [[ -f "$bf" ]] || { budget_missing="$budget_missing $bs(absent)"; continue; }
+  bbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$bf")"
+  # The threshold and the zero together: "80" alone could be any number, "0" alone any list item.
+  grep -q '80' <<<"$bbody" && grep -qiE 'inline' <<<"$bbody" \
+    || budget_missing="$budget_missing $bs"
+done
+if [[ -n "$budget_missing" ]]; then
+  err "fan-out-budget" "the inline tier is not in the body of:$budget_missing -- Cursor cannot resolve \${CLAUDE_SKILL_DIR}, so a budget only in reference/ does not bind there"
+else
+  printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
+fi
+
 # --- the two 'when to use' enforcers must agree -----------------------------
 # This file warns when a description has no when-clause; the lint hook says the same thing to whoever
 # is writing the file. They disagreed, and the hook was the stricter one: it did not accept a Japanese

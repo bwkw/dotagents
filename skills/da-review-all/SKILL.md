@@ -120,18 +120,22 @@ direct `/x-review-backend` invocation also benefits from it.
 > **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
 > so this step becomes a silent no-op. The linter and the lint hook both check for it.
 
-Run the layers **sequentially**, and do not "fix" this into parallel: a subagent does not inherit this
-session's cached prefix, so three at once re-buys the same files cold — measured **2.6–5.9× the tokens,
-and not faster** (`docs/decisions.md` §16).
+Run the layers **sequentially**, and do not "fix" this into parallel: subagents start cold, so three at
+once re-buys the same files — measured **2.6–5.9× the tokens, and not faster** (`docs/decisions.md` §16).
 
-**Tell each layer its budget tier** from the Step 1b table in `review-process.md`, computed on **that
-layer's file list, not the whole diff** — a one-file frontend change riding along with a large backend
-change is an inline layer, and only the dispatcher sees both halves.
+**Tell each layer its budget tier**, computed on **that layer's file list, not the whole diff** — only
+the dispatcher sees both halves. The numbers are here, not only in `review-process.md`, because
+`${CLAUDE_SKILL_DIR}` is a Claude Code extension and a rule behind it is not a rule in Cursor:
 
-**One layer at the inline tier: no layer subagent either.** Invoke that layer's skill **inline here**.
-Wrapping a sixty-line, zero-find-subagent review in a subagent buys nothing — nothing to isolate it from,
-no synthesis to crowd — and costs a cold start that re-reads the whole reference set. The review is then
-**one subagent, the verifier**. Say so in 🔎.
+| That layer's changed lines | Find subagents |
+|---|---|
+| **≤ 80 lines, ≤ 5 files** | **0 — inline** |
+| ≤ 400 | 3 |
+| more | 5 (ceiling) |
+
+**A single layer at the inline tier gets no layer subagent either** — invoke its skill **inline here**.
+Wrapping a zero-find-subagent review in a subagent isolates it from nothing and costs a cold start that
+re-reads every reference. The review is then **one subagent, the verifier**, which never goes to zero.
 
 The dispatcher **dispatches**. It does not duplicate the layer checks — each layer maps its own
 internal blast radius in its Step 2.
