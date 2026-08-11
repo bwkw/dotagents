@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # dotagents installer.
 #
-#   install [--dry-run] [--with-opinions]   link skills, copy hooks, merge settings, and remove
+#   install [--dry-run] [--no-opinions]     link skills, copy hooks, merge settings, and remove
 #                                          anything we installed that the repo no longer ships
 #
-#     --with-opinions  also merge the keys the settings template lists in $opinionKeys: verbose
-#                      telemetry, and the skillOverrides that quiet bundled and plugin skills.
-#                      Left out by default -- they change how skills this repo does not ship
-#                      behave, and installing a gate is not consent to that.
+#     --no-opinions    merge the mechanism (`hooks`) only, and skip the keys the settings template
+#                      lists in $opinionKeys: verbose telemetry, and the skillOverrides that quiet
+#                      bundled and plugin skills.
+#
+#                      These are ON by default because this toolkit has one user, and that user
+#                      wrote them. They were opt-in for a while, on the theory that installing a
+#                      verification gate is not consent to changing how other skills behave -- true
+#                      for a stranger, and the stranger does not exist. What the flag actually did
+#                      was make the author retype it on every machine. Use --no-opinions on a
+#                      machine where the bundled skills should be left alone.
 #   status                                  what is installed and whether it is current
 #   doctor                                  diagnose drift and breakage
 #   uninstall [--dry-run]                   remove exactly what we installed
@@ -34,7 +40,8 @@ CURSOR_AGENTS="$HOME/.cursor/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
-WITH_OPINIONS=0
+# On by default: one user, who wrote them. `--no-opinions` turns them off. See the header.
+WITH_OPINIONS=1
 
 # Holds the filtered settings snippet while a merge runs. Cleaned on every exit path: `set -e` and
 # `die` both leave the function early, and a scratch file under $TMPDIR that nothing removes is the
@@ -328,9 +335,12 @@ prune_backups() { # <target>
 # Merge only the keys our template declares. Existing values we did not write -- notably
 # env.OTEL_EXPORTER_OTLP_HEADERS, which holds a plaintext API key -- are never read or rewritten.
 #
-# Without --with-opinions the keys listed in the template's own $opinionKeys are dropped first. They
-# change how skills this repository does not ship behave, and installing a verification gate is not
-# consent to that. The mechanism (`hooks`) is always merged: without it nothing here runs at all.
+# With --no-opinions the keys listed in the template's own $opinionKeys are dropped first, leaving the
+# mechanism (`hooks`) -- which is always merged, because without it nothing here runs at all.
+#
+# The filtering exists; only the default flipped. It was opt-in on the theory that installing a
+# verification gate is not consent to changing how other skills behave. That is right for a stranger,
+# and there is no stranger: what the flag bought in practice was the author retyping it per machine.
 #
 # Filtered into a temp file rather than merged as a second pass, because merge-settings.mjs REPLACES
 # manifest.settingsHooks with what the snippet it was just handed declares. A second pass over a
@@ -346,7 +356,8 @@ effective_settings_snippet() { # <template> -> path to merge (may be a temp file
     # No scratch file means we cannot filter. Merging the unfiltered template would apply the
     # opinions without being asked, so decline the whole merge and say why.
     die "could not create a temp file to filter the settings template -- refusing to merge, because
-the unfiltered template would apply keys you did not ask for. Set TMPDIR, or pass --with-opinions."
+the unfiltered template would apply the opinion keys you asked to skip. Set TMPDIR, or drop
+--no-opinions."
   fi
   SETTINGS_SCRATCH="$out"
   node -e '
@@ -370,7 +381,7 @@ merge_settings() {
 
   if (( DRY_RUN )); then
     note "would: merge keys from templates/claude.settings.snippet.json into ~/.claude/settings.json"
-    (( WITH_OPINIONS )) || note "(mechanism only -- pass --with-opinions to include env/skillOverrides)"
+    (( WITH_OPINIONS )) || note "(mechanism only -- --no-opinions drops env/skillOverrides)"
     node "$REPO/scripts/lib/merge-settings.mjs" --print-keys "$eff" | sed 's/^/    /'
     rm -f "$SETTINGS_SCRATCH"; SETTINGS_SCRATCH=""
     return
@@ -777,6 +788,10 @@ cmd="$1"; shift
 for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
+    --no-opinions)   WITH_OPINIONS=0 ;;
+    # Still accepted, and silently: it is now the default, and a warning on a flag that asks for
+    # exactly what already happens is noise. Kept because it is in this repository's own history and
+    # in muscle memory, and an unknown-option `die` on it would be a puzzling failure.
     --with-opinions) WITH_OPINIONS=1 ;;
     --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
     -h|--help)       usage ;;

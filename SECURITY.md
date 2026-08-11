@@ -13,9 +13,8 @@
 
 ## 入れる人へ
 
-- **fork して、自分が読んだ commit を指してください。** `main` を直接追いかけると、次の `git pull` が自動実行されるコードを差し替えます。
 - **`./scripts/setup.sh install --dry-run` で何が起きるか先に見てください。** 書き込む先と鍵を全部列挙します。
-- **既定は仕組みだけです。** `--with-opinions` を付けない限り、bundled/plugin スキルの抑制やテレメトリ設定はあなたの `settings.json` に入りません。
+- **`install` は `skillOverrides` と verbose なテレメトリも入れます。** bundled/plugin スキルを触らせたくないマシンでは `install --no-opinions`。何が「意見」に当たるかは `templates/claude.settings.snippet.json` の `$opinionKeys` が唯一の定義です。
 - **`scripts/check.sh` を通してから使ってください。** hook の挙動テストが全部ここに入っています。
 
 ## 脅威モデル —— このリポジトリ固有のもの

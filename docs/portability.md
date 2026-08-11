@@ -52,7 +52,9 @@ node scripts/lib/merge-settings.mjs --print-keys templates/claude.settings.snipp
 
 検証ゲートを入れたことは、**docx や pdf を黙って黙らせることへの同意ではありません。** README に書いてあることは同意ではない。
 
-`$opinionKeys` を template 自身に宣言し、`install` は既定で仕組みだけを入れ、`install --with-opinions` で意見も入れるようにしました。リストの home は template 1箇所です（`setup.sh` に写しを置くと、鍵を足したとき忘れる場所が2つになる）。
+`$opinionKeys` を template 自身に宣言し、仕組みと意見を分離しました。リストの home は template 1箇所です（`setup.sh` に写しを置くと、鍵を足したとき忘れる場所が2つになる）。
+
+**既定は最終的に「意見も入れる」に戻しました。** 一度 opt-in にしたのは「検証ゲートを入れたことは他人のスキルを黙らせる同意ではない」という理屈で、それは他人に対しては正しく、**他人がいませんでした**。opt-in が実際に買ったのは、作者がマシンごとにフラグを打ち直すことだけです。分離自体は残っていて、`install --no-opinions` が「bundled スキルを触らせたくないマシン」の綴りになっています。
 
 実装は「2回マージ」ではなく「フィルタして1回マージ」です。`merge-settings.mjs` は `manifest.settingsHooks` を**渡された snippet の内容で置き換える**ので、hooks を持たない snippet で2回目を回すと**hook の記録が消え、uninstall が hook を戻せなくなる**。順序依存の正しさに賭けるより、経路を1本にしました。
 
@@ -90,7 +92,7 @@ node scripts/lib/merge-settings.mjs --print-keys templates/claude.settings.snipp
 | 1 | **スキル本文の完全性ゲート** | **完了。** 内容の善悪ではなく形を検査し、書き込み時は警告・commit/CI ではエラー。3つの分岐の答えと、実装前の測定で設計が単純になった経緯は [判断の記録 §19](decisions.md)。他人のスキルの監視だけは、受け入れ経路を設計してから入れます |
 | 2 | **`main` のブランチ保護** | **完了。** ruleset で PR 必須・CI **5本**必須・force push 禁止・削除禁止（下記「GitHub 側の状態」） |
 | 3 | **`CLAUDE_CONFIG_DIR` 対応** | **対応しないと決めた。** 公式ドキュメントの環境変数一覧を通しで確認し、**存在しません**（2026-08-11）。確証なしに分岐を足すのは、このリポジトリが最も嫌う「推測を仕様として書く」行為。`docs/harness-facts.md` の未確認リストに記録。**もし実在するなら**、install は agent が読まない場所に書き、`status` は自分の書き込みを見るので緑になる —— 典型的な silent pass |
-| 4 | **`README.en.md` が 57 行、`README.md` が 385 行** | **未着手。** 英語話者は内容の15%しか読めない。翻訳は独立した作業量で、他の変更に混ぜると差分がレビュー不能になる |
+| 4 | **`README.en.md` が 57 行、`README.md` が 385 行** | **翻訳せず、削除した。** 読む相手がいないなら、**内容が古い英語 README は無い方がまし**です —— 385行の15%を要約したもので、しかも本体の変更に追随していませんでした |
 | 5 | **node の下限 18 が未検証** | **完了。** CI に `node-floor` ジョブを追加し、18 で `check.sh` 全体を回します。1年間主張していた下限を初めて実行しました。matrix の次元にせず別ジョブにしたのは、ジョブ名が ruleset の必須コンテキストで、改名すると**黙って必須でなくなる**から |
 | 6 | **Windows/WSL の明記なし** | **明記した（未確認と書いた）。** bash 前提なので WSL のみのはず、と README に書いています。「はず」を「対応」と書かないのがここの作法 |
 | 7 | **上流スキルの存在確認が無い** | **完了。** `setup.sh status` が、README の導線が使う上流スキル10本の不在を報告します。インストールはしません（`npx skills add` は利用者の判断）。リストは `setup.sh` に1箇所で宣言し、`verify-skills.sh` が **README に記載があること**を照合 —— 上流の改名で、誰も文書化していない名前を探し続けるのを防ぐため |
@@ -136,7 +138,7 @@ node scripts/lib/merge-settings.mjs --print-keys templates/claude.settings.snipp
 
 | 要らなかったもの | 何だったか | どうしたか |
 |---|---|---|
-| `env.OTEL_LOG_TOOL_DETAILS` と `skillOverrides` 8件の**無条件適用** | 作者のスキル選好。他人のマシンでは、頼まれていない変更 | 削除せず `--with-opinions` に移した。作者は今後フラグを付ける |
+| `env.OTEL_LOG_TOOL_DETAILS` と `skillOverrides` 8件の**無条件適用** | 作者のスキル選好 | 仕組みと分離した。**既定は「入れる」に戻した** —— 分離する相手がいなかったので。`--no-opinions` で外せる |
 | `match.remote` の `bwkw/` | owner の固定。fork を無防備にしていた | `/dotagents` に |
 | 社内リポジトリ名6箇所、`/Users/shota` 1箇所 | 観測の記録に混ざった固有名 | 固有名だけ外し、観測は残した |
 | レポート言語の日本語固定（5箇所） | 作者の言語 | ユーザの言語に。判別できないときの既定は日本語のまま |
