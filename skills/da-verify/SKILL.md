@@ -81,8 +81,8 @@ indistinguishable from no check at all, which is worse than stopping.
 
 ---
 
-**Write the report in Japanese**, keeping paths, identifiers, commands, code excerpts and log output in
-their original form. These instructions are English because the model reads them; the report is read by
+**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
+paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
 a person.
 
 ## Steps

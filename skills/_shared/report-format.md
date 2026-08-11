@@ -2,12 +2,18 @@
 
 ## Output language
 
-**Write the report in Japanese.** Headings, findings, explanations, and suggested comments — all of it.
+**Write the report in the language the user is writing in.** Headings, findings, explanations, and
+suggested comments — all of it. When that is genuinely unclear, use Japanese: this toolkit is
+maintained in Japanese, and a report in a language its reader does not use is a report nobody reads.
+
+This used to say "in Japanese" flatly, in five separate files. That is correct for the machine it was
+written on and wrong everywhere else — an English-speaking user who installed the toolkit got reports
+they could not read, from skills whose own instructions they could read fine.
 
 Leave these in their original form, because changing them breaks them or loses precision: file paths,
 identifiers, commands, code excerpts, log output, severity emoji, error strings, and quoted text from
-the diff. A suggested comment names real symbols, so the symbols stay as they are inside a Japanese
-sentence.
+the diff. A suggested comment names real symbols, so the symbols stay as they are inside the
+surrounding sentence.
 
 These instructions are in English because they are read by the model; the report is read by a person.
 Do not mirror the language of this file into the output.
