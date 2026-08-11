@@ -506,6 +506,48 @@ if [[ -f "$lint_hook_sens" ]]; then
   fi
 fi
 
+# --- every relative link inside a skill has to resolve ----------------------
+# reference/ files are read on instruction, so a link that does not resolve is not a 404 the user
+# sees -- it is an instruction the agent was told to follow and could not. The skill still loads,
+# still produces a normal-looking report, and the part it lost is exactly the part someone thought
+# was worth writing down separately.
+#
+# Found by running this: `_shared/finding-discipline.md` links to a sibling `verification.md`, and it
+# is symlinked into six skills of which only four had that sibling. da-fix-plan and da-review-all
+# followed a dead link. CI already checks that SYMLINKS resolve, which is why this went unseen for so
+# long -- the broken thing was a markdown link, and nothing read those.
+#
+# Anchors, http(s) and mailto are skipped. Everything else is resolved from the linking file's own
+# directory, because that is how both agents resolve a reference path (Cursor has no
+# ${CLAUDE_SKILL_DIR}, so relative-from-the-file is the only spelling that works in both).
+echo
+echo "checking relative links inside skills resolve"
+link_bad=0
+for lroot in "${ROOTS[@]}"; do
+  [[ -d "$lroot" ]] || continue
+  while IFS= read -r lf; do
+    ldir="$(dirname "$lf")"
+    while IFS= read -r target; do
+      [[ -n "$target" ]] || continue
+      case "$target" in http://*|https://*|mailto:*|"#"*) continue ;; esac
+      target="${target%%#*}"            # strip an anchor
+      target="${target%% *}"            # strip a link title
+      [[ -n "$target" ]] || continue
+      [[ -e "$ldir/$target" ]] || {
+        err "${lf#"$REPO/"}" "link does not resolve: $target -- reference/ is read on instruction, so this is an instruction the agent cannot follow"
+        link_bad=$((link_bad+1))
+      }
+    done < <(grep -o ']([^)]*)' "$lf" 2>/dev/null | sed 's/^](//;s/)$//')
+    # `-type l` as well as `-type f`, and this is load-bearing: `find -type f` tests the LINK, not its
+    # target, so it skips every symlink -- which is every file under a skill's reference/. Written with
+    # `-type f` alone, this check reported a green tick while examining only `_shared/` (where the
+    # sibling does exist) and never looking at the six skills that read it through a link. The first
+    # version of the check had the exact bug it was written to catch.
+  done < <(find "$lroot" \( -type f -o -type l \) -name '*.md' 2>/dev/null | sort)
+done
+(( link_bad == 0 )) \
+  && printf '%s✓%s every relative link inside a skill resolves\n' "$c_green" "$c_off"
+
 # --- the upstream skills status reports on must still be documented ---------
 # `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
 # is only useful while it names the skills README.md actually tells you to install: an upstream rename
