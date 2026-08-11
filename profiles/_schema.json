@@ -14,8 +14,11 @@
       "additionalProperties": false,
       "properties": {
         "remote": {
-          "type": "string",
-          "description": "Substring matched against `git remote get-url origin`, e.g. 'owner/repo'."
+          "description": "Substring, or list of substrings any of which matches, tested against `git remote get-url origin`. 'owner/repo' pins one owner; '/repo' follows the repository through forks and through both URL forms (https and ssh). A list is for a repository reachable under several names.",
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          ]
         }
       },
       "required": ["remote"]

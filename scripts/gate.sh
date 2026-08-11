@@ -247,7 +247,10 @@ warn_if_no_profile() {
         if (!f.endsWith(".json") || f.startsWith("_")) continue;
         try {
           const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-          if (p?.match?.remote && remote.includes(p.match.remote)) { console.log(f); break; }
+          // String or list of strings, any of which matches. Kept identical to the copy in
+          // hooks/dotagents-verify-gate.sh.
+          const pats = p?.match?.remote == null ? [] : [].concat(p.match.remote);
+          if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) { console.log(f); break; }
         } catch {}
       }
     } catch {}

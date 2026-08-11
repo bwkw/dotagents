@@ -3,10 +3,18 @@
   "$comment": [
     "This repository's own profile, so the toolkit is held to its own gate while being developed.",
     "Tracked, unlike the others: it names only a public repo and public commands, and it doubles as",
-    "the one worked example in the repository, and the only profile here that actually runs."
+    "the one worked example in the repository, and the only profile here that actually runs.",
+    "",
+    "Matched on '/dotagents' rather than 'bwkw/dotagents' so it follows the repository into forks and",
+    "clones -- it matches both URL forms (https://host/owner/dotagents.git and host:owner/dotagents).",
+    "Pinning one owner meant every fork resolved no profile and the gate passed in silence, which is",
+    "the failure this profile exists to prevent, on the repository that ships the gate.",
+    "The cost is accepted deliberately: an unrelated repository whose name merely starts with",
+    "'dotagents' also matches, and its checks then fail loudly because these commands are not there.",
+    "Loudly wrong beats silently open -- the ordering the whole gate is built on."
   ],
   "match": {
-    "remote": "bwkw/dotagents"
+    "remote": "/dotagents"
   },
   "forbidden": [
     "setup.sh uninstall",

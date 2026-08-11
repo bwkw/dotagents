@@ -324,7 +324,7 @@ agent_type="$(sed -n 6p <<<"$_fields")"
 
 # Cursor's stop payload carries no cwd, and this hook's process cwd there is ~/.cursor -- not the
 # workspace. Falling back to $PWD therefore compared the wrong repository and passed every turn,
-# silently. Observed in the trace: "cursor /Users/shota/.cursor passed: armed elsewhere".
+# silently. Observed in the trace: "cursor $HOME/.cursor passed: armed elsewhere".
 cwd_known=1
 if [[ "$cwd" == "-" || -z "$cwd" ]]; then
   cwd_known=0
@@ -565,7 +565,15 @@ profile="$(node -e '
     // it in readdir order, and the gate opened for those repositories with no message.
     try {
       const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-      if (p?.match?.remote && remote.includes(p.match.remote)) { hit = path.join(dir, f); break; }
+      // `remote` is one substring or a list of them, any of which matches. A single string names one
+      // owner, so every fork of a gated repository matched nothing and the gate passed in silence --
+      // including forks of this repository, whose own profile exists to hold it to its own gate.
+      // Kept identical to the copy in scripts/gate.sh: a matcher that disagreed would report a
+      // profile there and find none here.
+      const pats = p?.match?.remote == null ? [] : [].concat(p.match.remote);
+      if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) {
+        hit = path.join(dir, f); break;
+      }
     } catch { broken.push(f); }
   }
   if (hit) process.stdout.write(hit + "\n");
@@ -767,8 +775,8 @@ while IFS=$'\t' read -r id secs mutates cmd; do
     #
     # Listed from $run_dir, not from the repository root. The command runs in
     # repo_root/<profile.cwd>, so root-relative paths were being handed to a runner that could not
-    # open them: dresscode-backend.json sets "cwd": "v2" with `vitest run {files}`, and a changed file
-    # arrived as `v2/src/foo.ts` for a vitest already inside `v2/`. Depending on passWithNoTests that
+    # open them: a profile that sets "cwd": "v2" with `vitest run {files}` got a changed file as
+    # `v2/src/foo.ts` for a vitest already running inside `v2/`. Depending on passWithNoTests that
     # is a permanent false failure or a vacuous pass. `--relative` also scopes the list to that
     # subtree, which is the right answer too: a check that runs in v2/ is about v2/'s files.
     files=""
@@ -817,7 +825,7 @@ command that does not do the forbidden thing."
   out="$check_out"
   code="$check_code"
 
-  # A check declaring `mutates` is an auto-fixer, and both dresscode profiles gate on two of them
+  # A check declaring `mutates` is an auto-fixer, and real profiles commonly gate on two of them
   # (`lint:fix`, `format:fix`, scope: all). Succeeding is not enough to report green: the hook has
   # just rewritten the tree after the agent decided it was done, and in a loop the next iteration
   # would read files it did not write. So the change is surfaced and the turn is held once. Nothing is
