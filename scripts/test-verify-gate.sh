@@ -242,6 +242,36 @@ grep -q 'aaa-broken.json' "$TMP/stderr" \
   || { printf '%s✗%s   did not name the malformed file\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 rm -f "$PROFILES/aaa-broken.json"
 
+# --- match.remote: owner-independent, and a list ----------------------------
+# `match.remote` used to be one substring, so it named exactly one owner. Every fork and every
+# re-clone under a different account therefore resolved NO profile, and the gate passed in silence --
+# on repositories whose profile was written precisely to gate them. The fake origin here is
+# git@github.com:example/scratch.git, so a profile naming only '/scratch' has to match it: that is
+# the spelling that survives a fork, and it covers the https URL form too.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": "/scratch" },
+  "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a profile naming the repo without an owner matches (fork-portable)" 2 "$(invoke)"
+
+# A list matches when any entry does -- for one repository reachable under several names.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": ["nobody/else", "example/scratch"] },
+  "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a list of remotes matches on any entry" 2 "$(invoke)"
+
+# ...and the list must not match on nothing. Accepting an array by concatenating it into a string
+# would have made every list match every remote, which reads as a stricter gate and is a looser one.
+rm -rf "$GATE"; arm
+write_profile <<'JSON'
+{ "match": { "remote": ["nobody/else"] },
+  "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
+JSON
+check "a list that matches nothing resolves no profile" 0 "$(invoke)"
+
 # A filename with shell metacharacters must not execute. Unquoted {files} + eval ran it.
 rm -rf "$GATE"; arm
 evil='a;touch pwned-by-filename;b.ts'
@@ -342,7 +372,7 @@ echo
 # so the moment work is serious enough to want a gate is the moment it moves into a worktree. Matching
 # the sentinel against the *toplevel* meant a gate armed in the main checkout answered
 # "armed elsewhere" for every one of them. Observed in the real trace log, not hypothetical:
-#   claude  .../dresscode-backend/.worktrees/typecheck-perf  passed: armed elsewhere
+#   claude  .../<repo>/.worktrees/typecheck-perf  passed: armed elsewhere
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -414,8 +444,8 @@ echo "verify-gate — {files} is relative to where the command runs"
 echo
 
 # {files} came from `git -C "$repo_root"`, so the paths were repo-root-relative -- but the command runs
-# in repo_root/<profile.cwd>. dresscode-backend.json sets "cwd": "v2" and "pnpm exec vitest run
-# {files}", so a changed file arrived as `v2/src/foo.ts` and was handed to a vitest running inside
+# in repo_root/<profile.cwd>. A profile setting "cwd": "v2" with "pnpm exec vitest run
+# {files}" got a changed file as `v2/src/foo.ts`, handed to a vitest already running inside
 # `v2/`. Depending on passWithNoTests that is either a permanent false failure or a vacuous pass.
 # No existing case combined cwd with {files}, which is why it survived.
 rm -rf "$GATE"
@@ -443,7 +473,7 @@ echo
 echo "verify-gate — a check that rewrites the tree cannot report green"
 echo
 
-# Both dresscode profiles gate on `pnpm run lint:fix` and `pnpm run format:fix`, scope: all. So the
+# Real profiles commonly gate on `lint:fix` and `format:fix`, scope: all. So the
 # hook rewrites the working tree after the agent has decided it is done -- and if the fixer succeeds
 # the gate goes green, hiding the fact that it changed code. In a loop the next iteration then reads a
 # tree it did not write. The gate reports; it does not repair silently.
@@ -647,8 +677,8 @@ echo
 
 # The most severe fail-open there was. Neither settings snippet declared a hook `timeout`, and nothing
 # bounded `eval "$cmd"`. A hook killed by the harness's own timeout exits with neither 0 nor 2, which
-# is non-blocking -- so a slow suite turned the gate into a silent no-op. And dresscode-frontend.json
-# runs `pnpm run typecheck` and the full test suite at every single turn end.
+# is non-blocking -- so a slow suite turned the gate into a silent no-op. And a frontend profile that
+# runs `typecheck` plus the full test suite does that at every single turn end.
 #
 # A timeout is a malfunction of the gate, not a finding about the code, so it blocks and is recorded
 # as its own reason. It also counts toward the bound: otherwise a genuinely hanging check would block
