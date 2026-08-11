@@ -12,6 +12,9 @@ English: [README.en.md](README.en.md)
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
 他人のマシンで動かすために何を変えたか: [docs/portability.md](docs/portability.md)
 
+何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) · 変更履歴: [CHANGELOG.md](CHANGELOG.md) ·
+直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)
+
 ```bash
 # 自分の fork を指してください。理由は SECURITY.md -- ここに入っているのは
 # 全ツール呼び出しと全ターン終了で自動実行されるコードです
