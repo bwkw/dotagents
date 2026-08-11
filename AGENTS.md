@@ -5,8 +5,9 @@ Code and Cursor**, installed once globally. `CLAUDE.md` symlinks here, because C
 read `AGENTS.md`.
 
 **The human documentation is in Japanese; skill bodies and this file are in English** — they are prompts
-the model reads, and English costs about a third of the tokens. `README.en.md` is a short English entry
-point for visitors.
+the model reads, and English costs about a third of the tokens. There is no English README: the one that
+existed was a 57-line summary of a 385-line document, and a stale translation that contradicts the source
+is worse than no translation. This toolkit has one user, and they read Japanese.
 
 Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape is
 in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
