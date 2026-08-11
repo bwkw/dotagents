@@ -9,17 +9,30 @@ English: [README.en.md](README.en.md)
 
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
-ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md)
+ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
+他人のマシンで動かすために何を変えたか: [docs/portability.md](docs/portability.md)
 
 ```bash
-git clone https://github.com/bwkw/dotagents ~/private/dotagents
+# 自分の fork を指してください。理由は SECURITY.md -- ここに入っているのは
+# 全ツール呼び出しと全ターン終了で自動実行されるコードです
+git clone https://github.com/<you>/dotagents ~/private/dotagents
 cd ~/private/dotagents
 ./scripts/setup.sh install --dry-run   # 何が起きるか確認
-./scripts/setup.sh install
+./scripts/setup.sh install             # 仕組みだけ（hook の配線）
 ./scripts/setup.sh status
 ```
 
-必要なもの: `node`（18以上）、`bash`、`git`。macOS の bash 3.2 で全て動きます。
+`install` は**仕組みだけ**を入れます。作者のスキル選好（bundled / plugin スキルの抑制と verbose な
+テレメトリ）まで入れたい場合は `install --with-opinions`。既定から外してあるのは、検証ゲートを入れた
+ことが、**あなたが一度も言及していないスキルを黙って黙らせることへの同意ではない**からです。
+
+必要なもの: `node`、`bash`、`git`。**macOS と Linux で CI が回っています**（bash 3.2 を含む）。Windows は
+bash 前提なので WSL のみのはずですが、未確認です。node は CI で 22 を検証しています。18 でも動く想定ですが
+**検証していません**（[docs/portability.md](docs/portability.md) の「直していないもの」）。
+
+> **`profiles/` を1つ書くまで、検証ゲートは何も検査しません。** これは推測しない設計の帰結です
+> （一致する profile が無ければ pass）。`profiles/_example.node-pnpm.json` をコピーするか、`/da-verify`
+> に書かせてください。`setup.sh status` は profile が0件のとき警告します。
 
 ---
 
@@ -178,7 +191,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 ### 抑制しているもの、そしてなぜそれ以上やらないか
 
-`skillOverrides` で8件を `name-only` か `off` に。`setup.sh` がマージし、`uninstall` が正確に戻します: `claude-api`（このリポジトリの作業で常に該当するトリガで自動発火する）、`anthropic-skills:schedule`（**`schedule` という名前のスキルが2本生きている**）、office 系 `docx`/`pptx`/`xlsx`/`pdf`（description が長く開発ループ外）、`morning`/`setup-cowork`。
+`skillOverrides` で8件を `name-only` か `off` に。**`install --with-opinions` を付けたときだけ**マージされ、`uninstall` が正確に戻します（既定から外した理由は [判断の記録 §18](docs/decisions.md)）: `claude-api`（このリポジトリの作業で常に該当するトリガで自動発火する）、`anthropic-skills:schedule`（**`schedule` という名前のスキルが2本生きている**）、office 系 `docx`/`pptx`/`xlsx`/`pdf`（description が長く開発ループ外）、`morning`/`setup-cowork`。
 
 **レビュア系は意図的に抑制していません。** 使用ログではバンドル `code-review` が42回、`review` が24回 —— 実際に使われています。そしてレビュアの多様性は、手に入る中で最も裏付けのあるレビュー手法です。`disableBundledSkills` なら一撃で全部消え、しかも **CLI 2.1.219 以降にしか存在しない**ので `$PATH` の古い `claude` では黙って無効になります。このマシンには両バージョンが入っています。[判断の記録 §8](docs/decisions.md) 参照。
 
