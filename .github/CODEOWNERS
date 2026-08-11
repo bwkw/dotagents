@@ -1,0 +1,11 @@
+# Everything, by default.
+*                       @bwkw
+
+# The two paths that run on somebody else's machine without being asked: hooks execute on every tool
+# call and every turn end, and skill bodies are the instructions an agent follows. Neither is checked
+# for intent by any linter, so both are called out here rather than left to the catch-all above.
+/hooks/                 @bwkw
+/skills/                @bwkw
+/templates/             @bwkw
+/scripts/setup.sh       @bwkw
+/.github/workflows/     @bwkw

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 脆弱性の報告
+    url: https://github.com/bwkw/dotagents/security/advisories/new
+    about: 公開 issue ではなく Security Advisory へ。ここに入っているのは、入れた人のマシンで自動実行される hook です。
+  - name: 何を配っているのかの説明
+    url: https://github.com/bwkw/dotagents/blob/main/SECURITY.md
+    about: hook がいつ走るか、スキル本文がなぜ通常のレビューをすり抜けるか、まだ塞げていないもの。
+  - name: ゲートが何も検査していないように見えるとき
+    url: https://github.com/bwkw/dotagents/blob/main/README.md
+    about: profile が1つも無いと、ゲートは全リポジトリで pass します（設計どおり）。setup.sh status が警告します。
