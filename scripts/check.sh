@@ -48,7 +48,9 @@ step() { # step <label> <command...>
       # lint run) and the failures are listed as well.
       if grep -q '✗' "$LOG"; then
         printf '    %sfailures:%s\n' "$c_red" "$c_off"
-        grep '✗' "$LOG" | sed 's/^/      /'
+        # The line after a failure carries the suites' `detail` -- the actual output that explains it.
+        # Listing the ✗ lines alone still hid why, which cost another CI round trip.
+        grep -A2 '✗' "$LOG" | sed 's/^/      /'
       fi
     else
       sed 's/^/    /' "$LOG"
