@@ -577,6 +577,28 @@ cmd_status() {
 cmd_doctor() {
   local problems=0
 
+  # The flows in README.md hand work to upstream skills this repository deliberately does not vendor.
+  # Nothing installs them, and nothing said they were missing: a fresh machine got a documented
+  # pipeline whose first step (`/research`) simply did not exist, and a slash command that is not there
+  # is silence, not an error. Reported, not fixed -- installing them is `npx skills add`, which is the
+  # user's call and is spelled out in README.md.
+  #
+  # The list is declared once, here. scripts/verify-skills.sh asserts every name still appears in
+  # README.md, so a rename upstream cannot leave this checking for something nobody documents.
+  # dotagents:upstream-flow-skills research grill-me documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
+  echo "upstream skills the documented flows use"
+  local UPSTREAM_FLOW_SKILLS="research grill-me documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner"
+  local u umissing=0
+  for u in $UPSTREAM_FLOW_SKILLS; do
+    [[ -d "$AGENTS_SKILLS/$u" ]] || { umissing=$((umissing+1)); note "missing: /$u"; }
+  done
+  if (( umissing == 0 )); then
+    ok "all present"
+  else
+    warn "$umissing not installed -- those steps of the documented flows are absent, silently. See README.md"
+  fi
+
+  echo
   # Everything above can be green on a machine where the gate cannot check anything: it is armed per
   # repository, and it resolves what to run from a profile matched on the git remote. With no profile
   # it passes, by design -- guessing commands would be worse. But `status` never mentioned profiles, so

@@ -444,6 +444,32 @@ else
   printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
 fi
 
+# --- the upstream skills status reports on must still be documented ---------
+# `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
+# is only useful while it names the skills README.md actually tells you to install: an upstream rename
+# would leave status checking for a name nobody documents, reporting a missing skill that no longer
+# exists under that name and staying quiet about the one that replaced it. Same failure shape as the
+# when-clause lists -- an enforcer that has drifted from what it enforces, printing a green tick.
+setup_sh="$REPO/scripts/setup.sh"
+if [[ -f "$setup_sh" ]]; then
+  echo
+  echo "checking the upstream flow skills are documented"
+  up_line="$(grep -o 'dotagents:upstream-flow-skills.*' "$setup_sh" | head -1 | sed 's/^dotagents:upstream-flow-skills *//')"
+  if [[ -z "$up_line" ]]; then
+    err "upstream-flow" "the 'dotagents:upstream-flow-skills' marker is missing from scripts/setup.sh -- the marker is what makes the list checkable, so removing it removes the check"
+  else
+    up_undocumented=""
+    for up in $up_line; do
+      grep -q -- "$up" "$REPO/README.md" || up_undocumented="$up_undocumented $up"
+    done
+    if [[ -n "$up_undocumented" ]]; then
+      err "upstream-flow" "status reports on skills README.md never mentions:$up_undocumented -- either document how to install them, or stop reporting them"
+    else
+      printf '%s✓%s every upstream skill status reports on is named in README.md\n' "$c_green" "$c_off"
+    fi
+  fi
+fi
+
 # --- the two 'when to use' enforcers must agree -----------------------------
 # This file warns when a description has no when-clause; the lint hook says the same thing to whoever
 # is writing the file. They disagreed, and the hook was the stricter one: it did not accept a Japanese
