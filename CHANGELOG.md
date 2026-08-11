@@ -6,7 +6,12 @@
 
 形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に寄せ、版は [SemVer](https://semver.org/lang/ja/) に寄せます。ここでの破壊的変更とは「**インストール済みの環境で、更新後に挙動が変わること**」を指します。
 
-## [Unreleased]
+## [1.0.0] - 2026-08-11
+
+最初のタグです。**1.0.0 から始めるのは、ここが完成だという意味ではありません** —— このリポジトリは既に
+実際の作業に使われていて、hook は毎ターン走っています。0.x は「まだ使わないでほしい」の意味なので、
+実態と合いません。`docs/portability.md` の「直していないもの」に、この版で分かっていて直っていない
+ものが全部あります。
 
 ### 自動実行されるものの変更
 
@@ -28,11 +33,14 @@
 - `SECURITY.md`・`CONTRIBUTING.md`・PR テンプレート・`CODEOWNERS`・issue テンプレート
 - `docs/portability.md` —— 1台のマシンへの依存の棚卸し。再現手順つき
 - CI に `node-floor` ジョブ。README が1年間主張していた node 18 を、初めて実際に走らせます
-- Dependabot（github-actions のみ。理由は `.github/dependabot.yml`）
+- Dependabot（github-actions のみ。理由は `.github/dependabot.yml`）。有効にした直後に3本上がってきて、
+  `actions/checkout`・`actions/setup-node`・`gitleaks-action` がいずれも1メジャー遅れていたことが分かりました
+  —— **腐りうる依存はここだけ、という判断が正しかったことと、実際に腐っていたことの両方**が確認できました
 
 ### 修正
 
 - 私物の絶対パスと社内リポジトリ名をコメントから除去（観測の記録は残しました）
+- `actions/checkout` v4 → v7、`actions/setup-node` v4 → v7、`gitleaks-action` v2 → v3（#19–#21）
 
 ### 判明したが直していないもの
 
@@ -40,6 +48,14 @@
   install は agent が読まない場所に書き、`status` は自分の書き込みを検査するので緑のまま hook が不在に
   なります。`docs/harness-facts.md` の未確認リストに記録
 - 残りは `docs/portability.md` の「直していないもの」に全部あります
+
+### リポジトリの運用（コードではないが、貢献する人に影響します）
+
+- `main` に ruleset。PR 必須・必須ステータスチェック5本（`shell (ubuntu-latest)` / `shell (macos-latest)` /
+  `content` / `secrets` / `node-floor`）・force push 禁止・削除禁止。**bypass actor はありません** ——
+  作者自身も直接 push できません。自動実行されるコードを配っているので、赤いものが `main` に載ることの
+  危険が通常のリポジトリより大きい
+- Dependabot alerts / security updates を有効化。マージ済みブランチの自動削除も有効化
 
 ## それ以前
 
@@ -50,5 +66,5 @@
 過去に遡ってタグを打つことはしません。どのコミットが「動く版」だったかを事後に判定する根拠が無く、
 根拠のない版番号は、無いことより悪いからです。経緯は `docs/decisions.md` と git 履歴にあります。
 
-最初のタグは Unreleased がマージされた時点で打ちます。それまでの版は**この作者のマシンで動くことだけが
-確認されていた**もので、その前提を外したのが上の内容です。
+1.0.0 より前の版は**この作者のマシンで動くことだけが確認されていた**もので、その前提を外したのが上の
+内容です。
