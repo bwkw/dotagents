@@ -61,9 +61,16 @@ Stop の payload に存在することは確認できましたが、**意味の�
 このリポジトリの `block()` はまさにそれをしています（再入で1回引き渡す）。**つまり偶然ではなく、
 広く共有されている作法と一致していました。**
 
-**「8回連続ブロックで解除」という数字の裏付けは見つかりませんでした。** 公式は連続ブロックの上限について
-何も書いていません。README にあったその記述は削除しました —— そして**この hook では到達しません**、
-1回目の再入で自分から解放するので。
+**訂正: 「8回連続ブロックで解除」は公式に書いてあります。** 以前ここには「裏付けは見つからなかった」と
+書いていました。[Claude Code best practices](https://code.claude.com/docs/en/best-practices) の
+停止ゲートの段階表に、Stop hook は **8回連続ブロックで上書きされる**（つまり hook がセッションを
+永久に閉じ込めることはできない）と明記されています。**探した場所が悪かっただけです** ——
+hooks reference には無く、best practices にありました。
+
+**結論は変わりません**: この hook は1回目の再入で自分から解放するので、8には到達しません。
+変わったのは「未確認」から「確認済み」になったことだけで、**それが変わったこと自体は記録に値します**
+—— このファイルの目的は前提を推測に戻さないことなので、「確認できなかった」を残したままにするのも
+一種の推測です。
 
 ## `SubagentStop` —— 登録した `Stop` hook が自動的に変換される
 
@@ -115,9 +122,39 @@ README は「どのリポジトリにも存在します」と書いていまし�
 
 ---
 
+## headless（`claude -p`）—— ループの駆動系が乗っている面
+
+出典: [Claude Code headless](https://code.claude.com/docs/en/headless)
+
+| 事実 | ループへの帰結 |
+|---|---|
+| `--output-format json` は `total_cost_usd` を**モデル別内訳付き**で返す。クライアント側の見積りと明記されている | **計器の一次データはこれ。** `docs/design.md` が「コストの可観測性が半分」と書いていた側が、ここで埋まる |
+| `--json-schema` ＋ `--output-format json` で、スキーマ準拠の出力が `structured_output` に入る | 所見の件数を prose から grep しなくて済む。`loop.sh` の `SCHEMA_FLAG` が1箇所だけこの名前を持つ |
+| **`--bare` は hooks・skills・plugins・MCP・auto-memory・CLAUDE.md の自動発見を全部切る。** 公式は「スクリプトと SDK 呼び出しの推奨モード」と書いている | **このリポジトリでは推奨に従うと fail-open になります。** ゲートも skill も profile も切れるので、駆動系は `--bare` を使いません。`test-loop.sh` がそれを assert します —— 公式の推奨が自分の設計と逆を向く数少ない箇所なので、書いておくだけでは足りない |
+| exit **143** = SIGTERM（ターン中断、Bash のプロセスツリーを kill、`SessionEnd` hook は走る） | 143 は「失敗」ではなく `interrupted`。作業について何も主張しない |
+| `--permission-mode auto` は `-p` の下で、分類器が繰り返しブロックすると**中断する**（人間に落とせないので） | 予測可能な方を採って `acceptEdits`。封じ込めは profile の `forbidden` と採点器の指紋検査 |
+
 ## まだ未確認のもの
 
 正直に残しておきます。**未確認を「たぶん大丈夫」に書き換えたのが今回の反省点**なので。
+
+- **`claude -p` のターン終了で `Stop` hook が発火するか。** ループの駆動系がこの前提に乗っています。
+  **測ろうとして測れませんでした**: このマシンのグローバル `claude` が壊れていて
+  （`@anthropic-ai/claude-code-darwin-arm64` が中断された npm の staging ディレクトリに取り残されている）、
+  シェルから exec できません。`npm install -g @anthropic-ai/claude-code` で直りますが、
+  **直すまでは未確認のままです。**
+
+  **駆動系はどちらでも壊れないように書いてあります** —— 発火するなら gate が `max_attempts` で
+  `VERDICT` を書き、駆動系は `gave_up` で止まる。発火しないなら `VERDICT` は現れず、駆動系の
+  round cap が `round_cap` で止める。**どちらが起きたかは台帳の `halt_reason` に出る**ので、
+  最初の実走がこの問いに副作用として答えます。**未確認の前提を、計器が読む値に変換したつもりです。**
+- **`-p` でスラッシュコマンドが発火するか**、特に `disable-model-invocation` が付いたもの
+  （`da-pr-describe`）。DMI が止めるのはモデルであって人ではない、という読みに乗っています。
+  同じ理由で未測定
+- **`da-review-all` が headless で完走するか。** Step 5 が Canvas 成果物を1つ必須にしていて、
+  `test-da-review-all-canvas.sh` が契約として固定しています。Artifact が headless で使えないなら、
+  レビュー段は対話セッションに戻すことになります
+- **`--json-schema` というフラグ名。** 上の表は公式ドキュメント由来ですが、実機で叩いていません
 
 - **`CLAUDE_CONFIG_DIR` が存在するか。** 公式の settings ドキュメントに**記載がありません**（2026-08-11 確認）。
   実装の根拠にできないので `setup.sh` は `~/.claude` に固定したままです。**もし実在するなら**、install は

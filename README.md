@@ -8,7 +8,8 @@
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
-1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md)
+1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
+**ループの回し方: [docs/loops.md](docs/loops.md)**
 
 何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
 直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -74,7 +75,35 @@ landing ごとに:
 /da-pr-describe          → 自分で打つ
 ```
 
-**PR の作成とマージは自動化しません。** `da-pr-describe` は「頼まれずに PR を作るな」、`da-fix-plan` は「push も issue もコメントもするな」と明記しています。外向きで不可逆な操作は人間のものです —— 自動化するのは**判断の反復**の方です。
+**上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
+[docs/loops.md](docs/loops.md)。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
+
+| 段 | 判定 | 設計フェーズ | 人間の位置 |
+|---|---|---|---|
+| **S** | ≤5 files・1 layer・risk surface 0・**unconfirmed 0** | 無し | ループの**上**。台帳を読む |
+| **M** | ≤15 files・≤2 layers・one-way door 無し | `/da-design-review` を対話で | 承認1回（= 計画を commit） |
+| **L** | >15 files ／ 3 layers ／ one-way door ／ risk surface ／ **unconfirmed が残る** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+
+**無人で端まで回るのは S だけです。** `/grill-me` は面接で、`da-design-review` の Step 1 は
+「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。
+そして**判定は bash の算術**です: モデルが測り、表の適用はスクリプトがやる。「規模に応じて」と
+書いてモデルに選ばせると毎回最大値になる（ファンアウト予算で実際に起きたこと）。
+
+**PR は landing ごとに1本、[GitHub の stacked PR](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs)
+にします。merge は人間のものです。** 以前ここには「PR の作成とマージは自動化しません」と書いて
+ありました —— [判断の記録](docs/decisions.md) に反転として残しています。
+
+**landing は構造上すでに stack です**（landing 2 は landing 1 の上に建つ）。
+`gh stack submit --auto --open` が走るのは、ゲート全緑・Fix now 0・判断待ち 0・VERDICT 無し・
+一方通行でない・ツリーがクリーン・採点器に触っていない・**この stack の open PR が5本未満**の
+全部が揃ったときだけ。最後の1つは、エージェント PR の reject 理由の最大バケットが
+「誰も関わらなかった」だからです —— **人間の読む速度が律速だと認めた上限**です。
+
+`--open` が要るのは、`gh stack submit` が既定で draft を作るからです。この層は既にゲートを通り
+レビューを1周しているので draft ではありません。**`gh extension install github/gh-stack` が前提**で、
+無ければ止まります —— `gh pr create` に落ちると全 PR が trunk に並び、**頼まれたのと違う形の出力を
+黙って出す**ことになるので。**merge は自動化しません。** `da-fix-plan` は今も「push も issue も
+コメントもするな」と明記しています。
 
 ### 2. 調査する
 
@@ -140,6 +169,26 @@ scripts/gate.sh status         # armed か、どれだけ idle か、諦めた�
 scripts/gate.sh status --json   # 同じ内容を、人間ではなくドライバ向けに
 scripts/gate.sh gc             # 終了したセッションが残した armed 状態を回収する
 ```
+
+### ループを回す
+
+詳細は [docs/loops.md](docs/loops.md)。引数なしの `scripts/loop.sh` が同じ一覧を印字します。
+
+```bash
+scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
+scripts/loop.sh run                         # S: そのまま回す
+scripts/loop.sh run docs/plans/foo.md       # M / L: commit 済みの Landing plan が必須
+scripts/loop.sh report                      # 採択1件あたりのコスト、phase 別の内訳
+scripts/loop.sh status                      # 直近の size 判定と、ゲートの状態
+```
+
+> **駆動系は新しいエージェントではなく「打つ人」です。** だから `disable-model-invocation` の付いた
+> `da-pr-describe` も、あのフィールドを外さずに届きます —— あれが止めるのはモデルで、人ではない。
+>
+> **`report` が出す数字は1つが最重要です: 採択1件あたりのコスト。** 採択率が 50% を下回ったら
+> ループは負けています（レビュー作業を人間に押し戻しているだけ）。`report` はそのとき自分でそう言います。
+> **これがこのリポジトリで初めての実測コストです** —— [設計思想](docs/design.md) が
+> 「今あるのは自己申告だけ」と書いていたギャップの片側。
 
 > **無人で回しても壊れない形にしてあります。** 以前ここには「深夜に無人で回すためのロックではありません」と書いてありました。**その立場が誤りだったのではなく、立場の話をしている間に状態機械が壊れていた**のが問題でした —— `arm` に期限が無く、ブロックに上限が無く、諦めたことが記録されない。[判断の記録](docs/decisions.md) に反転として記録しています。
 >

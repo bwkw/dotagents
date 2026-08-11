@@ -1,0 +1,375 @@
+# ループを回す —— 駆動系の使い方
+
+設計 → 実装 → 反復レビュー → PR（landing ごとに1本、stack）を、規模に応じて自動で回します。
+
+**駆動系（`scripts/loop.sh`）は新しいエージェントではありません。人間が打つことを打つだけです。**
+`claude -p "/da-verify"` はユーザ入力であって、モデルの自動発火ではない —— だから
+`disable-model-invocation` の付いたスキル（`da-pr-describe`）も、そのフィールドを外さずに届きます。
+あれが止めるのは*モデル*で、人ではありません。
+
+**その帰結は先に書いておきます。読まない打ち手は comprehension debt の機械です。**
+台帳（`ledger.jsonl`）は、transcript の代わりに人間が読むものとして存在します。台帳を読まないなら、
+このループを回す意味はありません。
+
+---
+
+## 3行で
+
+```bash
+scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
+scripts/loop.sh run [<landing-plan>]        # landing を回す（S 以外は plan が必須）
+scripts/loop.sh report                      # 採択1件あたりのコスト
+```
+
+引数なしの `scripts/loop.sh` が同じ一覧を印字します。
+
+---
+
+## 段（S / M / L）—— 設計フェーズは規模で分岐する
+
+**「自動か手動か」ではなく「人間がどれだけ深く入るか」の分岐です。** 上2段に人は必ず居ます:
+
+- `/grill-me` は質問攻めの面接。**相手が居ない面接は面接ではない。**
+- `da-design-review` の Step 1 は「Restate the plan … **Show this to the user.**」——
+  読み違えた計画のレビューは、自信のある無関係な所見を生む。それを一番安く捕まえる場所がそこ。
+
+| 段 | 判定（OR。1つ当たれば上の段） | 設計フェーズ | 人間の位置 |
+|---|---|---|---|
+| **S** | ≤5 files・1 layer・risk surface 0・unconfirmed 0 | **無し。** landing 1本として直行 | ループの**上**。台帳を読む |
+| **M** | ≤15 files・≤2 layers・one-way door 無し | `/da-design-review` を対話で1周 | 承認1回。Landing plan を commit |
+| **L** | >15 files ／ 3 layers ／ one-way door ／ risk surface ／ **unconfirmed が残る** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+
+**risk surface** は新設の語彙ではなく `skills/_shared/verification.md` の 6b と同じもの ——
+money / billing / 外部・行政提出 / authorization / PII / データ移行 / 並行性。
+
+**`unconfirmed` が残っていたら L です。** `da-investigate` は確認できなかったことを名指しする設計なので、
+それが空でないなら**規模を測れていない**。測れていないものを無人ループに渡すのが一番危ない。
+
+S に設計フェーズが無い根拠は `README.md` の常設規則そのまま ——
+**「差分を1文で説明できるなら計画は飛ばす」**。S の gate はこのリポジトリの gating checks です。
+
+### 判定はモデルではなく bash がします
+
+`size` は `/da-investigate` に測らせ、**表の適用は bash の算術**です。
+
+`skills/_shared/review-process.md` が記録しているとおり、レビューのファンアウトは
+「Scale the fan-out to the change」と書いてあった期間、**毎回最大値になっていました。検査できるものが
+何も無かったからです。** 段をモデルに選ばせるのは、名前を変えた同じ失敗です。
+
+**上振れは1条件で決まり、下振れはありません。** 駆動系が段を下げることはない。
+
+---
+
+## `run` が始まらない条件
+
+止まったときは、どれに当たったかが標準エラーに出ます。
+
+| 条件 | なぜ |
+|---|---|
+| 作業ツリーが汚れている | 自分の変更と人の変更を区別できないループは、何を commit したか言えない |
+| デフォルトブランチに居る | push して PR を開くので |
+| **profile が一致しない** | gating check が無い＝検証者が居ない。しかも `gate.sh verify` は**その場合 `ok:true` を返す**ので、`ok` だけを信じると「何も検査していない」を緑と読む |
+| `size` の記録が無い | 段が未決のまま無人で走らせないため。`run` を直接打って front door を回避できない |
+| S 以外で Landing plan が無い / commit されていない / commit 後に改変されている | **commit が承認の印です。** 承認フラグは作りません —— フラグは読まずに打てるものだから |
+| **前回が VERDICT で終わっている** | 下記 |
+
+### VERDICT が残っているときは始めません
+
+`gate.sh arm` は既存の `VERDICT` を `VERDICT.prev` に**移して** attempt 予算を作り直します。
+人間が新しいセッションを始めるときは正しい挙動ですが、**無人の駆動系が黙ってそれをやると、
+「前の作業は検証されていない」と言うために存在する唯一の記録を、読む前に消します。**
+
+なので `run` は arm より**先に** `gave_up` を見て、立っていたら始めません。ファイルはそのまま残ります。
+
+> これは実装中にテストが見つけた欠陥です。最初の版は arm してから見ていたので、証拠が消えていました。
+
+---
+
+## 1 landing の中身
+
+```
+（run 開始時）/using-git-worktrees  ← 作業を隔離。既に linked worktree なら作りません
+（run 開始時）/da-verify        ← ゲートを arm するのはこれ。駆動系は gate.sh arm を叩きません
+implement   周1     /test-driven-development
+            周2以降 /systematic-debugging   ← 赤いままなら「書く」から「原因を探す」へ切替
+            毎周のあと gate.sh verify --json を読む（state-free の probe）
+            緑になったら commit（変更パスを名指し。git add -A は使わない）
+review      /da-review-all
+triage      /da-fix-plan（構造化出力で件数だけ受け取る）
+            needs_decision > 0  → 即停止
+            fix_now > 0         → /receiving-code-review で1回だけ適用 → 再検証 → もう1周だけ review
+            fix_now == 0        → 次へ
+pr          gh stack push → gh stack submit --auto --open → /da-pr-describe <番号>
+```
+
+### 赤いゲートに TDD を積み直さない
+
+`da-verify` 自身の Next にこう書いてあります —— **「同じチェックが2回連続で落ちたら、パッチを当てるのを
+やめろ」**。最初の版はそれを無視して `/test-driven-development` を最大6回打ち直していました。
+**2つのスキルは交換可能ではありません**: 一方は意図からコードを書き、もう一方は
+**根本原因を持つまで修正案を出すことを拒否します**。周2以降は後者です。
+
+同じ理由で fix ラウンドは `/receiving-code-review` を通します。`da-fix-plan` が
+**何を直す価値があるか**を既に決めているので、この段が決めるのは**その処方が実際に正しいか**です。
+書いてあるから適用する、はあのスキルが止めるために存在する失敗です。
+
+### 隔離も `git worktree add` を叩かずスキルを打つ
+
+`using-git-worktrees` が持っているのは判断だけではなく、**1行の呼び出しには無い5つ**です:
+
+- **submodule ガード** —— `--git-dir != --git-common-dir` は**submodule の中でも真**なので、
+  素朴な比較は submodule を「既に隔離済み」と誤判定します
+- ディレクトリ選択の優先順位（`.worktrees` > `worktrees` > 既定）
+- **`git check-ignore` の検証** —— ignore されていない worktree ディレクトリは、
+  **ツリーごとリポジトリに commit されます**
+- クリーンなベースラインの確認
+- sandbox が拒否したときのフォールバック
+
+**駆動系が持つのは「何が起きたかを知ること」だけ**で、それは返答ではなく
+`git worktree list` から読みます —— `/da-verify` を打ってから `gate.sh status --json` を読むのと同じ分担。
+
+**作られなかったときは、その場で作業して、そう言います。** スキャンダルではなく、
+スキルが sandbox 拒否と consent 拒否のときに認めている経路です。**黙って続けるのが問題**なので。
+
+そしてこの変更で挙動が1つ良くなりました: **`main` の上でコマンドを打っても問題ではなくなりました** ——
+作業は自分のブランチに移るので。**その場で作業する場合の `main` は今も拒否します。**
+
+### 台帳の repo キーは worktree ではなく共有 git dir
+
+`size` は今立っているチェックアウトで取り、`run` は linked worktree で走ります。
+**toplevel をキーにすると、`run` が `size` の記録した tier を見つけられません。**
+gate が同じ問題を同じやり方で解いているので合わせました ——
+**リポジトリの同一性は共有 git dir、作業ツリーの状態は worktree ごと。**
+`worktree` フィールドは別に残るので、行はどこで起きたかを言えます。
+
+### 段はスキルを「打つ」。下の道具に手を伸ばさない
+
+**駆動系が自分でやるのは、スキルが持っていない仕事だけです** —— 段の判定の算術、台帳、採点器の指紋、
+`gh stack` の層の作成。**スキルが持っている段は、スキルを打ちます。**
+
+区別が効いた実例が1件あります。最初の版は `gate.sh arm` を直接叩いていて、
+`AGENTS.md` の不変条件2（「`gate.sh arm` を走らせるのは `da-verify` だけ」）を
+**「唯一の*スキル*」に書き換えて自分の実装を通しました。順序が逆です。**
+そして書き換えは理由も落としていました —— arm は単独の操作ではなく、
+**証拠テーブル・`agent_may_run: false` のチェックの人間への委譲・profile が無いときの停止**と
+束になっています。直接叩く駆動系は arm だけ得て、そのどれも得ません。
+
+`gate.sh verify --json` を毎周読むのは重複ではありません —— `da-verify` 自身の Step 3 が
+「これを使え、何度でも走らせて良い」と書いている probe です。**規則は1箇所、決定の出どころも1箇所。**
+
+**各周は `claude -p` の別プロセス、つまり毎回まっさらな context です。** これはこのリポジトリ自身の
+規則（「計画と実装の間で `/clear`」「同じ問題で2回失敗したらセッションを捨てる」）を、印字するのを
+やめて実際に強制することになります。周を渡るのは**台帳とディスクの plan だけ**。
+
+### レビューは2周で切ります。3周目は correctness ではなく合意を買っている
+
+唯一の厳密な公開実験（23 model×harness / 29 run、[cost to a merged
+feature](https://blog.insight-services-apac.dev/2026/07/06/cost-to-a-merged-feature)）の結果:
+
+- **LLM レビューゲートは、38個の単体テストのうち 12〜20 個が落ちるコードを承認した。**
+- **レビュー周回を増やすと「承認される確率」だけが上がり、客観的な正しさは上がらなかった。**
+- 総コストの **97%** がレビューゲート側だったケースがある（実装側は 3%）。
+- 「実装側が自己レビューしてからゲートへ」が外部サイクルを 3→1 に減らした。
+
+だから **correctness を決めるのは `gate.sh verify` だけ**で、`da-review-all` の所見は
+**人間が読むための材料**です。上限2周を超えた所見は台帳に残して人間に返します。
+
+`da-fix-plan` の5バケットがそのまま停止条件になります（あのスキル自身が
+「Decline の無いループは出口の無いループ」と書いています）:
+
+| バケット | 駆動系 |
+|---|---|
+| Fix now / Fix now smaller | 1周だけ適用して再検証 |
+| Follow-up / Decline | ブロックしない。件数だけ台帳へ |
+| **Needs a decision** | **即停止。残り予算に関係なく。** 直すかどうかは、どう直すかより前 |
+
+---
+
+## 採点器には触らせません
+
+`karpathy/autoresearch` は `train.py` だけを書き込み可能にし、採点器を**エージェントの手の届かない
+ところ**に置きました。それが「最適化ループ」と「報酬ハックループ」を分ける構造です。
+
+**このリポジトリでは採点器が同じ checkout の中にあります**（`profiles/dotagents.json` が gate の中身）。
+だから駆動系は毎周のあと変更パスを見て、以下に触っていたら **landing を止めます**:
+
+```
+profiles/   hooks/   scripts/gate.sh   scripts/check.sh
+scripts/verify-skills.sh   scripts/loop.sh   scripts/test-*.sh   <landing plan>
+```
+
+何も revert しません。見て、人間が決めます。
+
+> **このリポジトリでのループの合法な作業領域は `skills/` `docs/` `agents/` `templates/` と
+> 上位の Markdown です。** 機構の大半が `scripts/` と `hooks/` にあるので、そこは対象外 ——
+> gate を変えたいなら手で変えてください。実際の制限なので明記しています。
+
+### この守りは **dotagents 以外では効きません**
+
+**守っているパスは dotagents 自身のものだけ**で、他のリポジトリでは1つも一致しません。つまり
+そこでは**落ちているテストを編集・削除してゲートを正当に緑にできます。**
+
+以前ここと `loop.sh` のヘッダは「テストスイートを触ると landing を中止する」と、この限定なしに
+書いていました。**このリポジトリ以外では偽です。** そして
+**ガードレールについての偽の主張は、ガードレールが無いことより悪い** —— 無ければ人は用心しますが、
+あると書いてあれば用心をやめます。リポジトリごとに採点器を宣言できる仕組みは
+[fix plan](fix-plans/2026-08-11-loop-driver.md) の Follow-up に置いてあります。
+
+**他のリポジトリに向けるなら、それが済むまでは採点器の防御が無いものとして扱ってください。**
+
+---
+
+## 台帳と `report`
+
+置き場は `~/.claude/.dotagents-loop/ledger.jsonl`（`DOTAGENTS_LOOP_DIR` で変えられます）。
+**リポジトリを問わず1本、各行が自分の `repo` と `branch` を持ちます** —— `verdicts.log` と同じ形。
+**絶対に trim しません**: `trace.log` は 200 行で自己 trim するので、そこにしか無い記録は通常運用で
+消えます。gate はそれで一度刺されて `verdicts.log` を分けました。
+
+1周 = 1行:
+
+```jsonc
+{ "ts": "…", "repo": "…", "branch": "work", "phase": "review", "landing": 2, "round": 1,
+  "gate": { "ok": false, "check": "unit", "kind": "red" },
+  "fix_now": 1, "needs_decision": 0, "decline": 4,
+  "cost_usd": 0.41, "turns": 11, "exit": 0, "spent_usd": 1.83,
+  "scorer_touched": [], "outcome": "held", "halt_reason": null }
+```
+
+`phase` が入っている理由は上の 97% です。**実装側だけ計器を付けると 3% を測ることになります。**
+
+```
+$ scripts/loop.sh report
+landings attempted      7
+reached PR              4   (57%)
+cost per accepted       $3.12
+rounds per landing      2.4
+cost by phase           implement $4.90 / review $7.20 / verify $0.40
+halted                  needs_decision 2, gave_up 1
+```
+
+**採択率が 50% を下回っていたらループは負けています** —— レビュー作業を人間に押し戻しているだけ。
+`report` はそのとき自分でそう言います。`da-fix-plan` も「採択率 <50% ならレビュー側を直せ」と
+書いているので、語彙は揃っています。
+
+### 止まる理由の一覧
+
+`halt_reason` に入る値。全部「人間に返す」で終わります。
+
+| 理由 | 意味 |
+|---|---|
+| `round_cap` | 6周でゲートが緑にならなかった。**ここは request を書き直す場所**で、もう1周買う場所ではない |
+| `gave_up` | gate が VERDICT を書いてブロックをやめた。**解放は緑ではない** |
+| `needs_decision` | 判断が要る所見。retry では潰せない |
+| `review_cap` | 2周終わっても Fix now が残っている |
+| `red_after_fix` | レビューの修正がゲートを赤くした。**修正についての所見** |
+| `scorer_touched` | その周が採点器を編集した |
+| `budget` | `--budget-usd`（既定 $10）を超えた |
+| `interrupted` | exit 143（SIGTERM）。作業について何も主張しない |
+| `one_way` / `pr_cap` | 検証は通ったが submit はしない（下記）。層はローカルに残る |
+| `stack_failed` | `gh stack init` / `add` が失敗した |
+
+---
+
+## PR は landing ごとに1本、stack にする —— 記録済みの判断の反転
+
+`README.md` は「PR の作成とマージは自動化しません」と書いていました。**ここを反転させます。**
+**merge は今も人間です。**
+
+### なぜ stack なのか
+
+**landing は構造上すでに stack です。** landing 2 は landing 1 の上に建ち、
+どこで分かれるかとそれぞれの gate は `da-design-review` が既に決めています。
+
+> **駆動系の最初の版は全 landing を1ブランチに載せていました。** landing 2 の PR が landing 1 の
+> PR と衝突します。「PR を stack にしておいて」と言われて気づいた欠陥で、
+> **landing の性質を実装が写していなかった**という素直な間違いです。
+
+そして stack は、エージェント PR を実際に殺している原因への答えでもあります。
+[MSR 2026 / AIDev](https://arxiv.org/html/2606.13468v1) が 33,596 PR を調べて、
+**46.41% が reject され、最大バケットは「誰も関わらなかった」（inactivity 17.3%）。**
+大きい diff 1本は読み手を止め、小さい層の連なりは**上が完成する前から**1層ずつ読めます。
+だから **landing が終わるたびに submit** します（最後にまとめてではなく）。
+
+GitHub の stacked PR は **2026-07-30 に public preview**、`gh-stack` 拡張が local 側を担います
+（[About stacked pull requests](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs) ·
+[CLI コマンド](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands)）。
+
+```
+landing 1  →  現在のブランチが layer 1（gh stack init -b <trunk>）
+landing 2  →  gh stack add <branch>-2       ← layer 2 は layer 1 を base にする
+各 landing 完了時: gh stack push → gh stack submit --auto --open
+```
+
+**`--open` が要ります。** `gh stack submit` は既定で draft を作りますが、この層は既にゲートを通り
+レビューを1周しているので、**draft ではなく ready for review** です。
+
+**拡張が無ければ止まります。** `gh pr create` にフォールバックしません ——
+それは全 landing の PR を trunk に並べる、**頼まれたのと違う形の出力を黙って出す**ことです。
+
+```bash
+gh extension install github/gh-stack
+```
+
+### submit する条件（全部 AND）
+
+- `gate.sh verify --json` が `ok: true`
+- `fix_now == 0` かつ `needs_decision == 0`
+- `gave_up: false`
+- この landing の `One-way?` が `no`
+- 作業ツリーがクリーン
+- 採点器に触っていない
+- **この stack の open PR が5本未満**
+
+最後の1つ: stack は1層ずつ読める形ですが、**まだ誰も読んでいない出力である事実は変わりません。**
+**人間の読む速度が律速だと認めた上限**です。数えるのは head ブランチ名がこの stack のものである PR
+だけ —— `--author @me` で数えると**手で開いた PR で上限が発火**し、上限は切られます。
+
+やっていること: `gh stack push` → `gh stack submit --auto --open`（殻）→
+`claude -p "/da-pr-describe <番号>"`（中身）。**駆動系が殻を作り、スキルが中身を書きます。**
+これで `da-pr-describe` の前提（「PR が既に存在する」「頼まれずに PR を作るな」）が
+字義通り成立したまま使えます。
+
+**merge は人間です。** stack 全体をまとめて merge するなら `gh stack merge`、下から1本ずつでも。
+下の層が merge されると、残りは GitHub 側が自動で rebase / retarget します。
+
+> **stacked PR は public preview で、変わる可能性があります。** ここが変わったら
+> `submit_landing` と `stack_layer` の2箇所です。
+
+---
+
+## まだ測っていないこと
+
+`docs/harness-facts.md` と同じ扱いで、正直に置いておきます。
+
+- **`claude -p` のターン終了で Stop hook が発火するか。未確認。** このマシンではグローバルの
+  `claude` が壊れていて（プラットフォームバイナリが中断された npm の staging に取り残されている）
+  実験できませんでした。**駆動系はどちらでも壊れないように書いてあります**: 発火するなら gate が
+  `max_attempts` で VERDICT を書き、駆動系はそれを読んで `gave_up` で止まる。発火しないなら VERDICT は
+  現れず、駆動系の round cap が `round_cap` で止める。**どちらが起きたかは台帳の `halt_reason` に
+  出るので、最初の実走が副作用としてこの問いに答えます。**
+- **`-p` でスラッシュコマンドが発火するか**（`disable-model-invocation` 付きも含む）。未確認。
+  届かないなら「打つ人」の前提が崩れるので、PR 段は人間に返すことになります。
+- **`da-review-all` が headless で完走するか。** Step 5 が Canvas 成果物を1つ必須にしていて、
+  契約テストもあります。Artifact が headless で使えないなら、レビュー段は対話セッションに戻します。
+- **`/grill-me` が実際に何かを実行するか。** 本文7行の全部が「Run a `/grilling` session.」で、
+  **`grilling` という名前のものはディスクのどこにもありません**。バンドル済みスキルは binary に
+  埋め込まれてディスクに現れないので実在する可能性はありますが、確認できていません。
+  解決しないなら L 段の1手目が「存在しない指示を読んで即興する」ことになります。
+- **`--json-schema` というフラグ名。** `loop.sh` の `SCHEMA_FLAG` に1箇所だけ書いてあります。
+  違っていたら毎周が大きな声で失敗します（prose に黙ってフォールバックはしません）。
+- **S / M / L の閾値と `MAX_ROUNDS` / `BUDGET_USD` / `MAX_OPEN_DRAFTS`。**
+  全部**選んだ数字**で、測定値ではありません —— gate の `max_attempts: 3` と 12h TTL と同じ status。
+
+---
+
+## 他のリポジトリに向けるとき
+
+1. そのリポジトリに profile があること。無ければ `/da-verify` が manifest から書き起こします。
+   **profile が無いと `run` は始まりません** —— gating check が無いのは、緑ではなく未検査です。
+2. **`agent_may_run: false` のチェックがあると、無人ループは landing ごとに必ず止まります。**
+   gate は毎ターン `needs_human` を記録するので、それは正しい停止です。
+   実例: `dresscode-backend` の `typecheck` は 8GB ヒープを理由にリポジトリ側が禁止しています。
+   無人で回したいなら、**その禁止をどうするかを先に決める** —— 駆動系が回避することではありません。
+3. 採点器の一覧（`scorer_paths`）はこのリポジトリの構造に合わせてあります。他のリポジトリでは
+   そこが違うので、**何がそのリポジトリの採点器かを決めてから**向けてください。
