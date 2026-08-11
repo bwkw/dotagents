@@ -246,6 +246,28 @@ gate_verify_ok() { # -> 0 only when gating checks actually RAN and were green
   # docs/fix-plans/2026-08-11-loop-driver.md records that as the open decision.
   if grep -q 'nothing blocking' <<<"$out"; then GATE_UNRAN="skipped"; return 1; fi
   GATE_UNRAN=""
+
+  # `agent_may_run: false` means the repository forbids the AGENT from running this check -- not that
+  # the work may ship unverified. Interactively /da-verify asks the user and waits. Here there is nobody
+  # to ask, and no number of rounds can satisfy it either, so waiting or rounding are both wrong: it
+  # would burn MAX_ROUNDS and halt on something no round could fix (measured -- it did).
+  #
+  # So it is DEFERRED, and the deferral is loud. The chain becomes: the local gate runs what it may, CI
+  # runs what it may not, and the PR says which is which. That respects the prohibition exactly -- the
+  # repository forbade running it, and nothing here runs it. What it must never become is silent: a
+  # deferred gate is no more green than a released one.
+  local kind; kind="$(node -e '
+    let s = "";
+    process.stdin.on("data", (d) => s += d).on("end", () => {
+      try { const o = JSON.parse(s); if (!o.ok && o.kind) process.stdout.write(String(o.kind)) } catch {}
+    });
+  ' <<<"$out")"
+  if [[ "$kind" == "needs_human" ]]; then
+    local id; id="$(gate_field check)"
+    case " $GATE_DEFERRED " in *" $id "*) : ;; *) GATE_DEFERRED="${GATE_DEFERRED:+$GATE_DEFERRED }$id" ;; esac
+    dim "   $id: the repository forbids the agent from running this -- deferred to CI, not verified here"
+    return 0
+  fi
   node -e '
     let s = "";
     process.stdin.on("data", (d) => s += d).on("end", () => {
@@ -289,6 +311,7 @@ gate_gave_up() { # -> 0 when a VERDICT has been recorded
 # ---------------------------------------------------------------- rounds
 SPENT=0
 GATE_UNRAN=""
+GATE_DEFERRED=""
 ROUND_TIMED_OUT=0
 REVIEW_REPORT=""
 SECOND_REPORT=""
@@ -663,6 +686,7 @@ record() { # <phase> <landing> <round> <outcome> [halt_reason]
     gate "{\"ok\":$([[ "${LAST_OK:-0}" == 1 ]] && echo true || echo false),\"check\":\"$(gate_field check)\",\"kind\":\"$(gate_field kind)\"}" \
     fix_now "${FIX_NOW:-0}" needs_decision "${NEEDS_DECISION:-0}" decline "${DECLINE:-0}" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "${ROUND_EXIT:-0}" \
+    deferred "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split(" ").filter(Boolean):[]))' "${GATE_DEFERRED:-}")" \
     spent_usd "$SPENT" scorer_touched "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split("\n").filter(Boolean):[]))' "${SCORER_HITS:-}")"
 }
 
@@ -1019,7 +1043,12 @@ submit_landing() { # <n> <what> <one-way>
   # The driver makes the shell; the skill writes the body. da-pr-describe's own precondition is that
   # a PR already exists and that it must not create one -- which stays literally true this way.
   local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
-  claude_round "/da-pr-describe $num"
+  claude_round "/da-pr-describe $num${GATE_DEFERRED:+
+
+このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
+  $GATE_DEFERRED
+
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}"
   record pr "$1" 0 opened-pr
   say ""
   say "landing $1 -> $url  (layer $1 of the stack, ready for review)"
@@ -1178,6 +1207,11 @@ cmd_run() {
   done <<<"$rows"
 
   echo
+  if [[ -n "$GATE_DEFERRED" ]]; then
+    say "ローカルで検証していないチェック: $GATE_DEFERRED"
+    say "  このリポジトリがエージェントに実行を禁じているものです（走らせていません）。**CI が gate です** ——"
+    say "  merge 前にそこが緑であることを確認してください。ローカルのゲートは、走らせて良いものだけを見ました。"
+  fi
   dim "spent \$$SPENT across $attempted landing(s). scripts/loop.sh report"
   [[ -n "$HALT" ]] && return 1
   return 0

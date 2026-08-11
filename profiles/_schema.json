@@ -72,7 +72,7 @@
           },
           "agent_may_run": {
             "type": "boolean",
-            "description": "False when the repository forbids the agent from running it, or when it needs resources or credentials the agent should not consume. The agent must ask the user to run it and wait for the output."
+            "description": "False when the repository forbids the agent from running it, or when it needs resources or credentials the agent should not consume. Interactively the agent must ask the user to run it and wait for the output. UNATTENDED (scripts/loop.sh) there is nobody to ask and no number of rounds can satisfy it, so the driver records the check as deferred and proceeds -- naming it in the ledger, in the run's closing message and in the PR body, because a deferred gate is no more green than a released one. That means CI is the gate for these checks: the prohibition is on RUNNING them, not on shipping them verified. If the repository's CI does not run it either, there is nowhere to defer to -- set gate:false deliberately, or add it to CI."
           },
           "delegate_reason": {
             "type": "string",

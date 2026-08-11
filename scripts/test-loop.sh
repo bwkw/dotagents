@@ -855,6 +855,67 @@ elapsed=$(( $(date +%s) - started ))
   && ok "and the ledger says it timed out, not that it failed or did nothing" \
   || no "the hanging round recorded halt_reason '$(ledger_field 'halt_reason')'"
 
+# ================================================================ checks only a human could run
+# `agent_may_run: false` means the repository forbids the AGENT from running it -- dresscode-backend's
+# typecheck needs 8 GB of heap and its own skill says never run it. Interactively /da-verify asks the
+# user and waits. Unattended there is nobody to ask, and more rounds cannot satisfy it either, so the
+# driver has to tell `needs_human` apart from `red`.
+
+setup; measurement 1 1 0 0 0
+# One check the agent may run (green), one it may not.
+cat > "$PROFILES/probe.json" <<'JSON'
+{ "match": { "remote": "dotagents-loop-probe" },
+  "checks": [
+    { "id": "probe-gate", "cmd": "test -f GREEN", "gate": true, "agent_may_run": true, "scope": "all", "timeout": 10 },
+    { "id": "probe-heavy", "cmd": "exit 7", "gate": true, "agent_may_run": false,
+      "delegate_reason": "needs 8 GB of heap; the repository forbids the agent from running it" }
+  ],
+  "timeout_total": 60 }
+JSON
+runloop size "r"
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run
+[[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
+  && ok "a check only a human could run does not stop the loop -- it is deferred, not waited on" \
+  || { no "the loop halted on a needs_human check (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+[[ "$(ledger_field 'halt_reason')" != "round_cap" ]] \
+  && ok "and it did not burn the round cap on something no round can fix" \
+  || no "it spent every round on a check the agent is not allowed to run"
+
+# The deferral has to be loud in three places, or the loop quietly ships work whose local verification
+# was incomplete. A released gate is not a green gate; neither is a deferred one.
+grep -q 'probe-heavy' <<<"$OUT" \
+  && ok "the run says which check it did not verify" \
+  || { no "the deferred check is not named in the output"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+ledger | grep -q 'probe-heavy' \
+  && ok "the ledger records it, so report can show it later" \
+  || no "the ledger does not record the deferred check"
+grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" && grep -q 'probe-heavy' "$FAKE_CLAUDE_LOG" \
+  && ok "and /da-pr-describe is told, so the PR body can say it is CI's job" \
+  || no "the PR body would not mention that a check was never run locally"
+
+# A check the agent MAY run and that fails is still red. Deferral must not swallow real failures.
+setup; measurement 1 1 0 0 0
+cat > "$PROFILES/probe.json" <<'JSON'
+{ "match": { "remote": "dotagents-loop-probe" },
+  "checks": [
+    { "id": "probe-gate", "cmd": "test -f GREEN", "gate": true, "agent_may_run": true, "scope": "all", "timeout": 10 },
+    { "id": "probe-heavy", "cmd": "exit 7", "gate": true, "agent_may_run": false,
+      "delegate_reason": "needs 8 GB of heap" }
+  ],
+  "timeout_total": 60 }
+JSON
+runloop size "r"
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
+side_effect_all debug 'date >> churn.txt'; respond debug 1 0.10 3
+runloop run --max-rounds 2
+[[ $RC -ne 0 ]] \
+  && ok "a red check the agent CAN run still stops the loop -- deferral does not swallow it" \
+  || { no "deferral made a genuinely red check look green (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+
 # ================================================================ the single entry point
 # `loop.sh "<request>"` is the only thing anyone should have to remember. Typing it repeatedly advances
 # one step: size if unsized, hand over if the design phase is yours, run when there is something to run.
