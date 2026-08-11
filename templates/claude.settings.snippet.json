@@ -4,6 +4,22 @@
     "is left untouched, including env.OTEL_EXPORTER_OTLP_HEADERS which holds a plaintext API key.",
     "Hook entries are appended alongside existing ones (rtk, notify-stop), never replacing them."
   ],
+
+  "$comment-opinionKeys": [
+    "Two kinds of key live in this file, and they do not deserve the same consent.",
+    "",
+    "`hooks` is the mechanism: without it nothing in this toolkit runs, so installing it is the whole",
+    "point of running the installer. Everything named in $opinionKeys is an opinion about how OTHER",
+    "people's skills should behave on this machine -- which telemetry is verbose, which of the bundled",
+    "and plugin skills stop competing for auto-invocation. Applying those to someone else's machine",
+    "because they installed a verification gate is a silent change to tools they never mentioned.",
+    "",
+    "So `setup.sh install` merges the mechanism only. `install --with-opinions` merges these as well.",
+    "scripts/setup.sh reads the list from here rather than keeping its own copy: a second copy is a",
+    "second thing to forget when a key is added."
+  ],
+  "$opinionKeys": ["env", "skillOverrides"],
+
   "env": {
     "OTEL_LOG_TOOL_DETAILS": "1"
   },
