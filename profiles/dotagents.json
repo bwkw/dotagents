@@ -45,6 +45,15 @@
       "when": "always -- the gate is the one component that must fail closed, so its tests gate every turn"
     },
     {
+      "id": "no-multibyte-after-var",
+      "cmd": "perl -ne 'close ARGV if eof; next if /^\\s*#/; exit 1 if /\\$[A-Za-z_]\\w*[^\\x00-\\x7F]/' scripts/*.sh hooks/*.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 15,
+      "when": "bash 3.2 under a UTF-8 locale absorbs a full-width character following an unbraced $var into the variable name, so the lookup is unbound and the run dies. macOS ships 3.2, so this passed on Linux and locally under the C locale and failed only on the macOS CI runner. Brace it as ${var}. No leading `!` unlike no-bash4: grep signals 'found' with exit 0, perl here signals it with exit 1, and negating turned a clean tree red."
+    },
+    {
       "id": "no-bash4",
       "cmd": "! grep -rqE --exclude=check.sh '^[^#]*\\b(mapfile|readarray)\\b|declare -A' scripts/ hooks/",
       "gate": true,

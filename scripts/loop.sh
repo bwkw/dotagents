@@ -527,7 +527,12 @@ cmd_auto() { # <request>
   fi
 
   # No plan yet. This is the handover, and it is not a failure.
-  say "━━ ここからはあなたの手番です（tier $tier）━━"
+  # `${tier}` braced, deliberately. In bash 3.2 under a UTF-8 locale a full-width character sitting
+  # immediately after `$var` is absorbed INTO THE VARIABLE NAME -- `$tier）` becomes a lookup of
+  # `tier<3 bytes of ）`, which is unbound, and the whole run dies at the handover. macOS ships bash 3.2,
+  # so this failed only on the macOS CI runner and passed everywhere else, including locally under the
+  # C locale. Braces delimit the name and the bug goes away.
+  say "━━ ここからはあなたの手番です（tier ${tier}）━━"
   say ""
   say "設計フェーズは対話が要るので、駆動系は打ちません。順序と、何が検証できているかだけ出します:"
   say ""

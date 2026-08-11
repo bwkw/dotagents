@@ -67,7 +67,24 @@ syntax() {
   # This file is excluded because the pattern below names them, and a sweep that matches its own
   # pattern reports a failure that is not there -- which it did on the first run.
   ! grep -rqE --exclude=check.sh \
-    '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/
+    '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/ || return 1
+
+  # A full-width character immediately after an unbraced variable is absorbed INTO THE VARIABLE NAME by
+  # bash 3.2 under a UTF-8 locale, so the lookup is of a name that does not exist and the run dies with
+  # `unbound variable`. macOS ships bash 3.2, so this passed on Linux, passed locally under the C locale,
+  # and failed ONLY on the macOS CI runner -- the one place nobody reads first. Braces fix it.
+  #
+  # perl, not `grep -P`: BSD grep on macOS has no -P and this has to run on both runners.
+  # Comments are skipped, because the comment you are reading describes the pattern it forbids.
+  # `close ARGV if eof` resets $. per file, or the numbers are cumulative and point at nothing.
+  local mb
+  mb="$(perl -ne 'close ARGV if eof; next if /^\s*#/; print "$ARGV:$.\n" if /\$[A-Za-z_]\w*[^\x00-\x7F]/' \
+        scripts/*.sh hooks/*.sh 2>/dev/null)"
+  if [[ -n "$mb" ]]; then
+    printf 'a variable expansion is followed directly by a multibyte character -- brace it as ${var}:\n%s\n' "$mb"
+    return 1
+  fi
+  return 0
 }
 
 # Any repo-wide rewrite must skip symlinks. `perl -pi` on one replaces it with a regular file, which
