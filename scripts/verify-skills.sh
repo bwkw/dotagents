@@ -548,6 +548,33 @@ done
 (( link_bad == 0 )) \
   && printf '%s✓%s every relative link inside a skill resolves\n' "$c_green" "$c_off"
 
+# --- and the other direction: every doc has to be reachable ------------------
+# The check above asks whether a link finds its file. This asks whether a file has a link, which is the
+# failure the other one cannot see: a document nobody references is not broken, it is invisible. Same
+# both-directions shape already applied to reference/ files above, where mention-without-file and
+# file-without-mention are both errors.
+#
+# README.md and AGENTS.md are the two entry points, and between them they are the only pair that
+# reaches both agents: Claude Code reads AGENTS.md through the CLAUDE.md symlink, Cursor reads it
+# natively, and README is where a human starts. A doc linked from neither is one that exists only for
+# whoever already knew the path.
+echo
+echo "checking every doc is reachable from README or AGENTS.md"
+doc_bad=0
+if [[ -d "$REPO/docs" ]]; then
+  index="$(cat "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null)"
+  for df in "$REPO"/docs/*.md; do
+    [[ -e "$df" ]] || continue
+    rel="docs/$(basename "$df")"
+    grep -qF "$rel" <<<"$index" || {
+      err "$rel" "not linked from README.md or AGENTS.md -- a doc nobody references is a doc nobody finds, and neither the link check nor CI can see it"
+      doc_bad=$((doc_bad+1))
+    }
+  done
+fi
+(( doc_bad == 0 )) \
+  && printf '%s✓%s every docs/*.md is linked from README.md or AGENTS.md\n' "$c_green" "$c_off"
+
 # --- the upstream skills status reports on must still be documented ---------
 # `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
 # is only useful while it names the skills README.md actually tells you to install: an upstream rename
