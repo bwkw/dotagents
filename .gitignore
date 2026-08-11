@@ -9,6 +9,9 @@ profiles/*.json
 # This repository's own profile is tracked: it names only a public repo and public commands, and it
 # is the one worked example that actually gets executed.
 !profiles/dotagents.json
+# Templates to copy. The `_` prefix is what keeps them inert: both the gate hook and gate.sh skip
+# profiles starting with it, so shipping one cannot put somebody else's commands on your turn end.
+!profiles/_example.*.json
 
 # Anything explicitly marked local
 *.local.*

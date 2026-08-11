@@ -1,0 +1,55 @@
+{
+  "$schema": "./_schema.json",
+  "$comment": [
+    "A worked example for the commonest shape: one Node package at the repository root, pnpm scripts.",
+    "COPY IT, do not edit it in place -- the underscore prefix is load-bearing. Both the gate hook and",
+    "gate.sh skip files starting with '_', so nothing here can ever gate a real repository by accident.",
+    "That is also why it is safe to ship: an example profile that could match would be a set of",
+    "commands chosen by somebody else running at your turn end.",
+    "",
+    "To use it:",
+    "  cp profiles/_example.node-pnpm.json profiles/<your-repo>.json",
+    "  then set match.remote, and replace the commands with the ones your repository actually has.",
+    "",
+    "Everything below is only a plausible default. A check that names a script your package.json does",
+    "not have fails every turn, which teaches you to ignore the gate -- the one outcome worse than",
+    "having no gate. /da-verify walks through authoring this, and reference/profile-authoring.md in",
+    "that skill explains each field.",
+    "",
+    "match.remote is spelled without an owner on purpose, so the profile follows the repository into",
+    "forks and clones. Pin it to 'owner/repo' instead when two repositories share a name."
+  ],
+  "match": {
+    "remote": "/your-repo"
+  },
+  "forbidden": [
+    "git push --force",
+    "git reset --hard"
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "cmd": "pnpm run lint:fix",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "mutates": true
+    },
+    {
+      "id": "typecheck",
+      "cmd": "pnpm run typecheck",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 180
+    },
+    {
+      "id": "unit",
+      "cmd": "pnpm exec vitest run --relative {files}",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "changed",
+      "timeout": 180
+    }
+  ]
+}
