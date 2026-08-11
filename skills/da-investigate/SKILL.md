@@ -46,8 +46,8 @@ budget** that ends the search whether or not the answer is complete.
 
 ---
 
-**Write the report in Japanese**, keeping paths, identifiers, commands, code excerpts and log output in
-their original form. These instructions are English because the model reads them; the report is read by
+**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
+paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
 a person.
 
 ## Step 1. Declare the scope contract — before reading anything
