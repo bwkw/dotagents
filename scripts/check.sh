@@ -42,6 +42,16 @@ step() { # step <label> <command...>
       head -20 "$LOG" | sed 's/^/    /'
       printf '    %s... (%s lines omitted) ...%s\n' "$c_dim" "$(( $(wc -l < "$LOG") - 40 ))" "$c_off"
       tail -20 "$LOG" | sed 's/^/    /'
+      # The suites print one ✓/✗ per assertion, and with a hundred of them every failure lands in the
+      # omitted middle -- which is the only part worth reading. Twice this hid a CI-only failure that
+      # could not be reproduced locally, so the head/tail stays (it carries the first error of a long
+      # lint run) and the failures are listed as well.
+      if grep -q '✗' "$LOG"; then
+        printf '    %sfailures:%s\n' "$c_red" "$c_off"
+        # The line after a failure carries the suites' `detail` -- the actual output that explains it.
+        # Listing the ✗ lines alone still hid why, which cost another CI round trip.
+        grep -A2 '✗' "$LOG" | sed 's/^/      /'
+      fi
     else
       sed 's/^/    /' "$LOG"
     fi
@@ -57,7 +67,24 @@ syntax() {
   # This file is excluded because the pattern below names them, and a sweep that matches its own
   # pattern reports a failure that is not there -- which it did on the first run.
   ! grep -rqE --exclude=check.sh \
-    '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/
+    '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/ || return 1
+
+  # A full-width character immediately after an unbraced variable is absorbed INTO THE VARIABLE NAME by
+  # bash 3.2 under a UTF-8 locale, so the lookup is of a name that does not exist and the run dies with
+  # `unbound variable`. macOS ships bash 3.2, so this passed on Linux, passed locally under the C locale,
+  # and failed ONLY on the macOS CI runner -- the one place nobody reads first. Braces fix it.
+  #
+  # perl, not `grep -P`: BSD grep on macOS has no -P and this has to run on both runners.
+  # Comments are skipped, because the comment you are reading describes the pattern it forbids.
+  # `close ARGV if eof` resets $. per file, or the numbers are cumulative and point at nothing.
+  local mb
+  mb="$(perl -ne 'close ARGV if eof; next if /^\s*#/; print "$ARGV:$.\n" if /\$[A-Za-z_]\w*[^\x00-\x7F]/' \
+        scripts/*.sh hooks/*.sh 2>/dev/null)"
+  if [[ -n "$mb" ]]; then
+    printf 'a variable expansion is followed directly by a multibyte character -- brace it as ${var}:\n%s\n' "$mb"
+    return 1
+  fi
+  return 0
 }
 
 # Any repo-wide rewrite must skip symlinks. `perl -pi` on one replaces it with a regular file, which
@@ -101,6 +128,7 @@ if (( ! FAST )); then
   step "verify-gate behaviour"    ./scripts/test-verify-gate.sh
   step "lint-hook and lint scope" ./scripts/test-lint-hook.sh
   step "installer behaviour"      ./scripts/test-setup.sh
+  step "loop driver behaviour"    ./scripts/test-loop.sh
   step "nothing waits for a human" ./scripts/test-non-interactive.sh
 
   tree_clean() { [[ "$(git status --porcelain 2>/dev/null)" == "$tree_before" ]]; }

@@ -8,7 +8,8 @@
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
-1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md)
+1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
+**ループの回し方: [docs/loops.md](docs/loops.md)**
 
 何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
 直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -74,7 +75,37 @@ landing ごとに:
 /da-pr-describe          → 自分で打つ
 ```
 
-**PR の作成とマージは自動化しません。** `da-pr-describe` は「頼まれずに PR を作るな」、`da-fix-plan` は「push も issue もコメントもするな」と明記しています。外向きで不可逆な操作は人間のものです —— 自動化するのは**判断の反復**の方です。
+**上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
+[docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grill-me`・
+`/writing-plans`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
+検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
+
+| 段 | 判定 | 設計フェーズ | 人間の位置 |
+|---|---|---|---|
+| **S** | ≤5 files・1 layer・risk surface 0・**unconfirmed 0** | 無し | ループの**上**。台帳を読む |
+| **M** | ≤15 files・≤2 layers・one-way door 無し | `/da-design-review` を対話で | 承認1回（= 計画を commit） |
+| **L** | >15 files ／ 3 layers ／ one-way door ／ risk surface ／ **unconfirmed が残る** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+
+**無人で端まで回るのは S だけです。** `/grill-me` は面接で、`da-design-review` の Step 1 は
+「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。
+そして**判定は bash の算術**です: モデルが測り、表の適用はスクリプトがやる。「規模に応じて」と
+書いてモデルに選ばせると毎回最大値になる（ファンアウト予算で実際に起きたこと）。
+
+**PR は landing ごとに1本、[GitHub の stacked PR](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs)
+にします。merge は人間のものです。** 以前ここには「PR の作成とマージは自動化しません」と書いて
+ありました —— [判断の記録](docs/decisions.md) に反転として残しています。
+
+**landing は構造上すでに stack です**（landing 2 は landing 1 の上に建つ）。
+`gh stack submit --auto --open` が走るのは、ゲート全緑・Fix now 0・判断待ち 0・VERDICT 無し・
+一方通行でない・ツリーがクリーン・採点器に触っていない・**この stack の open PR が5本未満**の
+全部が揃ったときだけ。最後の1つは、エージェント PR の reject 理由の最大バケットが
+「誰も関わらなかった」だからです —— **人間の読む速度が律速だと認めた上限**です。
+
+`--open` が要るのは、`gh stack submit` が既定で draft を作るからです。この層は既にゲートを通り
+レビューを1周しているので draft ではありません。**`gh extension install github/gh-stack` が前提**で、
+無ければ止まります —— `gh pr create` に落ちると全 PR が trunk に並び、**頼まれたのと違う形の出力を
+黙って出す**ことになるので。**merge は自動化しません。** `da-fix-plan` は今も「push も issue も
+コメントもするな」と明記しています。
 
 ### 2. 調査する
 
@@ -141,6 +172,84 @@ scripts/gate.sh status --json   # 同じ内容を、人間ではなくドライ�
 scripts/gate.sh gc             # 終了したセッションが残した armed 状態を回収する
 ```
 
+### ループを回す
+
+詳細は [docs/loops.md](docs/loops.md)。引数なしの `scripts/loop.sh` が同じ一覧を印字します。
+
+> **まだ一度も実走していません。** 単体テストは105件緑で、ハーネスの前提も実測しましたが、
+> **ループが端から端まで1回も閉じていません。** `report` の数字は0件のデータに対するものです。
+> **計器を作ったことは、測ったことではありません。**
+
+**前提が2つあります。**
+
+```bash
+gh extension install github/gh-stack   # landing ごとに1本の stacked PR にするので
+claude setup-token                     # 無人ループには期限切れしない資格情報が要る
+```
+
+2つ目は運用要件です。**OAuth トークンが実行中に切れると、`claude -p` は無人では絶対に得られない
+ログインを待って止まります** —— 有界化してあるので**ハングはしませんが landing は止まります**
+（`halt_reason: round_timeout`）。
+
+#### 打つのは1つだけ
+
+```bash
+scripts/loop.sh "やりたいことを1文で"
+```
+
+**同じコマンドを打つたびに1歩進みます。** 何が次の段かを覚える必要はなく、計画ファイルのパスも
+覚える必要はありません（`docs/plans/` から自分で見つけます）。
+
+| いまの状態 | このコマンドがすること |
+|---|---|
+| まだ測っていない | 測って tier を出し、**そのまま次へ** |
+| tier **S** | **端まで回す。** worktree 隔離 → arm → TDD → レビュー → triage → stacked PR |
+| tier **M・L**、計画がまだ無い | **「ここからはあなたの手番です」と言って止まる。** 順序と、何が検証できているかを印字（exit 0 —— 失敗ではなく引き継ぎ） |
+| tier **M・L**、計画が commit 済み | 計画を**自分で見つけて**端まで回す |
+| `docs/plans/` に計画が2つ以上 | **推測せず両方を並べて止まる** |
+
+つまり大きい変更はこうなります —— **打つのは同じ1行、2回だけ**です。
+
+```bash
+scripts/loop.sh "認証を OIDC に寄せる"
+#   → tier L。「あなたの手番です」と順序が出る
+
+#   あなたが打つ: /grill-me → /writing-plans → /da-design-review
+#   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
+
+scripts/loop.sh "認証を OIDC に寄せる"
+#   → 計画を見つけて、端まで回す
+```
+
+**走っている間、あなたは何もしません。終わったら台帳を読みます** —— transcript ではなく。
+止まったときは `halt_reason` が理由を1語で言い、**全部「人間に返す」で終わります**。
+
+下の個別サブコマンド（`size` / `design` / `run` / `report` / `status`）は残してありますが、
+**普段打つ必要はありません。** `report` だけは自分で打ちます —— 数字は読まないと意味がないので。
+
+**`/grill-me` と `/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
+駆動系は*打てます*（ユーザ入力だから）が、モデルからは呼べません。
+
+```bash
+scripts/loop.sh "やりたいことを1文で"        # ← 普段打つのはこれだけ。状態を見て1歩進む
+scripts/loop.sh report                      # 採択1件あたりのコスト、phase 別の内訳
+
+# 個別に触りたいとき（普段は不要）
+scripts/loop.sh size "…"                    # 規模だけ測る
+scripts/loop.sh design                      # 設計フェーズの順序と、検証できているもの
+scripts/loop.sh run [<landing-plan>]        # 回すだけ
+scripts/loop.sh status                      # 直近の size 判定と、ゲートの状態
+```
+
+> **駆動系は新しいエージェントではなく「打つ人」です。** だから `disable-model-invocation` の付いた
+> `da-pr-describe` も、あのフィールドを外さずに届きます —— あれが止めるのはモデルで、人ではない。
+>
+> **`report` が出す数字は1つが最重要です: 採択1件あたりのコスト。** 採択率が 50% を下回ったら
+> ループは負けています（レビュー作業を人間に押し戻しているだけ）。`report` はそのとき自分でそう言います。
+> **スキル単体のコストは実測しました**（`/da-review-all` **$1.99** · `/da-verify` $0.59 ·
+> 自明な1ターン $0.09）—— [設計思想](docs/design.md) が「今あるのは自己申告だけ」と書いていた
+> ギャップの片側。**ただし「採択1件あたり」はまだ0件のデータに対する数字です。**
+
 > **無人で回しても壊れない形にしてあります。** 以前ここには「深夜に無人で回すためのロックではありません」と書いてありました。**その立場が誤りだったのではなく、立場の話をしている間に状態機械が壊れていた**のが問題でした —— `arm` に期限が無く、ブロックに上限が無く、諦めたことが記録されない。[判断の記録](docs/decisions.md) に反転として記録しています。
 >
 > **gate が armed でなくなるのは2通り**: `disarm` と、**12時間ターンが終わらなかったときの自動回収**（idle 基準。arm からの経過ではないので、長時間の無人実行は途中で切れません）。**ブロックをやめるのは3つ目の出来事** —— 同じチェックが3回落ちると `VERDICT` を書いて解放します。**解放は緑ではありません**: `status` と `verdicts.log` と次の `arm` が「諦めた」と言い、作業は未検証だと明言します。
@@ -151,7 +260,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 ## 何が入っているか
 
-**自作は10スキル**、残り11本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
+**自作は10スキル**、残り16本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` の**両方**に入るので、どちらのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
@@ -205,7 +314,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 - 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
 - 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-### 上流11本はどこから来たか
+### 上流16本はどこから来たか
 
 **広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
@@ -283,15 +392,27 @@ dotagents/skills/<name>/
 
 **選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
 
+> **`-s` で選ぶときは、そのスキルが名指ししているスキルも入れてください。** 下のリストはその閉包に
+> なっています。**閉包になっていなかったせいで、3か月ものあいだ `/grill-me` は何も実行しませんでした**
+> —— 本文が7行で、全体が「Run a `/grilling` session.」なのに `grilling` を入れていなかった。
+> `/grill-me` は**このリポジトリのユースケース1の1行目**です。`verify-skills.sh` が参照の解決を検査する
+> ようになったので、次に同じことが起きたら赤くなります。
+
 ```bash
 # 方法論 — obra/superpowers
+#   後半4本は前半が REQUIRED SUB-SKILL / 代替として名指ししている依存。
+#   subagent-driven-development は writing-plans が必須と宣言するので入れますが、
+#   このリポジトリの駆動系は打ちません（docs/loops.md に理由）。
 npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
   -s writing-plans -s executing-plans -s receiving-code-review \
-  -s systematic-debugging -s test-driven-development -s using-git-worktrees
+  -s systematic-debugging -s test-driven-development -s using-git-worktrees \
+  -s finishing-a-development-branch -s verification-before-completion \
+  -s subagent-driven-development -s requesting-code-review
 
 # 実務 — mattpocock/skills
+#   grilling は grill-me の本文が名指しする実体。これが無いと /grill-me は何もしません。
 npx skills@1.5.20 add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s research
+  -s grill-me -s grilling -s research
 
 # セキュリティ — getsentry/skills
 npx skills@1.5.20 add getsentry/skills -g -a claude-code -a cursor \

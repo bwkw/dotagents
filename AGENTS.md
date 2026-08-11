@@ -12,7 +12,8 @@ is worse than no translation. This toolkit has one user, and they read Japanese.
 Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape is
 in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
 context — is in `docs/mechanisms.md`, with sources. What was decided, and what was decided *wrongly*, is
-in `docs/decisions.md`. This file holds only what you cannot get by looking.
+in `docs/decisions.md`. How to run work through the loop driver — the S/M/L tiers, what stops a landing,
+and how to read the ledger — is in `docs/loops.md`. This file holds only what you cannot get by looking.
 
 ## Invariants
 
@@ -31,7 +32,12 @@ work. That is why they are here rather than in a document you would read once.
    and it removes the description from context entirely, which is why it costs zero budget. Two places
    it must never appear, both enforced by `verify-skills.sh` and the lint hook:
    - **`da-verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
-     arms and passes every turn: the guardrail **opens**.
+     arms and passes every turn: the guardrail **opens**. `scripts/loop.sh` gets its gate armed by
+     **typing `/da-verify`**, not by calling `gate.sh arm` — an earlier version called it directly and
+     this line was reworded to "the only *skill*" to permit that. **Bending the invariant to fit the
+     code is the wrong direction**, and the reword also lost the reason: arming is bundled with the
+     evidence table, the delegation of checks the repository forbids the agent from running, and the
+     refusal when no profile matches. A second caller gets the arming and none of that.
    - **`x-review-backend` / `x-review-frontend` / `x-review-infra`** — `da-review-all` dispatches to them by
      name, so setting it makes the dispatcher report a layer as covered while reviewing nothing.
 

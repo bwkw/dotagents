@@ -548,6 +548,97 @@ done
 (( link_bad == 0 )) \
   && printf '%s✓%s every relative link inside a skill resolves\n' "$c_green" "$c_off"
 
+# --- and the other direction: every doc has to be reachable ------------------
+# The check above asks whether a link finds its file. This asks whether a file has a link, which is the
+# failure the other one cannot see: a document nobody references is not broken, it is invisible. Same
+# both-directions shape already applied to reference/ files above, where mention-without-file and
+# file-without-mention are both errors.
+#
+# README.md and AGENTS.md are the two entry points, and between them they are the only pair that
+# reaches both agents: Claude Code reads AGENTS.md through the CLAUDE.md symlink, Cursor reads it
+# natively, and README is where a human starts. A doc linked from neither is one that exists only for
+# whoever already knew the path.
+echo
+echo "checking every doc is reachable from README or AGENTS.md"
+doc_bad=0
+if [[ -d "$REPO/docs" ]]; then
+  index="$(cat "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null)"
+  for df in "$REPO"/docs/*.md; do
+    [[ -e "$df" ]] || continue
+    rel="docs/$(basename "$df")"
+    grep -qF "$rel" <<<"$index" || {
+      err "$rel" "not linked from README.md or AGENTS.md -- a doc nobody references is a doc nobody finds, and neither the link check nor CI can see it"
+      doc_bad=$((doc_bad+1))
+    }
+  done
+fi
+(( doc_bad == 0 )) \
+  && printf '%s✓%s every docs/*.md is linked from README.md or AGENTS.md\n' "$c_green" "$c_off"
+
+# --- a skill that names another skill must be able to reach it ---------------
+# Three of these were live on this machine at once, and all three failed the same silent way: the
+# referring skill loads, its description shows in the menu, it runs, and the instruction it was built
+# around points at nothing.
+#
+#   grill-me             -> /grilling                                    (body is ONLY that line)
+#   executing-plans      -> superpowers:finishing-a-development-branch   (declared REQUIRED SUB-SKILL)
+#   systematic-debugging -> superpowers:verification-before-completion
+#
+# The first one is the reason this check exists rather than being a nice idea: `/grill-me` is the FIRST
+# ENTRY in README's use-case 1, so the documented way to start a feature pointed at a skill that was
+# never installed. A recommendation that cannot run is the same shape as a guardrail that does not
+# guard -- worse than an absent one, because nobody goes looking.
+#
+# Scans the INSTALLED set, not this repository: the dangling references were all in upstream bodies,
+# which never appear under skills/ here. Skipped with a printed reason when that directory is absent,
+# because CI has no installed skills and a check that silently does nothing is the thing being fixed.
+#
+# dotagents:builtin-slash-commands clear login logout help doctor config hooks permissions review security-review simplify code-review run init loop goal schedule skill-doctor compact resume model agents mcp memory export bug cost status context usage sandbox privacy-settings rewind todos output-style statusline feedback plugin workflows fast effort tasks add-dir ide vim terminal-setup install-github-app pr-comments upgrade release-notes migrate-installer
+#
+# That allowlist is built-in commands, which are NOT skills and never resolve to a directory. It will
+# need an entry when a new one ships, and the failure direction is deliberate: a missing entry is one
+# loud false error, not a silent hole. The list is data on a marker line for the same reason the
+# disable-model-invocation scope is -- so the behaviour is driven by something greppable.
+echo
+echo "checking every skill a skill names can be reached"
+INSTALLED="${DOTAGENTS_INSTALLED_SKILLS:-$HOME/.agents/skills}"
+if [[ ! -d "$INSTALLED" ]]; then
+  printf '%s—%s no installed skills at %s -- skipped (this runs on a machine, not in CI)\n' \
+    "$c_dim" "$c_off" "$INSTALLED"
+else
+  builtins="$(grep -m1 'dotagents:builtin-slash-commands' "${BASH_SOURCE[0]}" \
+              | sed 's/.*dotagents:builtin-slash-commands //')"
+  ref_bad=0
+  for sf in "$INSTALLED"/*/SKILL.md; do
+    [[ -e "$sf" ]] || continue
+    from="$(basename "$(dirname "$sf")")"
+    body="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$sf")"
+    # `superpowers:skill-name` and `/skill-name`. Both forms appeared in the three real cases.
+    # `anthropic-skills:` is deliberately NOT followed: that is a plugin namespace, and plugin skills
+    # are not directories under the installed set -- da-skills-audit names anthropic-skills:skill-creator,
+    # which is reachable and was reported as missing by the first version of this check.
+    while read -r ref; do
+      [[ -n "$ref" ]] || continue
+      [[ "$ref" == "$from" ]] && continue                      # a skill naming itself
+      printf '%s\n' $builtins | grep -qx "$ref" && continue    # a built-in command, not a skill
+      [[ -d "$INSTALLED/$ref" ]] && continue
+      err "$from" "names the skill '$ref', which is not installed -- the instruction built around it points at nothing. Install it: npx skills@1.5.20 add <owner>/<repo> -g -a claude-code -a cursor -s $ref"
+      ref_bad=$((ref_bad+1))
+    done < <( {
+      printf '%s\n' "$body" \
+        | grep -oE '(^|[^a-zA-Z0-9_./-])superpowers:[a-z][a-z0-9]*(-[a-z0-9]+)+' \
+        | sed 's/.*://'
+      printf '%s\n' "$body" \
+        | grep -oE '(^|[^a-zA-Z0-9_./`-])/[a-z][a-z0-9]*(-[a-z0-9]+)+' \
+        | sed 's|.*/||'
+      printf '%s\n' "$body" \
+        | grep -oE '`/[a-z][a-z0-9]*(-[a-z0-9]+)+`' | tr -d '`' | sed 's|^/||'
+    } | sort -u )
+  done
+  (( ref_bad == 0 )) \
+    && printf '%s✓%s every skill named by an installed skill resolves\n' "$c_green" "$c_off"
+fi
+
 # --- the upstream skills status reports on must still be documented ---------
 # `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
 # is only useful while it names the skills README.md actually tells you to install: an upstream rename
