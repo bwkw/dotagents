@@ -70,6 +70,9 @@ run_headless "gate.sh -h"               bash "$REPO/scripts/gate.sh" -h
 run_headless "gate.sh status"           env HOME="$FAKE" bash "$REPO/scripts/gate.sh" status "$REPO"
 run_headless "gate.sh status --json"    env HOME="$FAKE" bash "$REPO/scripts/gate.sh" status --json "$REPO"
 run_headless "gate.sh gc"               env DOTAGENTS_GATE_DIR="$TMP/gate" bash "$REPO/scripts/gate.sh" gc
+run_headless "loop.sh (usage)"          env HOME="$FAKE" bash "$REPO/scripts/loop.sh"
+run_headless "loop.sh status"           env HOME="$FAKE" DOTAGENTS_LOOP_DIR="$TMP/loop" bash "$REPO/scripts/loop.sh" status
+run_headless "loop.sh report"           env HOME="$FAKE" DOTAGENTS_LOOP_DIR="$TMP/loop" bash "$REPO/scripts/loop.sh" report
 run_headless "setup.sh status"          env HOME="$FAKE" bash "$REPO/scripts/setup.sh" status
 run_headless "setup.sh doctor"          env HOME="$FAKE" bash "$REPO/scripts/setup.sh" doctor
 run_headless "setup.sh install --dry-run" env HOME="$FAKE" bash "$REPO/scripts/setup.sh" install --dry-run

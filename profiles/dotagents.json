@@ -102,6 +102,15 @@
       "timeout": 180
     },
     {
+      "id": "loop-tests",
+      "cmd": "./scripts/test-loop.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 180,
+      "when": "always -- the driver decides unattended whether work may reach a PR, so the checks that stop it are not optional"
+    },
+    {
       "id": "da-review-all-canvas-contract",
       "cmd": "./scripts/test-da-review-all-canvas.sh",
       "gate": true,

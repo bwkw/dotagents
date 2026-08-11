@@ -101,6 +101,7 @@ if (( ! FAST )); then
   step "verify-gate behaviour"    ./scripts/test-verify-gate.sh
   step "lint-hook and lint scope" ./scripts/test-lint-hook.sh
   step "installer behaviour"      ./scripts/test-setup.sh
+  step "loop driver behaviour"    ./scripts/test-loop.sh
   step "nothing waits for a human" ./scripts/test-non-interactive.sh
 
   tree_clean() { [[ "$(git status --porcelain 2>/dev/null)" == "$tree_before" ]]; }
