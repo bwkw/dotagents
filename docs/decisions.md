@@ -480,6 +480,53 @@ gate を変えるのは手作業であるべきで、「ループが自分のテ
 fail-open ではなく（fail-closed で、説明が間違っている）、この変更の範囲外なので別で直します。
 crash guard は Cursor を既に除外しているので、dry mode も同じクラスの例外です。
 
+## 22. スキルが名指しするスキルは、解決することを検査する（2026-08-11）
+
+**同時に4件、全部同じ無言の壊れ方をしていました。** 参照している側は普通にロードされ、description は
+メニューに出て、起動もする。**ただし、そのスキルが組み立てられている中心の指示が、何も指していない。**
+
+| 参照元 | 名指ししていた先 | 状態 |
+|---|---|---|
+| `grill-me` | `/grilling` | **本文7行の全部がこれ。** 入っていなかった |
+| `executing-plans` | `superpowers:finishing-a-development-branch` | **REQUIRED SUB-SKILL と宣言。** 入っていなかった |
+| `systematic-debugging` | `superpowers:verification-before-completion` | 入っていなかった |
+| `writing-plans` | `superpowers:subagent-driven-development` | **REQUIRED SUB-SKILL と宣言。** 入っていなかった |
+| `subagent-driven-development` | `requesting-code-review` | 上を入れたら**連鎖で出てきた** |
+
+**1件目が、検査を「良い考え」から「必要」に変えました。** `/grill-me` は
+**`README.md` のユースケース1「1. 何を作るか固める」の1行目**です。つまり
+**このリポジトリが文書で推奨している機能開発の入口が、何も実行しませんでした。** 呼ぶと
+「これはスタブです」という報告が返るだけ。3か月そうでした。
+
+**実行できない推奨は、守らないガードレールと同じ形です。** そして悪い方も同じ ——
+**無ければ人は用心しますが、あると書いてあれば用心をやめます。**
+
+### 決めたこと
+
+- **`verify_skills.sh` が installed set を走査し、`superpowers:<name>` と `/<name>` の参照が
+  ディレクトリに解決することを検査する。エラーで。** 自作スキルの `reference/` リンクには既に
+  両方向の検査があり、その模様をスキル名の参照に広げただけです
+- **`anthropic-skills:` は追いません。** あれはプラグイン名前空間で、実体がディスクの installed set に
+  現れません。最初の版は `da-skills-audit` → `anthropic-skills:skill-creator` を「無い」と報告しました
+  —— 到達可能なものを欠落と呼ぶ偽陽性で、**検査が信用されなくなる方向**です
+- **組み込みスラッシュコマンドの許可リストは marker 行のデータ**として置く。`/clear` や
+  `/security-review` はスキルではないのでディレクトリに解決しません。**新しい組み込みが出たら
+  1回だけ大声で誤検出する** —— 静かな穴より、うるさい間違いの方を選びます
+- **CI では飛ばす。** installed set はマシンのものなので、無ければ理由を印字して飛ばします。
+  「何もしない検査」がこのリポジトリの主敵なので、飛ばしたことは黙りません
+
+### 入れたもの、入れなかったもの
+
+閉包が閉じるまで5本入れました（21本 → 26本）。**残った4本
+（`brainstorming` `dispatching-parallel-agents` `using-superpowers` `writing-skills`）は
+どこからも参照されていません** —— 検査が緑であることが、入れる理由が無いことの証拠です。
+
+**`subagent-driven-development` は入れましたが、駆動系は打ちません。**
+`writing-plans` が必須と宣言するので入れないと検査が赤くなりますが、使うかどうかは別の判断です
+（[docs/loops.md](loops.md) に理由）。**「入っている」と「駆動系が打つ」は別物**で、そこを混ぜると
+description 予算が「使うもの」ではなく「参照されているもの」で決まってしまいます。
+
+
 ---
 
 # 間違えた判断の記録

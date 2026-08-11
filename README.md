@@ -200,7 +200,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 
 ## 何が入っているか
 
-**自作は10スキル**、残り11本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
+**自作は10スキル**、残り16本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` の**両方**に入るので、どちらのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
@@ -254,7 +254,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 - 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
 - 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-### 上流11本はどこから来たか
+### 上流16本はどこから来たか
 
 **広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
@@ -332,15 +332,27 @@ dotagents/skills/<name>/
 
 **選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
 
+> **`-s` で選ぶときは、そのスキルが名指ししているスキルも入れてください。** 下のリストはその閉包に
+> なっています。**閉包になっていなかったせいで、3か月ものあいだ `/grill-me` は何も実行しませんでした**
+> —— 本文が7行で、全体が「Run a `/grilling` session.」なのに `grilling` を入れていなかった。
+> `/grill-me` は**このリポジトリのユースケース1の1行目**です。`verify-skills.sh` が参照の解決を検査する
+> ようになったので、次に同じことが起きたら赤くなります。
+
 ```bash
 # 方法論 — obra/superpowers
+#   後半4本は前半が REQUIRED SUB-SKILL / 代替として名指ししている依存。
+#   subagent-driven-development は writing-plans が必須と宣言するので入れますが、
+#   このリポジトリの駆動系は打ちません（docs/loops.md に理由）。
 npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
   -s writing-plans -s executing-plans -s receiving-code-review \
-  -s systematic-debugging -s test-driven-development -s using-git-worktrees
+  -s systematic-debugging -s test-driven-development -s using-git-worktrees \
+  -s finishing-a-development-branch -s verification-before-completion \
+  -s subagent-driven-development -s requesting-code-review
 
 # 実務 — mattpocock/skills
+#   grilling は grill-me の本文が名指しする実体。これが無いと /grill-me は何もしません。
 npx skills@1.5.20 add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s research
+  -s grill-me -s grilling -s research
 
 # セキュリティ — getsentry/skills
 npx skills@1.5.20 add getsentry/skills -g -a claude-code -a cursor \
