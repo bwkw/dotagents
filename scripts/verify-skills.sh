@@ -444,6 +444,68 @@ else
   printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
 fi
 
+# --- skill bodies must not instruct reading credentials or piping to a shell ---
+# The frontmatter has been gated since the beginning; the body never was. And the body is not data --
+# it is the instructions an agent follows, in the user's own repositories, with the user's own
+# permissions. One sentence of prose is a behaviour change whose intent no linter, type check or test
+# can see. The lint hook says the same thing at write time and only warns; this is the half that fails
+# closed, and it runs over this repository's own skills, where we do get to decide.
+#
+# Two shapes, chosen by measurement rather than imagination: a credential surface named on the same
+# line as a read/send verb, and the pipe-to-shell / base64 / paste-site shapes. Both were run against
+# every existing skill body and reference file first and matched ZERO lines, which is why this can be
+# an error with no baseline, no diff and no allowlist to maintain. A check keyed on a merge-base would
+# also need a full clone, and the CI jobs that run this one are shallow.
+#
+# The escape hatch names a reason on the line itself. "Allow this" with no reason is how an allowlist
+# becomes the rule.
+#
+# Kept identical to the list in hooks/dotagents-lint-skill-frontmatter.sh. The pattern is read out of
+# the marker comment below rather than written twice here, so the thing being compared is the thing
+# being used.
+# dotagents:sensitive-body-patterns (cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin
+echo
+echo "checking skill bodies for credential surfaces and pipe-to-shell shapes"
+sens_line() { grep -o 'dotagents:sensitive-body-patterns.*' "$1" | head -1 | sed 's/^dotagents:sensitive-body-patterns *//'; }
+sens_pat="$(sens_line "$0")"
+if [[ -z "$sens_pat" ]]; then
+  err "sensitive-body" "the 'dotagents:sensitive-body-patterns' marker is missing from verify-skills.sh -- the marker IS the pattern, so removing it removes the check"
+else
+  sens_hits=0
+  for sroot in "${ROOTS[@]}"; do
+    [[ -d "$sroot" ]] || continue
+    while IFS= read -r sf; do
+      while IFS= read -r hit; do
+        [[ -n "$hit" ]] || continue
+        case "$hit" in *dotagents:allow-sensitive*) continue ;; esac
+        err "${sf#"$REPO/"}:${hit%%:*}" "skill body names a credential surface or a pipe-to-shell shape -- $(printf '%s' "${hit#*:}" | sed 's/^[[:space:]]*//' | cut -c1-100)"
+        sens_hits=$((sens_hits+1))
+      done < <(grep -niE "$sens_pat" "$sf" 2>/dev/null)
+    done < <(find "$sroot" -type f -name '*.md' 2>/dev/null | sort)
+  done
+  (( sens_hits == 0 )) \
+    && printf '%s✓%s no skill body instructs reading credentials or piping to a shell\n' "$c_green" "$c_off"
+fi
+
+# --- the two sensitive-body enforcers must agree ----------------------------
+# Same reasoning as the when-clause lists below: two copies of a rule that can disagree is a rule that
+# will. The hook is the one users meet while writing; this file is the one that blocks a commit.
+lint_hook_sens="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
+if [[ -f "$lint_hook_sens" ]]; then
+  echo
+  echo "checking the sensitive-body pattern list"
+  sens_b="$(sens_line "$lint_hook_sens")"
+  if [[ -z "$sens_b" ]]; then
+    err "sensitive-body" "the 'dotagents:sensitive-body-patterns' marker is missing from the lint hook -- the marker is what makes the two lists comparable, so removing it removes the check"
+  elif [[ "$sens_pat" != "$sens_b" ]]; then
+    err "sensitive-body" "the linter and the lint hook look for different things in a skill body, so a body can pass one and be stopped by the other"
+    printf '%s  linter: %s%s\n' "$c_dim" "$sens_pat" "$c_off"
+    printf '%s  hook:   %s%s\n' "$c_dim" "$sens_b" "$c_off"
+  else
+    printf '%s✓%s both enforcers look for the same shapes in a skill body\n' "$c_green" "$c_off"
+  fi
+fi
+
 # --- the upstream skills status reports on must still be documented ---------
 # `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
 # is only useful while it names the skills README.md actually tells you to install: an upstream rename

@@ -52,6 +52,37 @@ process.stdin.on("end", () => {
     input.content ?? input.new_string ?? input.newString ?? input.contents ??
     (Array.isArray(input.edits) ? input.edits.map((e) => e.new_string ?? "").join("\n") : ""),
   );
+
+  // --- the body, before the frontmatter checks ------------------------------
+  // Everything below this block only reads frontmatter, and returned early for a fragment that did
+  // not contain one -- so the BODY of a SKILL.md was never looked at by anything. A skill body is
+  // not data, it is the instructions an agent follows: one sentence of prose added here changes
+  // behaviour, and no linter, type check or test can see the intent. That is the gap this closes.
+  //
+  // An Edit fragment is exactly the newly-added text, which is the interesting case: it needs no
+  // baseline to be worth reading.
+  //
+  // Kept identical to the list in scripts/verify-skills.sh, which compares the two marker comments.
+  // dotagents:sensitive-body-patterns (cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin
+  const SENSITIVE = /(cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~\/\.aws|~\/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~\/\.aws|~\/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin/i;
+  for (const line of content.split("\n")) {
+    // The escape hatch has to name a reason, because "allow this" with no reason is how an
+    // allowlist becomes the rule. Documented in scripts/verify-skills.sh.
+    if (/dotagents:allow-sensitive/.test(line)) continue;
+    if (SENSITIVE.test(line)) {
+      // Warned, not denied. This hook fires on every SKILL.md anywhere, and a skill that genuinely
+      // deploys something may legitimately read a .env -- denying that would be this repository
+      // deciding what other people's skills may do. The gate that fails closed is the one that runs
+      // over THIS repository's own skills, in scripts/verify-skills.sh.
+      return warn(
+        "This SKILL.md body names a credential surface or a pipe-to-shell shape: " +
+        `"${line.trim().slice(0, 120)}". A skill body is the instructions an agent follows, and no ` +
+        "linter can see intent -- so say plainly why it is here, or drop it. If it is deliberate, " +
+        "add 'dotagents:allow-sensitive: <reason>' on that line.",
+      );
+    }
+  }
+
   if (!content.trimStart().startsWith("---")) return allow();
 
   const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
