@@ -76,7 +76,9 @@ landing ごとに:
 ```
 
 **上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
-[docs/loops.md](docs/loops.md)。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
+[docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grill-me`・
+`/writing-plans`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
+検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
 
 | 段 | 判定 | 設計フェーズ | 人間の位置 |
 |---|---|---|---|
@@ -176,6 +178,7 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 ```bash
 scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
+scripts/loop.sh design                      # 設計フェーズ: 次に打つもの、検証できているもの
 scripts/loop.sh run                         # S: そのまま回す
 scripts/loop.sh run docs/plans/foo.md       # M / L: commit 済みの Landing plan が必須
 scripts/loop.sh report                      # 採択1件あたりのコスト、phase 別の内訳

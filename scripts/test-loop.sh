@@ -42,14 +42,23 @@ printf '%s\n' "$*" >> "$FAKE_CLAUDE_LOG"
 # call (`/da-verify`) silently shifted every response by one, and a shifted fixture does not fail
 # loudly -- the stub returns nothing, the driver reads cost 0 and no structured output, and tests pass
 # for no reason. Keying on the prompt makes a fixture mean what it says.
+# The PROMPT's first line decides the phase, not the whole argv. Matching anywhere in "$*" bit twice:
+# the executing-plans prompt deliberately contains "/test-driven-development" (the only thing that
+# guarantees TDD under it), and the triage prompt carries "/da-review-all" and "/find-bugs" as section
+# headers over the reports it is handed. Both were misread as the phase they merely mention. The prompt
+# is always the last argument and always starts with the command, so that is what gets matched.
+prompt="${!#}"
+first="${prompt%%$'\n'*}"
 phase=other
-case "$*" in
+case "$first" in
   */da-investigate*)          phase=investigate ;;
   */using-git-worktrees*)     phase=worktree ;;
   */da-verify*)               phase=verify ;;
+  */executing-plans*)         phase=execplan ;;
   */test-driven-development*) phase=implement ;;
   */systematic-debugging*)    phase=debug ;;
   */da-review-all*)           phase=review ;;
+  */find-bugs*)               phase=findbugs ;;
   */da-fix-plan*)             phase=triage ;;
   */receiving-code-review*)   phase=fix ;;
   */da-pr-describe*)          phase=pr ;;
@@ -71,6 +80,15 @@ n=1
 printf '%s' "$((n+1))" > "$FAKE_CLAUDE_DIR/$phase.counter"
 
 resp="$FAKE_CLAUDE_DIR/$phase.$n.json"
+# `execplan` and `implement` are the same ROLE -- round 1 of implementation -- and which one the driver
+# types depends only on the tier. A fixture that says "the first implementation round returns this"
+# should not have to know the tier, so execplan falls back to the implement fixtures. The tests that
+# assert the distinction check the phase counters directly.
+if [[ ! -f "$resp" && "$phase" == "execplan" ]]; then
+  resp="$FAKE_CLAUDE_DIR/implement.$n.json"
+  [[ -f "$FAKE_CLAUDE_DIR/implement.$n.sh" && ! -f "$FAKE_CLAUDE_DIR/execplan.$n.sh" ]] \
+    && bash "$FAKE_CLAUDE_DIR/implement.$n.sh"
+fi
 [[ -f "$resp" ]] || resp="$FAKE_CLAUDE_DIR/$phase.json"
 # A response may carry a side effect -- the edits a real round would have made. A per-phase default
 # covers "every round of this phase does the same thing", which the round-cap case needs: a round that
@@ -172,7 +190,7 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed>  -> writes 1.j
   # Every phase gets a benign default, so a test only writes the responses it actually cares about and
   # an unscripted phase does not silently return an empty body.
   local p
-  for p in worktree verify implement debug review fix pr other; do
+  for p in worktree verify implement execplan debug review findbugs fix pr other; do
     printf '{"total_cost_usd":0.01,"num_turns":1,"result":"ok"}' > "$FAKE_CLAUDE_DIR/$p.json"
   done
   printf '{"total_cost_usd":0.01,"num_turns":1,"result":"ok","structured_output":{"fix_now":0,"needs_decision":0,"decline":0}}' \
@@ -836,6 +854,119 @@ elapsed=$(( $(date +%s) - started ))
 [[ "$(ledger_field 'halt_reason')" == "round_timeout" ]] \
   && ok "and the ledger says it timed out, not that it failed or did nothing" \
   || no "the hanging round recorded halt_reason '$(ledger_field 'halt_reason')'"
+
+# ================================================================ the all-skills flow
+
+# `loop.sh design` must never prompt: test-non-interactive.sh asserts there is no interactive path, and
+# the design phase is attended, so the temptation to ask is exactly here.
+setup; measurement 1 1 0 0 0; runloop size "r"
+runloop design
+[[ $RC -eq 0 ]] && ok "design exits 0" || { no "design exited $RC"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
+# "design does not prompt" is NOT asserted here. test-non-interactive.sh already sweeps every
+# scripts/*.sh for terminal reads and runs `loop.sh design` with stdin closed, so a second copy of that
+# rule here would be two implementations of one check -- and the first version of it literally contained
+# the forbidden pattern as a string, which made that suite report this file as an offender.
+
+# Tier decides the sequence, and the tiers differ in DEPTH of human involvement, not in whether one is
+# present. S has no design phase at all.
+setup; measurement 1 1 0 0 0; runloop size "r"      # S
+runloop design
+grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
+  && ok "design at tier S says there is no design phase" \
+  || { no "tier S design did not say the phase is empty"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"; }
+
+setup; measurement 20 3 1 1 1; runloop size "r"     # L
+runloop design
+for want in grilling writing-plans da-design-review; do
+  grep -q "$want" <<<"$OUT" \
+    && ok "design at tier L names /$want" \
+    || no "design at tier L omitted /$want"
+done
+
+# The three stages that leave nothing on disk must be reported as uncheckable rather than shown green.
+grep -qiE 'cannot be checked|検査でき' <<<"$OUT" \
+  && ok "design states which stages it cannot verify" \
+  || { no "design did not say anything is unverifiable -- it would read as all-clear"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+
+# The one artifact with a strong signal: writing-plans' file carries a mandatory header.
+setup; measurement 20 3 0 0 0; runloop size "r"     # L via layers/files
+mkdir -p "$REPO_DIR/docs/superpowers/plans"
+printf '# Thing Implementation Plan\n\n**Goal:** x\n**Architecture:** y\n\n## Global Constraints\n\n- [ ] step one\n' \
+  > "$REPO_DIR/docs/superpowers/plans/2026-08-11-thing.md"
+runloop design
+grep -q '2026-08-11-thing.md' <<<"$OUT" \
+  && ok "design finds the plan file writing-plans left behind" \
+  || { no "design did not report the plan file"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+
+# A file at that path WITHOUT the mandatory header is not a plan -- writing-plans requires the header,
+# so accepting any .md there would let an empty file satisfy the gate.
+setup; measurement 20 3 0 0 0; runloop size "r"
+mkdir -p "$REPO_DIR/docs/superpowers/plans"
+printf 'just some notes\n' > "$REPO_DIR/docs/superpowers/plans/2026-08-11-notes.md"
+runloop design
+grep -qiE 'header|見出し|not a plan' <<<"$OUT" \
+  && ok "a file without the mandatory header is not accepted as a plan" \
+  || { no "design accepted a headerless file as a plan"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+
+# implement splits by tier. M/L have a committed plan, so /executing-plans is the right skill; S has no
+# plan at all, so it types /test-driven-development.
+setup; measurement 6 1 0 0 0; runloop size "r"       # M
+printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+  > "$REPO_DIR/plan.md"
+git -C "$REPO_DIR" add plan.md; commit_in_repo plan
+respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run plan.md
+grep -q '/executing-plans' "$FAKE_CLAUDE_LOG" \
+  && ok "tier M implements through /executing-plans" \
+  || { no "tier M did not type /executing-plans"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+# The executing-plans prompt MENTIONS /test-driven-development on purpose -- that mention is the only
+# thing guaranteeing TDD, since executing-plans delegates to whatever the plan's steps say. So the
+# assertion is that the TDD phase never RAN, not that the string is absent.
+[[ ! -f "$FAKE_CLAUDE_DIR/implement.counter" ]] \
+  && ok "and the TDD phase never ran -- one implement skill per round" \
+  || no "tier M ran both /executing-plans and the /test-driven-development phase"
+grep -q 'executing-plans.*\n*.*test-driven-development\|Use /test-driven-development' "$FAKE_CLAUDE_LOG" \
+  && ok "the executing-plans prompt states TDD per step, which is the only guarantee of it" \
+  || no "the executing-plans prompt does not require TDD -- executing-plans alone does not imply it"
+
+setup; measurement 1 1 0 0 0; runloop size "r"       # S
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run
+grep -q '/test-driven-development' "$FAKE_CLAUDE_LOG" \
+  && ok "tier S implements through /test-driven-development (there is no plan to execute)" \
+  || no "tier S did not type /test-driven-development"
+grep -q '/executing-plans' "$FAKE_CLAUDE_LOG" \
+  && no "tier S typed /executing-plans with no plan file" || ok "and not /executing-plans"
+
+# The second reviewer is metered on risk, and its FULL report reaches triage. Counts alone would buy
+# zero coverage, which is the entire reason for a differently-built second reviewer.
+setup; measurement 3 1 0 2 0; runloop size "r"       # risk_surfaces = 2 -> L
+printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+  > "$REPO_DIR/plan.md"
+git -C "$REPO_DIR" add plan.md; commit_in_repo plan
+respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
+respond review 1 0.30 7
+respond findbugs 1 0.40 6
+respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run plan.md
+grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
+  && ok "a landing touching a risk surface gets the second reviewer" \
+  || { no "no second reviewer on a risk surface"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+grep -q 'da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second reviewer' "$FAKE_CLAUDE_LOG" \
+  && ok "and its report text is handed to /da-fix-plan, not just a count" \
+  || no "the second reviewer's findings never reached triage"
+
+setup; measurement 3 1 0 0 0; runloop size "r"       # no risk surface
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run
+grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
+  && no "the second reviewer ran with no risk surface -- review is where the cost is" \
+  || ok "no risk surface, no second reviewer"
 
 # ---------------------------------------------------------------- interruption
 setup; measurement 1 1 0 0 0; runloop size "r"

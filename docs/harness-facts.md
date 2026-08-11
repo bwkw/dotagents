@@ -138,23 +138,9 @@ README は「どのリポジトリにも存在します」と書いていまし�
 
 正直に残しておきます。**未確認を「たぶん大丈夫」に書き換えたのが今回の反省点**なので。
 
-- **`claude -p` のターン終了で `Stop` hook が発火するか。** ループの駆動系がこの前提に乗っています。
-  **測ろうとして測れませんでした**: このマシンのグローバル `claude` が壊れていて
-  （`@anthropic-ai/claude-code-darwin-arm64` が中断された npm の staging ディレクトリに取り残されている）、
-  シェルから exec できません。`npm install -g @anthropic-ai/claude-code` で直りますが、
-  **直すまでは未確認のままです。**
-
-  **駆動系はどちらでも壊れないように書いてあります** —— 発火するなら gate が `max_attempts` で
-  `VERDICT` を書き、駆動系は `gave_up` で止まる。発火しないなら `VERDICT` は現れず、駆動系の
-  round cap が `round_cap` で止める。**どちらが起きたかは台帳の `halt_reason` に出る**ので、
-  最初の実走がこの問いに副作用として答えます。**未確認の前提を、計器が読む値に変換したつもりです。**
-- **`-p` でスラッシュコマンドが発火するか**、特に `disable-model-invocation` が付いたもの
-  （`da-pr-describe`）。DMI が止めるのはモデルであって人ではない、という読みに乗っています。
-  同じ理由で未測定
-- **`da-review-all` が headless で完走するか。** Step 5 が Canvas 成果物を1つ必須にしていて、
-  `test-da-review-all-canvas.sh` が契約として固定しています。Artifact が headless で使えないなら、
-  レビュー段は対話セッションに戻すことになります
-- **`--json-schema` というフラグ名。** 上の表は公式ドキュメント由来ですが、実機で叩いていません
+- ~~`claude -p` のターン終了で `Stop` hook が発火するか~~ · ~~`-p` でスラッシュコマンドが届くか~~ ·
+  ~~`da-review-all` は headless で完走するか~~ · ~~`--json-schema` のフラグ名~~
+  → **すべて 2026-08-11 に実測しました。** 結果は下の節に移しました
 
 - **`CLAUDE_CONFIG_DIR` が存在するか。** 公式の settings ドキュメントに**記載がありません**（2026-08-11 確認）。
   実装の根拠にできないので `setup.sh` は `~/.claude` に固定したままです。**もし実在するなら**、install は
@@ -162,15 +148,41 @@ README は「どのリポジトリにも存在します」と書いていまし�
   —— このリポジトリが何度も潰してきた形そのもの。優先度が高いのは「対応」ではなく「確認」の方です
 - **Cursor の stop payload に session 相当の識別子があるか。** 無いと仮定して設計しています
 - **Cursor が `readonly` 以外にどのフィールドを実際に読むか。** ドキュメントに列挙はあるが実機未確認
-- **`stop_hook_active` の正確な意味。** 実践側の一致は強いが、公式の定義文は見つかっていない
-- **連続ブロックの上限。** 公式に記述なし。この hook は1回目の再入で解放するので到達しないが、
-  「到達しない」こと自体は実測していない
+- **`stop_hook_active` の正確な意味。** **挙動は実測しました**（下の節。ブロック → 再入で解放が
+  trace に出ます）が、**公式の定義文は今も見つかっていません。** 観測と定義は別物なので、
+  ここは残します —— 実測した1ケースが仕様のすべてだとは言えません
 - **`max_attempts: 3` / TTL 12h / timeout 120·300·900 秒。** 全部**選んだ数字**で、測定値ではありません。
   ここが `docs/design.md` の「一度も測っていない」というギャップに、私が足した4つです
 - **`attempts.json` にロックを足していない理由。** temp+rename で切り詰めは防いでいますが、競合する
   2つの増分は共に同じ値を読んで同じ値を書くので**過小カウント**になります。上限に「遅く到達する」だけで
   「到達しない」わけではないので、**fail-closed の性質ではない**と判断して足していません。
   ここに書いてあるのは、次に読む人が「抜け」と読まないためです
+
+## headless の実測（2026-08-11）
+
+**駆動系が乗っている前提を、公式ドキュメントではなく実機で確かめました。** 使い捨てのクローンと
+`DOTAGENTS_GATE_DIR` / `DOTAGENTS_PROFILES` で隔離し、`--max-budget-usd` で上限を掛けています。
+
+| 前提 | 結果 |
+|---|---|
+| **`Stop` hook は `claude -p` のターン終了で発火する** | ✅ armed かつ**赤い**ゲートで実測: trace に `BLOCKED (probe-red)` → `RELEASED while probe-red red -- handed control back with checks failing`、`attempts.json` は `{"probe-red": 2}` |
+| **`stop_hook_active` の再入解放** | ✅ 上の2行目がそれです。**「実践側の一致は強いが公式の定義文が見つかっていない」と書いていた挙動が、このハーネスで実際にそう動く**ことを観測しました |
+| **`attempts` は1ターンで 2 進む** | ブロックで1、再入の解放で1。つまり `max_attempts: 3` は**2ターンで到達**します —— 「3回落ちたら」より早い |
+| **スラッシュコマンドは `-p` で届く** | ✅ `/da-verify` が profile を名指しして `## Verification` を出した。**`disable-model-invocation` 付き（`grill-me`）も本文が読まれた** |
+| **`da-review-all` は headless で完走する** | ✅ 18ターン、Canvas に言及、`report-format.md` 準拠 |
+| **`--json-schema` は存在し、スキーマを文字列で取る** | ✅ ただし**ファイルパスを渡すとエラーにならず永久にハングする**（stdin を閉じても）。駆動系はパスを渡していたので初回使用でハングするところでした |
+| `--output-format json` の返り | `result` / `num_turns` / `total_cost_usd` / `is_error` / `api_error_status` / `usage` / `modelUsage`。エラー時 exit 1 |
+| `--max-turns` | **`--help` に出てきません。** 代わりに `--max-budget-usd`（`--print` 専用）があります |
+
+**コストの実測**（このリポジトリで初めての数字）:
+`/da-review-all` **$1.99**（18ターン）· `/da-verify` $0.59（15）· `/grilling` $0.76（11）·
+自明な1ターン $0.09。**レビュー1回で約$2。**
+
+**測れなかった期間の理由も残しておきます。** 最初はグローバル `claude` のプラットフォームバイナリが
+中断された npm の staging に取り残されていて exec できず、次は **Keychain の
+`Claude Code-credentials` が2か月更新されていなくて 401** でした。後者は
+「ログインしたのに変わらない」という形で現れます —— **`security find-generic-password -s
+"Claude Code-credentials" | grep mdat` が更新されたかどうかの唯一の客観的な確認**です。
 
 ## チェックの実行はプロセスグループで
 

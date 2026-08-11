@@ -2,6 +2,7 @@
 # Drive design -> implementation -> review -> one stacked PR per landing.
 #
 #   loop.sh size "<what you want>"   measure the change, and say which tier it is
+#   loop.sh design                   the design phase: what to type next, and what it can verify
 #   loop.sh run [<landing-plan>]     run the landings (the plan is required above tier S)
 #   loop.sh report [--json]          cost per accepted landing, and where the money went
 #   loop.sh status                   the last size verdict, and what the gate thinks
@@ -288,6 +289,8 @@ gate_gave_up() { # -> 0 when a VERDICT has been recorded
 SPENT=0
 GATE_UNRAN=""
 ROUND_TIMED_OUT=0
+REVIEW_REPORT=""
+SECOND_REPORT=""
 ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 
 # One `claude -p`. Never --bare: that switch turns off hooks, skills and CLAUDE.md, which is the
@@ -333,6 +336,17 @@ claude_round() { # <prompt> [inline-schema-json]
   ROUND_TURNS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).num_turns??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   SPENT="$(node -e 'process.stdout.write(String(Number(process.argv[1])+Number(process.argv[2])))' "$SPENT" "${ROUND_COST:-0}")"
   return 0
+}
+
+# The round's reply text. Used to carry one skill's report into the next skill's prompt -- the review
+# skills write no file, so this is the only way their findings survive the process boundary.
+round_result() {
+  node -e '
+    let s = "";
+    process.stdin.on("data", (d) => s += d).on("end", () => {
+      try { const r = JSON.parse(s).result; if (r) process.stdout.write(String(r)) } catch {}
+    });
+  ' <<<"$ROUND_OUT" 2>/dev/null || true
 }
 
 round_has_structured() {
@@ -429,6 +443,82 @@ within your budget -- do not leave it empty to look thorough; it decides whether
        say "Next:  /grill-me   →   /writing-plans   →   /da-design-review"
        say "       then commit the 🧱 Landing plan, then:  scripts/loop.sh run <plan-path>" ;;
   esac
+}
+
+
+# ---------------------------------------------------------------- design
+# The design phase is ATTENDED at every tier above S -- `/grilling` is an interview and
+# `da-design-review` says "Show this to the user" in its first step. So this command does not sequence
+# it and does not ask anything: it prints what to type next and reports what it can actually verify.
+# Prompting here is the obvious temptation and it is forbidden -- test-non-interactive.sh asserts there
+# is no interactive path, and a design phase that stalls waiting for input is the failure that whole
+# suite exists to prevent.
+#
+# Three artifacts can be checked, and three stages cannot. Saying which is which is the point: a
+# checklist that shows six green ticks when it verified three of them is worse than no checklist.
+
+# writing-plans writes docs/superpowers/plans/YYYY-MM-DD-<name>.md and its own template makes several
+# headings mandatory. The headings are the check: without them the file is notes, not a plan, and an
+# empty file at the right path would otherwise satisfy the gate.
+plan_files() { ls -1 docs/superpowers/plans/????-??-??-*.md 2>/dev/null || true; }
+plan_has_header() { # <file>
+  grep -q 'Implementation Plan' "$1" 2>/dev/null \
+    && grep -q '\*\*Goal:\*\*' "$1" 2>/dev/null \
+    && grep -q '## Global Constraints' "$1" 2>/dev/null \
+    && grep -q -- '- \[ \]' "$1" 2>/dev/null
+}
+adr_files() { ls -1 docs/decisions/ADR-*.md docs/adr/*.md 2>/dev/null || true; }
+
+cmd_design() {
+  local tier; tier="$(ledger_last size tier)"
+  [[ -n "$tier" ]] || die "no size recorded for this repository. Run: loop.sh size \"<what you want>\"
+  The tier decides how deep the design phase goes, so it comes first."
+
+  say "tier $tier"
+  echo
+  if [[ "$tier" == "S" ]]; then
+    say "No design phase. README's own standing rule: a change you can describe in one sentence skips"
+    say "the plan. The gate is this repository's configured checks."
+    say ""
+    say "Next:  scripts/loop.sh run"
+    ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" phase design \
+      tier "$tier" outcome sized halt_reason __null__ cost_usd 0 turns 0
+    return 0
+  fi
+
+  local pf adr have_plan=0 have_adr=0 committed=0 plan_note=""
+  for pf in $(plan_files); do
+    if plan_has_header "$pf"; then have_plan=1; plan_note="$pf"; break; fi
+    plan_note="$pf (no mandatory header -- writing-plans requires '# … Implementation Plan', '**Goal:**', '## Global Constraints' and '- [ ]' steps, so this is notes, not a plan)"
+  done
+  adr="$(adr_files | head -1)"; [[ -n "$adr" ]] && have_adr=1
+
+  say "The stages, in order. Type them yourself -- this command does not run them, because every one"
+  say "of them needs you in the room."
+  echo
+  [[ "$tier" == "L" ]] && {
+    say "  1. /research <topic>            the outside world. CANNOT BE CHECKED -- it writes a file at"
+    say "                                  a path it chooses, so nothing here can look for it."
+    say "  2. /grill-me                    the interview (it delegates to /grilling, which does the work"
+    say "                                  -- install both or it does nothing). CANNOT BE CHECKED."
+  }
+  say "  3. /writing-plans               $( ((have_plan)) && printf 'FOUND: %s' "$plan_note" || printf 'not found%s' "${plan_note:+ -- $plan_note}" )"
+  say "  4. /documentation-and-adrs      $( ((have_adr)) && printf 'FOUND: %s' "$adr" || printf 'no ADR (only needed if you made a decision worth recording)' )"
+  say "  5. /da-design-review            CANNOT BE CHECKED -- it writes no file at all. Its 🧱 Landing"
+  say "                                  plan exists only in the conversation, so YOU copy that table"
+  say "                                  into a file and commit it. Nothing else will."
+  echo
+  say "Then: commit the landing plan, and  scripts/loop.sh run <plan-path>"
+  say "The commit is the approval -- there is no approval flag, because a flag is something you type"
+  say "without reading."
+  echo
+  say "Verified here: the plan file and the ADR. Not verified: research, the interview, and the design"
+  say "review. Three of five stages leave nothing behind, and this command will not pretend otherwise."
+
+  ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" phase design \
+    tier "$tier" plan_found "$have_plan" adr_found "$have_adr" \
+    outcome sized halt_reason __null__ cost_usd 0 turns 0
+  return 0
 }
 
 # ---------------------------------------------------------------- run
@@ -572,6 +662,26 @@ run_landing() { # <n> <what-lands> <one-way>
   for (( r = 1; r <= MAX_ROUNDS; r++ )); do
     head_before="$(git rev-parse HEAD 2>/dev/null || true)"
     if (( r == 1 )); then
+      # Above tier S there is a committed plan, and `executing-plans` is the skill for executing a
+      # written plan. Below it there is no plan at all, so TDD is typed directly.
+      #
+      # NOT `subagent-driven-development`, although upstream recommends it when subagents exist. Its own
+      # decision graph routes "Stay in this session? no - parallel session" to executing-plans, and every
+      # round here is a fresh `claude -p` process by design. It also instructs "Always specify the model
+      # explicitly when dispatching a subagent", which is invariant 10 inverted, and it brings a second
+      # ledger, a second fix loop and a second final review alongside the ones this driver already has.
+      if [[ -n "$PLAN_PATH" ]]; then
+        dim "   round $r: implement (/executing-plans)"
+        claude_round "/executing-plans $PLAN_PATH
+
+Execute the landing: $what
+
+Use /test-driven-development for each step -- a failing test first, then the code that makes it pass.
+That is not implied: executing-plans delegates to whatever the plan's steps say, so it is stated here.
+
+Do not modify profiles/, hooks/, or anything under scripts/ -- those decide whether your work passes,
+and editing them aborts this landing."
+      else
       dim "   round $r: implement"
       claude_round "/test-driven-development
 
@@ -579,6 +689,7 @@ Work on this landing: $what
 
 Do not modify profiles/, hooks/, or anything under scripts/ -- those decide whether your work passes,
 and editing them aborts this landing. When you believe it is done, stop; something else runs the checks."
+      fi
     else
       dim "   round $r: debug ($(gate_field check) is $(gate_field kind))"
       claude_round "/systematic-debugging
@@ -638,23 +749,54 @@ and editing them aborts this landing."
     claude_round "/da-review-all"
     post_round review "$n" "$rr" || return 1
     record review "$n" "$rr" advanced
+    REVIEW_REPORT="$(round_result)"
 
+    # A second reviewer, deliberately built differently. Measured on the same 146 pull requests: 93.4%
+    # of findings were caught by exactly one of four tools and none by all four, so coverage comes from
+    # a different reviewer rather than another pass of this one.
+    #
+    # Metered on risk, not run every time, because review is where the money goes -- one /da-review-all
+    # measured at $1.99 against $0.09 for a trivial round. It runs only where being wrong once is
+    # already the incident: the surfaces `size` recorded as risk_surfaces.
+    #
+    # Its FULL report is carried into triage, not a count. A count would buy zero coverage -- the value
+    # is the specific findings the first reviewer missed, and da-fix-plan's own template says
+    # "**Source:** which review(s)", plural, so two reports is a shape it already expects.
+    SECOND_REPORT=""
+    if [[ "$(ledger_last size risk_surfaces)" != "0" && -n "$(ledger_last size risk_surfaces)" ]]; then
+      dim "   review $rr: second reviewer (/find-bugs) -- this landing touches a risk surface"
+      claude_round "/find-bugs"
+      post_round findbugs "$n" "$rr" || return 1
+      SECOND_REPORT="$(round_result)"
+      record findbugs "$n" "$rr" advanced
+    fi
+
+    # Both reports go in, not counts. The review skills write no file, so the process boundary between
+    # rounds is where their findings would be lost -- and a count would buy zero coverage, when coverage
+    # is the entire reason for a second reviewer. da-fix-plan's own template says "**Source:** which
+    # review(s)", plural, so two reports is a shape it already expects.
     claude_round "/da-fix-plan
 
-Report only the bucket counts. \`fix_now\` counts Fix now plus Fix now smaller. \`needs_decision\`
-counts findings that need a human decision. \`decline\` counts what you decided not to fix." "$schema"
+Triage the review(s) below. Report only the bucket counts. \`fix_now\` counts Fix now plus Fix now
+smaller. \`needs_decision\` counts findings that need a human decision. \`decline\` counts what you
+decided not to fix.
+
+=== /da-review-all の所見 ===
+$REVIEW_REPORT
+${SECOND_REPORT:+
+=== /find-bugs の所見（2本目のレビュア、意図的に別の作り） ===
+$SECOND_REPORT}" "$schema"
     # Absent is not zero. Defaulting a missing count to 0 reads as "the review found nothing to fix",
     # which is the optimistic reading of an answer that never arrived -- and it would submit a PR that
     # was never triaged while the ledger recorded fix_now:0, indistinguishable from a clean review.
-    # This is a live risk rather than a theoretical one: SCHEMA_FLAG is unverified, so if its name is
-    # wrong then every triage round returns nothing.
+    # Not theoretical: the flag was measured (it exists, and it takes an inline schema), but a round can
+    # still come back without structured output for any other reason, and 0 is the optimistic reading.
     FIX_NOW="$(round_structured fix_now)"
     NEEDS_DECISION="$(round_structured needs_decision)"
     DECLINE="$(round_structured decline)"
     if [[ -z "$FIX_NOW" || -z "$NEEDS_DECISION" ]]; then
       halt triage_unreadable "the triage round returned no bucket counts (exit $ROUND_EXIT).
-  Nothing is claimed about what the review found. Check that \`$SCHEMA_FLAG\` is the right flag for
-  structured output on this version of the CLI -- if it is not, every triage looks like this."
+  Nothing is claimed about what the review found."
       FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
       record triage "$n" "$rr" halted triage_unreadable; return 1
     fi
@@ -1037,6 +1179,7 @@ cmd_status() {
 case "${1:-}" in
   ''|-h|--help|help) usage ;;
   size)   shift; cmd_size   "${1:-}" ;;
+  design) shift; cmd_design ;;
   run)    shift; cmd_run    "$@" ;;
   report) shift; cmd_report "${1:-}" ;;
   status) shift; cmd_status ;;

@@ -17,11 +17,84 @@
 
 ```bash
 scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
+scripts/loop.sh design                      # 設計フェーズ: 次に何を打つか、何が検証できているか
 scripts/loop.sh run [<landing-plan>]        # landing を回す（S 以外は plan が必須）
 scripts/loop.sh report                      # 採択1件あたりのコスト
 ```
 
 引数なしの `scripts/loop.sh` が同じ一覧を印字します。
+
+---
+
+## 全体の形 —— 2つのレーン
+
+**混ぜてはいけないものが2つあります。** 最初の版はこれを1つの表に書いていて、それが設計を曇らせていました。
+
+```
+対話レーン（人間 + エージェント）          無人レーン（駆動系）
+──────────────────────────────         ────────────────────────────
+loop.sh size "やりたいこと"        →     tier を決める（bash の算術）
+loop.sh design                     →     何を打つか / 何が検証済みか
+   ↓ S ならこのレーンは空
+/grill-me → /grilling                    ← 要件を詰める（面接）
+/research                                ← 外の世界（必要なとき）
+/writing-plans                           ← spec。各ステップに「TDD」を明記
+/documentation-and-adrs                  ← 決定を残す（したなら）
+/da-design-review                        ← 🧱 Landing plan（会話の中）
+人間が plan を commit                    ← これが承認の印
+                                   →     loop.sh run <plan>
+                                           /using-git-worktrees   隔離
+                                           /da-verify             ゲートを arm
+                                           /executing-plans       （S は /test-driven-development）
+                                           /systematic-debugging  周2以降
+                                           /da-review-all
+                                           /find-bugs             risk surface のときだけ
+                                           /da-fix-plan           両方の所見を受ける
+                                           /receiving-code-review
+                                           gh stack submit --open
+                                           /da-pr-describe
+人間: merge
+```
+
+**境界の規則は1つです: 駆動系は対話レーンを順序付けません。** できないからです ——
+`test-non-interactive.sh` が対話経路の不在を検査しているので、`design` は**何も聞けません**。
+対話レーンでの駆動系の仕事は**検査と記録だけ**です。
+
+**打つスキルは11本**（`size` の `/da-investigate` を含めて12箇所）。使わないものと理由:
+
+| 使わない | 理由 |
+|---|---|
+| `/subagent-driven-development` | **インストールはしています**（`writing-plans` が REQUIRED と宣言）が打ちません。あれ自身の判断グラフが「Stay in this session? **no** → executing-plans」と書いていて、駆動系は各周が別プロセスです。加えて「**Always specify the model explicitly**」は不変条件10の逆で、台帳・修正ループ・最終レビューが二重になります |
+| `/simplify` `/security-review` | 前者は品質専用でバグ探しではなく、後者は `/find-bugs` の risk surface 条件と役割が重なります。**重複した2本目より、別の作りの2本目** |
+| `/da-skills-audit` `/skill-scanner` | ツールキットの保守で、開発サイクルの段ではありません |
+
+---
+
+## `loop.sh design` —— ウィザードではなく、検査と記録
+
+**何も聞きません。** 設計フェーズは全段が対話なので「どこまでやった?」と聞きたくなる場所ですが、
+`test-non-interactive.sh` が対話経路の不在を検査しているので、聞いたらスイートが落ちます。
+やるのは3つです:
+
+1. tier に応じた**順序を印字**する（S: 無し / M: 2段 / L: 5段）
+2. **検査できる成果物を検査**する
+3. **検査できない段はそう言う**
+
+| 段 | 成果物 | 検査 |
+|---|---|---|
+| `/writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-*.md` | ✅ **強い。** `# … Implementation Plan` / `**Goal:**` / `## Global Constraints` / `- [ ]` が揃っているかまで見ます —— **パスだけ見ると、空ファイルがゲートを通ります** |
+| `/documentation-and-adrs` | `docs/decisions/ADR-*.md` ほか | ⚠️ 弱い（パスが慣習依存） |
+| 🧱 Landing plan | 人間が写した commit 済みファイル | ✅ 強い（`run` の前提条件） |
+| `/research` | エージェントが選んだパス | ❌ **無い** |
+| `/grill-me` → `/grilling` | 無し | ❌ **無い** |
+| `/da-design-review` | **無し（会話のみ）** | ❌ **無い** |
+
+**`da-design-review` はファイルを1つも書きません** —— 本文に「never writes code and never edits the
+plan」とあります。つまり 🧱 Landing plan は**会話の中にしか無く、人間が写して commit する**必要が
+あります。以前ここは「commit しろ」と書いて、**誰が書き出すのかを書いていませんでした。**
+
+**3段が検査不能であることを、緑に見せません。** 6個のチェックのうち3個しか検証していないのに
+6個の緑を出すチェックリストは、チェックリストが無いより悪いので。
 
 ---
 
@@ -90,17 +163,30 @@ S に設計フェーズが無い根拠は `README.md` の常設規則そのま�
 ```
 （run 開始時）/using-git-worktrees  ← 作業を隔離。既に linked worktree なら作りません
 （run 開始時）/da-verify        ← ゲートを arm するのはこれ。駆動系は gate.sh arm を叩きません
-implement   周1     /test-driven-development
+implement   周1  tier M・L: /executing-plans <plan>   ← commit 済みの計画があるので
+                 tier S:    /test-driven-development  ← 実行する計画が無いので
             周2以降 /systematic-debugging   ← 赤いままなら「書く」から「原因を探す」へ切替
             毎周のあと gate.sh verify --json を読む（state-free の probe）
             緑になったら commit（変更パスを名指し。git add -A は使わない）
 review      /da-review-all
-triage      /da-fix-plan（構造化出力で件数だけ受け取る）
+            + /find-bugs   ← risk surface があるときだけ。2本目、意図的に別の作り
+triage      /da-fix-plan（両方の所見の全文を受け、件数を構造化出力で返す）
             needs_decision > 0  → 即停止
             fix_now > 0         → /receiving-code-review で1回だけ適用 → 再検証 → もう1周だけ review
             fix_now == 0        → 次へ
 pr          gh stack push → gh stack submit --auto --open → /da-pr-describe <番号>
 ```
+
+### `/executing-plans` は TDD を保証しません —— プロンプトが保証します
+
+あのスキルの Step 2 は「plan のステップに従え」で、**自前の実装ループを持ちません。**
+`Reference skills when plan says to` とあるとおり、**TDD が発火するのは plan の各ステップが
+そう書いているときだけ**です。だから駆動系のプロンプトが「各ステップで TDD」と明示し、
+`/writing-plans` の出力にも同じことを入れます。**それがこの経路の唯一の担保です。**
+
+そして `/executing-plans` は `superpowers:finishing-a-development-branch` を REQUIRED SUB-SKILL と
+宣言します。入れてあるので解決しますが、**あれは「ブランチをどう統合するか」を人間に問う段**で、
+無人レーンでは答える人が居ません。**そこで止まるのは正しい停止**として扱います。
 
 ### 赤いゲートに TDD を積み直さない
 
@@ -338,28 +424,33 @@ gh extension install github/gh-stack
 
 ---
 
+## 測ったこと（2026-08-11）
+
+**前提を推測で置いたままにしないために測りました。そして2件の欠陥が出ました。**
+
+| 前提 | 結果 |
+|---|---|
+| `claude -p` のターン終了で Stop hook が発火するか | ✅ **発火する。** armed + 赤いゲートで実測: `BLOCKED (probe-red)` → `RELEASED while probe-red red -- handed control back with checks failing`、`attempts: {"probe-red": 2}`。**`gave_up` 経路は到達可能** |
+| `-p` でスラッシュコマンドが届くか | ✅ **届く。** `/da-verify` が profile を名指しして `## Verification` を出した（15ターン、$0.59）。**`disable-model-invocation` 付きも本文が読まれた** —— 「駆動系は打つ人」の中心の前提が実測で成立 |
+| `da-review-all` が headless で完走するか | ✅ **完走。** 18ターン、$1.99、Canvas に言及、`report-format.md` 準拠。変更マップを省略した理由まで明記していた |
+| `/grill-me` が何かを実行するか | ❌→✅ **していなかった。** `grilling` がディスクのどこにも無く、`/grill-me` は「これはスタブです」と報告するだけだった。上流から入れて解決（[判断の記録 §22](decisions.md)） |
+| `--json-schema` のフラグ名 | ✅ 存在。**ただしファイルパスを渡すとエラーにならず永久にハングする** —— スキーマは文字列で取ります |
+
+**`attempts` が1ターンで 2 になります。** ブロックで1、再入の解放で1。つまり `max_attempts: 3` は
+**2ターンで到達**します —— 「3回落ちると VERDICT」は正確には「3カウント」で、無人ループの体感周回数は
+それより少ないです。
+
+**コストの実測**（このリポジトリで初めての数字）:
+`/da-review-all` **$1.99** · `/da-verify` $0.59 · `/grilling` $0.76 · 自明な1ターン $0.09。
+**レビュー1回で約$2** —— 引用してきた「総コストの大半がレビュー側」が、自分の数字でも同じ向きです。
+
 ## まだ測っていないこと
 
-`docs/harness-facts.md` と同じ扱いで、正直に置いておきます。
-
-- **`claude -p` のターン終了で Stop hook が発火するか。未確認。** このマシンではグローバルの
-  `claude` が壊れていて（プラットフォームバイナリが中断された npm の staging に取り残されている）
-  実験できませんでした。**駆動系はどちらでも壊れないように書いてあります**: 発火するなら gate が
-  `max_attempts` で VERDICT を書き、駆動系はそれを読んで `gave_up` で止まる。発火しないなら VERDICT は
-  現れず、駆動系の round cap が `round_cap` で止める。**どちらが起きたかは台帳の `halt_reason` に
-  出るので、最初の実走が副作用としてこの問いに答えます。**
-- **`-p` でスラッシュコマンドが発火するか**（`disable-model-invocation` 付きも含む）。未確認。
-  届かないなら「打つ人」の前提が崩れるので、PR 段は人間に返すことになります。
-- **`da-review-all` が headless で完走するか。** Step 5 が Canvas 成果物を1つ必須にしていて、
-  契約テストもあります。Artifact が headless で使えないなら、レビュー段は対話セッションに戻します。
-- **`/grill-me` が実際に何かを実行するか。** 本文7行の全部が「Run a `/grilling` session.」で、
-  **`grilling` という名前のものはディスクのどこにもありません**。バンドル済みスキルは binary に
-  埋め込まれてディスクに現れないので実在する可能性はありますが、確認できていません。
-  解決しないなら L 段の1手目が「存在しない指示を読んで即興する」ことになります。
-- **`--json-schema` というフラグ名。** `loop.sh` の `SCHEMA_FLAG` に1箇所だけ書いてあります。
-  違っていたら毎周が大きな声で失敗します（prose に黙ってフォールバックはしません）。
-- **S / M / L の閾値と `MAX_ROUNDS` / `BUDGET_USD` / `MAX_OPEN_DRAFTS`。**
-  全部**選んだ数字**で、測定値ではありません —— gate の `max_attempts: 3` と 12h TTL と同じ status。
+- **S / M / L の閾値と `MAX_ROUNDS` / `REVIEW_ROUNDS` / `BUDGET_USD` / `MAX_OPEN_PRS` /
+  `ROUND_TIMEOUT`。** 全部**選んだ数字**で、測定値ではありません —— gate の `max_attempts: 3` と
+  12h TTL と同じ status です。
+- **駆動系を一度も実走していません。** `report` が出す数字はまだ0件のデータに対するものです。
+  **計器を作ったことは、測ったことではありません。**
 
 ---
 
