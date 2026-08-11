@@ -191,49 +191,53 @@ claude setup-token                     # 無人ループには期限切れしな
 ログインを待って止まります** —— 有界化してあるので**ハングはしませんが landing は止まります**
 （`halt_reason: round_timeout`）。
 
-#### 小さい変更の1日（tier S）
+#### 打つのは1つだけ
 
 ```bash
-scripts/loop.sh size "駆動系の usage に design を1行足す"
-#   → tier S と印字。設計フェーズ無し
+scripts/loop.sh "やりたいことを1文で"
+```
 
-scripts/loop.sh run
-#   /using-git-worktrees   作業を隔離
-#   /da-verify             ゲートを arm（証拠テーブルもここで出る）
-#   /test-driven-development  → 緑になるまで、赤いままなら周2以降は /systematic-debugging
-#   /da-review-all → /da-fix-plan → /receiving-code-review
-#   gh stack submit --auto --open → /da-pr-describe
-#   → PR の URL、または止まった理由
+**同じコマンドを打つたびに1歩進みます。** 何が次の段かを覚える必要はなく、計画ファイルのパスも
+覚える必要はありません（`docs/plans/` から自分で見つけます）。
 
-scripts/loop.sh report
+| いまの状態 | このコマンドがすること |
+|---|---|
+| まだ測っていない | 測って tier を出し、**そのまま次へ** |
+| tier **S** | **端まで回す。** worktree 隔離 → arm → TDD → レビュー → triage → stacked PR |
+| tier **M・L**、計画がまだ無い | **「ここからはあなたの手番です」と言って止まる。** 順序と、何が検証できているかを印字（exit 0 —— 失敗ではなく引き継ぎ） |
+| tier **M・L**、計画が commit 済み | 計画を**自分で見つけて**端まで回す |
+| `docs/plans/` に計画が2つ以上 | **推測せず両方を並べて止まる** |
+
+つまり大きい変更はこうなります —— **打つのは同じ1行、2回だけ**です。
+
+```bash
+scripts/loop.sh "認証を OIDC に寄せる"
+#   → tier L。「あなたの手番です」と順序が出る
+
+#   あなたが打つ: /grill-me → /writing-plans → /da-design-review
+#   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
+
+scripts/loop.sh "認証を OIDC に寄せる"
+#   → 計画を見つけて、端まで回す
 ```
 
 **走っている間、あなたは何もしません。終わったら台帳を読みます** —— transcript ではなく。
 止まったときは `halt_reason` が理由を1語で言い、**全部「人間に返す」で終わります**。
 
-#### 大きい変更（tier M・L）—— 設計フェーズはあなたの仕事
-
-```bash
-scripts/loop.sh size "…"     # → tier M か L
-scripts/loop.sh design       # 順序と、何が検証済みかを印字する（何も聞きません）
-
-# あなたが打つ:
-#   /grill-me → /writing-plans → /da-design-review     （L。M は design review だけ）
-# 🧱 Landing plan は会話の中にしか出ないので、写してファイルに保存し commit する
-#   ← その commit が承認の印です。承認フラグはありません
-
-scripts/loop.sh run docs/plans/<your-plan>.md
-```
+下の個別サブコマンド（`size` / `design` / `run` / `report` / `status`）は残してありますが、
+**普段打つ必要はありません。** `report` だけは自分で打ちます —— 数字は読まないと意味がないので。
 
 **`/grill-me` と `/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
 駆動系は*打てます*（ユーザ入力だから）が、モデルからは呼べません。
 
 ```bash
-scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
-scripts/loop.sh design                      # 設計フェーズ: 次に打つもの、検証できているもの
-scripts/loop.sh run                         # S: そのまま回す
-scripts/loop.sh run docs/plans/foo.md       # M / L: commit 済みの Landing plan が必須
+scripts/loop.sh "やりたいことを1文で"        # ← 普段打つのはこれだけ。状態を見て1歩進む
 scripts/loop.sh report                      # 採択1件あたりのコスト、phase 別の内訳
+
+# 個別に触りたいとき（普段は不要）
+scripts/loop.sh size "…"                    # 規模だけ測る
+scripts/loop.sh design                      # 設計フェーズの順序と、検証できているもの
+scripts/loop.sh run [<landing-plan>]        # 回すだけ
 scripts/loop.sh status                      # 直近の size 判定と、ゲートの状態
 ```
 

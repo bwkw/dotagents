@@ -855,6 +855,66 @@ elapsed=$(( $(date +%s) - started ))
   && ok "and the ledger says it timed out, not that it failed or did nothing" \
   || no "the hanging round recorded halt_reason '$(ledger_field 'halt_reason')'"
 
+# ================================================================ the single entry point
+# `loop.sh "<request>"` is the only thing anyone should have to remember. Typing it repeatedly advances
+# one step: size if unsized, hand over if the design phase is yours, run when there is something to run.
+
+# Unsized + small -> it sizes and goes straight on to running.
+setup
+measurement 1 1 0 0 0
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop "usage に design を1行足す"
+[[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
+  && ok "one entry point: an unsized small change is sized and run in one command" \
+  || { no "the single entry point did not carry a tier-S change through (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+[[ "$(ledger_field 'phase')" != "size" ]] \
+  && ok "and it did not stop after sizing" || no "it sized and stopped"
+
+# Unsized + large -> it sizes, then hands the design phase over. Not an error: it advanced as far as it
+# could, and the next step belongs to a human.
+setup; measurement 20 3 1 1 1
+runloop "大きいこと"
+[[ $RC -eq 0 ]] \
+  && ok "a large change exits 0 -- handing over is not a failure" \
+  || { no "handing the design phase over exited $RC"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+grep -qE 'あなたの手番|your turn' <<<"$OUT" \
+  && ok "and it says plainly that it is your turn" \
+  || { no "it did not say whose turn it is"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+for want in grilling writing-plans da-design-review; do
+  grep -q "$want" <<<"$OUT" && ok "  names /$want" || no "  omitted /$want"
+done
+grep -q 'stack submit' "$FAKE_GH_LOG" && no "it opened a PR without a design phase" || ok "and opens nothing"
+
+# Same command again, now that a landing plan is committed -> it finds the plan itself and runs.
+# Nobody should have to remember the path.
+mkdir -p "$REPO_DIR/docs/plans"
+printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+  > "$REPO_DIR/docs/plans/thing.md"
+git -C "$REPO_DIR" add docs/plans/thing.md; commit_in_repo plan
+respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop "大きいこと"
+[[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
+  && ok "the same command finds the committed landing plan and runs it" \
+  || { no "it did not pick up the committed plan (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+
+# Two candidate plans -> it refuses rather than guessing which one you meant.
+# Same request both times, or the second call re-measures (a changed request must re-size) and consumes
+# an investigate response the fixture did not script.
+setup; measurement 20 3 0 0 0; runloop size "大きいこと"
+mkdir -p "$REPO_DIR/docs/plans"
+for n in one two; do
+  printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+    > "$REPO_DIR/docs/plans/$n.md"
+done
+git -C "$REPO_DIR" add docs/plans; commit_in_repo plans
+runloop "大きいこと"
+[[ $RC -ne 0 ]] && grep -q 'docs/plans/one.md' <<<"$OUT" && grep -q 'docs/plans/two.md' <<<"$OUT" \
+  && ok "two candidate plans are listed rather than one being guessed at" \
+  || { no "it did not refuse on an ambiguous plan (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+
 # ================================================================ the all-skills flow
 
 # `loop.sh design` must never prompt: test-non-interactive.sh asserts there is no interactive path, and

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Drive design -> implementation -> review -> one stacked PR per landing.
 #
+#   loop.sh "<what you want>"        the only one you need: advances one step, whatever step that is
 #   loop.sh size "<what you want>"   measure the change, and say which tier it is
 #   loop.sh design                   the design phase: what to type next, and what it can verify
 #   loop.sh run [<landing-plan>]     run the landings (the plan is required above tier S)
@@ -445,6 +446,76 @@ within your budget -- do not leave it empty to look thorough; it decides whether
   esac
 }
 
+
+
+# ---------------------------------------------------------------- the single entry point
+# One command, typed repeatedly. Each invocation advances one step and stops; nothing has to be
+# remembered about which step is next, or where the plan file went.
+#
+# It does NOT drive the attended stages, and cannot: `/grilling` interviews you, and an interview with
+# nobody in the room produces questions into the void. So the states are advance, hand over, or run --
+# and handing over exits 0, because it advanced as far as it could and the next step is a person's.
+#
+# The landing plan is discovered rather than named. `da-design-review` writes no file, so the plan is
+# whatever you copied its 🧱 table into; the convention is docs/plans/, and the table's own header row
+# is what identifies it. A content search over the whole tree would match this repository's own
+# documentation, which quotes that header -- so the search is scoped to the conventional directory.
+landing_plans() {
+  local f
+  for f in $(git ls-files 'docs/plans/*.md' 2>/dev/null); do
+    grep -q 'What gates it' "$f" 2>/dev/null && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+cmd_auto() { # <request>
+  local request="$1" tier recorded plans n
+  recorded="$(ledger_last size request)"
+  tier="$(ledger_last size tier)"
+
+  # Re-measure when the request is new. Reusing a stale tier for different work is how an unmeasured
+  # change gets treated as a small one.
+  if [[ -z "$tier" || ( -n "$request" && "$request" != "$recorded" ) ]]; then
+    cmd_size "$request" || return 1
+    tier="$TIER"
+    echo
+  else
+    dim "already sized: tier $tier ($recorded)"
+    echo
+  fi
+
+  if [[ "$tier" == "S" ]]; then
+    cmd_run
+    return $?
+  fi
+
+  plans="$(landing_plans)"
+  n="$(printf '%s\n' "$plans" | grep -c . || true)"
+  if [[ "$n" == "1" ]]; then
+    dim "landing plan: $plans"
+    echo
+    cmd_run "$plans"
+    return $?
+  fi
+  if [[ "${n:-0}" -gt 1 ]]; then
+    printf 'loop: more than one committed landing plan under docs/plans/:\n' >&2
+    printf '%s\n' "$plans" | sed 's/^/  /' >&2
+    die "name the one you mean: scripts/loop.sh run <plan-path>"
+  fi
+
+  # No plan yet. This is the handover, and it is not a failure.
+  say "━━ ここからはあなたの手番です（tier $tier）━━"
+  say ""
+  say "設計フェーズは対話が要るので、駆動系は打ちません。順序と、何が検証できているかだけ出します:"
+  say ""
+  cmd_design
+  say ""
+  say "🧱 Landing plan を docs/plans/ 以下に保存して commit すれば、**同じコマンドをもう一度打つだけ**で"
+  say "駆動系が見つけて続きを回します:"
+  say ""
+  say "    scripts/loop.sh \"$request\""
+  return 0
+}
 
 # ---------------------------------------------------------------- design
 # The design phase is ATTENDED at every tier above S -- `/grilling` is an interview and
@@ -1183,5 +1254,8 @@ case "${1:-}" in
   run)    shift; cmd_run    "$@" ;;
   report) shift; cmd_report "${1:-}" ;;
   status) shift; cmd_status ;;
-  *)      printf 'loop: unknown subcommand: %s\n\n' "$1" >&2; usage >&2; exit 1 ;;
+  # Not a subcommand? Then it is what you want done. This is the entry point people actually use, so it
+  # is the default rather than something to remember a verb for.
+  -*)     printf 'loop: unknown option: %s\n\n' "$1" >&2; usage >&2; exit 1 ;;
+  *)      cmd_auto "$1" ;;
 esac
