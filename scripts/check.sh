@@ -42,6 +42,14 @@ step() { # step <label> <command...>
       head -20 "$LOG" | sed 's/^/    /'
       printf '    %s... (%s lines omitted) ...%s\n' "$c_dim" "$(( $(wc -l < "$LOG") - 40 ))" "$c_off"
       tail -20 "$LOG" | sed 's/^/    /'
+      # The suites print one ✓/✗ per assertion, and with a hundred of them every failure lands in the
+      # omitted middle -- which is the only part worth reading. Twice this hid a CI-only failure that
+      # could not be reproduced locally, so the head/tail stays (it carries the first error of a long
+      # lint run) and the failures are listed as well.
+      if grep -q '✗' "$LOG"; then
+        printf '    %sfailures:%s\n' "$c_red" "$c_off"
+        grep '✗' "$LOG" | sed 's/^/      /'
+      fi
     else
       sed 's/^/    /' "$LOG"
     fi
