@@ -176,6 +176,58 @@ scripts/gate.sh gc             # 終了したセッションが残した armed �
 
 詳細は [docs/loops.md](docs/loops.md)。引数なしの `scripts/loop.sh` が同じ一覧を印字します。
 
+> **まだ一度も実走していません。** 単体テストは105件緑で、ハーネスの前提も実測しましたが、
+> **ループが端から端まで1回も閉じていません。** `report` の数字は0件のデータに対するものです。
+> **計器を作ったことは、測ったことではありません。**
+
+**前提が2つあります。**
+
+```bash
+gh extension install github/gh-stack   # landing ごとに1本の stacked PR にするので
+claude setup-token                     # 無人ループには期限切れしない資格情報が要る
+```
+
+2つ目は運用要件です。**OAuth トークンが実行中に切れると、`claude -p` は無人では絶対に得られない
+ログインを待って止まります** —— 有界化してあるので**ハングはしませんが landing は止まります**
+（`halt_reason: round_timeout`）。
+
+#### 小さい変更の1日（tier S）
+
+```bash
+scripts/loop.sh size "駆動系の usage に design を1行足す"
+#   → tier S と印字。設計フェーズ無し
+
+scripts/loop.sh run
+#   /using-git-worktrees   作業を隔離
+#   /da-verify             ゲートを arm（証拠テーブルもここで出る）
+#   /test-driven-development  → 緑になるまで、赤いままなら周2以降は /systematic-debugging
+#   /da-review-all → /da-fix-plan → /receiving-code-review
+#   gh stack submit --auto --open → /da-pr-describe
+#   → PR の URL、または止まった理由
+
+scripts/loop.sh report
+```
+
+**走っている間、あなたは何もしません。終わったら台帳を読みます** —— transcript ではなく。
+止まったときは `halt_reason` が理由を1語で言い、**全部「人間に返す」で終わります**。
+
+#### 大きい変更（tier M・L）—— 設計フェーズはあなたの仕事
+
+```bash
+scripts/loop.sh size "…"     # → tier M か L
+scripts/loop.sh design       # 順序と、何が検証済みかを印字する（何も聞きません）
+
+# あなたが打つ:
+#   /grill-me → /writing-plans → /da-design-review     （L。M は design review だけ）
+# 🧱 Landing plan は会話の中にしか出ないので、写してファイルに保存し commit する
+#   ← その commit が承認の印です。承認フラグはありません
+
+scripts/loop.sh run docs/plans/<your-plan>.md
+```
+
+**`/grill-me` と `/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
+駆動系は*打てます*（ユーザ入力だから）が、モデルからは呼べません。
+
 ```bash
 scripts/loop.sh size "やりたいことを1文で"   # 規模を測り、S / M / L を決める
 scripts/loop.sh design                      # 設計フェーズ: 次に打つもの、検証できているもの
@@ -190,8 +242,9 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 >
 > **`report` が出す数字は1つが最重要です: 採択1件あたりのコスト。** 採択率が 50% を下回ったら
 > ループは負けています（レビュー作業を人間に押し戻しているだけ）。`report` はそのとき自分でそう言います。
-> **これがこのリポジトリで初めての実測コストです** —— [設計思想](docs/design.md) が
-> 「今あるのは自己申告だけ」と書いていたギャップの片側。
+> **スキル単体のコストは実測しました**（`/da-review-all` **$1.99** · `/da-verify` $0.59 ·
+> 自明な1ターン $0.09）—— [設計思想](docs/design.md) が「今あるのは自己申告だけ」と書いていた
+> ギャップの片側。**ただし「採択1件あたり」はまだ0件のデータに対する数字です。**
 
 > **無人で回しても壊れない形にしてあります。** 以前ここには「深夜に無人で回すためのロックではありません」と書いてありました。**その立場が誤りだったのではなく、立場の話をしている間に状態機械が壊れていた**のが問題でした —— `arm` に期限が無く、ブロックに上限が無く、諦めたことが記録されない。[判断の記録](docs/decisions.md) に反転として記録しています。
 >
