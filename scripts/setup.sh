@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # dotagents installer.
 #
-#   install [--dry-run]     link skills, copy hooks, merge settings, and remove
+#   install [--dry-run] [--with-opinions]   link skills, copy hooks, merge settings, and remove
 #                                          anything we installed that the repo no longer ships
+#
+#     --with-opinions  also merge the keys the settings template lists in $opinionKeys: verbose
+#                      telemetry, and the skillOverrides that quiet bundled and plugin skills.
+#                      Left out by default -- they change how skills this repo does not ship
+#                      behave, and installing a gate is not consent to that.
 #   status                                  what is installed and whether it is current
 #   doctor                                  diagnose drift and breakage
 #   uninstall [--dry-run]                   remove exactly what we installed
@@ -29,6 +34,13 @@ CURSOR_AGENTS="$HOME/.cursor/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
+WITH_OPINIONS=0
+
+# Holds the filtered settings snippet while a merge runs. Cleaned on every exit path: `set -e` and
+# `die` both leave the function early, and a scratch file under $TMPDIR that nothing removes is the
+# same unbounded-growth bug as the backups that were never pruned.
+SETTINGS_SCRATCH=""
+trap '[[ -n "$SETTINGS_SCRATCH" ]] && rm -f "$SETTINGS_SCRATCH"' EXIT
 
 # Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
 TILDE="~"
@@ -315,20 +327,59 @@ prune_backups() { # <target>
 
 # Merge only the keys our template declares. Existing values we did not write -- notably
 # env.OTEL_EXPORTER_OTLP_HEADERS, which holds a plaintext API key -- are never read or rewritten.
+#
+# Without --with-opinions the keys listed in the template's own $opinionKeys are dropped first. They
+# change how skills this repository does not ship behave, and installing a verification gate is not
+# consent to that. The mechanism (`hooks`) is always merged: without it nothing here runs at all.
+#
+# Filtered into a temp file rather than merged as a second pass, because merge-settings.mjs REPLACES
+# manifest.settingsHooks with what the snippet it was just handed declares. A second pass over a
+# snippet with no `hooks` would clear our hook records, and the manifest is the only thing uninstall
+# has to go on.
+effective_settings_snippet() { # <template> -> path to merge (may be a temp file)
+  local tmpl="$1"
+  if (( WITH_OPINIONS )); then printf '%s\n' "$tmpl"; return; fi
+
+  local out
+  out="$(mktemp "${TMPDIR:-/tmp}/dotagents-settings.XXXXXX" 2>/dev/null)" || out=""
+  if [[ -z "$out" ]]; then
+    # No scratch file means we cannot filter. Merging the unfiltered template would apply the
+    # opinions without being asked, so decline the whole merge and say why.
+    die "could not create a temp file to filter the settings template -- refusing to merge, because
+the unfiltered template would apply keys you did not ask for. Set TMPDIR, or pass --with-opinions."
+  fi
+  SETTINGS_SCRATCH="$out"
+  node -e '
+    const fs = require("fs");
+    const snippet = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    // One home for the list: the template. A copy here would be a second thing to update.
+    const drop = new Set(snippet.$opinionKeys ?? []);
+    for (const k of drop) delete snippet[k];
+    delete snippet.$opinionKeys;
+    fs.writeFileSync(process.argv[2], JSON.stringify(snippet, null, 2) + "\n");
+  ' "$tmpl" "$out"
+  printf '%s\n' "$out"
+}
+
 merge_settings() {
   local tmpl="$REPO/templates/claude.settings.snippet.json"
   local target="$HOME/.claude/settings.json"
   [[ -f "$tmpl" ]] || { note "no settings snippet -- skipping"; return; }
 
+  local eff; eff="$(effective_settings_snippet "$tmpl")"
+
   if (( DRY_RUN )); then
     note "would: merge keys from templates/claude.settings.snippet.json into ~/.claude/settings.json"
-    node "$REPO/scripts/lib/merge-settings.mjs" --print-keys "$tmpl" | sed 's/^/    /'
+    (( WITH_OPINIONS )) || note "(mechanism only -- pass --with-opinions to include env/skillOverrides)"
+    node "$REPO/scripts/lib/merge-settings.mjs" --print-keys "$eff" | sed 's/^/    /'
+    rm -f "$SETTINGS_SCRATCH"; SETTINGS_SCRATCH=""
     return
   fi
 
   merge_with_backup "$target" "~/.claude/settings.json" \
-    node "$REPO/scripts/lib/merge-settings.mjs" "$tmpl" "$target" "$MANIFEST"
-  ok "merged settings into ~/.claude/settings.json"
+    node "$REPO/scripts/lib/merge-settings.mjs" "$eff" "$target" "$MANIFEST"
+  rm -f "$SETTINGS_SCRATCH"; SETTINGS_SCRATCH=""
+  ok "merged settings into ~/.claude/settings.json$( (( WITH_OPINIONS )) || echo ' (mechanism only)')"
 }
 
 merge_cursor_hooks() {
@@ -526,6 +577,25 @@ cmd_status() {
 cmd_doctor() {
   local problems=0
 
+  # Everything above can be green on a machine where the gate cannot check anything: it is armed per
+  # repository, and it resolves what to run from a profile matched on the git remote. With no profile
+  # it passes, by design -- guessing commands would be worse. But `status` never mentioned profiles, so
+  # a fresh install reported success while the one thing the toolkit is for was absent everywhere.
+  # Counted the way the gate counts them: `_`-prefixed files are templates and never match.
+  echo "profiles"
+  local pn=0 pf
+  for pf in "$REPO"/profiles/*.json; do
+    [[ -f "$pf" ]] || continue
+    case "$(basename "$pf")" in _*) continue ;; esac
+    pn=$((pn+1))
+  done
+  if (( pn > 0 )); then
+    ok "$pn profile(s) in $REPO/profiles ${c_dim}(the gate checks a repository only if one matches its remote)${c_off}"
+  else
+    warn "no profiles -- the gate will pass on every repository, silently. Copy profiles/_example.*.json, or run /da-verify"
+  fi
+
+  echo
   echo "environment"
   [[ -d "$HOME/.claude" ]] && ok "~/.claude exists" || { bad "~/.claude missing"; problems=$((problems+1)); }
   [[ -d "$HOME/.cursor" ]] && ok "~/.cursor exists" || { warn "~/.cursor missing -- Cursor side will not work"; }
@@ -660,6 +730,7 @@ cmd="$1"; shift
 for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
+    --with-opinions) WITH_OPINIONS=1 ;;
     --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
     -h|--help)       usage ;;
     *) die "unknown option: $arg" ;;

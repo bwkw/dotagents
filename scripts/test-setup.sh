@@ -58,6 +58,20 @@ check "install links every shipped skill" \
 grep -q 'do-not-touch-me' "$FAKE/.claude/settings.json" \
   && ok "a secret we did not write is untouched" || no "THE SECRET WAS ALTERED"
 
+# The default install must apply the mechanism and NOTHING that changes other people's skills. This
+# is the assertion that makes the toolkit installable by someone who did not choose these opinions:
+# `claude-api` is ours to suppress on this machine, and on a fresh machine it must stay untouched.
+# The hook has to be there in the same breath -- an install that quietly skipped the mechanism too
+# would satisfy a check that only looked for absence.
+mech() { node -e 'const f=process.argv[1];try{const s=require(f);console.log(JSON.stringify(s.skillOverrides?.["claude-api"] ?? null), JSON.stringify(s.env?.OTEL_LOG_TOOL_DETAILS ?? null))}catch{console.log("ERR")}' "$FAKE/.claude/settings.json"; }
+check "a default install applies no opinion keys" "null null" "$(mech)"
+grep -q 'dotagents-verify-gate' "$FAKE/.claude/settings.json" \
+  && ok "a default install still wires the Stop gate" || no "the mechanism was skipped as well"
+
+# Everything below needs the opinion keys present, so from here the fake machine opts in -- the same
+# way this repository's author does.
+run_setup install --with-opinions >/dev/null
+
 # skillOverrides is a map we share with the user: we add entries, we must not rewrite theirs. `pdf`
 # is deliberately set to a DIFFERENT value than our snippet asks for, so it exercises the
 # "already set to something else -- not ours to change" branch rather than a no-op.
@@ -113,9 +127,10 @@ for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
     && ok "agent '$a' is linked for Cursor" || no "agent '$a' missing from ~/.cursor/agents"
 done
 
-# install twice must change nothing further.
+# install twice must change nothing further. Same flags both times: idempotence is a property of
+# running the same command again, and comparing two different installs would test something else.
 cp "$FAKE/.claude/settings.json" "$TMP/after1"
-run_setup install >/dev/null
+run_setup install --with-opinions >/dev/null
 cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
   && ok "install is idempotent" || no "a second install changed settings again"
 
@@ -125,7 +140,7 @@ cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
 # not a safety net, and an unattended loop that re-installs per iteration grows it without limit.
 backups() { ls -1 "$FAKE/.claude/settings.json".dotagents-backup-* 2>/dev/null | wc -l | tr -d ' '; }
 before_n="$(backups)"
-run_setup install >/dev/null
+run_setup install --with-opinions >/dev/null
 [[ "$(backups)" == "$before_n" ]] \
   && ok "an install that changes nothing takes no backup" \
   || no "a no-op install still took a backup ($before_n -> $(backups))"
