@@ -59,10 +59,15 @@ REVIEW_ROUNDS=2       # review passes; the third would buy approval, not correct
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
 BUDGET_USD=10         # per `run` invocation
 
-# The flag that asks for schema-conforming output. Unverified on this machine (see the header), so it
-# is named once: if `claude` rejects it, every round fails loudly rather than the driver silently
-# falling back to reading prose.
+# Measured against claude 2.1.148, not assumed: `--json-schema` exists, and it takes the schema as an
+# INLINE JSON STRING. Handing it a file path does not error -- it HANGS, with stdin closed, forever.
+# That is why the deadline below is not optional: the two phases that ask for structured output would
+# have hung on first real use, and a hang is the one failure neither the round cap, the budget nor the
+# gate can stop.
 SCHEMA_FLAG="--json-schema"
+
+# Seconds a single `claude -p` may take. Chosen, not measured. The env override exists for the tests.
+ROUND_TIMEOUT="${DOTAGENTS_LOOP_ROUND_TIMEOUT:-1800}"
 
 if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then c_red=''; c_green=''; c_dim=''; c_off=''
 else c_red=$'\033[31m'; c_green=$'\033[32m'; c_dim=$'\033[2m'; c_off=$'\033[0m'; fi
@@ -282,21 +287,47 @@ gate_gave_up() { # -> 0 when a VERDICT has been recorded
 # ---------------------------------------------------------------- rounds
 SPENT=0
 GATE_UNRAN=""
+ROUND_TIMED_OUT=0
 ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 
 # One `claude -p`. Never --bare: that switch turns off hooks, skills and CLAUDE.md, which is the
 # whole mechanism here -- the official docs recommend it for scripted calls and for this loop it is
 # the one fail-open in the manual. Never --dangerously-skip-permissions either; acceptEdits plus the
 # profile's `forbidden` list plus the scorer check is the containment.
-claude_round() { # <prompt> [schema-file]
-  local prompt="$1" schema="${2:-}" raw
+claude_round() { # <prompt> [inline-schema-json]
+  local prompt="$1" schema="${2:-}" raw out pid t
   local args="--print --output-format json --permission-mode acceptEdits"
+  out="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-round.XXXXXX")" || die "mktemp failed"
+
+  # Bounded, and stdin closed. macOS has no `timeout`, so this polls the way
+  # scripts/test-non-interactive.sh does. stdin is closed because a `claude` whose credentials have
+  # expired will otherwise sit waiting for a login it can never get in an unattended run.
   # shellcheck disable=SC2086
   if [[ -n "$schema" ]]; then
-    raw="$(claude $args "$SCHEMA_FLAG" "$schema" "$prompt" 2>/dev/null)"; ROUND_EXIT=$?
+    claude $args "$SCHEMA_FLAG" "$schema" "$prompt" >"$out" 2>/dev/null </dev/null &
   else
-    raw="$(claude $args "$prompt" 2>/dev/null)"; ROUND_EXIT=$?
+    claude $args "$prompt" >"$out" 2>/dev/null </dev/null &
   fi
+  pid=$!
+  t=0
+  ROUND_TIMED_OUT=0
+  while (( t < ROUND_TIMEOUT * 5 )); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+    t=$((t + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    # The whole process group: a killed `claude` can leave the tools it spawned holding ports.
+    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    sleep 1
+    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
+    ROUND_TIMED_OUT=1
+  fi
+  wait "$pid" 2>/dev/null; ROUND_EXIT=$?
+  (( ROUND_TIMED_OUT )) && ROUND_EXIT=124
+
+  raw="$(cat "$out" 2>/dev/null)"
+  rm -f "$out"
   ROUND_OUT="$raw"
   ROUND_COST="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).total_cost_usd??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   ROUND_TURNS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).num_turns??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
@@ -304,10 +335,6 @@ claude_round() { # <prompt> [schema-file]
   return 0
 }
 
-# Whether the round produced a structured_output object at all. Needed because an empty array and a
-# missing field both stringify to "" -- and for `unconfirmed` those mean opposite things: "nothing was
-# left unconfirmed" (legitimately 0, tier may be S) versus "the answer never arrived" (size unknown,
-# and treating it as 0 is the reading that sends unmeasured work to an unattended loop).
 round_has_structured() {
   node -e '
     let s = "";
@@ -344,19 +371,14 @@ decide_tier() {
 cmd_size() {
   local request="${1:-}"
   [[ -n "$request" ]] || die "size needs the request: loop.sh size \"<what you want>\""
-  local schema; schema="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-schema.XXXXXX")" || die "mktemp failed"
-  # shellcheck disable=SC2064
-  trap "rm -f '$schema'" EXIT
-  cat > "$schema" <<'JSON'
-{ "type": "object",
-  "required": ["files", "layers", "one_way", "risk_surfaces", "unconfirmed"],
-  "properties": {
-    "files":         { "type": "array", "items": { "type": "string" } },
-    "layers":        { "type": "array", "items": { "type": "string" } },
-    "one_way":       { "type": "array", "items": { "type": "string" } },
-    "risk_surfaces": { "type": "array", "items": { "type": "string" } },
-    "unconfirmed":   { "type": "array", "items": { "type": "string" } } } }
-JSON
+  # Inline, not a file. `--json-schema` takes the schema as a string; a path makes the CLI hang.
+  local schema
+  schema='{"type":"object","required":["files","layers","one_way","risk_surfaces","unconfirmed"],'
+  schema="$schema"'"properties":{"files":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"layers":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"one_way":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"risk_surfaces":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}}}}'
 
   dim "measuring with /da-investigate ..."
   claude_round "/da-investigate $request
@@ -494,6 +516,12 @@ post_round() { # <phase> <landing> <round>
   # Every other non-zero exit, not just 143. An API error, a rate limit or a rejected flag used to
   # leave the failure invisible: claude_round swallows stderr and returns 0, so the loop carried on
   # against whatever the round did or did not manage to do.
+  if [[ "$ROUND_EXIT" == "124" ]]; then
+    halt round_timeout "the $1 round did not return within ${ROUND_TIMEOUT}s and was killed.
+  A hang is the one failure the round cap, the budget and the gate all miss, which is why the deadline
+  is here. If this repeats, check whether \`claude\` is waiting for a login it cannot get."
+    record "$1" "$2" "$3" halted round_timeout; return 1
+  fi
   if [[ "$ROUND_EXIT" != "0" ]]; then
     halt round_failed "the $1 round exited $ROUND_EXIT. Nothing is claimed about what it did."
     record "$1" "$2" "$3" halted round_failed; return 1
@@ -515,15 +543,9 @@ post_round() { # <phase> <landing> <round>
   return 0
 }
 
+# One line, because it is passed as an argument rather than written to a file.
 triage_schema() {
-  cat <<'JSON'
-{ "type": "object",
-  "required": ["fix_now", "needs_decision", "decline"],
-  "properties": {
-    "fix_now":        { "type": "integer" },
-    "needs_decision": { "type": "integer" },
-    "decline":        { "type": "integer" } } }
-JSON
+  printf '%s' '{"type":"object","required":["fix_now","needs_decision","decline"],"properties":{"fix_now":{"type":"integer"},"needs_decision":{"type":"integer"},"decline":{"type":"integer"}}}'
 }
 
 # One landing, start to submitted PR. Sets HALT when it stops early.
@@ -610,12 +632,11 @@ and editing them aborts this landing."
   commit_landing "$n" "$what" || return 1
 
   # --- review, capped ------------------------------------------------------
-  schema="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-triage.XXXXXX")" || die "mktemp failed"
-  triage_schema > "$schema"
+  schema="$(triage_schema)"
   for (( rr = 1; rr <= REVIEW_ROUNDS; rr++ )); do
     dim "   review $rr"
     claude_round "/da-review-all"
-    post_round review "$n" "$rr" || { rm -f "$schema"; return 1; }
+    post_round review "$n" "$rr" || return 1
     record review "$n" "$rr" advanced
 
     claude_round "/da-fix-plan
@@ -635,7 +656,7 @@ counts findings that need a human decision. \`decline\` counts what you decided 
   Nothing is claimed about what the review found. Check that \`$SCHEMA_FLAG\` is the right flag for
   structured output on this version of the CLI -- if it is not, every triage looks like this."
       FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
-      record triage "$n" "$rr" halted triage_unreadable; rm -f "$schema"; return 1
+      record triage "$n" "$rr" halted triage_unreadable; return 1
     fi
     # Non-numeric is also not zero, and `[[ x -gt 0 ]]` on a non-number exits non-zero under set -u
     # rather than comparing -- which would be a silent pass in the branch below.
@@ -644,14 +665,14 @@ counts findings that need a human decision. \`decline\` counts what you decided 
         halt triage_unreadable "the triage counts were not numbers (fix_now='$FIX_NOW',
   needs_decision='$NEEDS_DECISION', decline='$DECLINE')."
         FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
-        record triage "$n" "$rr" halted triage_unreadable; rm -f "$schema"; return 1 ;;
+        record triage "$n" "$rr" halted triage_unreadable; return 1 ;;
     esac
-    post_round triage "$n" "$rr" || { rm -f "$schema"; return 1; }
+    post_round triage "$n" "$rr" || return 1
 
     if [[ "$NEEDS_DECISION" -gt 0 ]]; then
       halt needs_decision "$NEEDS_DECISION finding(s) need a decision, not a retry. Stopping now
   regardless of remaining budget -- deciding whether to fix comes before deciding how."
-      record triage "$n" "$rr" halted needs_decision; rm -f "$schema"; return 1
+      record triage "$n" "$rr" halted needs_decision; return 1
     fi
     record triage "$n" "$rr" advanced
     [[ "$FIX_NOW" -eq 0 ]] && break
@@ -659,7 +680,7 @@ counts findings that need a human decision. \`decline\` counts what you decided 
     if [[ "$rr" -ge "$REVIEW_ROUNDS" ]]; then
       halt review_cap "$FIX_NOW finding(s) still open after $REVIEW_ROUNDS reviews. A third round
   buys a higher chance of approval, not a higher chance of being right. They are in the ledger."
-      record triage "$n" "$rr" halted review_cap; rm -f "$schema"; return 1
+      record triage "$n" "$rr" halted review_cap; return 1
     fi
 
     # Through /receiving-code-review, not straight into an editor. That skill exists to stop exactly
@@ -674,18 +695,17 @@ Apply the 'Fix now' items from the fix plan at docs/fix-plans/ -- and only those
 Evaluate each one before implementing it. If a finding does not hold up against the actual code, say
 so and leave it; a remedy applied because it was written down is the failure this skill is about. Do
 not touch profiles/, hooks/, or scripts/."
-    post_round fix "$n" "$rr" || { rm -f "$schema"; return 1; }
+    post_round fix "$n" "$rr" || return 1
     if gate_verify_ok; then
-      LAST_OK=1; record fix "$n" "$rr" advanced; commit_landing "$n" "$what fixes" || { rm -f "$schema"; return 1; }
+      LAST_OK=1; record fix "$n" "$rr" advanced; commit_landing "$n" "$what fixes" || return 1
     else
       LAST_OK=0
       halt red_after_fix "the fixes took the gate red: $(gate_field check) ($(gate_field kind)).
   The review's remedy broke something the implementation had passing, which is a finding about the
   remedy."
-      record fix "$n" "$rr" halted red_after_fix; rm -f "$schema"; return 1
+      record fix "$n" "$rr" halted red_after_fix; return 1
     fi
   done
-  rm -f "$schema"
 
   # --- the PR ------------------------------------------------------------
   submit_landing "$n" "$what" "$oneway"

@@ -78,6 +78,9 @@ resp="$FAKE_CLAUDE_DIR/$phase.$n.json"
 # stays red, and the cap case is about the latter.
 if [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.sh" ]]; then bash "$FAKE_CLAUDE_DIR/$phase.$n.sh"
 elif [[ -f "$FAKE_CLAUDE_DIR/$phase.sh" ]]; then bash "$FAKE_CLAUDE_DIR/$phase.sh"; fi
+# A round can be made to hang. Measured against the real CLI: `--json-schema` with a FILE PATH hangs
+# forever instead of erroring, so "the round never returns" is a real state, not a hypothetical.
+[[ -f "$FAKE_CLAUDE_DIR/$phase.$n.sleep" ]] && sleep "$(cat "$FAKE_CLAUDE_DIR/$phase.$n.sleep")"
 code=0
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.exit" ]] && code=$(cat "$FAKE_CLAUDE_DIR/$phase.$n.exit")
 cat "$resp" 2>/dev/null
@@ -189,6 +192,7 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
 side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
 fails_with()  { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.exit"; } # <phase> <n> <exit-code>
+hangs_for()   { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sleep"; } # <phase> <n> <seconds>
 
 runloop() { # <args...> -> stdout+stderr in $OUT, status in $RC
   OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" \
@@ -804,6 +808,34 @@ if ledger | node -e '
 else
   no "#10 a quote in a check id broke the ledger line that carries halt_reason"
 fi
+
+# The schema is passed INLINE, not as a file path. Measured against claude 2.1.148: `--json-schema`
+# takes the schema as a string, and handing it a path does not error -- it hangs forever. Every phase
+# that asks for structured output (size, triage) would have hung on first real use.
+setup; measurement 1 1 0 0 0; runloop size "r"
+grep -qE -- '--json-schema[[:space:]]+\{' "$FAKE_CLAUDE_LOG" \
+  && ok "the schema is passed inline as JSON, not as a file path" \
+  || { no "--json-schema was not followed by inline JSON -- a path argument hangs the CLI"; detail "$(head -1 "$FAKE_CLAUDE_LOG" | head -c 160)"; }
+grep -qE -- '--json-schema[[:space:]]+/' "$FAKE_CLAUDE_LOG" \
+  && no "--json-schema was handed a path, which hangs instead of failing" \
+  || ok "no path is ever passed to --json-schema"
+
+# A round that never returns. Neither the round cap, the budget, nor the gate can stop a hang, and this
+# repository keeps a whole suite about not hanging -- so the driver owns a deadline.
+setup; measurement 1 1 0 0 0; runloop size "r"
+: > "$FAKE_CLAUDE_DIR/no-worktree"
+respond implement 1 0.10 3; hangs_for implement 1 30
+started=$(date +%s)
+OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" \
+  DOTAGENTS_PROFILES="$PROFILES" DOTAGENTS_REPO="$REPO" DOTAGENTS_LOOP_ROUND_TIMEOUT=3 \
+  NO_COLOR=1 bash "$LOOP" run 2>&1)"; RC=$?
+elapsed=$(( $(date +%s) - started ))
+[[ $RC -ne 0 && $elapsed -lt 25 ]] \
+  && ok "a round that never returns is killed by the driver's deadline (${elapsed}s)" \
+  || { no "a hanging round was not bounded (exit $RC after ${elapsed}s)"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
+[[ "$(ledger_field 'halt_reason')" == "round_timeout" ]] \
+  && ok "and the ledger says it timed out, not that it failed or did nothing" \
+  || no "the hanging round recorded halt_reason '$(ledger_field 'halt_reason')'"
 
 # ---------------------------------------------------------------- interruption
 setup; measurement 1 1 0 0 0; runloop size "r"
