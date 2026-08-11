@@ -1,0 +1,18 @@
+version: 2
+
+# There is no package manifest here on purpose: this repository ships shell, markdown and JSON, and
+# it deliberately does not vendor the upstream skills it recommends (README explains why). So the only
+# dependency surface that can rot is the actions in the workflow -- and those run with the repository's
+# own token on every pull request, which makes them the one place where a stale pin actually matters.
+#
+# `npx skills` is NOT covered by anything here. Its version is pinned by hand in README.md because it
+# is the only code from the skills ecosystem that executes on your machine, and no manifest in this
+# repository declares it. Re-read that pin when you re-read this file.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 3

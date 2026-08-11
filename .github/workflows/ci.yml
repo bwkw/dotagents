@@ -9,6 +9,31 @@ permissions:
   contents: read
 
 jobs:
+  # The README asks for node 18 or newer. That floor was claimed, never run: CI tested 22 only, so
+  # "18 以上" was an unverified requirement being handed to people installing this. A floor nobody
+  # exercises is a floor that has already moved.
+  #
+  # A separate job rather than a matrix dimension on `shell`, so the job names stay stable -- they are
+  # the contexts the branch ruleset requires, and renaming them silently un-requires them.
+  node-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Report the versions actually in use
+        run: |
+          node -v
+          bash --version | head -1
+
+      - name: All checks, on the oldest node we claim to support
+        run: |
+          node --check scripts/lib/merge-settings.mjs
+          ./scripts/check.sh
+
   # Behaviour of the shell scripts, on both operating systems. Breakage has gone in both
   # directions: bash 4 constructs that pass on Linux and fail on macOS (which ships bash 3.2), and
   # `mktemp -t` spellings that work on BSD and fail on GNU coreutils. One OS catches neither.
