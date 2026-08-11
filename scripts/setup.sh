@@ -507,6 +507,31 @@ cmd_status() {
     fi
   done < <(skill_names)
 
+  # Skills are symlinked, so the installed instructions ARE this working tree: an edit is live the
+  # next time a skill is read, with no install step and nothing recorded. That includes an edit made
+  # by an agent, in the same session, to the instructions it is following.
+  #
+  # No hashes are kept for this. The earlier design put a sha256 per skill in the manifest, which is
+  # a second record of something git already records exactly -- and a baseline written at install time
+  # records whatever was there at install time, including a change nobody reviewed. git is the
+  # baseline, and `git status` is the comparison.
+  echo
+  echo "skill bodies vs the last commit"
+  if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+    local drift; drift="$(git -C "$REPO" status --porcelain -- skills/ 2>/dev/null)"
+    if [[ -z "$drift" ]]; then
+      ok "identical to HEAD ${c_dim}($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null))${c_off}"
+    else
+      # Not a failure. Editing skills is the normal way to work on this repository, and the point is
+      # that it is *visible* -- an uncommitted change to an agent's own instructions should never be
+      # something you have to go looking for.
+      warn "uncommitted, and therefore already live:"
+      while IFS= read -r line; do [[ -n "$line" ]] && note "  $line"; done <<<"$drift"
+    fi
+  else
+    warn "$REPO is not a git checkout -- there is no baseline to compare skill bodies against"
+  fi
+
   echo
   echo "hooks"
   while read -r n; do

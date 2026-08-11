@@ -29,7 +29,24 @@
 
 PR テンプレートがこの2点を明示的に聞くのは、そのためです。
 
-**まだ塞げていないもの**を正直に書いておきます。`Bash` 経由の書き込み（`sed -i`、`cat > SKILL.md`）は `PreToolUse` の matcher に当たらないので、書き込み時点では検出されません。本文の完全性を検査する仕組みは設計段階で、`docs/portability.md` の「直していないもの」に記録があります。
+## 本文に対して、いま何が働いているか
+
+**内容の善悪は判定しません。形だけを見ます。** 2つの形が、スキル本文と `reference/` の全行で禁止されています —— 資格情報の置き場（`~/.aws`・`~/.ssh`・`.env`・`id_rsa`・`.netrc`・keychain）が read/send 系の動詞と**同じ行に**現れること、そして pipe-to-shell・`base64 -d`・paste サイトの形。
+
+| どこ | いつ | 失敗の向き |
+|---|---|---|
+| `hooks/dotagents-lint-skill-frontmatter.sh` | `SKILL.md` を書いた瞬間（Edit の断片も） | **警告のみ**（fail open）。どこの `SKILL.md` にも発火するので、本当に deploy するスキルが `.env` を読むのは正当でありうる |
+| `scripts/verify-skills.sh` → `check.sh` → CI | commit / PR | **エラー**（fail closed）。このリポジトリ自身のスキルに対してだけ |
+
+正当な理由があるときは、その行に `dotagents:allow-sensitive: <理由>` を書いてください。理由なしの「許可」は受け付けません。
+
+`setup.sh status` は、スキル本文が**最後のコミットと違うか**も報告します。skills は symlink なので、未コミットの編集は既に有効です。
+
+## まだ塞げていないもの
+
+- **`Bash` 経由の書き込み**（`sed -i`、`cat > SKILL.md`）は `PreToolUse` の matcher に当たらないので、書き込み時点では検出されません。**書き込み時のゲートは原理的に不完全**で、だから load-bearing な層は commit / CI 側に置いてあります
+- **他人のスキル**（`npx skills` などで入れたもの）の本文は監視していません。TOFU ハッシュには受け入れ経路が必要で、それが無いと update のたびに解決できない警告が出て、警告を無視する訓練になります。判断の記録は [docs/decisions.md](docs/decisions.md) §19
+- **パターンは形しか見ません。** 巧妙に言い換えられた指示は通ります。最終審は CI で、その限界も §19 に書いてあります
 
 ## 報告
 
