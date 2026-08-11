@@ -10,9 +10,9 @@ English: [README.en.md](README.en.md)
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
-他人のマシンで動かすために何を変えたか: [docs/portability.md](docs/portability.md)
+1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md)
 
-何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) · 変更履歴: [CHANGELOG.md](CHANGELOG.md) ·
+何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
 直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ```bash

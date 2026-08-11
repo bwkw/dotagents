@@ -2,7 +2,9 @@
 
 このリポジトリは公開されていますが、**実際に動くことが確認されていたのは1台だけ**でした。この文書はその棚卸しです。何が環境に食い込んでいたか、何を直したか、何を直していないか、そして**要らないものは何だったか**を、全部ここに書きます。
 
-前提の変更はこう言えます。**「作者のマシンで動く」から「clone した人のマシンで動く」へ。** この差は機能の差ではなく、既定値と同意の差でした。
+前提の変更はこう言えます。**「この1台で動く」から「作者がどのマシン・worktree・fork でも同じ道具を使える」へ。** この差は機能の差ではなく、既定値と同意の差でした。
+
+**「製品にする」ことではありません。** そこを一度混同して、リリース運用と貢献者向けの体裁を積み、外しました（下の「行き過ぎて戻した」）。
 
 ---
 
@@ -93,8 +95,8 @@ node scripts/lib/merge-settings.mjs --print-keys templates/claude.settings.snipp
 | 6 | **Windows/WSL の明記なし** | **明記した（未確認と書いた）。** bash 前提なので WSL のみのはず、と README に書いています。「はず」を「対応」と書かないのがここの作法 |
 | 7 | **上流スキルの存在確認が無い** | **完了。** `setup.sh status` が、README の導線が使う上流スキル10本の不在を報告します。インストールはしません（`npx skills add` は利用者の判断）。リストは `setup.sh` に1箇所で宣言し、`verify-skills.sh` が **README に記載があること**を照合 —— 上流の改名で、誰も文書化していない名前を探し続けるのを防ぐため |
 | 8 | **`docs/mechanisms.md` の機種依存の記述** | **完了。** 「このマシン固有の危険」→「あなたのマシンで確認すべき危険」に。数字は例として残し、`which -a claude` で自分のマシンを確認する手順を追加 |
-| 9 | **リリースとバージョニングが無い** | **半分完了。** `CHANGELOG.md` を追加。**タグはまだありません** —— 過去に遡って打つことはしません（どのコミットが「動く版」だったかを事後に判定する根拠が無く、根拠のない版番号は無いことより悪い）。最初のタグはこの一連の変更がマージされた時点で打ちます |
-| 10 | **CONTRIBUTING.md が無い** | **完了。** 失敗の向き（fail open / fail closed）をどちらを選んだか書くこと、`check.sh` の出力を貼ること、固有名を入れないこと |
+| 9 | **リリースとバージョニングが無い** | **やらないと決めた。** これは**作者が使う道具**で、外部に固定できる点を提供する必要がありません。CHANGELOG とタグは一度入れて外しました —— 判断の経緯は下の「行き過ぎて戻した」 |
+| 10 | **CONTRIBUTING.md が無い** | **完了。** ただし宛先は外部の貢献者ではなく、**将来の自分とエージェント**です。失敗の向き（fail open / fail closed）をどちらを選んだか書くこと、`check.sh` の出力を貼ること、固有名を入れないこと |
 
 ### GitHub 側の状態
 
@@ -106,12 +108,25 @@ node scripts/lib/merge-settings.mjs --print-keys templates/claude.settings.snipp
 | Secret scanning + push protection | 有効（元から） | |
 | Dependabot alerts / security updates | **有効にした** | |
 | Dependabot 設定 | **追加**（github-actions のみ） | ここに package manifest は無く、腐りうる依存は workflow の action だけ。`npx skills` は README で手動 pin —— 唯一マシン上で実行される外部コードなので |
-| CODEOWNERS | **追加** | `hooks/` `skills/` `templates/` `setup.sh` を明示的に列挙。catch-all に混ぜない |
-| issue テンプレート | **追加** | 脆弱性は公開 issue ではなく Security Advisory へ誘導 |
+| CODEOWNERS / issue テンプレート | **入れて、外した** | 下の「行き過ぎて戻した」 |
 
-**bypass actor を置いていません。** つまり作者自身も `main` に直接 push できません。ソロのリポジトリとしては摩擦がありますが、**自動実行されるコードを配っている**なら正しい姿勢だと判断しました。摩擦が実害になったら、admin を bypass に足すのは1コマンドです（その判断も記録に残すこと）。
+**bypass actor は置いていません** —— 維持する判断です。理由は「外部からの攻撃を避けたい」。ただし**外部を止めているのは ruleset ではありません**: write 権限が作者だけであること、fork の PR には read-only トークンしか渡らないこと（`permissions: contents: read`、`pull_request_target` を使っていない）、そして必須チェックで赤い PR がマージできないこと、この3つです。ruleset の PR 必須が実際に守っているのは**自分の直接 push で赤を `main` に載せないこと**で、それも維持する価値のあるものです。区別しておくのは、効いていない設定を効いていると思わないためです。
 
-**適用できなかったものが2つあります。** `delete_branch_on_merge` と、secret scanning の拡張（non-provider patterns / validity checks）。手元のツール制約で弾かれたので、所有者が実行する必要があります。コマンドは PR 説明にあります。
+**secret scanning の拡張2件**（non-provider patterns / validity checks）は未適用です。core の secret scanning・push protection・gitleaks・GitGuardian が動いているので、穴は空きません。
+
+---
+
+## 行き過ぎて戻した
+
+**「1台のマシンで動く」を直すことと、「製品にする」ことを、私は混同しました。** リリース運用（`CHANGELOG.md` とタグ）と貢献者向けの体裁（`CODEOWNERS`、issue テンプレート）を積んだのはその混同の結果で、指摘を受けて外しました。
+
+区別はこうです。**移植性は、作者が別のマシン・worktree・fork で同じ道具を使えること。** それは要る。**バージョニングは、外部の利用者に「固定できる点」を提供すること。** 利用者が作者一人なら、固定する相手がいません。
+
+外したもの: `CHANGELOG.md`、タグ（打つ前にやめた）、`CODEOWNERS`（必須レビューと組み合わせて初めて意味を持つ）、issue テンプレート（他人が issue を立てる前提）。
+
+残したもの: `SECURITY.md` と `CONTRIBUTING.md`。宛先を読み替えれば、どちらも**将来の自分とエージェントに効きます** —— 前者は `install` が何を自動実行させるかの説明、後者は fail open / fail closed の分担と「`check.sh` の出力を貼る」という規約です。PR テンプレートも同じ理由で残しています（自分の直接 push を止める側の縛り）。
+
+移植性の修正自体は全部残っています。**fork でゲートが無音で消えていた件は、他人のためではなく自分のためです** —— 作者自身が worktree と fork で作業するので。
 
 ---
 
