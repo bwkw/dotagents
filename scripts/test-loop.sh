@@ -755,6 +755,31 @@ runloop run plan.md
   && ok "each landing is submitted as it completes, so review can start on the lower layer" \
   || no "the stack was submitted $(grep -c 'stack submit' "$FAKE_GH_LOG") time(s) for 2 landings"
 
+# A REAL plan file, which is the shape every fixture above avoided: a title that says "Landing plan",
+# prose, ANOTHER table before the 🧱 one. `parse_plan` set inTable on the first line matching
+# /Landing plan/i -- the title on line 1 -- and then locked onto the first table it found after it. The
+# first landing came out numbered "主張" with "確認方法" as its content, and `gh stack add` was asked for
+# a layer by that name. Measured on the first plan this driver was ever handed that it did not generate:
+# the design-review output people actually copy has headings and evidence tables around the 🧱 one.
+# The header row is what `landing_plans()` already uses to identify a plan; parsing must use the same.
+setup; measurement 6 1 0 0 0; runloop size "r"
+{ printf '# 🧱 Landing plan -- the title mentions it, deliberately\n\n'
+  printf 'Some prose about why.\n\n'
+  printf '| 主張 | 確認方法 | 結果 |\n|---|---|---|\n| the loop ran | the ledger | yes |\n\n'
+  printf '## 🧱 Landing plan\n\n'
+  printf '| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | the real one | probe-gate | no |\n'
+} > "$REPO_DIR/plan.md"
+git -C "$REPO_DIR" add plan.md; commit_in_repo plan
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
+runloop run plan.md
+grep -q 'landing 1: the real one' <<<"$OUT" \
+  && ok "a plan with an evidence table above the 🧱 one still parses the 🧱 one" \
+  || { no "the wrong table was parsed as the landing list"; detail "$(grep -m1 'landing' <<<"$OUT")"; }
+grep -qE 'landing (主張|確認方法)' <<<"$OUT" \
+  && no "a row from the evidence table was treated as a landing" \
+  || ok "and no row from the other table became a landing"
+
 # The extension is a hard dependency. Falling back to `gh pr create` would silently produce an
 # unstacked PR -- a different shape of output than the one asked for, with nothing saying so.
 setup; measurement 1 1 0 0 0; runloop size "r"
