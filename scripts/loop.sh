@@ -308,6 +308,19 @@ gate_gave_up() { # -> 0 when a VERDICT has been recorded
   '
 }
 
+# Says, where the loop gives up, whether the check it gave up on is the one that was already failing
+# before it started. Without this the two read identically, and the expensive case -- somebody else's
+# breakage burning every round -- looks exactly like the landing's own failure. Deliberately silent when
+# the names differ: a run that started red on A and died on B did break B, and excusing that would turn
+# a useful sentence into an alibi the driver hands itself.
+inherited_note() {
+  [[ -n "${STARTED_RED_CHECK:-}" ]] || return 0
+  [[ "$(gate_field check)" == "$STARTED_RED_CHECK" ]] || return 0
+  printf '\n  This check was ALREADY RED before the run started -- the loop did not break it. It may be what
+  you asked to fix, or breakage the landing inherited; either way no number of rounds here turns it
+  green, and the work is not verified against it.'
+}
+
 # ---------------------------------------------------------------- rounds
 SPENT=0
 GATE_UNRAN=""
@@ -730,7 +743,7 @@ post_round() { # <phase> <landing> <round>
   fi
   if gate_gave_up; then
     halt gave_up "the gate recorded a VERDICT and stopped blocking. A released gate is not a green
-  one: the work is NOT verified. Read: scripts/gate.sh status"
+  one: the work is NOT verified. Read: scripts/gate.sh status$(inherited_note)"
     record "$1" "$2" "$3" halted gave_up; return 1
   fi
   if node -e 'process.exit(Number(process.argv[1]) > Number(process.argv[2]) ? 0 : 1)' "$SPENT" "$BUDGET_USD"; then
@@ -842,7 +855,7 @@ and editing them aborts this landing."
     record implement "$n" "$r" held
   done
   if [[ "$LAST_OK" != 1 ]]; then
-    halt round_cap "the gate never went green in $MAX_ROUNDS rounds. Last: $(gate_field check) ($(gate_field kind)).
+    halt round_cap "the gate never went green in $MAX_ROUNDS rounds. Last: $(gate_field check) ($(gate_field kind)).$(inherited_note)
   Repeated correction piles failed approaches on top of each other -- this is the point to read the
   ledger and rewrite the request rather than buy another round."
     record implement "$n" "$MAX_ROUNDS" halted round_cap; return 1
@@ -1185,9 +1198,17 @@ cmd_run() {
   gate_has_profile || die "no profile matches this repository, so there are no gating checks -- and
   \`gate.sh verify\` answers ok:true when nothing matched. An unchecked repository is not a green one.
   Run /da-verify to get a profile written, then come back."
-  [[ "$STARTED_GREEN" == 1 ]] \
-    && dim "  starting green" \
-    || dim "  starting red: $(gate_field check) ($(gate_field kind)) -- inherited, not caused by this run"
+  # STARTED_RED_CHECK, not just the boolean. The boolean was assigned, printed, and read by nothing --
+  # on the first real run this line was the only place that said the loop had inherited a red installer
+  # suite rather than broken it, and it scrolled past thirty lines above the halt that mattered. The
+  # name is kept so the give-up messages can say which of the two happened.
+  if [[ "$STARTED_GREEN" == 1 ]]; then
+    STARTED_RED_CHECK=""
+    dim "  starting green"
+  else
+    STARTED_RED_CHECK="$(gate_field check)"
+    dim "  starting red: $STARTED_RED_CHECK ($(gate_field kind)) -- inherited, not caused by this run"
+  fi
 
   # Arming goes through the skill, by typing it. `da-verify` is the only thing that runs `gate.sh arm`
   # (AGENTS.md invariant 2), and that is not a formality: it is also the step that reports the evidence

@@ -554,6 +554,14 @@ runloop run --max-rounds 3
   && ok "the ledger records round_cap as the reason it stopped" \
   || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not round_cap"
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "a halted landing still opened a PR" || ok "a halted landing opens no PR"
+# The run reports which check was red before it started, and then never used that answer again --
+# STARTED_GREEN was assigned, printed, and read by nothing. On the first real run that line was the only
+# way to know the loop had inherited a red installer suite rather than broken it, and it was one dim
+# line thirty lines above the halt. Attribution belongs where the loop gives up, not where it starts.
+grep -qi 'already red before' <<<"$OUT" \
+  && ok "the halt says the check was already red before the run, so an inherited failure is not misread" \
+  || no "the halt does not distinguish a check this run broke from one it inherited"
+
 # The switch, observed rather than read out of the source: round 1 writes code, and every round after a
 # red gate hands over to root-cause work. Counted, because "it appeared once" would also be true if the
 # driver typed it and then went back to piling on TDD rounds.
@@ -563,6 +571,21 @@ grep -q 'stack submit' "$FAKE_GH_LOG" && no "a halted landing still opened a PR"
 [[ "$(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG")" -ge 2 ]] \
   && ok "every round after the first red gate is /systematic-debugging" \
   || no "only $(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG") debugging round(s) across the cap"
+
+# And the other direction, which is the half that makes the first one mean anything: a check that was
+# GREEN when the run started and is red at the cap was broken BY this run, and saying "already red" there
+# would be a lie that reads like exoneration. An unconditional sentence passes the assertion above.
+setup; measurement 1 1 0 0 0; runloop size "r"
+: > "$FAKE_CLAUDE_DIR/no-worktree"        # keep the gate in REPO_DIR so the fixture can stage it green
+: > "$REPO_DIR/GREEN"                     # `test -f GREEN` -- green before the first round
+git -C "$REPO_DIR" add -A >/dev/null 2>&1
+git -C "$REPO_DIR" commit -qm "green before the run" >/dev/null 2>&1
+respond implement 1 0.10 3; side_effect_all implement 'rm -f GREEN; date >> churn.txt'
+respond debug 1 0.10 3; side_effect_all debug 'date >> churn.txt'
+runloop run --max-rounds 2
+grep -qi 'already red before' <<<"$OUT" \
+  && no "the halt claimed an inherited failure for a check this run broke -- the sentence is unconditional" \
+  || ok "a check the run broke itself is not excused as inherited"
 
 # ---------------------------------------------------------------- the gate gave up
 # The state dir is deterministic: <gate>/<basename of repo root>/wt/main. Named here rather than read
