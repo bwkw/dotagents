@@ -62,12 +62,53 @@ REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
 BUDGET_USD=10         # per `run` invocation
 
+# Per-ROUND ceilings. $BUDGET_USD above bounds the run; until these existed nothing bounded a single
+# round, so one phase could eat the whole run's budget and the halt would name `budget` -- true, and
+# useless, because it does not say which round did it.
+#
+# Review is that round. Two consecutive landings: /da-review-all at $5.64 and $6.19 against $1.30 and
+# $1.50 for the implementations being reviewed, and both times the run halted on `budget` at triage,
+# one step short of the PR. The numbers below are chosen, not measured: they sit above what a review
+# of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
+# what an unbounded one demonstrably does.
+BUDGET_ROUND_REVIEW=5.00     # tier M/L
+BUDGET_ROUND_REVIEW_S=1.50   # tier S -- the tier that exists because it is meant to cost less
+BUDGET_ROUND_TRIAGE=3.00     # tier M/L
+BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
+BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
+BUDGET_ROUND_FINDBUGS_S=1.50 # tier S
+
+# **The tier S numbers are tight on purpose, and what makes that safe is that overrun is now LOUD.**
+# Before `truncated` existed, a ceiling could only be set generously: a round cut off mid-report returned
+# exit 0 with a partial answer, was recorded `advanced`, and its half-written findings went to triage as
+# though finished -- so a tight ceiling bought a silently worse review. Now hitting one halts the landing
+# and says so in the ledger. That inverts the risk: too tight costs a visible halt and a number to raise,
+# where too loose costs $6.19 and a run that dies before the PR. Both measured runs did the latter.
+#
+# What is NOT being cut to reach these: the five always-covered clusters, the 80-point threshold, and the
+# one fresh verifier. Those live in the review skills, and `review-process-brief.md` keeps all three.
+
 # Measured against claude 2.1.148, not assumed: `--json-schema` exists, and it takes the schema as an
 # INLINE JSON STRING. Handing it a file path does not error -- it HANGS, with stdin closed, forever.
 # That is why the deadline below is not optional: the two phases that ask for structured output would
 # have hung on first real use, and a hang is the one failure neither the round cap, the budget nor the
 # gate can stop.
 SCHEMA_FLAG="--json-schema"
+
+# Measured, not assumed: `claude --print --permission-mode acceptEdits` cannot run git in an unattended
+# run. `git status --short` came back "This command requires approval", and headless there is nobody to
+# approve -- so it is denied. `/da-review-all`'s Step 1 IS `git diff`, which means **the review phase
+# never established its scope**: the two landings that reached it burned 50 turns and $5.64 / $6.19
+# retrying against a permission wall, not reviewing deeply. `echo` and `Read` were allowed; `Glob` was
+# not available either.
+#
+# READ-ONLY BY ENUMERATION, deliberately. `Bash(git:*)` is one token shorter and would hand an
+# unattended round `git push`, `git reset --hard` and `git branch -D` in order to let it run `git diff`.
+# The loop does its own committing, branching and pushing from bash, so no round needs to write.
+#
+# `--allowedTools` ADDS permissions; it is not an allowlist that removes the rest, so Edit and Write
+# still work under acceptEdits. Verified in `claude --help`: "list of tool names to allow".
+ROUND_ALLOWED_TOOLS="Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git symbolic-ref:*),Bash(git ls-files:*),Bash(git diff-tree:*),Bash(gh pr view:*),Grep,Glob"
 
 # Seconds a single `claude -p` may take. Chosen, not measured. The env override exists for the tests.
 ROUND_TIMEOUT="${DOTAGENTS_LOOP_ROUND_TIMEOUT:-1800}"
@@ -330,6 +371,10 @@ ROUND_TIMED_OUT=0
 REVIEW_REPORT=""
 SECOND_REPORT=""
 ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
+ROUND_BUDGET=""       # per-round ceiling in USD; empty means unbounded. Set by the caller, cleared here.
+ROUND_TRUNCATED=""    # the subtype that cut the round off; EMPTY means it ran to completion. Not `0` --
+                      # this is read with `-n`, and the string "0" is not empty, so a `0` here would
+                      # halt every round the moment anything reached post_round without a claude_round.
 
 # One `claude -p`. Never --bare: that switch turns off hooks, skills and CLAUDE.md, which is the
 # whole mechanism here -- the official docs recommend it for scripted calls and for this loop it is
@@ -337,18 +382,24 @@ ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 # profile's `forbidden` list plus the scorer check is the containment.
 claude_round() { # <prompt> [inline-schema-json]
   local prompt="$1" schema="${2:-}" raw out pid t
-  local args="--print --output-format json --permission-mode acceptEdits"
+  # An ARRAY, not a string expanded unquoted. The tool grant contains spaces and parentheses
+  # (`Bash(git diff:*)`), and word-splitting would hand `claude` the fragments `Bash(git` and `diff:*)`
+  # -- two grants that match nothing, silently, leaving git denied exactly as before. Indexed arrays and
+  # `+=` are bash 3.2, so this stays macOS-safe; the associative kind would not be.
+  local args
+  args=(--print --output-format json --permission-mode acceptEdits)
+  args+=(--allowedTools "$ROUND_ALLOWED_TOOLS")
+  # This build has no --max-turns; --max-budget-usd is the only per-round ceiling the CLI offers, and it
+  # is the better one anyway -- it bounds what is actually being complained about, and the harness
+  # enforces it rather than the prompt. Verified against `claude --help`: the only --max* flag present.
+  [[ -n "$ROUND_BUDGET" ]] && args+=(--max-budget-usd "$ROUND_BUDGET")
+  [[ -n "$schema" ]] && args+=("$SCHEMA_FLAG" "$schema")
   out="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-round.XXXXXX")" || die "mktemp failed"
 
   # Bounded, and stdin closed. macOS has no `timeout`, so this polls the way
   # scripts/test-non-interactive.sh does. stdin is closed because a `claude` whose credentials have
   # expired will otherwise sit waiting for a login it can never get in an unattended run.
-  # shellcheck disable=SC2086
-  if [[ -n "$schema" ]]; then
-    claude $args "$SCHEMA_FLAG" "$schema" "$prompt" >"$out" 2>/dev/null </dev/null &
-  else
-    claude $args "$prompt" >"$out" 2>/dev/null </dev/null &
-  fi
+  claude "${args[@]}" "$prompt" >"$out" 2>/dev/null </dev/null &
   pid=$!
   t=0
   ROUND_TIMED_OUT=0
@@ -373,6 +424,22 @@ claude_round() { # <prompt> [inline-schema-json]
   ROUND_COST="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).total_cost_usd??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   ROUND_TURNS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).num_turns??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   SPENT="$(node -e 'process.stdout.write(String(Number(process.argv[1])+Number(process.argv[2])))' "$SPENT" "${ROUND_COST:-0}")"
+
+  # A round that stopped early exits 0 and returns a PARTIAL `result`. Until this existed the driver read
+  # only cost and turns, so a review cut off mid-report was recorded `advanced` and its half-written
+  # findings were handed to triage as though they were finished ones -- and nothing downstream could
+  # tell, because the model does not know it was cut off either, so its own 🔎 does not say so.
+  #
+  # DENY by default: any subtype that is not "success" is a truncation, including one invented by a
+  # later CLI version. An allowlist of the failures known today starts silently accepting new ones.
+  # ABSENCE is success -- some builds omit the field entirely, and treating missing as failure would
+  # halt every round on those.
+  ROUND_TRUNCATED="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try { const o = JSON.parse(s);
+      const bad = (o.subtype != null && o.subtype !== "success") || o.is_error === true;
+      process.stdout.write(bad ? String(o.subtype ?? "is_error") : "") }
+    catch { process.stdout.write("") }})' <<<"$raw")"
+  ROUND_BUDGET=""   # one round, one ceiling. A leaked ceiling would silently cap the next phase too.
   return 0
 }
 
@@ -413,11 +480,30 @@ TIER=""; M_FILES=0; M_LAYERS=0; M_ONEWAY=0; M_RISK=0; M_UNCONF=0
 # The model measures; this decides. "Scale it to the change" was the instruction in the review
 # fan-out for a while and it produced the maximum every time, because nothing in it could be checked.
 # A tier the model picks for itself is the same failure with a different name.
+# Two axes, not one. **How big** the change is decides how much process it needs; **whether one step
+# cannot be taken back** decides whether a human must see it. The first version mixed them and the
+# ladder collapsed: `risk_surfaces > 0` and `unconfirmed > 0` each forced L on their own, and on a real
+# repository almost every backend change touches authorization while /da-investigate names something
+# unconfirmed essentially always. So everything was L, nothing ran unattended, and the tier carried no
+# information -- a classifier whose every input maps to one class.
+#
+# What moved, and why each was wrong rather than merely strict:
+#
+#   `risk_surfaces` was charged TWICE. It already buys the second reviewer below (/find-bugs runs only
+#   when it is non-zero). Spending the same measurement on the attended design phase as well is paying
+#   for one signal out of two budgets. It now sets a floor of M.
+#
+#   `unconfirmed` means "this measurement is not reliable". That is a reason not to run unattended, and
+#   it is NOT evidence the change is wide or irreversible -- which is what L buys a human for. Its own
+#   definition was already fixed once to permit an empty list (#35) and it still returned 9 for a
+#   one-file docs edit, so the threshold was wrong too, not just the wording. Floor of M.
+#
+#   `one_way` still forces L, and this one is not up for revision. An irreversible step is exactly the
+#   thing that must not ship without somebody looking at it.
 decide_tier() {
   TIER=S
-  if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 ]]; then TIER=M; fi
-  if [[ "$M_FILES" -gt 15 || "$M_LAYERS" -ge 3 \
-        || "$M_ONEWAY" -gt 0 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=L; fi
+  if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=M; fi
+  if [[ "$M_FILES" -gt 15 || "$M_LAYERS" -ge 3 || "$M_ONEWAY" -gt 0 ]]; then TIER=L; fi
 }
 
 cmd_size() {
@@ -425,12 +511,13 @@ cmd_size() {
   [[ -n "$request" ]] || die "size needs the request: loop.sh size \"<what you want>\""
   # Inline, not a file. `--json-schema` takes the schema as a string; a path makes the CLI hang.
   local schema
-  schema='{"type":"object","required":["files","layers","one_way","risk_surfaces","unconfirmed"],'
+  schema='{"type":"object","required":["files","layers","one_way","risk_surfaces","unconfirmed","unverified_claims"],'
   schema="$schema"'"properties":{"files":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"layers":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"one_way":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"risk_surfaces":{"type":"array","items":{"type":"string"}},'
-  schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}}}}'
+  schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"unverified_claims":{"type":"array","items":{"type":"string"}}}}'
 
   dim "measuring with /da-investigate ..."
   claude_round "/da-investigate $request
@@ -446,10 +533,16 @@ could not enumerate, a call path you could not follow, a migration you suspect b
 Something you did not need to check is not unconfirmed; something you checked and found irrelevant is
 not unconfirmed. If nothing could change the size of this, return an empty list -- an empty list is the
 correct and common answer for a small change, and padding it sends work to a human who did not need to
-see it." \
+see it.
+
+\`unverified_claims\` is the OTHER thing, and it has its own field so it stops landing in the one above:
+assertions THE REQUEST ITSELF makes that you could not verify -- \"the ledger has no such entry\", \"the
+count is 105\", \"this is no longer true\". These say the request needs fixing, not that the change is
+big. **A request full of unverified claims about a one-line edit is still a one-line edit.** Put each
+such claim here and none of them under \`unconfirmed\`; this field does not affect the tier." \
     "$schema"
 
-  local files layers oneway risk unconf
+  local files layers oneway risk unconf claims
   round_has_structured || die "no measurement came back (exit $ROUND_EXIT). Check that \`$SCHEMA_FLAG\`
   is the right flag for structured output on this version of the CLI.
 
@@ -457,23 +550,30 @@ see it." \
   and an unmeasured change treated as small is the worst outcome available here."
   files="$(round_structured files)"; layers="$(round_structured layers)"
   oneway="$(round_structured one_way)"; risk="$(round_structured risk_surfaces)"
-  unconf="$(round_structured unconfirmed)"
+  unconf="$(round_structured unconfirmed)"; claims="$(round_structured unverified_claims)"
 
   count() { node -e 'const v=process.argv[1];process.stdout.write(String(v?v.split(",").filter(Boolean).length:0))' "$1"; }
   M_FILES="$(count "$files")"; M_LAYERS="$(count "$layers")"
   M_ONEWAY="$(count "$oneway")"; M_RISK="$(count "$risk")"; M_UNCONF="$(count "$unconf")"
+  M_CLAIMS="$(count "$claims")"
   decide_tier
 
+  # The layer NAMES, not just how many. `run` uses them to skip the review dispatcher when there is
+  # exactly one and the toolkit has a skill for it -- a count cannot answer "which one".
   ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" phase size \
     request "$request" \
     tier "$TIER" files "$M_FILES" layers "$M_LAYERS" one_way "$M_ONEWAY" \
-    risk_surfaces "$M_RISK" unconfirmed "$M_UNCONF" \
+    risk_surfaces "$M_RISK" unconfirmed "$M_UNCONF" unverified_claims "$M_CLAIMS" \
+    layer_names "$layers" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "$ROUND_EXIT" \
     outcome sized halt_reason __null__
 
   echo
   say "tier $TIER"
   say "  files $M_FILES · layers $M_LAYERS · one-way $M_ONEWAY · risk surfaces $M_RISK · unconfirmed $M_UNCONF"
+  # Printed separately because it does NOT move the tier, and putting it on the line above invites
+  # exactly the conflation the field exists to end.
+  [[ "$M_CLAIMS" -gt 0 ]] && say "  依頼文に未確認の主張 $M_CLAIMS 件（段には影響しません。依頼文の方を直す材料です）"
   echo
   case "$TIER" in
     S) say "No design phase. The gate is this repository's own gating checks."
@@ -737,6 +837,16 @@ post_round() { # <phase> <landing> <round>
     halt round_failed "the $1 round exited $ROUND_EXIT. Nothing is claimed about what it did."
     record "$1" "$2" "$3" halted round_failed; return 1
   fi
+  # Exit 0 with a partial answer. This is checked BEFORE the run budget below, deliberately: both fire
+  # on an expensive review, and `budget` would be the less useful of the two -- it says the run ran out,
+  # not that this round was cut off with its report half written.
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    halt truncated "the $1 round was cut off (subtype: $ROUND_TRUNCATED) after \$$ROUND_COST and
+  ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a finished one.
+  Raise the round ceiling if the work genuinely needs it, or make the round cheaper -- but do not read
+  the partial report as a clean result."
+    record "$1" "$2" "$3" halted truncated; return 1
+  fi
   if [[ -n "$SCORER_HITS" ]]; then
     halt scorer_touched "this round edited what judges it: $(printf '%s' "$SCORER_HITS" | tr '\n' ' ')
   Changing the exam has to be a human act. Nothing was reverted -- look, then decide."
@@ -752,6 +862,33 @@ post_round() { # <phase> <landing> <round>
     record "$1" "$2" "$3" halted budget; return 1
   fi
   return 0
+}
+
+# Which review skill to type. `/da-review-all` earns its cost when a change spans layers: it classifies,
+# runs each layer, then finds the risks that live BETWEEN them. On a single-layer change it classifies
+# one file list, runs one layer, and prints "no cross-layer impact" -- and it pays a cold read of its own
+# 12 KB body plus a classification pass to get there.
+#
+# So at tier S with exactly one layer the toolkit has a skill for, the layer skill is typed directly.
+# Anything else falls back to the dispatcher, and the fallback is deliberately dumb: guessing a skill
+# name would review a layer against the wrong checklist and report it as covered, which is the exact
+# failure /da-review-all's own "Done when" list exists to catch.
+review_skill_for_tier() {
+  local names layer
+  [[ "$(ledger_last size tier)" == "S" ]] || { printf '/da-review-all'; return 0; }
+  names="$(ledger_last size layer_names)"
+  # One name, no comma. Zero layers (a docs-only change) is not one layer -- it has no skill either, so
+  # it goes to the dispatcher rather than to a guess.
+  case "$names" in
+    ''|null|*,*) printf '/da-review-all'; return 0 ;;
+  esac
+  case "$names" in
+    backend|server|api)          layer=backend ;;
+    frontend|client|web)         layer=frontend ;;
+    infra|infrastructure|iac)    layer=infra ;;
+    *) printf '/da-review-all'; return 0 ;;
+  esac
+  printf '/x-review-%s' "$layer"
 }
 
 # One line, because it is passed as an argument rather than written to a file.
@@ -875,12 +1012,18 @@ and editing them aborts this landing."
   # budget table in skills/_shared/review-process.md, because the diff was 11 lines in one file. There
   # was no depth left to remove. The 50 turns were spent verifying eleven claims against the code, and
   # they found a real error in one of them. Cutting THAT would be buying a cheaper wrong answer.
-  local review_rounds="$REVIEW_ROUNDS"
-  [[ "$(ledger_last size tier)" == "S" ]] && review_rounds="$REVIEW_ROUNDS_S"
+  local review_rounds="$REVIEW_ROUNDS" review_budget="$BUDGET_ROUND_REVIEW"
+  local triage_budget="$BUDGET_ROUND_TRIAGE" findbugs_budget="$BUDGET_ROUND_FINDBUGS" review_skill
+  if [[ "$(ledger_last size tier)" == "S" ]]; then
+    review_rounds="$REVIEW_ROUNDS_S"; review_budget="$BUDGET_ROUND_REVIEW_S"
+    triage_budget="$BUDGET_ROUND_TRIAGE_S"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_S"
+  fi
+  review_skill="$(review_skill_for_tier)"
   schema="$(triage_schema)"
   for (( rr = 1; rr <= review_rounds; rr++ )); do
-    dim "   review $rr"
-    claude_round "/da-review-all"
+    dim "   review $rr: $review_skill (ceiling \$$review_budget)"
+    ROUND_BUDGET="$review_budget"
+    claude_round "$review_skill"
     post_round review "$n" "$rr" || return 1
     record review "$n" "$rr" advanced
     REVIEW_REPORT="$(round_result)"
@@ -898,7 +1041,8 @@ and editing them aborts this landing."
     # "**Source:** which review(s)", plural, so two reports is a shape it already expects.
     SECOND_REPORT=""
     if [[ "$(ledger_last size risk_surfaces)" != "0" && -n "$(ledger_last size risk_surfaces)" ]]; then
-      dim "   review $rr: second reviewer (/find-bugs) -- this landing touches a risk surface"
+      dim "   review $rr: second reviewer (/find-bugs, ceiling \$$findbugs_budget) -- this landing touches a risk surface"
+      ROUND_BUDGET="$findbugs_budget"
       claude_round "/find-bugs"
       post_round findbugs "$n" "$rr" || return 1
       SECOND_REPORT="$(round_result)"
@@ -909,6 +1053,7 @@ and editing them aborts this landing."
     # rounds is where their findings would be lost -- and a count would buy zero coverage, when coverage
     # is the entire reason for a second reviewer. da-fix-plan's own template says "**Source:** which
     # review(s)", plural, so two reports is a shape it already expects.
+    ROUND_BUDGET="$triage_budget"
     claude_round "/da-fix-plan
 
 Triage the review(s) below. Report only the bucket counts. \`fix_now\` counts Fix now plus Fix now
