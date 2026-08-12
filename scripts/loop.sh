@@ -1102,9 +1102,17 @@ parse_plan() { # <path> -> "n<TAB>what<TAB>oneway" per landing row
   node -e '
     const fs = require("fs");
     const lines = fs.readFileSync(process.argv[1], "utf8").split("\n");
+    // Anchored on the HEADER ROW, which is what landing_plans() already uses to identify a plan file.
+    // The previous trigger was any line matching /Landing plan/i -- and the first such line in a real
+    // plan is its own title, so parsing locked onto whatever table came next. The first plan this
+    // driver was handed that it had not generated itself had an evidence table above the 🧱 one, and
+    // its rows became the landings: `gh stack add` was asked for a layer named after a table cell.
+    // Discovery and parsing must key on the same thing, or a file can be found and then misread.
     let inTable = false, out = [];
     for (const l of lines) {
-      if (/Landing plan/i.test(l)) { inTable = true; continue }
+      // The trigger must BE the header row, not prose that mentions it -- this file, and any plan that
+      // explains its own format, contains the phrase in running text as well.
+      if (l.trim().startsWith("|") && /what gates it/i.test(l)) { inTable = true; continue }
       if (!inTable) continue;
       if (!l.trim().startsWith("|")) { if (out.length) break; else continue }
       const cells = l.split("|").slice(1, -1).map((c) => c.trim());
