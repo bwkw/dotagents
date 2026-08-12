@@ -272,6 +272,20 @@ tier_case "one one-way door forces L"           L  1  1 1 0 0
 tier_case "one risk surface forces L"           L  1  1 0 1 0
 tier_case "one unconfirmed item forces L"       L  1  1 0 0 1
 
+# The tier rule above is right and stays. What broke on the first real run is the OTHER half of it:
+# `unconfirmed > 0` only means "a human should look" if `unconfirmed` means "something that could make
+# this bigger than it looks". The first live measurement returned 21 unconfirmed items for a one-file
+# docs edit and it was classified L -- correctly, by a rule fed a field that meant something else.
+# /da-investigate's job is to name what it could not confirm, so it will essentially always name
+# something, and tier S was therefore unreachable in practice. The fix is the field's definition, not
+# the threshold, so what is asserted is that the driver ships that definition: an empty list has to be
+# stated as a correct and expected answer, or the measurer pads it and every change is L forever.
+if grep -q 'an empty list is the' scripts/loop.sh && grep -q 'NOT everything you failed to look at' scripts/loop.sh; then
+  ok "the size prompt scopes unconfirmed to what changes the size, and permits an empty list"
+else
+  no "the size prompt does not permit an empty unconfirmed list -- tier S is unreachable, everything is L"
+fi
+
 setup
 measurement 1 1 0 0 0
 runloop size "a request"

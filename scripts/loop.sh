@@ -424,8 +424,15 @@ cmd_size() {
 Answer only with the structured fields. \`files\` is every file a change would touch. \`layers\` is
 which of backend / frontend / infrastructure it reaches. \`one_way\` is each irreversible step.
 \`risk_surfaces\` is any of money, billing, external or government submission, authorization, PII,
-data migration or concurrency that the change reaches. \`unconfirmed\` is what you could not confirm
-within your budget -- do not leave it empty to look thorough; it decides whether a human reviews this." \
+data migration or concurrency that the change reaches.
+
+\`unconfirmed\` is NOT everything you failed to look at. It is only the things that, if you are wrong
+about them, would make this change BIGGER OR RISKIER than the counts above suggest -- a consumer you
+could not enumerate, a call path you could not follow, a migration you suspect but did not confirm.
+Something you did not need to check is not unconfirmed; something you checked and found irrelevant is
+not unconfirmed. If nothing could change the size of this, return an empty list -- an empty list is the
+correct and common answer for a small change, and padding it sends work to a human who did not need to
+see it." \
     "$schema"
 
   local files layers oneway risk unconf
