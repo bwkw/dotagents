@@ -108,7 +108,22 @@ SCHEMA_FLAG="--json-schema"
 #
 # `--allowedTools` ADDS permissions; it is not an allowlist that removes the rest, so Edit and Write
 # still work under acceptEdits. Verified in `claude --help`: "list of tool names to allow".
-ROUND_ALLOWED_TOOLS="Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git symbolic-ref:*),Bash(git ls-files:*),Bash(git diff-tree:*),Bash(gh pr view:*),Grep,Glob"
+#
+# EVERY ENTRY IS LISTED TWICE, bare and `rtk`-prefixed, and that is not belt-and-braces. Measured:
+#
+#   --allowedTools "Bash(git status:*)"      -> DENIED, "This command requires approval"
+#   --allowedTools "Bash"                    -> ran
+#   --allowedTools "Bash(rtk git status:*)"  -> ran
+#
+# A command-rewriting PreToolUse hook runs BEFORE the permission match, so on a machine whose hook
+# rewrites `git status` to `rtk git status` the bare pattern matches nothing -- silently, which is the
+# same shape as having passed no grant at all. The first version of this line shipped bare-only and was
+# therefore a no-op on the machine it was written on.
+#
+# Both forms, statically, rather than detecting the hook: this toolkit has to work on a machine that
+# has no rtk, and a list that is built by probing is a list that is wrong in a new way when the probe
+# is wrong. An unmatched pattern costs nothing.
+ROUND_ALLOWED_TOOLS="Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git symbolic-ref:*),Bash(git ls-files:*),Bash(git diff-tree:*),Bash(gh pr view:*),Bash(rtk git diff:*),Bash(rtk git log:*),Bash(rtk git show:*),Bash(rtk git status:*),Bash(rtk git rev-parse:*),Bash(rtk git symbolic-ref:*),Bash(rtk git ls-files:*),Bash(rtk git diff-tree:*),Bash(rtk gh pr view:*),Grep,Glob"
 
 # Seconds a single `claude -p` may take. Chosen, not measured. The env override exists for the tests.
 ROUND_TIMEOUT="${DOTAGENTS_LOOP_ROUND_TIMEOUT:-1800}"

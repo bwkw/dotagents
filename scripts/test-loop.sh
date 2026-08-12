@@ -1403,6 +1403,13 @@ grep -q -- '--allowedTools' "$FAKE_CLAUDE_LOG" \
 grep -q 'git diff' "$FAKE_CLAUDE_LOG" \
   && ok "and the grant includes git diff, which is what Step 1 needs" \
   || no "the grant does not include git diff"
+# A command-rewriting PreToolUse hook runs BEFORE the permission match, so on a machine whose hook turns
+# `git status` into `rtk git status` the bare pattern matches nothing -- and an unmatched pattern is
+# indistinguishable from no grant at all. Measured: Bash(git status:*) denied, Bash(rtk git status:*) ran.
+# Both forms ship, because the toolkit also has to work where no such hook exists.
+grep -q 'rtk git diff' "$FAKE_CLAUDE_LOG" \
+  && ok "and the rewritten form too, so a command-rewriting hook does not silently void the grant" \
+  || no "only the bare form is granted -- on a machine with a rewriting hook that is a no-op"
 # The grant is read-only BY ENUMERATION. `Bash(git:*)` would hand an unattended round `git push`,
 # `git reset --hard` and `git branch -D` in order to let it run `git diff`.
 if grep -qE 'Bash\(git:\*\)|git push|git reset|git branch -D|git clean' "$FAKE_CLAUDE_LOG"; then
