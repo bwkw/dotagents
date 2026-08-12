@@ -392,6 +392,17 @@ halted                  needs_decision 2, gave_up 1
 | `interrupted` | exit 143（SIGTERM）。作業について何も主張しない |
 | `one_way` / `pr_cap` | 検証は通ったが submit はしない（下記）。層はローカルに残る |
 | `stack_failed` | `gh stack init` / `add` が失敗した |
+| `isolate_failed` | 隔離できなかった。worktree 一覧が取れなかった（空は「1つも無い」ではなく git の失敗。本チェックアウトが必ず居るので）／現れたディレクトリに `cd` できなかった／**入った先がこのリポジトリの linked worktree ではなかった**。最後のは、別の run が同時に作った worktree がここからは同じに見えるため —— 他人のチェックアウトで landing を丸ごと回さないための拒否 |
+| `round_timeout` | その周が `ROUND_TIMEOUT`（既定 1800s）以内に返らず、プロセスグループごと kill した（`claude` が落とした道具がポートを掴んだまま残るので）。**ハングは周回上限・予算・ゲートのどれも捕まえられない唯一の失敗**。繰り返すなら `claude` が得られないログインを待っていないか見る |
+| `round_failed` | その周が 143・124 以外の非ゼロで終了した —— API エラー、rate limit、拒否されたフラグ。`claude_round` は stderr を捨てて 0 を返すので、ここで見ないと**失敗が見えないまま次に進みます**。何をしたかについて何も主張しません |
+| `round_changed_nothing` | その周が編集も commit もしていない（変更パスが空で HEAD も動いていない）。**そのあとの緑は、周が始まる前から緑**でした —— `{files}` スコープのチェックはクリーンなツリーでは丸ごと飛ばされ、ゲートは本物の合格と**バイト単位で同じ** `ok:true` を返します。ゲートには「何か走ったか」を聞けないので、駆動系側で見ています |
+| `gate_unran` | 何も検査されなかった。`verify --json` が空（`gate.sh` か node が落ちた —— 空を「問題なし」と読まないため）か、`nothing blocking`（該当するチェックが飛ばされた）。**周を足しても飛ばされたチェックは走りません。** ここで止めるのが唯一正直な手で、profile がこの landing を検証できないという意味です |
+| `commit_failed` | 変更パスの `git add` が1つでも失敗した、または `git commit` が失敗した。**部分的な set は commit しません** —— 半分を黙って落とした commit は、commit が無いより悪いので。add の結果を捨てていた版では、空の index が「何も無い、順調」と読まれて landing が続いていました |
+| `triage_unreadable` | `da-fix-plan` の周がバケット件数を返さなかった、または数値でない値を返した。**欠けているのは 0 ではありません** —— 0 と読むと「レビューは直すものを見つけなかった」になり、triage されていない PR が、きれいなレビューと区別の付かない台帳の行と共に出ます |
+| `tree_unreadable` | `git status --porcelain` 自体が失敗した（index.lock、dubious ownership、work tree でない cwd）。commit 前なら何を commit すべきか分からず、PR 前なら「何も残っていない」を確かめられない。**`changed_paths` の空はクリーンと git の失敗の両方を意味する**ので、読めるかどうかを別に、先に聞いています |
+| `dirty_at_pr` | submit 直前でツリーが汚れている。commit されていない変更は PR に入らないので、そのまま出すと**手元にしか無いものを含んだ「検証済み」**になります |
+| `push_failed` | `gh stack push` が失敗した |
+| `pr_failed` | `gh stack submit --auto --open` が PR の URL を出さなかった。番号が取れないので `/da-pr-describe` に渡す殻がありません |
 
 ---
 
