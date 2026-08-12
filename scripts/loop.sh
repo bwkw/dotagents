@@ -57,7 +57,8 @@ LEDGER="$LOOP_DIR/ledger.jsonl"
 # TTL. They are here so that nothing has to be passed on the command line in normal use: a flag you
 # retype on every machine is a flag that buys nothing (docs/decisions.md).
 MAX_ROUNDS=6          # implementation attempts per landing before handing back
-REVIEW_ROUNDS=2       # review passes; the third would buy approval, not correctness
+REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
+REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
 BUDGET_USD=10         # per `run` invocation
 
@@ -863,8 +864,21 @@ and editing them aborts this landing."
   commit_landing "$n" "$what" || return 1
 
   # --- review, capped ------------------------------------------------------
+  # A review ROUND is not one skill: it is /da-review-all plus a /da-fix-plan triage. The first landing
+  # that reached this code measured that pair at $5.64 (50 turns) + $2.08 (20) -- against $1.30 for the
+  # implementation being reviewed. Two rounds is therefore a ~$15 ceiling on a change that tier S has
+  # already judged small enough to skip the design phase for, and the whole point of S is that it costs
+  # less. It buys one round.
+  #
+  # This is a CEILING, not a depth cut, and the distinction is the measurement: on that landing the
+  # review had already self-scaled to the bottom fan-out tier -- "inline, no find subagents", per the
+  # budget table in skills/_shared/review-process.md, because the diff was 11 lines in one file. There
+  # was no depth left to remove. The 50 turns were spent verifying eleven claims against the code, and
+  # they found a real error in one of them. Cutting THAT would be buying a cheaper wrong answer.
+  local review_rounds="$REVIEW_ROUNDS"
+  [[ "$(ledger_last size tier)" == "S" ]] && review_rounds="$REVIEW_ROUNDS_S"
   schema="$(triage_schema)"
-  for (( rr = 1; rr <= REVIEW_ROUNDS; rr++ )); do
+  for (( rr = 1; rr <= review_rounds; rr++ )); do
     dim "   review $rr"
     claude_round "/da-review-all"
     post_round review "$n" "$rr" || return 1
@@ -939,8 +953,8 @@ $SECOND_REPORT}" "$schema"
     record triage "$n" "$rr" advanced
     [[ "$FIX_NOW" -eq 0 ]] && break
 
-    if [[ "$rr" -ge "$REVIEW_ROUNDS" ]]; then
-      halt review_cap "$FIX_NOW finding(s) still open after $REVIEW_ROUNDS reviews. A third round
+    if [[ "$rr" -ge "$review_rounds" ]]; then
+      halt review_cap "$FIX_NOW finding(s) still open after $review_rounds review(s). Another round
   buys a higher chance of approval, not a higher chance of being right. They are in the ledger."
       record triage "$n" "$rr" halted review_cap; return 1
     fi
