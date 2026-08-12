@@ -464,8 +464,10 @@ preflight() {
 
 cmd_install() {
   # Installing from a linked worktree points every link into that worktree; removing it later
-  # would silently delete the whole toolkit.
-  if [[ -f "$REPO/.git" ]]; then
+  # would silently delete the whole toolkit. The escape hatch is for the installer suite only:
+  # test-setup.sh has to exercise install from whatever checkout the gate is standing in, and
+  # the loop deliberately works inside linked worktrees. Nothing else sets this.
+  if [[ -f "$REPO/.git" && -z "${DOTAGENTS_ALLOW_WORKTREE_INSTALL:-}" ]]; then
     die "$REPO looks like a linked git worktree. Install from the main checkout instead --
     removing the worktree would take every installed skill with it."
   fi

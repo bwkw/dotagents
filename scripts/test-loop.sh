@@ -115,6 +115,21 @@ case "$1 ${2:-}" in
     [[ -f "$FAKE_GH_DIR/stack" ]] || exit 1
     printf '{"layers":[]}\n' ;;
   "stack init")
+    # The real `gh stack init` takes the branches as POSITIONAL arguments and, given none, tries to ask:
+    # "interactive input required; provide branch names as arguments". Headless, that is a hard failure.
+    # This stub used to accept `stack init` with flags alone, so the suite was green against a call the
+    # real extension rejects -- the stacked-PR path could never have worked unattended, and nothing here
+    # could say so. A stub that accepts what the real tool refuses is not a test, it is a second bug.
+    shift 2   # drop "stack" and "init"; what remains is flags and branch names
+    branches=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -b|--base) shift 2 ;;
+        -*) shift ;;
+        *) branches="$branches $1"; shift ;;
+      esac
+    done
+    [[ -n "${branches// /}" ]] || { printf 'interactive input required; provide branch names as arguments\n' >&2; exit 1; }
     : > "$FAKE_GH_DIR/stack" ;;
   "stack add")
     # The real extension creates and checks out the new layer branch; the driver commits onto it, so
@@ -415,6 +430,13 @@ grep -q -- '--draft' "$FAKE_GH_LOG" \
 grep -q 'stack init' "$FAKE_GH_LOG" \
   && ok "the run establishes a stack rather than a lone branch" \
   || no "no stack was initialised -- landings would collide on one branch"
+# `gh stack init` takes its branches positionally. The driver shipped `gh stack init -b main` and nothing
+# else, which headless returns "interactive input required" for -- so the stacked-PR path halted at the
+# first landing on the first real run, before implementing anything. The branch name must be an argument.
+grep -E 'stack init .*[^-] ?[A-Za-z0-9]' "$FAKE_GH_LOG" | grep -qvE 'stack init( +--?[a-z-]+( +[^ ]+)?)* *$' \
+  && ok "stack init names the branch positionally, which is the only non-interactive form" \
+  || { no "stack init was called with flags only -- the real extension demands interactive input and fails"
+       detail "$(grep 'stack init' "$FAKE_GH_LOG" | head -1)"; }
 
 # --- the driver types the skills; it does not reach past them -----------------
 # The whole premise is that this is a person's keystrokes with the person automated away. Where a skill

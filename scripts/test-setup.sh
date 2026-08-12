@@ -28,6 +28,12 @@ check(){ if [[ "$2" == "$3" ]]; then ok "$1"; else no "$1 (expected [$2], got [$
 FAKE="$TMP/home"
 mkdir -p "$FAKE/.claude" "$FAKE/.cursor"
 
+# The installer refuses a linked worktree so a removed worktree cannot take the toolkit with it.
+# This suite still has to run from one: the verify gate and the loop both work there. Fake HOME
+# is throwaway, so the danger the guard exists for does not apply -- lift it for every install
+# below, and re-assert the guard itself in a miniature tree that is shaped like a worktree.
+export DOTAGENTS_ALLOW_WORKTREE_INSTALL=1
+
 # A settings file that looks like a real one: a secret we must never touch, and another tool's hook.
 cat > "$FAKE/.claude/settings.json" <<'JSON'
 {
@@ -143,6 +149,27 @@ run_setup install >/dev/null
 [[ "$(backups)" == "$before_n" ]] \
   && ok "an install that changes nothing takes no backup" \
   || no "a no-op install still took a backup ($before_n -> $(backups))"
+
+# The worktree guard has to stay real. REPO is derived from setup.sh's location, so stage a
+# miniature tree with a `.git` *file* (the linked-worktree shape) and the same installer, then
+# call it without the escape hatch. A suite that only ever ran from the main checkout would
+# never notice the guard had broken -- or that the suite itself could no longer run in a worktree.
+WT_PROBE="$TMP/worktree-shaped"
+mkdir -p "$WT_PROBE/scripts" "$WT_PROBE/skills" "$WT_PROBE/hooks" "$WT_PROBE/agents"
+cp "$REPO/scripts/setup.sh" "$WT_PROBE/scripts/setup.sh"
+printf 'gitdir: %s\n' "$TMP/fake-gitdir" > "$WT_PROBE/.git"
+wt_home="$TMP/worktree-refuse-home"; mkdir -p "$wt_home"
+wt_out="$(
+  HOME="$wt_home" env -u DOTAGENTS_ALLOW_WORKTREE_INSTALL \
+    bash "$WT_PROBE/scripts/setup.sh" install 2>&1
+  echo "rc=$?"
+)"
+grep -q 'linked git worktree' <<<"$wt_out" && grep -q 'rc=1' <<<"$wt_out" \
+  && ok "install from a linked-worktree-shaped tree refuses" \
+  || no "worktree guard did not refuse: $(tr '\n' ' ' <<<"$wt_out")"
+[[ ! -e "$wt_home/.claude/.dotagents-managed.json" ]] && [[ ! -d "$wt_home/.claude/hooks" ]] \
+  && ok "   ...and wrote nothing before refusing" \
+  || no "   worktree-shaped install wrote something: $(ls -a "$wt_home/.claude" 2>/dev/null | tr '\n' ' ')"
 
 # A destination that is not ours must stop the install before anything is written. link_skill returned
 # 1 in that case, and under `set -e` that ended the script partway: some skills linked, no hooks

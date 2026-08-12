@@ -1010,7 +1010,11 @@ stack_layer() { # <n>
     # checked out, so it could never fire.
     STACK_BASE_BRANCH="$(branch)"
     gh stack view --json >/dev/null 2>&1 && return 0
-    gh stack init -b "$(default_branch)" >/dev/null 2>&1 || {
+    # The branch goes in POSITIONALLY. `gh stack init -b <trunk>` with no branch argument asks for one
+    # interactively, and headless that is "interactive input required; provide branch names as arguments"
+    # -- which is how the first real run halted at landing 1 before implementing anything. An existing
+    # branch is adopted rather than recreated, so passing the branch we are already on is the right call.
+    gh stack init -b "$(default_branch)" "$STACK_BASE_BRANCH" >/dev/null 2>&1 || {
       halt stack_failed "gh stack init failed"; return 1; }
     return 0
   fi
