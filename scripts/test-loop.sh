@@ -663,15 +663,44 @@ runloop run
   || { no "needs_decision did not halt the loop (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "needs_decision still opened a PR" || ok "needs_decision opens no PR"
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"        # 6 files -> tier M, which still gets two rounds
+printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+  > "$REPO_DIR/plan.md"
+git -C "$REPO_DIR" add plan.md; commit_in_repo plan
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 to fix
 respond fix    1 0.20 4                                    # the fix round
 respond review 2 0.30 7; respond triage 2 0.05 2 1 0 1     # review 2: still 1
-runloop run
+runloop run plan.md
 [[ $RC -ne 0 ]] && grep -qi 'review_cap' <<<"$OUT" \
-  && ok "findings still open after the second review halt rather than buying a third" \
+  && ok "tier M: findings still open after the second review halt rather than buying a third" \
   || { no "the review loop did not stop at two rounds (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+
+# A review round is NOT one skill: it is /da-review-all plus a /da-fix-plan triage, and the first real
+# landing measured that pair at $5.64 + $2.08 -- against $1.30 for the implementation it was reviewing.
+# Two rounds is therefore a ~$15 ceiling on a change that tier S already decided was small enough to skip
+# the design phase for. The second round is where that ceiling lives, so tier S does not buy one.
+# Measured on that landing: the review had ALREADY self-scaled to the bottom fan-out tier ("inline, no
+# find subagents"), so this is not depth being cut -- depth was already minimal. It is the worst case.
+setup; measurement 1 1 0 0 0; runloop size "r"        # 1 file -> tier S
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 still to fix
+respond fix    1 0.20 4
+respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0     # would pass, if it were ever reached
+runloop run
+# Anchored to the END of the line, and every other spelling of this is wrong -- this file's own header
+# says so and it still caught me twice. The triage prompt QUOTES "=== /da-review-all の所見 ===" as a
+# section header, so a bare grep double-counts. Anchoring to the line START fails because the stub logs
+# the whole argv, so every line begins with the flags. Excluding lines that mention da-fix-plan fails
+# because the stub logs `$*`, and a multi-line prompt becomes MULTIPLE log lines -- the quoted header is
+# a line of its own with no da-fix-plan on it. The invocation is the only line ENDING in the skill name.
+rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
+[[ "$rounds" -eq 1 ]] \
+  && ok "tier S buys exactly one review round -- the second is the \$15 ceiling, not more correctness" \
+  || no "tier S ran $rounds review rounds; S skips the design phase, so it must not pay the L review bill"
+[[ "$(ledger_field 'halt_reason')" == "review_cap" ]] \
+  && ok "and open findings still halt it rather than being shipped" \
+  || no "tier S with open findings recorded halt_reason '$(ledger_field 'halt_reason')'"
 
 # ---------------------------------------------------------------- one-way doors and the draft cap
 setup; measurement 6 1 0 0 0; runloop size "r"
