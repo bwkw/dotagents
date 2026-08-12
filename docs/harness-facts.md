@@ -184,6 +184,29 @@ README は「どのリポジトリにも存在します」と書いていまし�
 「ログインしたのに変わらない」という形で現れます —— **`security find-generic-password -s
 "Claude Code-credentials" | grep mdat` が更新されたかどうかの唯一の客観的な確認**です。
 
+## `gh stack` の実測（2026-08-12）—— 初回実走で分かったこと
+
+| 事実 | 確認 |
+|---|---|
+| **`gh stack init` はブランチ名を位置引数で取る** | `gh stack init -b main` だけだと `✗ interactive input required; provide branch names as arguments`。**ヘッドレスでは必ず落ちます** |
+| 既存ブランチは作り直さず adopt される | `gh stack init -b main <既存ブランチ>` → `✓ Adopted 1 branch: main ← <branch>` |
+| `gh stack view --json` はスタック外で失敗する | `✗ current branch "..." is not part of a stack`。駆動系はこれを「まだ init していない」の判定に使っています |
+| バージョン | `gh stack` v0.1.0（`github/gh-stack`） |
+
+**この1行のせいで、スタック PR 経路は一度も成立していませんでした。** そしてテストは通っていました ——
+スタブが引数なしの `stack init` を受理していたからです。**本物が拒否する呼び方を受理するスタブは、
+テストではなく2つ目のバグです。**
+
+## linked worktree では `test-setup.sh` が通らない（2026-08-12）
+
+`setup.sh` は linked worktree からのインストールを拒否します。**同一コミットで main checkout
+39 passed、linked worktree 18 passed / 19 failed** —— ガードが `die` して何もインストールされず、
+install 後の状態を見る assertion が全滅します。
+
+**無人レーンは必ず linked worktree で回る**ので、これは「ゲートがそこで永久に赤」を意味していました。
+`DOTAGENTS_ALLOW_WORKTREE_INSTALL` を立てるのは `test-setup.sh` だけ（fake HOME なのでガードが守る
+危険は当たらない）で、ガード自体は worktree 形のミニツリーで逃がし口なしに再検査します。
+
 ## チェックの実行はプロセスグループで
 
 以前の監視サブシェルは `eval` を走らせているサブシェルだけを kill していて、**その下は残っていました**。
