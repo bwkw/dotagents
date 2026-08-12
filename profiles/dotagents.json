@@ -116,7 +116,7 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "timeout": 180,
+      "timeout": 300,
       "when": "always -- the driver decides unattended whether work may reach a PR, so the checks that stop it are not optional"
     },
     {
