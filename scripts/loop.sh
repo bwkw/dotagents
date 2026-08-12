@@ -308,6 +308,19 @@ gate_gave_up() { # -> 0 when a VERDICT has been recorded
   '
 }
 
+# Says, where the loop gives up, whether the check it gave up on is the one that was already failing
+# before it started. Without this the two read identically, and the expensive case -- somebody else's
+# breakage burning every round -- looks exactly like the landing's own failure. Deliberately silent when
+# the names differ: a run that started red on A and died on B did break B, and excusing that would turn
+# a useful sentence into an alibi the driver hands itself.
+inherited_note() {
+  [[ -n "${STARTED_RED_CHECK:-}" ]] || return 0
+  [[ "$(gate_field check)" == "$STARTED_RED_CHECK" ]] || return 0
+  printf '\n  This check was ALREADY RED before the run started -- the loop did not break it. It may be what
+  you asked to fix, or breakage the landing inherited; either way no number of rounds here turns it
+  green, and the work is not verified against it.'
+}
+
 # ---------------------------------------------------------------- rounds
 SPENT=0
 GATE_UNRAN=""
@@ -424,8 +437,15 @@ cmd_size() {
 Answer only with the structured fields. \`files\` is every file a change would touch. \`layers\` is
 which of backend / frontend / infrastructure it reaches. \`one_way\` is each irreversible step.
 \`risk_surfaces\` is any of money, billing, external or government submission, authorization, PII,
-data migration or concurrency that the change reaches. \`unconfirmed\` is what you could not confirm
-within your budget -- do not leave it empty to look thorough; it decides whether a human reviews this." \
+data migration or concurrency that the change reaches.
+
+\`unconfirmed\` is NOT everything you failed to look at. It is only the things that, if you are wrong
+about them, would make this change BIGGER OR RISKIER than the counts above suggest -- a consumer you
+could not enumerate, a call path you could not follow, a migration you suspect but did not confirm.
+Something you did not need to check is not unconfirmed; something you checked and found irrelevant is
+not unconfirmed. If nothing could change the size of this, return an empty list -- an empty list is the
+correct and common answer for a small change, and padding it sends work to a human who did not need to
+see it." \
     "$schema"
 
   local files layers oneway risk unconf
@@ -723,7 +743,7 @@ post_round() { # <phase> <landing> <round>
   fi
   if gate_gave_up; then
     halt gave_up "the gate recorded a VERDICT and stopped blocking. A released gate is not a green
-  one: the work is NOT verified. Read: scripts/gate.sh status"
+  one: the work is NOT verified. Read: scripts/gate.sh status$(inherited_note)"
     record "$1" "$2" "$3" halted gave_up; return 1
   fi
   if node -e 'process.exit(Number(process.argv[1]) > Number(process.argv[2]) ? 0 : 1)' "$SPENT" "$BUDGET_USD"; then
@@ -835,7 +855,7 @@ and editing them aborts this landing."
     record implement "$n" "$r" held
   done
   if [[ "$LAST_OK" != 1 ]]; then
-    halt round_cap "the gate never went green in $MAX_ROUNDS rounds. Last: $(gate_field check) ($(gate_field kind)).
+    halt round_cap "the gate never went green in $MAX_ROUNDS rounds. Last: $(gate_field check) ($(gate_field kind)).$(inherited_note)
   Repeated correction piles failed approaches on top of each other -- this is the point to read the
   ledger and rewrite the request rather than buy another round."
     record implement "$n" "$MAX_ROUNDS" halted round_cap; return 1
@@ -1003,7 +1023,11 @@ stack_layer() { # <n>
     # checked out, so it could never fire.
     STACK_BASE_BRANCH="$(branch)"
     gh stack view --json >/dev/null 2>&1 && return 0
-    gh stack init -b "$(default_branch)" >/dev/null 2>&1 || {
+    # The branch goes in POSITIONALLY. `gh stack init -b <trunk>` with no branch argument asks for one
+    # interactively, and headless that is "interactive input required; provide branch names as arguments"
+    # -- which is how the first real run halted at landing 1 before implementing anything. An existing
+    # branch is adopted rather than recreated, so passing the branch we are already on is the right call.
+    gh stack init -b "$(default_branch)" "$STACK_BASE_BRANCH" >/dev/null 2>&1 || {
       halt stack_failed "gh stack init failed"; return 1; }
     return 0
   fi
@@ -1174,9 +1198,17 @@ cmd_run() {
   gate_has_profile || die "no profile matches this repository, so there are no gating checks -- and
   \`gate.sh verify\` answers ok:true when nothing matched. An unchecked repository is not a green one.
   Run /da-verify to get a profile written, then come back."
-  [[ "$STARTED_GREEN" == 1 ]] \
-    && dim "  starting green" \
-    || dim "  starting red: $(gate_field check) ($(gate_field kind)) -- inherited, not caused by this run"
+  # STARTED_RED_CHECK, not just the boolean. The boolean was assigned, printed, and read by nothing --
+  # on the first real run this line was the only place that said the loop had inherited a red installer
+  # suite rather than broken it, and it scrolled past thirty lines above the halt that mattered. The
+  # name is kept so the give-up messages can say which of the two happened.
+  if [[ "$STARTED_GREEN" == 1 ]]; then
+    STARTED_RED_CHECK=""
+    dim "  starting green"
+  else
+    STARTED_RED_CHECK="$(gate_field check)"
+    dim "  starting red: $STARTED_RED_CHECK ($(gate_field kind)) -- inherited, not caused by this run"
+  fi
 
   # Arming goes through the skill, by typing it. `da-verify` is the only thing that runs `gate.sh arm`
   # (AGENTS.md invariant 2), and that is not a formality: it is also the step that reports the evidence

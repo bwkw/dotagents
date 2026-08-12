@@ -25,3 +25,10 @@ profiles/*.json
 
 .DS_Store
 node_modules/
+
+# The loop driver isolates each landing into a linked worktree, and `using-git-worktrees` puts it
+# here -- inside the repository. Untracked, git collapses it to `.claude/`, which `changed_paths`
+# then reports: the driver would count its own scaffolding as uncommitted work and read that back
+# in its dirty accounting. The worktree is scaffolding, not content; `git worktree list` is where
+# it is tracked.
+.claude/worktrees/

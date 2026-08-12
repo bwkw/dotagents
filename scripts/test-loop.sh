@@ -115,6 +115,21 @@ case "$1 ${2:-}" in
     [[ -f "$FAKE_GH_DIR/stack" ]] || exit 1
     printf '{"layers":[]}\n' ;;
   "stack init")
+    # The real `gh stack init` takes the branches as POSITIONAL arguments and, given none, tries to ask:
+    # "interactive input required; provide branch names as arguments". Headless, that is a hard failure.
+    # This stub used to accept `stack init` with flags alone, so the suite was green against a call the
+    # real extension rejects -- the stacked-PR path could never have worked unattended, and nothing here
+    # could say so. A stub that accepts what the real tool refuses is not a test, it is a second bug.
+    shift 2   # drop "stack" and "init"; what remains is flags and branch names
+    branches=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -b|--base) shift 2 ;;
+        -*) shift ;;
+        *) branches="$branches $1"; shift ;;
+      esac
+    done
+    [[ -n "${branches// /}" ]] || { printf 'interactive input required; provide branch names as arguments\n' >&2; exit 1; }
     : > "$FAKE_GH_DIR/stack" ;;
   "stack add")
     # The real extension creates and checks out the new layer branch; the driver commits onto it, so
@@ -272,6 +287,20 @@ tier_case "one one-way door forces L"           L  1  1 1 0 0
 tier_case "one risk surface forces L"           L  1  1 0 1 0
 tier_case "one unconfirmed item forces L"       L  1  1 0 0 1
 
+# The tier rule above is right and stays. What broke on the first real run is the OTHER half of it:
+# `unconfirmed > 0` only means "a human should look" if `unconfirmed` means "something that could make
+# this bigger than it looks". The first live measurement returned 21 unconfirmed items for a one-file
+# docs edit and it was classified L -- correctly, by a rule fed a field that meant something else.
+# /da-investigate's job is to name what it could not confirm, so it will essentially always name
+# something, and tier S was therefore unreachable in practice. The fix is the field's definition, not
+# the threshold, so what is asserted is that the driver ships that definition: an empty list has to be
+# stated as a correct and expected answer, or the measurer pads it and every change is L forever.
+if grep -q 'an empty list is the' scripts/loop.sh && grep -q 'NOT everything you failed to look at' scripts/loop.sh; then
+  ok "the size prompt scopes unconfirmed to what changes the size, and permits an empty list"
+else
+  no "the size prompt does not permit an empty unconfirmed list -- tier S is unreachable, everything is L"
+fi
+
 setup
 measurement 1 1 0 0 0
 runloop size "a request"
@@ -401,6 +430,13 @@ grep -q -- '--draft' "$FAKE_GH_LOG" \
 grep -q 'stack init' "$FAKE_GH_LOG" \
   && ok "the run establishes a stack rather than a lone branch" \
   || no "no stack was initialised -- landings would collide on one branch"
+# `gh stack init` takes its branches positionally. The driver shipped `gh stack init -b main` and nothing
+# else, which headless returns "interactive input required" for -- so the stacked-PR path halted at the
+# first landing on the first real run, before implementing anything. The branch name must be an argument.
+grep -E 'stack init .*[^-] ?[A-Za-z0-9]' "$FAKE_GH_LOG" | grep -qvE 'stack init( +--?[a-z-]+( +[^ ]+)?)* *$' \
+  && ok "stack init names the branch positionally, which is the only non-interactive form" \
+  || { no "stack init was called with flags only -- the real extension demands interactive input and fails"
+       detail "$(grep 'stack init' "$FAKE_GH_LOG" | head -1)"; }
 
 # --- the driver types the skills; it does not reach past them -----------------
 # The whole premise is that this is a person's keystrokes with the person automated away. Where a skill
@@ -518,6 +554,14 @@ runloop run --max-rounds 3
   && ok "the ledger records round_cap as the reason it stopped" \
   || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not round_cap"
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "a halted landing still opened a PR" || ok "a halted landing opens no PR"
+# The run reports which check was red before it started, and then never used that answer again --
+# STARTED_GREEN was assigned, printed, and read by nothing. On the first real run that line was the only
+# way to know the loop had inherited a red installer suite rather than broken it, and it was one dim
+# line thirty lines above the halt. Attribution belongs where the loop gives up, not where it starts.
+grep -qi 'already red before' <<<"$OUT" \
+  && ok "the halt says the check was already red before the run, so an inherited failure is not misread" \
+  || no "the halt does not distinguish a check this run broke from one it inherited"
+
 # The switch, observed rather than read out of the source: round 1 writes code, and every round after a
 # red gate hands over to root-cause work. Counted, because "it appeared once" would also be true if the
 # driver typed it and then went back to piling on TDD rounds.
@@ -527,6 +571,21 @@ grep -q 'stack submit' "$FAKE_GH_LOG" && no "a halted landing still opened a PR"
 [[ "$(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG")" -ge 2 ]] \
   && ok "every round after the first red gate is /systematic-debugging" \
   || no "only $(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG") debugging round(s) across the cap"
+
+# And the other direction, which is the half that makes the first one mean anything: a check that was
+# GREEN when the run started and is red at the cap was broken BY this run, and saying "already red" there
+# would be a lie that reads like exoneration. An unconditional sentence passes the assertion above.
+setup; measurement 1 1 0 0 0; runloop size "r"
+: > "$FAKE_CLAUDE_DIR/no-worktree"        # keep the gate in REPO_DIR so the fixture can stage it green
+: > "$REPO_DIR/GREEN"                     # `test -f GREEN` -- green before the first round
+git -C "$REPO_DIR" add -A >/dev/null 2>&1
+git -C "$REPO_DIR" commit -qm "green before the run" >/dev/null 2>&1
+respond implement 1 0.10 3; side_effect_all implement 'rm -f GREEN; date >> churn.txt'
+respond debug 1 0.10 3; side_effect_all debug 'date >> churn.txt'
+runloop run --max-rounds 2
+grep -qi 'already red before' <<<"$OUT" \
+  && no "the halt claimed an inherited failure for a check this run broke -- the sentence is unconditional" \
+  || ok "a check the run broke itself is not excused as inherited"
 
 # ---------------------------------------------------------------- the gate gave up
 # The state dir is deterministic: <gate>/<basename of repo root>/wt/main. Named here rather than read
