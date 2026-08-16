@@ -517,6 +517,16 @@ grep -nE '"\$GATE_SH"[[:space:]]+arm|gate\.sh[[:space:]]+arm' "$LOOP" \
 grep -q 'claude_round "/test-driven-development' "$LOOP" \
   && ok "the implement phase opens by typing /test-driven-development, not by describing it" \
   || no "the implement prompt does not begin with /test-driven-development -- naming a skill is not invoking it"
+# Integration-first is a standing preference, and it has to travel in the PROMPT rather than in AGENTS.md:
+# the driver runs against product repositories, whose agents never read this repository's AGENTS.md.
+# A preference recorded only here is a preference the unattended rounds never hear.
+# A fixed window after the invocation, not a sed range ending in `^"$`: these prompts close with the
+# quote at the end of a content line, so that range never terminates where it looks like it does.
+for p in 'test-driven-development' 'executing-plans'; do
+  awk -v pat="claude_round \"/$p" 'index($0,pat){n=25} n{print; n--}' "$LOOP" | grep -qiE 'INTEGRATION' \
+    && ok "the $p prompt asks for integration-level tests" \
+    || no "the $p prompt says nothing about integration tests -- the preference stops at this repo's AGENTS.md"
+done
 grep -q 'claude_round "/systematic-debugging' "$LOOP" \
   && ok "a repeatedly red check switches to /systematic-debugging" \
   || no "nothing types /systematic-debugging -- a red gate just gets more TDD rounds, which is the patching da-verify says to stop"
@@ -599,6 +609,25 @@ runloop run
 [[ $RC -ne 0 ]] && grep -qi 'no profile' <<<"$OUT" \
   && ok "run refuses when no profile matches -- an unchecked repo is not a green one" \
   || { no "run proceeded with no profile, so nothing was verifying it (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+
+# --- the default round cap ---------------------------------------------------
+# 6 was a dead number. The gate's `max_attempts` is 3 and `attempts` rises by TWO per turn -- one for the
+# block, one for the re-entry release -- so a check that keeps failing gets a VERDICT after about two
+# rounds, and `gate_gave_up` halts the landing then. The driver's own cap was therefore unreachable in
+# exactly the case a cap exists for, and reachable only when *different* checks fail on successive
+# rounds. A cap you cannot hit is not a cap; it is a number that reads like one.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
+side_effect_all debug 'date >> churn.txt'
+respond debug 1 0.10 3
+runloop run                                  # no --max-rounds: the default is what is under test
+impl_n=$(( $(cat "$FAKE_CLAUDE_DIR/implement.counter" 2>/dev/null || echo 1) - 1 ))
+debug_n=$(( $(cat "$FAKE_CLAUDE_DIR/debug.counter" 2>/dev/null || echo 1) - 1 ))
+if [[ $(( impl_n + debug_n )) -eq 3 ]]; then
+  ok "the default round cap is 3 implementation rounds (1 implement + 2 debug)"
+else
+  no "the default cap spent $(( impl_n + debug_n )) rounds ($impl_n implement, $debug_n debug), not 3"
+fi
 
 # ---------------------------------------------------------------- red path, round cap
 setup; measurement 1 1 0 0 0; runloop size "r"

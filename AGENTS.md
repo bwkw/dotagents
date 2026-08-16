@@ -137,6 +137,16 @@ Two consequences worth stating: a bugfix starts with a test that reproduces the 
 meaning; and **a test written after the implementation, from the implementation, tests that the code does
 what it does.** If tests were added last, say so rather than presenting them as verification.
 
+**Weight the suite toward integration level.** Exercise the units together across the seam they meet at,
+through the real boundary rather than a mock of it — for a change spanning frontend and backend, the test
+that counts is the one that goes through both. Unit tests still matter and a pure function still gets
+one; what is being ruled out is a **suite that is green because every collaborator was stubbed**, which
+is the shape that passes while the assembled system does not.
+
+This preference also lives in the driver's implement prompts (`scripts/loop.sh`), **and that duplication
+is deliberate**: the loop runs against product repositories, whose agents never read this file. A
+preference recorded only here is one the unattended rounds never hear.
+
 ## Sizes that bite
 
 `SKILL.md` at or under 12 KB. A skill's body stays in context until the session ends and is never

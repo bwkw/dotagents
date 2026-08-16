@@ -56,7 +56,13 @@ LEDGER="$LOOP_DIR/ledger.jsonl"
 # Chosen numbers, not measured ones -- the same status as the gate's max_attempts of 3 and its 12h
 # TTL. They are here so that nothing has to be passed on the command line in normal use: a flag you
 # retype on every machine is a flag that buys nothing (docs/decisions.md).
-MAX_ROUNDS=6          # implementation attempts per landing before handing back
+# 3, not 6. **6 was unreachable in the case a cap exists for.** The gate's `max_attempts` is 3 and
+# `attempts` rises by TWO per turn -- one for the block, one for the re-entry release -- so a check that
+# keeps failing gets a VERDICT after about two rounds and `gate_gave_up` halts the landing there. The
+# driver's own cap could only ever fire when *different* checks failed on successive rounds, which is the
+# case where more rounds are least likely to help: the work is not converging on anything.
+# A cap you cannot hit is not a cap; it is a number that reads like one.
+MAX_ROUNDS=3          # implementation attempts per landing before handing back
 REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
 REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
@@ -975,6 +981,11 @@ and editing them aborts this landing."
       claude_round "/test-driven-development
 
 Work on this landing: $what
+
+**Weight the tests toward INTEGRATION level** -- exercise the units together across the seam they meet
+at, through the real boundary rather than a mock of it. Unit tests still matter and a pure function
+still gets one; what is being ruled out is a suite that is green because every collaborator was stubbed.
+For a change that spans frontend and backend, the test that counts is the one that goes through both.
 
 Do not modify profiles/, hooks/, or anything under scripts/ -- those decide whether your work passes,
 and editing them aborts this landing. When you believe it is done, stop; something else runs the checks."
