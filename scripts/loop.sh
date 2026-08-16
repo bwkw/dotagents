@@ -817,6 +817,17 @@ This is an unattended run: set up an isolated workspace without asking for conse
 instruction as the declared preference the skill's Step 0 looks for. Do not run the project's tests as
 the baseline; something else owns verification here and will run the repository's configured checks."
   [[ "$ROUND_EXIT" == "143" ]] && die "interrupted while isolating"
+  # Every other outcome of the round used to be swallowed here: the code went straight to "did a
+  # worktree appear", so a round that timed out, errored, or was cut off at a ceiling reported itself as
+  # "the skill declined to isolate" -- a wrong diagnosis that sends you to read the skill instead of the
+  # round. The round's own numbers are the first thing to look at, so they are printed.
+  dim "   isolate round: exit $ROUND_EXIT, \$$ROUND_COST, ${ROUND_TURNS} turns${ROUND_TRUNCATED:+, CUT OFF ($ROUND_TRUNCATED)}"
+  if [[ "$ROUND_EXIT" != "0" || -n "$ROUND_TRUNCATED" ]]; then
+    halt isolate_round_failed "the isolation round did not complete (exit $ROUND_EXIT${ROUND_TRUNCATED:+, $ROUND_TRUNCATED}).
+  No worktree can be expected from a round that did not finish, and 'working in place' is the one
+  fallback this loop must not take silently -- in place means on whatever branch you are standing on."
+    return 1
+  fi
   after="$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
   new="$(comm -13 <(printf '%s\n' "$before" | sort) <(printf '%s\n' "$after" | sort) | head -1)"
 
