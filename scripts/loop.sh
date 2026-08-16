@@ -1465,8 +1465,19 @@ submit_landing() { # <n> <what> <one-way>
   local url
   # --open, not the default: `gh stack submit` creates drafts, and these layers have already been
   # through the gate and a review pass. --auto because there is no editor to open.
-  url="$(gh stack submit --auto --open 2>/dev/null | grep -o 'https://[^ ]*/pull/[0-9]*' | tail -1)"
-  [[ -n "$url" ]] || { halt pr_failed "gh stack submit produced no PR URL"; \
+  gh stack submit --auto --open >/dev/null 2>&1
+  # ASK GITHUB, do not scrape stdout. `gh stack submit` prints a URL when it CREATES the PR and prose
+  # when the PR is already current -- "PR #45 for <branch> is up to date". Both are success, and the
+  # driver used to grep for a URL and call the second one `pr_failed`: **measured, on a PR that was open
+  # the whole time.** CI, the comments and the description never ran, and the PR kept its
+  # auto-generated title with no body, because the submit that made it did not print the right shape.
+  #
+  # This repository already names the same disease twice about the gate (`gate_has_profile` and
+  # `gate_verify_ok` both read prose, and the comments there say so). Third place, same cure: ask the
+  # tool that knows. `gh pr view` answers for the current branch and cannot be reworded.
+  url="$(gh pr view --json url --jq .url 2>/dev/null)"
+  [[ -n "$url" ]] || { halt pr_failed "no PR exists for this branch after \`gh stack submit\`.
+  Asked with \`gh pr view --json url\`, which is the authority -- this is not a parse failure."; \
     record pr "$1" 0 halted pr_failed; return 1; }
   local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
 

@@ -144,6 +144,16 @@ case "$1 ${2:-}" in
     shift 2; git checkout -q -b "${1:-layer}" 2>/dev/null ;;
   "stack push") : ;;
   "stack submit")
+    # The real extension prints a URL when it CREATES the PR and prose when it does not:
+    # "PR #45 for <branch> is up to date". Both are success. The fixture switches to the second shape,
+    # which is what caught the driver scraping stdout for a URL.
+    if [[ -f "$FAKE_GH_DIR/submit-no-url" ]]; then
+      printf 'Checking stack state...\nPR #7 for some-branch is up to date\n'
+    else
+      printf 'https://github.com/probe/x/pull/7\n'
+    fi ;;
+  "pr view")
+    [[ -f "$FAKE_GH_DIR/no-pr" ]] && exit 1
     printf 'https://github.com/probe/x/pull/7\n' ;;
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
@@ -264,6 +274,14 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [u
     process.stdout.write(JSON.stringify(o));
   ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
+green_pr() { # the common fixture: a landing that reaches a PR
+  measurement 1 1 0 0 0; runloop size "r"
+  respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+  respond review 1 0.30 7
+  respond triage 1 0.05 2 0 0 3
+  respond pr 1 0.10 3
+}
+
 truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, partial `result`
   printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
     > "$FAKE_CLAUDE_DIR/$1.$2.json"
@@ -1341,6 +1359,34 @@ grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
 
+# --- a PR that exists is not a PR that failed -------------------------------------
+# `gh stack submit` prints a URL when it creates the PR and prose when the PR is already current:
+# "PR #45 for <branch> is up to date". The driver scraped stdout for a URL and called the second shape
+# `pr_failed` -- **for a PR that was open the whole time**. Measured on the fifth run: PR #45 sat open
+# on the real repository while the landing halted, so CI, the comments and the description never ran
+# and the PR kept an auto-generated title with no body.
+#
+# Same disease this repo already names twice about the gate: coupling to another tool's PROSE.
+setup; green_pr
+: > "$FAKE_GH_DIR/submit-no-url"
+runloop run
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "a submit that prints no URL is resolved through gh pr view, not called a failure"
+else
+  no "submit without a URL was treated as a failure (exit $RC, halt=$(ledger_field halt_reason))"
+fi
+grep -q '^pr view' "$FAKE_GH_LOG" \
+  && ok "and the driver asks GitHub for the PR rather than scraping stdout" \
+  || no "the driver never asked gh pr view -- it is still parsing prose"
+
+# When there genuinely is no PR, it still fails. The fallback must not invent success.
+setup; green_pr
+: > "$FAKE_GH_DIR/submit-no-url"; : > "$FAKE_GH_DIR/no-pr"
+runloop run
+[[ "$(ledger_field halt_reason)" == "pr_failed" ]] \
+  && ok "and a genuinely missing PR is still pr_failed" \
+  || no "no PR exists yet the driver carried on (halt=$(ledger_field halt_reason))"
+
 # --- the last review's fixes get applied ------------------------------------------
 # Fourth instance of the shape. `REVIEW_ROUNDS_S=1` capped COST, but the loop checked the cap BEFORE
 # applying the fixes, so at tier S a single Fix-now finding halted the landing with the fix never
@@ -1439,13 +1485,6 @@ runloop run
 # The loop used to end at `gh stack submit`. Everything below is the half that was missing: the CI the
 # PR triggers, the comments a human leaves on it, and the description -- which now comes LAST, so the
 # body describes what actually happened rather than what was true one minute after opening.
-green_pr() { # the common fixture: a landing that reaches a PR
-  measurement 1 1 0 0 0; runloop size "r"
-  respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
-  respond review 1 0.30 7
-  respond triage 1 0.05 2 0 0 3
-  respond pr 1 0.10 3
-}
 
 setup; green_pr; runloop run
 grep -q 'pr checks' "$FAKE_GH_LOG" \
