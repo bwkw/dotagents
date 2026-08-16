@@ -88,6 +88,13 @@ BUDGET_ROUND_FINDBUGS_S=1.50 # tier S
 # buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
 BUDGET_ROUND_SIZE=1.25
 BUDGET_ROUND_PR=1.50         # writing one PR body
+BUDGET_ROUND_CI=2.00         # one attempt at a red CI
+BUDGET_ROUND_COMMENTS=2.50   # addressing a round of human review comments
+BUDGET_ROUND_REPLY=1.00      # composing the replies (posting is the driver's job, not the round's)
+
+# What happens after the PR is open.
+CI_ATTEMPTS=2         # fix attempts for a red CI before it becomes a human's problem
+CI_WAIT_SECONDS=900   # how long to wait for checks to stop being pending, per look
 
 # **The tier S numbers are tight on purpose, and what makes that safe is that overrun is now LOUD.**
 # Before `truncated` existed, a ceiling could only be set generously: a round cut off mid-report returned
@@ -1216,6 +1223,132 @@ stack_ready() { # -> 0 when the gh-stack extension is available
 
 # Establish the stack, or add a layer for this landing. Layer 1 is the branch the user is already on;
 # every later layer is a branch this driver creates.
+# --- after the PR is open ----------------------------------------------------
+# The loop used to end at `gh stack submit`, which meant it handed back a PR nobody had watched: the CI
+# it triggers and the comments a human leaves on it were both outside the machine. They are the half of
+# review that costs a person the most attention, because each arrival is an interrupt.
+#
+# `gh pr checks` exit codes are the contract: 0 all green, 1 something failed, 8 still running.
+ci_state() { # <pr-number> -> 0 green, 1 red, 2 gave up waiting. Sets CI_OUT.
+  local num="$1" waited=0 rc
+  while (( waited < CI_WAIT_SECONDS )); do
+    CI_OUT="$(gh pr checks "$num" 2>&1)"; rc=$?
+    case "$rc" in
+      0) return 0 ;;
+      8) sleep 10; waited=$((waited + 10)); continue ;;   # pending: the only code worth waiting on
+      *) return 1 ;;
+    esac
+  done
+  return 2
+}
+
+ci_settle() { # <landing> <pr-number>
+  local n="$1" num="$2" a
+  for (( a = 1; a <= CI_ATTEMPTS + 1; a++ )); do
+    ci_state "$num"
+    case $? in
+      0) dim "   CI green"; record ci "$n" "$a" advanced; return 0 ;;
+      2) halt ci_pending "CI was still running after ${CI_WAIT_SECONDS}s on PR #$num. The PR is open and
+  its code passed the local gate; what is unknown is what CI thinks. Nothing is claimed about it."
+         record ci "$n" "$a" halted ci_pending; return 1 ;;
+    esac
+    # Red. The last iteration exists only to report, never to fix -- so the cap is a cap.
+    if (( a > CI_ATTEMPTS )); then
+      halt ci_red "CI is still red on PR #$num after $CI_ATTEMPTS attempt(s):
+  $(printf '%s' "$CI_OUT" | head -3 | tr '\n' ' ')
+  More attempts pile failed approaches on each other. Read the run, then decide."
+      record ci "$n" "$a" halted ci_red; return 1
+    fi
+    dim "   CI red -- attempt $a/$CI_ATTEMPTS"
+    ROUND_BUDGET="$BUDGET_ROUND_CI"
+    claude_round "/systematic-debugging
+
+CI is red on PR #$num. This is the output:
+
+$CI_OUT
+
+Find the root cause before proposing a fix. CI runs what this machine may not, so the failure may be
+real even where the local gate is green -- do not assume the difference is CI's fault.
+
+Do not modify profiles/, hooks/, or anything under scripts/. Do not touch the CI configuration to make
+a check stop running: a check removed is not a check passed."
+    post_round ci "$n" "$a" || return 1
+    if [[ -z "$(changed_paths)" ]]; then
+      halt ci_fix_changed_nothing "the CI-fix round changed nothing, so the next look at CI would ask
+  the same question and get the same answer."
+      record ci "$n" "$a" halted ci_fix_changed_nothing; return 1
+    fi
+    gate_verify_ok || { halt red_after_ci "the CI fix took the LOCAL gate red: $(gate_field check).
+  Pushing it would trade a red CI for a red gate."; record ci "$n" "$a" halted red_after_ci; return 1; }
+    commit_landing "$n" "CI fix" || return 1
+    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
+      record ci "$n" "$a" halted push_failed; return 1; }
+  done
+}
+
+# Human review comments. Two rounds, deliberately in this order and only when there are comments:
+# addressing changes code and must pass the gate; replying is an outward-facing act and happens only
+# after that. Merging them would announce "done" to a person before anything verified it.
+pr_comments_settle() { # <landing> <pr-number>
+  local n="$1" num="$2" body count
+  body="$(gh api "repos/{owner}/{repo}/pulls/$num/comments" --paginate 2>/dev/null)"
+  count="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try{const a=JSON.parse(s);process.stdout.write(String(Array.isArray(a)?a.length:0))}
+    catch{process.stdout.write("0")}})' <<<"$body")"
+  [[ "${count:-0}" -gt 0 ]] || return 0
+  dim "   $count review comment(s) on PR #$num"
+
+  ROUND_BUDGET="$BUDGET_ROUND_COMMENTS"
+  claude_round "/receiving-code-review
+
+These are the review comments on PR #$num. Evaluate each one against the actual code before changing
+anything -- a remedy applied because it was written down is the failure that skill exists to prevent.
+Apply what holds up. Leave what does not, and note why; that is an answer, not a refusal.
+
+**Do not post anything.** Replies are composed in a separate step and posted by the driver.
+
+$body"
+  post_round comments "$n" 1 || return 1
+
+  if [[ -n "$(changed_paths)" ]]; then
+    gate_verify_ok || { halt red_after_comments "the comment fixes took the gate red: $(gate_field check)."
+      record comments "$n" 1 halted red_after_comments; return 1; }
+    commit_landing "$n" "review comments" || return 1
+    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
+      record comments "$n" 1 halted push_failed; return 1; }
+  fi
+  record comments "$n" 1 advanced
+
+  # The round writes the replies; the DRIVER posts them. Handing an unattended round `Bash(gh api:*)` so
+  # it can reply would also hand it merging, deleting and resolving -- and resolving is precisely the
+  # thing this phase must not do. A reply says "here is what I did"; resolving says "you are satisfied",
+  # which is not the driver's claim to make. Same shape as /da-pr-describe: the driver makes the shell.
+  ROUND_BUDGET="$BUDGET_ROUND_REPLY"
+  claude_round "Write one reply per review comment on PR #$num, using what you just did.
+
+Each reply says what changed and where, or -- when you did not act -- what you found and why the comment
+does not hold against the code. Cite \`file:line\`. Be brief and do not thank anybody for the review.
+**Never claim something was fixed that was not.**
+
+$body" '{"type":"object","required":["replies"],"properties":{"replies":{"type":"array","items":{"type":"object","required":["comment_id","body"],"properties":{"comment_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
+  post_round reply "$n" 1 || return 1
+
+  local posted=0 line cid rbody
+  while IFS=$'\t' read -r cid rbody; do
+    [[ -n "$cid" ]] || continue
+    # `-f body=@-` is not used: the body is multi-line and shell-quoted here, where it is visible.
+    printf '%s' "$rbody" | gh api "repos/{owner}/{repo}/pulls/$num/comments/$cid/replies" \
+      --method POST -F body=@- >/dev/null 2>&1 && posted=$((posted + 1))
+  done < <(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try{const o=JSON.parse(s).structured_output;for(const r of (o&&o.replies)||[])
+      process.stdout.write(String(r.comment_id)+"\t"+String(r.body).replace(/\n/g," ")+"\n")}catch{}})' \
+    <<<"$ROUND_OUT")
+
+  say "   replied to $posted of $count comment(s) -- nothing resolved; closing a thread is yours"
+  record reply "$n" 1 advanced
+  return 0
+}
+
 stack_layer() { # <n>
   if [[ "$1" == "1" ]]; then
     # Set on BOTH paths. It used to be assigned only after `gh stack init`, so resuming into an existing
@@ -1270,9 +1403,17 @@ submit_landing() { # <n> <what> <one-way>
   url="$(gh stack submit --auto --open 2>/dev/null | grep -o 'https://[^ ]*/pull/[0-9]*' | tail -1)"
   [[ -n "$url" ]] || { halt pr_failed "gh stack submit produced no PR URL"; \
     record pr "$1" 0 halted pr_failed; return 1; }
+  local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
+
+  # CI and the human's comments settle BEFORE the description is written. The description is the last
+  # thing that happens to this PR, so that it describes what the change ended up being -- including the
+  # CI fixes and whatever the review comments moved. Written at submit time it described a snapshot one
+  # minute old, and nothing ever came back to correct it.
+  ci_settle "$1" "$num" || return 1
+  pr_comments_settle "$1" "$num" || return 1
+
   # The driver makes the shell; the skill writes the body. da-pr-describe's own precondition is that
   # a PR already exists and that it must not create one -- which stays literally true this way.
-  local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
   ROUND_BUDGET="$BUDGET_ROUND_PR"
   claude_round "/da-pr-describe $num${GATE_DEFERRED:+
 

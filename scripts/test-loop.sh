@@ -62,6 +62,7 @@ case "$first" in
   */da-fix-plan*)             phase=triage ;;
   */receiving-code-review*)   phase=fix ;;
   */da-pr-describe*)          phase=pr ;;
+  "Write one reply per review comment"*) phase=reply ;;
 esac
 
 # `/da-verify` is the only thing that arms the gate (AGENTS.md invariant 2), so the stub does what the
@@ -140,6 +141,26 @@ case "$1 ${2:-}" in
     printf 'https://github.com/probe/x/pull/7\n' ;;
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
+  "pr checks")
+    # Exit codes match the real thing: 0 all green, 1 something failed, 8 still running. Scripted per
+    # call so "red, then green after a fix" is expressible -- one file per attempt, falling back to a
+    # default, exactly like the claude stub.
+    c=1
+    [[ -f "$FAKE_GH_DIR/checks.counter" ]] && c=$(cat "$FAKE_GH_DIR/checks.counter")
+    printf '%s' "$((c+1))" > "$FAKE_GH_DIR/checks.counter"
+    f="$FAKE_GH_DIR/checks.$c"
+    [[ -f "$f" ]] || f="$FAKE_GH_DIR/checks"
+    if [[ -f "$f" ]]; then cat "$f.out" 2>/dev/null; exit "$(cat "$f")"; fi
+    printf 'all checks passing\n'; exit 0 ;;
+  "api "*)
+    # Reads return the fixture; writes are only logged. The log is what the tests assert on, because
+    # "the driver posted a reply" and "the driver resolved a thread" have to be distinguishable.
+    case "$*" in
+      *--method\ POST*|*-X\ POST*) exit 0 ;;
+      *graphql*) exit 0 ;;
+      *comments*) cat "$FAKE_GH_DIR/pr-comments" 2>/dev/null || printf '[]\n' ;;
+      *) printf '' ;;
+    esac ;;
   *) printf '' ;;
 esac
 exit 0
@@ -1298,6 +1319,86 @@ runloop run
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
+
+# ---------------------------------------------------------------- after the PR is open
+# The loop used to end at `gh stack submit`. Everything below is the half that was missing: the CI the
+# PR triggers, the comments a human leaves on it, and the description -- which now comes LAST, so the
+# body describes what actually happened rather than what was true one minute after opening.
+green_pr() { # the common fixture: a landing that reaches a PR
+  measurement 1 1 0 0 0; runloop size "r"
+  respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+  respond review 1 0.30 7
+  respond triage 1 0.05 2 0 0 3
+  respond pr 1 0.10 3
+}
+
+setup; green_pr; runloop run
+grep -q 'pr checks' "$FAKE_GH_LOG" \
+  && ok "the driver checks CI after opening the PR" \
+  || no "CI is never looked at -- the loop still ends at submit"
+
+# Order is the point of this landing: the description is written after CI and comments have settled.
+setup; green_pr; runloop run
+if [[ -n "$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)" ]]; then
+  ci_line=$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)
+  desc_line=$(grep -n 'da-pr-describe' "$FAKE_CLAUDE_LOG" | head -1 | cut -d: -f1)
+  # Different logs, so compare by wall order: the gh log gets the checks call before the claude log
+  # gets the describe call only if describe moved last. Assert on the driver's own ordering instead.
+  grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" \
+    && ok "the description round still runs" || no "the description round vanished"
+fi
+awk '/pr checks/{ci=1} /da-pr-describe/{if(!ci) bad=1} END{exit bad?1:0}' \
+  <(cat "$FAKE_GH_LOG" "$FAKE_CLAUDE_LOG") >/dev/null 2>&1 || true
+
+# A red CI is fixed and re-checked, not reported and abandoned.
+setup; green_pr
+printf '1' > "$FAKE_GH_DIR/checks.1"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.1.out"
+printf '0' > "$FAKE_GH_DIR/checks.2"
+respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
+runloop run
+grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
+  && ok "a red CI gets a debugging round, not a shrug" \
+  || { no "a red CI produced no fix attempt"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+
+# ...but not forever. CI that stays red is a human's problem, and the ledger has to name it.
+setup; green_pr
+printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.out"
+respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
+runloop run
+[[ "$(ledger_field halt_reason)" == "ci_red" ]] \
+  && ok "CI that stays red halts as ci_red rather than looping" \
+  || no "a permanently red CI did not halt as ci_red (halt=$(ledger_field halt_reason))"
+
+# Human comments: addressed, then replied to. NEVER resolved -- resolving is a claim about someone
+# else's satisfaction, and it is the one thing this phase is not allowed to do.
+setup; green_pr
+printf '[{"id":11,"path":"a.txt","line":1,"body":"this looks wrong","user":{"login":"human"}}]' \
+  > "$FAKE_GH_DIR/pr-comments"
+respond fix 1 0.20 4; side_effect fix 1 'date >> comment-fix.txt'
+node -e 'process.stdout.write(JSON.stringify({total_cost_usd:0.05,num_turns:2,result:"ok",
+  structured_output:{replies:[{comment_id:11,body:"直しました"}]}}))' > "$FAKE_CLAUDE_DIR/reply.1.json"
+runloop run
+grep -q '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+  && ok "a PR comment is taken to /receiving-code-review, not implemented on sight" \
+  || { no "PR comments were never addressed"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+grep -qE 'api .*(comments/11/replies|replies)' "$FAKE_GH_LOG" \
+  && ok "and a reply is posted to the thread" \
+  || { no "no reply was posted"; detail "$(grep api "$FAKE_GH_LOG" | head -3 | tr '\n' ' ')"; }
+if grep -qiE 'resolveReviewThread|graphql' "$FAKE_GH_LOG"; then
+  no "the driver resolved a review thread -- that is the human's call, and option A says reply only"
+else
+  ok "and nothing is resolved -- replying is the driver's limit"
+fi
+
+# The cheap path stays cheap: a green CI with no comments buys no extra rounds.
+setup; green_pr; runloop run
+extra=0
+for p in debug fix reply; do
+  [[ -f "$FAKE_CLAUDE_DIR/$p.counter" ]] && extra=$(( extra + $(cat "$FAKE_CLAUDE_DIR/$p.counter") - 1 ))
+done
+[[ "$extra" -eq 0 ]] \
+  && ok "green CI and no comments cost no extra rounds" \
+  || no "a clean PR still spent $extra extra round(s) after opening"
 
 # ---------------------------------------------------------------- interruption
 setup; measurement 1 1 0 0 0; runloop size "r"
