@@ -595,6 +595,21 @@ DENIED — This command requires approval
 |---|---|---|
 | レイヤレビューが読む process 本文 | 76 KB ≈ **19K トークン** | 31 KB ≈ **7.9K トークン**（−58%） |
 | tier S の review round の天井 | **無し** | review $1.50 + triage $0.75 + findbugs $1.50 |
+| `size` の天井 | **無し**（実測 $1.53〜$1.98） | $1.25 |
+| `pr` の天井 | **無し** | $1.50 |
+
+**打ち切り検出には穴が2つ空いていました。** 検出は `post_round` にあり、そこを通らない `claude_round`
+が4つあります —— `size` / `worktree` / `pr` / `verify`。うち2つは**自分の効果を後から観測する**作りなので
+（worktree phase は `git worktree list`、verify phase は gate を読む）、打ち切りは観測可能な失敗として
+表に出ます。残る2つは、それぞれ別の形で盲目でした:
+
+- **`size`** —— 打ち切られると構造化出力が返らず、それは**スキーマフラグが違う**のと区別がつきません。
+  実際そう報告していました。**誤診は CLI を調べに行かせます。答えはこのファイルの数字なのに。**
+- **`pr`** —— 止めても取り返せない唯一の場所です。`gh stack submit` は本文を書く**前**に PR を開くので、
+  打ち切られた `/da-pr-describe` は**実在する開いた PR に書きかけの説明**を残し、`opened-pr` として
+  記録されます。run は止めません（deferred gate と同じ前例 —— 通らなかったのはコードではなく散文）が、
+  `opened-pr-partial-body` として記録し、赤字で言います。**`report` の採択数には数えます** ——
+  landing の**コード**はゲートもレビューも通っていて、切れたのは文章の方なので。
 
 **固定費のバグは順序でした。** レイヤスキルは「finding-discipline + review-process + perspectives を
 必ず読む」(47 KB) と言い、予算を決める差分計測は `review-process.md` の Step 1b —— **その47 KBの中**。

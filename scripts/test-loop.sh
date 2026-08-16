@@ -220,6 +220,12 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-c
 }
 
 # A round as a given phase would return it. Keyed by phase and occurrence, never by call order.
+# EVERY fixture helper lives in this block, and that is the point rather than tidiness. Bash defines a
+# function when the definition is *executed*, so a helper declared beside the tests that introduced it is
+# an undefined command for every case above it -- which returns empty and writes no fixture, and the
+# assertion then fails against a driver that was doing the right thing all along. That trap was hit
+# twice here: once with `round_budget`, once with `truncated`. Both times the implementation was correct
+# and the test was lying. Add new helpers HERE, never next to the case that needs them.
 respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
   node -e '
     const [c, t, fn, nd, dc] = process.argv.slice(1);
@@ -228,6 +234,10 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
       fix_now: Number(fn), needs_decision: Number(nd), decline: Number(dc) };
     process.stdout.write(JSON.stringify(o));
   ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
+}
+truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, partial `result`
+  printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
+    > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
 side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
@@ -1419,6 +1429,61 @@ else
   ok "the grant names read-only git subcommands only -- no push, reset, branch -D or clean"
 fi
 
+# --- the rounds that never reach post_round ---------------------------------------
+# Truncation detection lives in post_round, and four claude_round calls do not go through it: size,
+# worktree, pr and verify. Two of those four verify their own effect afterwards -- the worktree phase
+# reads `git worktree list`, the verify phase reads the gate -- so a cut-off round there surfaces as the
+# observable failure it caused. The other two are blind, and each is blind in its own way.
+setup
+measurement 1 1 0 0 0
+runloop size "r"
+[[ -n "$(round_budget '/da-investigate')" ]] \
+  && ok "the size round carries a ceiling (\$$(round_budget '/da-investigate'))" \
+  || no "size was unbounded -- measured at \$1.53-\$1.98 a go, three times in one session"
+
+# A cut-off size round returns no structured output, which is indistinguishable from the schema flag
+# being wrong -- and that is exactly what the driver used to report. A misdiagnosis sends you to check
+# the CLI when the answer is "raise the ceiling".
+setup
+printf '{"total_cost_usd":0.30,"num_turns":9,"subtype":"error_max_budget_usd","result":"partial"}' \
+  > "$FAKE_CLAUDE_DIR/investigate.1.json"
+runloop size "r"
+if [[ $RC -ne 0 ]] && grep -qiE 'truncat|打ち切|ceiling|天井' <<<"$OUT"; then
+  ok "a cut-off size round says it was cut off, not that the schema flag is wrong"
+else
+  no "a truncated size round was misdiagnosed (exit $RC)"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"
+fi
+grep -qi 'json-schema' <<<"$OUT" \
+  && no "and it still blamed --json-schema, which is the wrong thing to go and check" \
+  || ok "and it does not send you to check the CLI flag"
+
+# The PR phase is the one place where halting cannot undo what happened: `gh stack submit` has already
+# opened the PR by the time the body is written. So a cut-off /da-pr-describe leaves a REAL PR carrying
+# a half-written description, recorded `opened-pr` -- the "looks done, isn't" shape. It must be said.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+truncated pr 1 error_max_budget_usd
+runloop run
+if grep -qiE 'partial|部分|途中|truncat|打ち切' <<<"$OUT"; then
+  ok "a cut-off PR description is reported, not recorded as a finished one"
+else
+  no "the PR body was truncated and nothing said so"; detail "$(tail -5 <<<"$OUT" | tr '\n' ' ')"
+fi
+[[ "$(ledger_field outcome)" != "opened-pr" ]] \
+  && ok "and the ledger distinguishes it from a clean opened-pr" \
+  || no "the ledger recorded a partial-bodied PR as a plain opened-pr"
+# ...and it still counts as having reached a PR. The landing's CODE went through the gate and the
+# review; what was cut off is prose. Scoring it as not-reached would report the loop as failing to land
+# work it did land, for a documentation defect that already has its own ledger row.
+if runloop report; grep -qE 'reached PR +1' <<<"$OUT"; then
+  ok "and it still counts as having reached a PR (the code landed; the prose did not finish)"
+else
+  no "a partial-bodied PR was scored as not having reached a PR"
+  detail "$(grep -i 'reached PR' <<<"$OUT" | head -1)"
+fi
+
 # --- the review round must not be able to eat the run ----------------------------
 # Read out of the source, because this is a relationship between chosen numbers rather than a behaviour:
 # review + triage + findbugs can all fire on ONE landing, and the two measured runs both died on
@@ -1441,10 +1506,6 @@ fi
 # truncated review was recorded `outcome: advanced` and its half-written report was handed to triage as
 # though it were a finished one. Nothing downstream could tell, and 🔎 in the report would not say so
 # either -- the model does not know it was cut off.
-truncated() { # <phase> <n> <subtype>
-  printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
-    > "$FAKE_CLAUDE_DIR/$1.$2.json"
-}
 setup; measurement 1 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_budget_usd

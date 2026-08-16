@@ -77,6 +77,11 @@ BUDGET_ROUND_TRIAGE=3.00     # tier M/L
 BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
 BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
 BUDGET_ROUND_FINDBUGS_S=1.50 # tier S
+# `size` runs before any tier is known, so it gets one number. Measured at $1.68 / $1.72 / $1.98 across
+# three measurements in one session -- 37% of that session's total spend on deciding how much process to
+# buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
+BUDGET_ROUND_SIZE=1.25
+BUDGET_ROUND_PR=1.50         # writing one PR body
 
 # **The tier S numbers are tight on purpose, and what makes that safe is that overrun is now LOUD.**
 # Before `truncated` existed, a ceiling could only be set generously: a round cut off mid-report returned
@@ -534,7 +539,8 @@ cmd_size() {
   schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"unverified_claims":{"type":"array","items":{"type":"string"}}}}'
 
-  dim "measuring with /da-investigate ..."
+  dim "measuring with /da-investigate (ceiling \$$BUDGET_ROUND_SIZE) ..."
+  ROUND_BUDGET="$BUDGET_ROUND_SIZE"
   claude_round "/da-investigate $request
 
 Answer only with the structured fields. \`files\` is every file a change would touch. \`layers\` is
@@ -558,6 +564,16 @@ such claim here and none of them under \`unconfirmed\`; this field does not affe
     "$schema"
 
   local files layers oneway risk unconf claims
+  # Asked BEFORE the missing-measurement check, because a cut-off round produces no structured output
+  # either -- and the two diagnoses send you to different places. Blaming the schema flag for a round
+  # that ran out of budget is a full detour into the CLI for a problem whose fix is a number in this file.
+  # `size` does not go through post_round, so this is the only place it can be caught.
+  [[ -z "$ROUND_TRUNCATED" ]] || die "the size round was cut off (subtype: $ROUND_TRUNCATED) after
+  \$$ROUND_COST and ${ROUND_TURNS} turns, against a ceiling of \$$BUDGET_ROUND_SIZE. No measurement was
+  produced, and a truncated one would not be a measurement either.
+
+  Raise BUDGET_ROUND_SIZE, or narrow the request -- a request carrying many claims to verify makes the
+  measurer work through all of them (that is what \`unverified_claims\` records)."
   round_has_structured || die "no measurement came back (exit $ROUND_EXIT). Check that \`$SCHEMA_FLAG\`
   is the right flag for structured output on this version of the CLI.
 
@@ -1246,12 +1262,31 @@ submit_landing() { # <n> <what> <one-way>
   # The driver makes the shell; the skill writes the body. da-pr-describe's own precondition is that
   # a PR already exists and that it must not create one -- which stays literally true this way.
   local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
+  ROUND_BUDGET="$BUDGET_ROUND_PR"
   claude_round "/da-pr-describe $num${GATE_DEFERRED:+
 
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
 PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}"
+
+  # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
+  # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a
+  # half-written description -- and the plain `opened-pr` row would read as a finished one.
+  #
+  # It does not halt the run, following the same precedent as a deferred gate: the work itself passed,
+  # what is incomplete is the description, and that is said loudly and recorded rather than silently
+  # accepted or used to stop the remaining landings. A human reading the ledger can see which PR to fix.
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    record pr "$1" 0 opened-pr-partial-body
+    say ""
+    say "landing $1 -> $url  (layer $1 of the stack)"
+    printf '%sloop: the PR body is PARTIAL -- /da-pr-describe was cut off (%s) after $%s.%s\n' \
+      "$c_red" "$ROUND_TRUNCATED" "$ROUND_COST" "$c_off" >&2
+    printf '  The PR is open and its code went through the gate and the review. Its DESCRIPTION did not
+  finish being written -- read it before anyone reviews from it, and raise BUDGET_ROUND_PR.\n' >&2
+    return 0
+  fi
   record pr "$1" 0 opened-pr
   say ""
   say "landing $1 -> $url  (layer $1 of the stack, ready for review)"
@@ -1454,7 +1489,11 @@ cmd_report() {
       byPhase[r.phase] = (byPhase[r.phase] || 0) + c;
       if (r.phase === "size") continue;
       if (r.landing != null) landings.add(String(r.landing));
-      if (r.outcome === "opened-pr") accepted.add(String(r.landing));
+      // Both PR outcomes count as reaching a PR. The metric is "did the landing get there", and a
+      // partial-bodied PR did: its code went through the gate and the review, and only the description
+      // was cut off. Counting it as not-reached would understate acceptance for a documentation defect
+      // -- and the `opened-pr-partial-body` row is where that defect is already recorded, per landing.
+      if (r.outcome === "opened-pr" || r.outcome === "opened-pr-partial-body") accepted.add(String(r.landing));
       if (r.halt_reason) halts[r.halt_reason] = (halts[r.halt_reason] || 0) + 1;
       if (r.phase === "implement") rounds++;
     }
