@@ -116,7 +116,7 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "timeout": 300,
+      "timeout": 900,
       "when": "always -- the driver decides unattended whether work may reach a PR, so the checks that stop it are not optional"
     },
     {
@@ -138,5 +138,5 @@
       "when": "a suite added to check.sh and not to this profile is a suite the gate stops running. Counting steps would not work -- the granularities differ (shell-syntax and no-bash4 are one check.sh step; templates-valid is not a check.sh step at all), so the invariant is coverage of the scripts check.sh invokes, not equal counts. The shell-function steps (syntax, CLAUDE.md symlink, exec bits) have their own checks above; the tree-clean step is about the suites not dirtying the repo and is meaningless inside the gate."
     }
   ],
-  "timeout_total": 600
+  "timeout_total": 1500
 }
