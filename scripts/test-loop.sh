@@ -790,10 +790,21 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 to fix
 respond fix    1 0.20 4                                    # the fix round
 respond review 2 0.30 7; respond triage 2 0.05 2 1 0 1     # review 2: still 1
+respond fix    2 0.20 4
+respond pr     1 0.10 3
 runloop run plan.md
-[[ $RC -ne 0 ]] && grep -qi 'review_cap' <<<"$OUT" \
-  && ok "tier M: findings still open after the second review halt rather than buying a third" \
-  || { no "the review loop did not stop at two rounds (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+# CHANGED DELIBERATELY, not silenced. This used to assert `review_cap` -- that the loop HALTS with the
+# second review's findings unfixed. That reading of the cap made tier S unable to reach a PR at all
+# (`REVIEW_ROUNDS_S=1` meant the fix round was never reachable), so the cap now governs how many times
+# we REVIEW, and the last review's fixes are applied and gate-verified before it stops reviewing.
+# What must still hold is the thing the cap was for: no THIRD review is bought.
+rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
+[[ "$rounds" -eq 2 ]] \
+  && ok "tier M: two reviews and no third -- the cap still bites where it costs" \
+  || no "tier M ran $rounds review rounds, not 2"
+grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG" | grep -q '^2$' \
+  && ok "and both rounds' findings were applied, including the last one's" \
+  || no "the second review's findings were left unapplied ($(grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG") fix round(s))"
 
 # A review round is NOT one skill: it is /da-review-all plus a /da-fix-plan triage, and the first real
 # landing measured that pair at $5.64 + $2.08 -- against $1.30 for the implementation it was reviewing.
@@ -817,9 +828,11 @@ rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
 [[ "$rounds" -eq 1 ]] \
   && ok "tier S buys exactly one review round -- the second is the \$15 ceiling, not more correctness" \
   || no "tier S ran $rounds review rounds; S skips the design phase, so it must not pay the L review bill"
-[[ "$(ledger_field 'halt_reason')" == "review_cap" ]] \
-  && ok "and open findings still halt it rather than being shipped" \
-  || no "tier S with open findings recorded halt_reason '$(ledger_field 'halt_reason')'"
+# Also changed deliberately: open findings are no longer SHIPPED UNFIXED, which is what halting here
+# actually meant. They are fixed, gate-verified, and the PR body is told they were not re-reviewed.
+grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
+  && ok "and its findings are applied with the PR told they were not re-reviewed" \
+  || no "tier S shipped or dropped its findings without saying which"
 
 # ---------------------------------------------------------------- one-way doors and the draft cap
 setup; measurement 6 1 0 0 0; runloop size "r"
@@ -1327,6 +1340,45 @@ runloop run
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
+
+# --- the last review's fixes get applied ------------------------------------------
+# Fourth instance of the shape. `REVIEW_ROUNDS_S=1` capped COST, but the loop checked the cap BEFORE
+# applying the fixes, so at tier S a single Fix-now finding halted the landing with the fix never
+# attempted -- /receiving-code-review was unreachable there. Measured: the first landing to get past
+# triage stopped on `fix_now=1`, one mechanical edit short of a PR.
+#
+# What the cap should govern is how many times we REVIEW, not whether the last review's findings get
+# acted on. Applying is cheap and the gate re-verifies it; buying another review is the expensive thing.
+setup; measurement 1 1 0 0 0; runloop size "r"      # tier S -> exactly 1 review round
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 1 0 0 0                      # fix_now 1
+respond fix 1 0.10 3; side_effect fix 1 'date >> applied.txt'
+respond pr 1 0.10 3
+runloop run
+grep -q '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+  && ok "tier S applies the single review round's fixes instead of halting on them" \
+  || { no "the fix round never ran -- a one-line finding still blocks the landing"
+       detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "and the landing reaches a PR"
+else
+  no "the landing still did not reach a PR (exit $RC, halt=$(ledger_field halt_reason))"
+fi
+# The honesty half: those fixes were gate-verified but never re-reviewed, and the reader must be told.
+grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
+  && ok "and the PR body is told the fixes were not re-reviewed" \
+  || no "fixes applied after the last review reach the PR with nothing said about it"
+
+# A decision still outranks everything -- it stops before any fix is attempted.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 1 1 0 0                      # fix_now 1 AND needs_decision 1
+runloop run
+[[ "$(ledger_field halt_reason)" == "needs_decision" ]] \
+  && ok "a decision still halts before any fix is applied" \
+  || no "needs_decision was overtaken by the fix path (halt=$(ledger_field halt_reason))"
 
 # --- "could not verify" is not "needs a decision" ---------------------------------
 # The third instance of one shape. `needs_decision > 0` halted the run unconditionally -- and

@@ -966,6 +966,7 @@ triage_schema() {
 run_landing() { # <n> <what-lands> <one-way>
   local n="$1" what="$2" oneway="$3" r rr schema
   LAST_OK=0; FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
+  UNREVIEWED_FIXES_NOTE=""
 
   echo
   dim "── landing $n: $what"
@@ -1194,11 +1195,16 @@ docs/fix-plans/ の該当ファイルです。**PR 本文にその件数と、�
     record triage "$n" "$rr" advanced
     [[ "$FIX_NOW" -eq 0 ]] && break
 
-    if [[ "$rr" -ge "$review_rounds" ]]; then
-      halt review_cap "$FIX_NOW finding(s) still open after $review_rounds review(s). Another round
-  buys a higher chance of approval, not a higher chance of being right. They are in the ledger."
-      record triage "$n" "$rr" halted review_cap; return 1
-    fi
+    # NOTE THE ORDER. The cap used to be checked HERE, before the fixes were applied -- so at tier S,
+    # where `review_rounds` is 1, a single Fix-now finding halted the landing with the fix never
+    # attempted and `/receiving-code-review` unreachable. A review reliably finds at least one thing
+    # worth fixing, so tier S -- the tier meant to run unattended end to end -- could essentially never
+    # reach a PR. Fourth time a cap made its own downstream unreachable.
+    #
+    # What `REVIEW_ROUNDS` governs is **how many times we REVIEW**, not whether the last review's
+    # findings get acted on. Applying is one cheap round that the gate re-verifies; buying another
+    # review is the expensive thing the cap exists to stop. So the fix is applied first, and the cap
+    # decides only whether another REVIEW follows.
 
     # Through /receiving-code-review, not straight into an editor. That skill exists to stop exactly
     # what a driver would otherwise do here -- implement every finding because it is written down.
@@ -1215,6 +1221,18 @@ not touch profiles/, hooks/, or scripts/."
     post_round fix "$n" "$rr" || return 1
     if gate_verify_ok; then
       LAST_OK=1; record fix "$n" "$rr" advanced; commit_landing "$n" "$what fixes" || return 1
+      # Last round: the fixes are in and gate-verified, but nothing reviewed them. That is a real gap,
+      # so it is carried to the PR body rather than being the reader's job to notice -- same shape as
+      # GATE_DEFERRED and the unverified count.
+      if [[ "$rr" -ge "$review_rounds" ]]; then
+        UNREVIEWED_FIXES_NOTE="
+
+このレビュー周回で **$FIX_NOW 件の修正を適用しましたが、その修正自体は再レビューされていません**
+（tier の review 周回数が $review_rounds のため）。ゲートは通っていますが、機械的な検証だけです。
+**PR 本文にその件数と、再レビューされていないことを明記してください。**"
+        say "   review $rr: applied $FIX_NOW fix(es); no round left to re-review them"
+        break
+      fi
     else
       LAST_OK=0
       halt red_after_fix "the fixes took the gate red: $(gate_field check) ($(gate_field kind)).
@@ -1467,7 +1485,7 @@ submit_landing() { # <n> <what> <one-way>
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
-PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}"
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}"
 
   # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
   # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a
