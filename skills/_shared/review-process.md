@@ -116,90 +116,41 @@ Read `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md`, and any relevant skills, an
 project's own conventions as the standard. Identify the framework and stack from the diff. Run the
 generic checks even when there is no project context to be found.
 
-## Step 5. Fan out by perspective — the find phase
+## Step 5. Work the perspective clusters — the find phase, inline
 
-Launch one subagent per perspective cluster, **all in a single message so they run in parallel**.
+**This review spawns no subagents. None — not per cluster, not per layer, not for verification.** You
+read the diff and work the clusters yourself, in this context, in the order below.
 
-Use **`x-codebase-explorer`** for clusters that are mostly tracing — who calls this, where does the data
-go, what else touches this pattern. Use `general-purpose` for clusters that need judgement about the
-design. Pass every subagent its cluster's checklist from the layer file, and **never skip a cluster**
-because the ideal agent for it is unavailable.
+That is a deliberate reversal. The previous version budgeted 0/3/5 find subagents per layer plus a
+verifier that "never goes to zero", and it was wrong in three ways at once:
 
-> `x-codebase-explorer` and `x-review-verifier` are installed globally by this toolkit, so they exist in
-> every repository. Do not wait for a repository to define an agent — by design this toolkit never
-> adds a file to a product repository, so a repository-local agent will never appear.
+**It bought the wrong thing.** The case for a subagent is *independence* — a reader who did not watch the
+finding get made. But every one of these is **the same model, on the same diff, under the same
+discipline**, so what comes back is a copy of your own blind spot with a cold-start bill attached. The
+toolkit's own measurement says where independence actually comes from: across 146 pull requests reviewed
+by four **differently built** tools, **93.4% of findings were caught by exactly one of the four, and none
+by all four.** Coverage came from a different *kind* of reviewer, never from another instance of the same
+one. `/find-bugs` is that different reviewer here; a subagent is not.
 
-> **Above the inline tier, never run perspective review in the main context.** Dispatch to subagents and
-> wait for all of them before synthesising. The reason is not speed: a perspective read in the main
-> context stays in the main context, and crowds out the synthesis that follows.
->
-> **That reason is proportional to the reading, which is why the inline tier exists.** A 60-line diff
-> does not produce enough context to crowd anything out, and isolating it costs a full cold subagent —
-> one that re-reads 9 KB of discipline plus the diff plus the impact map to look at sixty lines. Below
-> the threshold the isolation is pure overhead, so the budget spends zero there.
+**It cost what it claimed to save.** A subagent starts cold and does not inherit the parent's cached
+prefix, so it re-buys the discipline, the diff and the impact map at full uncached price. Measured
+fan-out multipliers: **2.6–5.9× the sequential token cost, and not faster in wall-clock** (five
+subagents at 4:45 against 4:15 sequential). Width is bought with tokens and does not come back as speed.
 
-Hand every subagent:
+**It could not hold in both agents.** Subagent orchestration is the least portable thing this toolkit
+does — the `Task` tool is Claude Code's, Cursor's subagents are a different mechanism with different
+frontmatter, and a review whose rigour lives in *how many agents were dispatched* is a review that means
+something different in the two. Inline, the prose carries the whole method, and **the same file produces
+the same review in Claude Code and in Cursor.** That is the property this toolkit is built on.
 
-- the base and the scope
-- the Step 2 impact map, including the full list of related domains
-- its cluster's checklist, from the layer file
-- "irreversibility is the highest priority"
-- "in high-risk areas, do not settle for 'same as existing' — read the actual guard and cite
-  `file:line`, or state explicitly that it is unverified"
-- **three absolute paths, with an instruction to read them first — not their contents:**
-  `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md`,
-  `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md`,
-  `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md`.
+**What does not change is the questions.** The clusters below are the unit of rigour — they always were;
+the subagents were only couriers. Work all five, then the layer's remaining clusters. **Say so in 🔎:
+"inline, no subagents"** — never a claim that agents ran.
 
-  Paths, because pasting a file in makes you hold a copy you never apply on top of the copy each subagent
-  pays for anyway, and a pasted copy is the one that gets silently abridged when the prompt grows. The
-  last two you do **not** read at all — see "Hand down, do not read" in the layer file. **If a brief omits
-  them, that subagent reviews without the silent-failure patterns**, which is the miss they exist to
-  prevent, so it is worth checking the briefs rather than assuming.
-
-### The fan-out budget — how many subagents, decided by the number from Step 1b
-
-**This is a budget, not a suggestion.** "Scale the fan-out to the change" was the instruction here for a
-while, and it produced maximum fan-out every time, because nothing in it could be checked. The layer
-files list 9 to 11 clusters; one subagent per cluster on a three-layer change is 29 find subagents before
-verification has spent anything.
-
-Take the changed-line count from Step 1b — it is already measured by then — and spend accordingly:
-
-| Diff, from Step 1b | Find subagents **per layer** |
-|---|---|
-| ≤ 80 lines, ≤ 5 files | **0 — run the five always-covered clusters inline, in this context** |
-| ≤ 400 lines | **3** |
-| > 400 lines, or > 15 files | **5** |
-
-**The bottom tier spends no find subagents at all.** Read the diff yourself and work the five clusters
-below in order. You already have the diff, the impact map and the discipline loaded; a subagent would
-start cold and buy all three again to look at sixty lines. **Subagents are not the unit of rigour** —
-the clusters are. Running them inline is the same review with the courier removed, and the report says
-so plainly: "inline, no find subagents" in 🔎, never a claim that five agents ran.
-
-**Five is the ceiling, and it does not rise.** Not for a 3,000-line diff, not for a wide impact map. Two
-independent measurements put the ceiling there: multi-agent code review F1 **plateaus around n=5–10**, and
-scaling *homogeneous* agents — which these are, same model and same discipline — shows marginal gain per
-agent collapsing toward zero, because copies of one reviewer converge on the same blind spot. Above the
-ceiling the honest move is the one Step 1b already names: **say it is a sample, and send the change back
-to be split.** Buying a sixth subagent instead is paying for coverage the measurement says you do not get.
-
-**The budget counts subagents, not clusters, and one subagent can carry several.** That is the whole
-mechanism: at 5 subagents a layer's 9–11 clusters are *grouped* into 5 briefs, not cut down to 5. At 1
-subagent, all five always-covered clusters below go into that one brief. What the budget limits is how
-many times you pay the cold-start and the re-read, not how many questions get asked.
-
-**Concurrency:** launch a layer's find subagents in one message, but **do not launch two layers' fan-outs
-at once.** Every subagent starts cold — a subagent does not inherit the parent's cached prefix, so it pays
-full uncached price for everything it reads — and overlapping cold fan-outs turn one cache miss into a
-stampede. Measured fan-out multipliers sit at **2.6–5.9× the sequential token cost**, and in the same
-measurements the fan-out was **not faster in wall-clock** (five subagents at 4:45 against 4:15 sequential).
-Width is bought with tokens and does not come back as speed.
-
-**Say the shape in 🔎: the budget tier you used, how many find subagents ran, and which clusters were
-collapsed into which.** A reader cannot calibrate a clean result without it, and it is the only record of
-what a review cost — this toolkit has no other cost instrumentation.
+**When the diff is too big to hold, the answer is not more agents.** It is the one Step 1b already gives:
+say it is a sample, name what was not opened, and send the change back to be split. Fanning out over a
+3,000-line diff produced plausible style comments and called it reviewed; that is the failure this
+paragraph replaces, not a capability being given up.
 
 **Five clusters survive every collapse.** They are the ones where a miss is expensive and a late catch is
 a rewrite, so they are never merged away, never sampled, and never dropped for a "small" diff:
@@ -212,16 +163,14 @@ a rewrite, so they are never merged away, never sampled, and never dropped for a
 | **Aggregates and transaction boundaries (DDD)** | Aggregate granularity, cross-aggregate invariants, what a single transaction is allowed to span. These are decided once and inherited by everything after. |
 | **Security, authorization and tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The only category where being wrong once is already the incident. |
 
-**These five are placed first, then the layer's remaining clusters are distributed across the same
-subagents** in the order the layer file lists them. Grouping is what shrinks — never the list of questions.
+**These five come first, then the layer's remaining clusters** in the order the layer file lists them.
 
-But grouping is not free, and this is the part to be honest about in the report: **six clusters in one
-brief get less attention each than one cluster in one brief.** Depth per question falls as the budget
-falls, which is correct — a 40-line diff does not need the depth a 900-line one does — and it is the thing
-a reader cannot see. So 🔎 names the grouping, and any cluster that got only a token pass is said to have
-got one. The cap does not make a narrow review wide; it makes a narrow review **honest about being
-narrow**, which the uncapped version was not either — it was equally shallow at 29 subagents and reported
-nothing about it.
+**Depth per question still falls as the diff grows, and that is the thing a reader cannot see.** Working
+eleven clusters over a 900-line diff in one context gives each less attention than one cluster would get
+alone — the same trade the fan-out budget used to make, now made openly instead of being disguised as
+five agents. So 🔎 names **any cluster that got only a token pass**, and says which. The honest narrow
+review and the dishonest one differ by that sentence, and the uncapped fan-out never wrote it either: it
+was equally shallow at 29 subagents and reported nothing about it.
 
 ## Step 6. Verify
 

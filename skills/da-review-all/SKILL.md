@@ -1,8 +1,8 @@
 ---
 name: da-review-all
-description: Review a change across every layer it touches, as a tech lead. Use for code review, PR review, or checking work before shipping — especially when a change spans backend, frontend, and infrastructure. Reviews each layer in its own subagent, then finds the irreversible risks that fall between them, like a contract and its consumer shipping out of order. Read-only.
+description: Review a change across every layer it touches, as a tech lead. Use for code review, PR review, or checking work before shipping — especially when a change spans backend, frontend, and infrastructure. Reviews each layer against its own checklist, then finds the irreversible risks that fall between them, like a contract and its consumer shipping out of order. Read-only.
 argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff and its blast radius)"
-allowed-tools: Task, Read, Grep, Glob, Write, Bash(git:*), Bash(gh:*)
+allowed-tools: Read, Grep, Glob, Write, Bash(git:*), Bash(gh:*)
 metadata:
   source: bwkw/dotagents
 ---
@@ -42,11 +42,11 @@ change, runs the layers that apply, then does the part none of them can.
 | `x-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
 | `x-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
 
-**The dispatcher reads no reference files** until Step 4. Each layer skill tells its own subagents what
-to load, and opening a reference here would park it in the main context for the whole session.
+**The dispatcher reads no reference files** until Step 4. Each layer skill names what its own phases
+load; opening a reference here would park it in the main context for the whole session.
 
-Step 4 reads **one or three**, depending on how many layers ran. All three are listed here so each is one
-level from this file — a reference reached only through another reference gets partially read:
+Step 4 reads **one or three**, by how many layers ran. All three are listed here so each is one level
+from this file — a reference reached only through another reference gets partially read:
 
 | File | When |
 |---|---|
@@ -105,37 +105,34 @@ blocking bought no accuracy and cost a human round trip every run.
 **Stop for one case only — an unclassified file.** Ask which layer it belongs to. That is the sole branch
 where continuing means guessing.
 
-## Step 3. Run the layer reviews
+## Step 3. Run the layer reviews — inline, one after another
 
-For each layer with files, launch a subagent and tell it to use that layer's skill **by name**:
+**Spawn nothing.** For each layer with files, invoke that layer's skill **by name, in this context**,
+scoped strictly to that layer's file list:
 
-> Use the `x-review-<layer>` skill and follow it exactly. Your scope is strictly these files:
-> `<the list>`. Do not re-derive the full diff.
+> Use the `x-review-<layer>` skill and follow it exactly. Scope: `<the list>`. Do not re-derive the
+> full diff.
 
-The layer skill handles the rest — it reads its own posture, process, perspectives, and the
-silent-failure patterns, and fans out to its own perspective subagents. **Do not restate its
-instructions here.** If a layer needs different guidance, that belongs in the layer skill, where a
-direct `/x-review-backend` invocation also benefits from it.
+Finish one layer's report before starting the next. The layer skill handles the rest — posture, process,
+perspectives, the silent-failure patterns. **Do not restate its instructions here.** If a layer needs
+different guidance, that belongs in the layer skill, where a direct `/x-review-backend` invocation also
+benefits from it.
 
 > **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
 > so this step becomes a silent no-op. The linter and the lint hook both check for it.
 
-Run the layers **sequentially**, and do not "fix" this into parallel: subagents start cold, so three at
-once re-buys the same files — measured **2.6–5.9× the tokens, and not faster** (`docs/decisions.md` §16).
+**Why no subagents, when this file used to require one per layer** (full account: `docs/decisions.md`):
 
-**Tell each layer its budget tier**, computed on **that layer's file list, not the whole diff** — only
-the dispatcher sees both halves. The numbers are here, not only in `review-process.md`, because
-`${CLAUDE_SKILL_DIR}` is a Claude Code extension and a rule behind it is not a rule in Cursor:
+- **A subagent is not a second opinion.** Same model, same diff, same discipline — it returns this
+  context's blind spot with a cold start attached. Independence comes from a **differently built**
+  reviewer: across 146 PRs, **93.4% of findings were caught by exactly one of four different tools and
+  none by all four.** `/find-bugs` is that reviewer; another instance of this one is not.
+- **It cost what it claimed to save** — **2.6–5.9× the tokens and not faster in wall-clock**.
+- **It could not mean the same thing in both agents.** `Task` is Claude Code's; Cursor's subagents are a
+  different mechanism, so rigour that lives in *how many agents ran* is not the same rigour there.
+  Inline, **the same file produces the same review in both** — invariant 1.
 
-| That layer's changed lines | Find subagents |
-|---|---|
-| **≤ 80 lines, ≤ 5 files** | **0 — inline** |
-| ≤ 400 | 3 |
-| more | 5 (ceiling) |
-
-**A single layer at the inline tier gets no layer subagent either** — invoke its skill **inline here**.
-Wrapping a zero-find-subagent review in a subagent isolates it from nothing and costs a cold start that
-re-reads every reference. The review is then **one subagent, the verifier**, which never goes to zero.
+**Say "inline, no subagents"** — never imply agents ran.
 
 The dispatcher **dispatches**. It does not duplicate the layer checks — each layer maps its own
 internal blast radius in its Step 2.
@@ -180,10 +177,10 @@ and it is the only place they can be checked because no layer can see them.
 
 - [ ] The layer classification was shown **before** any review ran, and every file is in a layer — an
       unclassified file stopped the run and was asked about, rather than being carried forward
-- [ ] 🔎 reports **the budget tier and the subagent count per layer**, and names what it did not reach —
-      the toolkit's only cost measurement, so a review that omits it cannot be tuned
-- [ ] Every layer with files was dispatched to **by skill name**, and the transcript shows it ran — a
-      layer reported as covered with no subagent behind it is the failure this dispatcher exists to avoid
+- [ ] 🔎 says **"inline, no subagents"** and names what it did not reach, plus any cluster that got only
+      a token pass — the toolkit's only cost measurement, so a review omitting it cannot be tuned
+- [ ] Every layer with files was invoked **by skill name** and produced its own report — a layer
+      reported as covered with no report behind it is the failure this dispatcher exists to avoid
 - [ ] **The change summary spans layers**: what changed in each, and what the change is *as one thing*
       rather than three unrelated diffs
 - [ ] **All ten checks in `cross-layer.md` were applied** — not just the four structural ones, and

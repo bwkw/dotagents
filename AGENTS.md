@@ -120,9 +120,11 @@ work. That is why they are here rather than in a document you would read once.
     too. So a pin overrides the user in *both* agents. The reflex "it's Claude-only, so it's just an
     optimization" is the wrong reflex here, and it was written into this file once already.
 
-    **Take cost out of how *many* subagents run — never out of what they run on.** The fan-out budget in
-    `skills/_shared/review-process.md` is where that money is, and it is the same money.
-    `verify-skills.sh` errors on any `model:` that is not `inherit`.
+    **Take cost out of how *many* subagents run — never out of what they run on.** That sentence used to
+    point at the fan-out budget in `skills/_shared/review-process.md`; **the review now runs zero
+    subagents**, so the money came out of the count all the way down, and none of it out of the model.
+    The rule is unchanged and now has one fewer place to be broken. `verify-skills.sh` errors on any
+    `model:` that is not `inherit`.
 
 ## How implementation is done
 
@@ -134,6 +136,16 @@ to hold when nobody invokes it.
 Two consequences worth stating: a bugfix starts with a test that reproduces the bug, so "fixed" has a
 meaning; and **a test written after the implementation, from the implementation, tests that the code does
 what it does.** If tests were added last, say so rather than presenting them as verification.
+
+**Weight the suite toward integration level.** Exercise the units together across the seam they meet at,
+through the real boundary rather than a mock of it — for a change spanning frontend and backend, the test
+that counts is the one that goes through both. Unit tests still matter and a pure function still gets
+one; what is being ruled out is a **suite that is green because every collaborator was stubbed**, which
+is the shape that passes while the assembled system does not.
+
+This preference also lives in the driver's implement prompts (`scripts/loop.sh`), **and that duplication
+is deliberate**: the loop runs against product repositories, whose agents never read this file. A
+preference recorded only here is one the unattended rounds never hear.
 
 ## Sizes that bite
 

@@ -56,11 +56,55 @@ LEDGER="$LOOP_DIR/ledger.jsonl"
 # Chosen numbers, not measured ones -- the same status as the gate's max_attempts of 3 and its 12h
 # TTL. They are here so that nothing has to be passed on the command line in normal use: a flag you
 # retype on every machine is a flag that buys nothing (docs/decisions.md).
-MAX_ROUNDS=6          # implementation attempts per landing before handing back
+# 3, not 6. **6 was unreachable in the case a cap exists for.** The gate's `max_attempts` is 3 and
+# `attempts` rises by TWO per turn -- one for the block, one for the re-entry release -- so a check that
+# keeps failing gets a VERDICT after about two rounds and `gate_gave_up` halts the landing there. The
+# driver's own cap could only ever fire when *different* checks failed on successive rounds, which is the
+# case where more rounds are least likely to help: the work is not converging on anything.
+# A cap you cannot hit is not a cap; it is a number that reads like one.
+MAX_ROUNDS=3          # implementation attempts per landing before handing back
 REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
 REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
 BUDGET_USD=10         # per `run` invocation
+
+# Per-ROUND ceilings. $BUDGET_USD above bounds the run; until these existed nothing bounded a single
+# round, so one phase could eat the whole run's budget and the halt would name `budget` -- true, and
+# useless, because it does not say which round did it.
+#
+# Review is that round. Two consecutive landings: /da-review-all at $5.64 and $6.19 against $1.30 and
+# $1.50 for the implementations being reviewed, and both times the run halted on `budget` at triage,
+# one step short of the PR. The numbers below are chosen, not measured: they sit above what a review
+# of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
+# what an unbounded one demonstrably does.
+BUDGET_ROUND_REVIEW=5.00     # tier M/L
+BUDGET_ROUND_REVIEW_S=1.50   # tier S -- the tier that exists because it is meant to cost less
+BUDGET_ROUND_TRIAGE=3.00     # tier M/L
+BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
+BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
+BUDGET_ROUND_FINDBUGS_S=1.50 # tier S
+# `size` runs before any tier is known, so it gets one number. Measured at $1.68 / $1.72 / $1.98 across
+# three measurements in one session -- 37% of that session's total spend on deciding how much process to
+# buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
+BUDGET_ROUND_SIZE=1.25
+BUDGET_ROUND_PR=1.50         # writing one PR body
+BUDGET_ROUND_CI=2.00         # one attempt at a red CI
+BUDGET_ROUND_COMMENTS=2.50   # addressing a round of human review comments
+BUDGET_ROUND_REPLY=1.00      # composing the replies (posting is the driver's job, not the round's)
+
+# What happens after the PR is open.
+CI_ATTEMPTS=2         # fix attempts for a red CI before it becomes a human's problem
+CI_WAIT_SECONDS=900   # how long to wait for checks to stop being pending, per look
+
+# **The tier S numbers are tight on purpose, and what makes that safe is that overrun is now LOUD.**
+# Before `truncated` existed, a ceiling could only be set generously: a round cut off mid-report returned
+# exit 0 with a partial answer, was recorded `advanced`, and its half-written findings went to triage as
+# though finished -- so a tight ceiling bought a silently worse review. Now hitting one halts the landing
+# and says so in the ledger. That inverts the risk: too tight costs a visible halt and a number to raise,
+# where too loose costs $6.19 and a run that dies before the PR. Both measured runs did the latter.
+#
+# What is NOT being cut to reach these: the five always-covered clusters, the 80-point threshold, and the
+# one fresh verifier. Those live in the review skills, and `review-process-brief.md` keeps all three.
 
 # Measured against claude 2.1.148, not assumed: `--json-schema` exists, and it takes the schema as an
 # INLINE JSON STRING. Handing it a file path does not error -- it HANGS, with stdin closed, forever.
@@ -68,6 +112,36 @@ BUDGET_USD=10         # per `run` invocation
 # have hung on first real use, and a hang is the one failure neither the round cap, the budget nor the
 # gate can stop.
 SCHEMA_FLAG="--json-schema"
+
+# Measured, not assumed: `claude --print --permission-mode acceptEdits` cannot run git in an unattended
+# run. `git status --short` came back "This command requires approval", and headless there is nobody to
+# approve -- so it is denied. `/da-review-all`'s Step 1 IS `git diff`, which means **the review phase
+# never established its scope**: the two landings that reached it burned 50 turns and $5.64 / $6.19
+# retrying against a permission wall, not reviewing deeply. `echo` and `Read` were allowed; `Glob` was
+# not available either.
+#
+# READ-ONLY BY ENUMERATION, deliberately. `Bash(git:*)` is one token shorter and would hand an
+# unattended round `git push`, `git reset --hard` and `git branch -D` in order to let it run `git diff`.
+# The loop does its own committing, branching and pushing from bash, so no round needs to write.
+#
+# `--allowedTools` ADDS permissions; it is not an allowlist that removes the rest, so Edit and Write
+# still work under acceptEdits. Verified in `claude --help`: "list of tool names to allow".
+#
+# EVERY ENTRY IS LISTED TWICE, bare and `rtk`-prefixed, and that is not belt-and-braces. Measured:
+#
+#   --allowedTools "Bash(git status:*)"      -> DENIED, "This command requires approval"
+#   --allowedTools "Bash"                    -> ran
+#   --allowedTools "Bash(rtk git status:*)"  -> ran
+#
+# A command-rewriting PreToolUse hook runs BEFORE the permission match, so on a machine whose hook
+# rewrites `git status` to `rtk git status` the bare pattern matches nothing -- silently, which is the
+# same shape as having passed no grant at all. The first version of this line shipped bare-only and was
+# therefore a no-op on the machine it was written on.
+#
+# Both forms, statically, rather than detecting the hook: this toolkit has to work on a machine that
+# has no rtk, and a list that is built by probing is a list that is wrong in a new way when the probe
+# is wrong. An unmatched pattern costs nothing.
+ROUND_ALLOWED_TOOLS="Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git symbolic-ref:*),Bash(git ls-files:*),Bash(git diff-tree:*),Bash(gh pr view:*),Bash(rtk git diff:*),Bash(rtk git log:*),Bash(rtk git show:*),Bash(rtk git status:*),Bash(rtk git rev-parse:*),Bash(rtk git symbolic-ref:*),Bash(rtk git ls-files:*),Bash(rtk git diff-tree:*),Bash(rtk gh pr view:*),Grep,Glob"
 
 # Seconds a single `claude -p` may take. Chosen, not measured. The env override exists for the tests.
 ROUND_TIMEOUT="${DOTAGENTS_LOOP_ROUND_TIMEOUT:-1800}"
@@ -330,6 +404,10 @@ ROUND_TIMED_OUT=0
 REVIEW_REPORT=""
 SECOND_REPORT=""
 ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
+ROUND_BUDGET=""       # per-round ceiling in USD; empty means unbounded. Set by the caller, cleared here.
+ROUND_TRUNCATED=""    # the subtype that cut the round off; EMPTY means it ran to completion. Not `0` --
+                      # this is read with `-n`, and the string "0" is not empty, so a `0` here would
+                      # halt every round the moment anything reached post_round without a claude_round.
 
 # One `claude -p`. Never --bare: that switch turns off hooks, skills and CLAUDE.md, which is the
 # whole mechanism here -- the official docs recommend it for scripted calls and for this loop it is
@@ -337,18 +415,24 @@ ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 # profile's `forbidden` list plus the scorer check is the containment.
 claude_round() { # <prompt> [inline-schema-json]
   local prompt="$1" schema="${2:-}" raw out pid t
-  local args="--print --output-format json --permission-mode acceptEdits"
+  # An ARRAY, not a string expanded unquoted. The tool grant contains spaces and parentheses
+  # (`Bash(git diff:*)`), and word-splitting would hand `claude` the fragments `Bash(git` and `diff:*)`
+  # -- two grants that match nothing, silently, leaving git denied exactly as before. Indexed arrays and
+  # `+=` are bash 3.2, so this stays macOS-safe; the associative kind would not be.
+  local args
+  args=(--print --output-format json --permission-mode acceptEdits)
+  args+=(--allowedTools "$ROUND_ALLOWED_TOOLS")
+  # This build has no --max-turns; --max-budget-usd is the only per-round ceiling the CLI offers, and it
+  # is the better one anyway -- it bounds what is actually being complained about, and the harness
+  # enforces it rather than the prompt. Verified against `claude --help`: the only --max* flag present.
+  [[ -n "$ROUND_BUDGET" ]] && args+=(--max-budget-usd "$ROUND_BUDGET")
+  [[ -n "$schema" ]] && args+=("$SCHEMA_FLAG" "$schema")
   out="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-round.XXXXXX")" || die "mktemp failed"
 
   # Bounded, and stdin closed. macOS has no `timeout`, so this polls the way
   # scripts/test-non-interactive.sh does. stdin is closed because a `claude` whose credentials have
   # expired will otherwise sit waiting for a login it can never get in an unattended run.
-  # shellcheck disable=SC2086
-  if [[ -n "$schema" ]]; then
-    claude $args "$SCHEMA_FLAG" "$schema" "$prompt" >"$out" 2>/dev/null </dev/null &
-  else
-    claude $args "$prompt" >"$out" 2>/dev/null </dev/null &
-  fi
+  claude "${args[@]}" "$prompt" >"$out" 2>/dev/null </dev/null &
   pid=$!
   t=0
   ROUND_TIMED_OUT=0
@@ -373,6 +457,22 @@ claude_round() { # <prompt> [inline-schema-json]
   ROUND_COST="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).total_cost_usd??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   ROUND_TURNS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).num_turns??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   SPENT="$(node -e 'process.stdout.write(String(Number(process.argv[1])+Number(process.argv[2])))' "$SPENT" "${ROUND_COST:-0}")"
+
+  # A round that stopped early exits 0 and returns a PARTIAL `result`. Until this existed the driver read
+  # only cost and turns, so a review cut off mid-report was recorded `advanced` and its half-written
+  # findings were handed to triage as though they were finished ones -- and nothing downstream could
+  # tell, because the model does not know it was cut off either, so its own 🔎 does not say so.
+  #
+  # DENY by default: any subtype that is not "success" is a truncation, including one invented by a
+  # later CLI version. An allowlist of the failures known today starts silently accepting new ones.
+  # ABSENCE is success -- some builds omit the field entirely, and treating missing as failure would
+  # halt every round on those.
+  ROUND_TRUNCATED="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try { const o = JSON.parse(s);
+      const bad = (o.subtype != null && o.subtype !== "success") || o.is_error === true;
+      process.stdout.write(bad ? String(o.subtype ?? "is_error") : "") }
+    catch { process.stdout.write("") }})' <<<"$raw")"
+  ROUND_BUDGET=""   # one round, one ceiling. A leaked ceiling would silently cap the next phase too.
   return 0
 }
 
@@ -413,11 +513,30 @@ TIER=""; M_FILES=0; M_LAYERS=0; M_ONEWAY=0; M_RISK=0; M_UNCONF=0
 # The model measures; this decides. "Scale it to the change" was the instruction in the review
 # fan-out for a while and it produced the maximum every time, because nothing in it could be checked.
 # A tier the model picks for itself is the same failure with a different name.
+# Two axes, not one. **How big** the change is decides how much process it needs; **whether one step
+# cannot be taken back** decides whether a human must see it. The first version mixed them and the
+# ladder collapsed: `risk_surfaces > 0` and `unconfirmed > 0` each forced L on their own, and on a real
+# repository almost every backend change touches authorization while /da-investigate names something
+# unconfirmed essentially always. So everything was L, nothing ran unattended, and the tier carried no
+# information -- a classifier whose every input maps to one class.
+#
+# What moved, and why each was wrong rather than merely strict:
+#
+#   `risk_surfaces` was charged TWICE. It already buys the second reviewer below (/find-bugs runs only
+#   when it is non-zero). Spending the same measurement on the attended design phase as well is paying
+#   for one signal out of two budgets. It now sets a floor of M.
+#
+#   `unconfirmed` means "this measurement is not reliable". That is a reason not to run unattended, and
+#   it is NOT evidence the change is wide or irreversible -- which is what L buys a human for. Its own
+#   definition was already fixed once to permit an empty list (#35) and it still returned 9 for a
+#   one-file docs edit, so the threshold was wrong too, not just the wording. Floor of M.
+#
+#   `one_way` still forces L, and this one is not up for revision. An irreversible step is exactly the
+#   thing that must not ship without somebody looking at it.
 decide_tier() {
   TIER=S
-  if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 ]]; then TIER=M; fi
-  if [[ "$M_FILES" -gt 15 || "$M_LAYERS" -ge 3 \
-        || "$M_ONEWAY" -gt 0 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=L; fi
+  if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=M; fi
+  if [[ "$M_FILES" -gt 15 || "$M_LAYERS" -ge 3 || "$M_ONEWAY" -gt 0 ]]; then TIER=L; fi
 }
 
 cmd_size() {
@@ -425,14 +544,16 @@ cmd_size() {
   [[ -n "$request" ]] || die "size needs the request: loop.sh size \"<what you want>\""
   # Inline, not a file. `--json-schema` takes the schema as a string; a path makes the CLI hang.
   local schema
-  schema='{"type":"object","required":["files","layers","one_way","risk_surfaces","unconfirmed"],'
+  schema='{"type":"object","required":["files","layers","one_way","risk_surfaces","unconfirmed","unverified_claims"],'
   schema="$schema"'"properties":{"files":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"layers":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"one_way":{"type":"array","items":{"type":"string"}},'
   schema="$schema"'"risk_surfaces":{"type":"array","items":{"type":"string"}},'
-  schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}}}}'
+  schema="$schema"'"unconfirmed":{"type":"array","items":{"type":"string"}},'
+  schema="$schema"'"unverified_claims":{"type":"array","items":{"type":"string"}}}}'
 
-  dim "measuring with /da-investigate ..."
+  dim "measuring with /da-investigate (ceiling \$$BUDGET_ROUND_SIZE) ..."
+  ROUND_BUDGET="$BUDGET_ROUND_SIZE"
   claude_round "/da-investigate $request
 
 Answer only with the structured fields. \`files\` is every file a change would touch. \`layers\` is
@@ -446,10 +567,26 @@ could not enumerate, a call path you could not follow, a migration you suspect b
 Something you did not need to check is not unconfirmed; something you checked and found irrelevant is
 not unconfirmed. If nothing could change the size of this, return an empty list -- an empty list is the
 correct and common answer for a small change, and padding it sends work to a human who did not need to
-see it." \
+see it.
+
+\`unverified_claims\` is the OTHER thing, and it has its own field so it stops landing in the one above:
+assertions THE REQUEST ITSELF makes that you could not verify -- \"the ledger has no such entry\", \"the
+count is 105\", \"this is no longer true\". These say the request needs fixing, not that the change is
+big. **A request full of unverified claims about a one-line edit is still a one-line edit.** Put each
+such claim here and none of them under \`unconfirmed\`; this field does not affect the tier." \
     "$schema"
 
-  local files layers oneway risk unconf
+  local files layers oneway risk unconf claims
+  # Asked BEFORE the missing-measurement check, because a cut-off round produces no structured output
+  # either -- and the two diagnoses send you to different places. Blaming the schema flag for a round
+  # that ran out of budget is a full detour into the CLI for a problem whose fix is a number in this file.
+  # `size` does not go through post_round, so this is the only place it can be caught.
+  [[ -z "$ROUND_TRUNCATED" ]] || die "the size round was cut off (subtype: $ROUND_TRUNCATED) after
+  \$$ROUND_COST and ${ROUND_TURNS} turns, against a ceiling of \$$BUDGET_ROUND_SIZE. No measurement was
+  produced, and a truncated one would not be a measurement either.
+
+  Raise BUDGET_ROUND_SIZE, or narrow the request -- a request carrying many claims to verify makes the
+  measurer work through all of them (that is what \`unverified_claims\` records)."
   round_has_structured || die "no measurement came back (exit $ROUND_EXIT). Check that \`$SCHEMA_FLAG\`
   is the right flag for structured output on this version of the CLI.
 
@@ -457,23 +594,30 @@ see it." \
   and an unmeasured change treated as small is the worst outcome available here."
   files="$(round_structured files)"; layers="$(round_structured layers)"
   oneway="$(round_structured one_way)"; risk="$(round_structured risk_surfaces)"
-  unconf="$(round_structured unconfirmed)"
+  unconf="$(round_structured unconfirmed)"; claims="$(round_structured unverified_claims)"
 
   count() { node -e 'const v=process.argv[1];process.stdout.write(String(v?v.split(",").filter(Boolean).length:0))' "$1"; }
   M_FILES="$(count "$files")"; M_LAYERS="$(count "$layers")"
   M_ONEWAY="$(count "$oneway")"; M_RISK="$(count "$risk")"; M_UNCONF="$(count "$unconf")"
+  M_CLAIMS="$(count "$claims")"
   decide_tier
 
+  # The layer NAMES, not just how many. `run` uses them to skip the review dispatcher when there is
+  # exactly one and the toolkit has a skill for it -- a count cannot answer "which one".
   ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" phase size \
     request "$request" \
     tier "$TIER" files "$M_FILES" layers "$M_LAYERS" one_way "$M_ONEWAY" \
-    risk_surfaces "$M_RISK" unconfirmed "$M_UNCONF" \
+    risk_surfaces "$M_RISK" unconfirmed "$M_UNCONF" unverified_claims "$M_CLAIMS" \
+    layer_names "$layers" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "$ROUND_EXIT" \
     outcome sized halt_reason __null__
 
   echo
   say "tier $TIER"
   say "  files $M_FILES · layers $M_LAYERS · one-way $M_ONEWAY · risk surfaces $M_RISK · unconfirmed $M_UNCONF"
+  # Printed separately because it does NOT move the tier, and putting it on the line above invites
+  # exactly the conflation the field exists to end.
+  [[ "$M_CLAIMS" -gt 0 ]] && say "  依頼文に未確認の主張 $M_CLAIMS 件（段には影響しません。依頼文の方を直す材料です）"
   echo
   case "$TIER" in
     S) say "No design phase. The gate is this repository's own gating checks."
@@ -737,6 +881,16 @@ post_round() { # <phase> <landing> <round>
     halt round_failed "the $1 round exited $ROUND_EXIT. Nothing is claimed about what it did."
     record "$1" "$2" "$3" halted round_failed; return 1
   fi
+  # Exit 0 with a partial answer. This is checked BEFORE the run budget below, deliberately: both fire
+  # on an expensive review, and `budget` would be the less useful of the two -- it says the run ran out,
+  # not that this round was cut off with its report half written.
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    halt truncated "the $1 round was cut off (subtype: $ROUND_TRUNCATED) after \$$ROUND_COST and
+  ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a finished one.
+  Raise the round ceiling if the work genuinely needs it, or make the round cheaper -- but do not read
+  the partial report as a clean result."
+    record "$1" "$2" "$3" halted truncated; return 1
+  fi
   if [[ -n "$SCORER_HITS" ]]; then
     halt scorer_touched "this round edited what judges it: $(printf '%s' "$SCORER_HITS" | tr '\n' ' ')
   Changing the exam has to be a human act. Nothing was reverted -- look, then decide."
@@ -752,6 +906,33 @@ post_round() { # <phase> <landing> <round>
     record "$1" "$2" "$3" halted budget; return 1
   fi
   return 0
+}
+
+# Which review skill to type. `/da-review-all` earns its cost when a change spans layers: it classifies,
+# runs each layer, then finds the risks that live BETWEEN them. On a single-layer change it classifies
+# one file list, runs one layer, and prints "no cross-layer impact" -- and it pays a cold read of its own
+# 12 KB body plus a classification pass to get there.
+#
+# So at tier S with exactly one layer the toolkit has a skill for, the layer skill is typed directly.
+# Anything else falls back to the dispatcher, and the fallback is deliberately dumb: guessing a skill
+# name would review a layer against the wrong checklist and report it as covered, which is the exact
+# failure /da-review-all's own "Done when" list exists to catch.
+review_skill_for_tier() {
+  local names layer
+  [[ "$(ledger_last size tier)" == "S" ]] || { printf '/da-review-all'; return 0; }
+  names="$(ledger_last size layer_names)"
+  # One name, no comma. Zero layers (a docs-only change) is not one layer -- it has no skill either, so
+  # it goes to the dispatcher rather than to a guess.
+  case "$names" in
+    ''|null|*,*) printf '/da-review-all'; return 0 ;;
+  esac
+  case "$names" in
+    backend|server|api)          layer=backend ;;
+    frontend|client|web)         layer=frontend ;;
+    infra|infrastructure|iac)    layer=infra ;;
+    *) printf '/da-review-all'; return 0 ;;
+  esac
+  printf '/x-review-%s' "$layer"
 }
 
 # One line, because it is passed as an argument rather than written to a file.
@@ -807,6 +988,11 @@ and editing them aborts this landing."
       claude_round "/test-driven-development
 
 Work on this landing: $what
+
+**Weight the tests toward INTEGRATION level** -- exercise the units together across the seam they meet
+at, through the real boundary rather than a mock of it. Unit tests still matter and a pure function
+still gets one; what is being ruled out is a suite that is green because every collaborator was stubbed.
+For a change that spans frontend and backend, the test that counts is the one that goes through both.
 
 Do not modify profiles/, hooks/, or anything under scripts/ -- those decide whether your work passes,
 and editing them aborts this landing. When you believe it is done, stop; something else runs the checks."
@@ -875,12 +1061,18 @@ and editing them aborts this landing."
   # budget table in skills/_shared/review-process.md, because the diff was 11 lines in one file. There
   # was no depth left to remove. The 50 turns were spent verifying eleven claims against the code, and
   # they found a real error in one of them. Cutting THAT would be buying a cheaper wrong answer.
-  local review_rounds="$REVIEW_ROUNDS"
-  [[ "$(ledger_last size tier)" == "S" ]] && review_rounds="$REVIEW_ROUNDS_S"
+  local review_rounds="$REVIEW_ROUNDS" review_budget="$BUDGET_ROUND_REVIEW"
+  local triage_budget="$BUDGET_ROUND_TRIAGE" findbugs_budget="$BUDGET_ROUND_FINDBUGS" review_skill
+  if [[ "$(ledger_last size tier)" == "S" ]]; then
+    review_rounds="$REVIEW_ROUNDS_S"; review_budget="$BUDGET_ROUND_REVIEW_S"
+    triage_budget="$BUDGET_ROUND_TRIAGE_S"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_S"
+  fi
+  review_skill="$(review_skill_for_tier)"
   schema="$(triage_schema)"
   for (( rr = 1; rr <= review_rounds; rr++ )); do
-    dim "   review $rr"
-    claude_round "/da-review-all"
+    dim "   review $rr: $review_skill (ceiling \$$review_budget)"
+    ROUND_BUDGET="$review_budget"
+    claude_round "$review_skill"
     post_round review "$n" "$rr" || return 1
     record review "$n" "$rr" advanced
     REVIEW_REPORT="$(round_result)"
@@ -898,7 +1090,8 @@ and editing them aborts this landing."
     # "**Source:** which review(s)", plural, so two reports is a shape it already expects.
     SECOND_REPORT=""
     if [[ "$(ledger_last size risk_surfaces)" != "0" && -n "$(ledger_last size risk_surfaces)" ]]; then
-      dim "   review $rr: second reviewer (/find-bugs) -- this landing touches a risk surface"
+      dim "   review $rr: second reviewer (/find-bugs, ceiling \$$findbugs_budget) -- this landing touches a risk surface"
+      ROUND_BUDGET="$findbugs_budget"
       claude_round "/find-bugs"
       post_round findbugs "$n" "$rr" || return 1
       SECOND_REPORT="$(round_result)"
@@ -909,6 +1102,7 @@ and editing them aborts this landing."
     # rounds is where their findings would be lost -- and a count would buy zero coverage, when coverage
     # is the entire reason for a second reviewer. da-fix-plan's own template says "**Source:** which
     # review(s)", plural, so two reports is a shape it already expects.
+    ROUND_BUDGET="$triage_budget"
     claude_round "/da-fix-plan
 
 Triage the review(s) below. Report only the bucket counts. \`fix_now\` counts Fix now plus Fix now
@@ -1029,6 +1223,132 @@ stack_ready() { # -> 0 when the gh-stack extension is available
 
 # Establish the stack, or add a layer for this landing. Layer 1 is the branch the user is already on;
 # every later layer is a branch this driver creates.
+# --- after the PR is open ----------------------------------------------------
+# The loop used to end at `gh stack submit`, which meant it handed back a PR nobody had watched: the CI
+# it triggers and the comments a human leaves on it were both outside the machine. They are the half of
+# review that costs a person the most attention, because each arrival is an interrupt.
+#
+# `gh pr checks` exit codes are the contract: 0 all green, 1 something failed, 8 still running.
+ci_state() { # <pr-number> -> 0 green, 1 red, 2 gave up waiting. Sets CI_OUT.
+  local num="$1" waited=0 rc
+  while (( waited < CI_WAIT_SECONDS )); do
+    CI_OUT="$(gh pr checks "$num" 2>&1)"; rc=$?
+    case "$rc" in
+      0) return 0 ;;
+      8) sleep 10; waited=$((waited + 10)); continue ;;   # pending: the only code worth waiting on
+      *) return 1 ;;
+    esac
+  done
+  return 2
+}
+
+ci_settle() { # <landing> <pr-number>
+  local n="$1" num="$2" a
+  for (( a = 1; a <= CI_ATTEMPTS + 1; a++ )); do
+    ci_state "$num"
+    case $? in
+      0) dim "   CI green"; record ci "$n" "$a" advanced; return 0 ;;
+      2) halt ci_pending "CI was still running after ${CI_WAIT_SECONDS}s on PR #$num. The PR is open and
+  its code passed the local gate; what is unknown is what CI thinks. Nothing is claimed about it."
+         record ci "$n" "$a" halted ci_pending; return 1 ;;
+    esac
+    # Red. The last iteration exists only to report, never to fix -- so the cap is a cap.
+    if (( a > CI_ATTEMPTS )); then
+      halt ci_red "CI is still red on PR #$num after $CI_ATTEMPTS attempt(s):
+  $(printf '%s' "$CI_OUT" | head -3 | tr '\n' ' ')
+  More attempts pile failed approaches on each other. Read the run, then decide."
+      record ci "$n" "$a" halted ci_red; return 1
+    fi
+    dim "   CI red -- attempt $a/$CI_ATTEMPTS"
+    ROUND_BUDGET="$BUDGET_ROUND_CI"
+    claude_round "/systematic-debugging
+
+CI is red on PR #$num. This is the output:
+
+$CI_OUT
+
+Find the root cause before proposing a fix. CI runs what this machine may not, so the failure may be
+real even where the local gate is green -- do not assume the difference is CI's fault.
+
+Do not modify profiles/, hooks/, or anything under scripts/. Do not touch the CI configuration to make
+a check stop running: a check removed is not a check passed."
+    post_round ci "$n" "$a" || return 1
+    if [[ -z "$(changed_paths)" ]]; then
+      halt ci_fix_changed_nothing "the CI-fix round changed nothing, so the next look at CI would ask
+  the same question and get the same answer."
+      record ci "$n" "$a" halted ci_fix_changed_nothing; return 1
+    fi
+    gate_verify_ok || { halt red_after_ci "the CI fix took the LOCAL gate red: $(gate_field check).
+  Pushing it would trade a red CI for a red gate."; record ci "$n" "$a" halted red_after_ci; return 1; }
+    commit_landing "$n" "CI fix" || return 1
+    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
+      record ci "$n" "$a" halted push_failed; return 1; }
+  done
+}
+
+# Human review comments. Two rounds, deliberately in this order and only when there are comments:
+# addressing changes code and must pass the gate; replying is an outward-facing act and happens only
+# after that. Merging them would announce "done" to a person before anything verified it.
+pr_comments_settle() { # <landing> <pr-number>
+  local n="$1" num="$2" body count
+  body="$(gh api "repos/{owner}/{repo}/pulls/$num/comments" --paginate 2>/dev/null)"
+  count="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try{const a=JSON.parse(s);process.stdout.write(String(Array.isArray(a)?a.length:0))}
+    catch{process.stdout.write("0")}})' <<<"$body")"
+  [[ "${count:-0}" -gt 0 ]] || return 0
+  dim "   $count review comment(s) on PR #$num"
+
+  ROUND_BUDGET="$BUDGET_ROUND_COMMENTS"
+  claude_round "/receiving-code-review
+
+These are the review comments on PR #$num. Evaluate each one against the actual code before changing
+anything -- a remedy applied because it was written down is the failure that skill exists to prevent.
+Apply what holds up. Leave what does not, and note why; that is an answer, not a refusal.
+
+**Do not post anything.** Replies are composed in a separate step and posted by the driver.
+
+$body"
+  post_round comments "$n" 1 || return 1
+
+  if [[ -n "$(changed_paths)" ]]; then
+    gate_verify_ok || { halt red_after_comments "the comment fixes took the gate red: $(gate_field check)."
+      record comments "$n" 1 halted red_after_comments; return 1; }
+    commit_landing "$n" "review comments" || return 1
+    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
+      record comments "$n" 1 halted push_failed; return 1; }
+  fi
+  record comments "$n" 1 advanced
+
+  # The round writes the replies; the DRIVER posts them. Handing an unattended round `Bash(gh api:*)` so
+  # it can reply would also hand it merging, deleting and resolving -- and resolving is precisely the
+  # thing this phase must not do. A reply says "here is what I did"; resolving says "you are satisfied",
+  # which is not the driver's claim to make. Same shape as /da-pr-describe: the driver makes the shell.
+  ROUND_BUDGET="$BUDGET_ROUND_REPLY"
+  claude_round "Write one reply per review comment on PR #$num, using what you just did.
+
+Each reply says what changed and where, or -- when you did not act -- what you found and why the comment
+does not hold against the code. Cite \`file:line\`. Be brief and do not thank anybody for the review.
+**Never claim something was fixed that was not.**
+
+$body" '{"type":"object","required":["replies"],"properties":{"replies":{"type":"array","items":{"type":"object","required":["comment_id","body"],"properties":{"comment_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
+  post_round reply "$n" 1 || return 1
+
+  local posted=0 line cid rbody
+  while IFS=$'\t' read -r cid rbody; do
+    [[ -n "$cid" ]] || continue
+    # `-f body=@-` is not used: the body is multi-line and shell-quoted here, where it is visible.
+    printf '%s' "$rbody" | gh api "repos/{owner}/{repo}/pulls/$num/comments/$cid/replies" \
+      --method POST -F body=@- >/dev/null 2>&1 && posted=$((posted + 1))
+  done < <(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try{const o=JSON.parse(s).structured_output;for(const r of (o&&o.replies)||[])
+      process.stdout.write(String(r.comment_id)+"\t"+String(r.body).replace(/\n/g," ")+"\n")}catch{}})' \
+    <<<"$ROUND_OUT")
+
+  say "   replied to $posted of $count comment(s) -- nothing resolved; closing a thread is yours"
+  record reply "$n" 1 advanced
+  return 0
+}
+
 stack_layer() { # <n>
   if [[ "$1" == "1" ]]; then
     # Set on BOTH paths. It used to be assigned only after `gh stack init`, so resuming into an existing
@@ -1083,15 +1403,42 @@ submit_landing() { # <n> <what> <one-way>
   url="$(gh stack submit --auto --open 2>/dev/null | grep -o 'https://[^ ]*/pull/[0-9]*' | tail -1)"
   [[ -n "$url" ]] || { halt pr_failed "gh stack submit produced no PR URL"; \
     record pr "$1" 0 halted pr_failed; return 1; }
+  local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
+
+  # CI and the human's comments settle BEFORE the description is written. The description is the last
+  # thing that happens to this PR, so that it describes what the change ended up being -- including the
+  # CI fixes and whatever the review comments moved. Written at submit time it described a snapshot one
+  # minute old, and nothing ever came back to correct it.
+  ci_settle "$1" "$num" || return 1
+  pr_comments_settle "$1" "$num" || return 1
+
   # The driver makes the shell; the skill writes the body. da-pr-describe's own precondition is that
   # a PR already exists and that it must not create one -- which stays literally true this way.
-  local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
+  ROUND_BUDGET="$BUDGET_ROUND_PR"
   claude_round "/da-pr-describe $num${GATE_DEFERRED:+
 
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
 PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}"
+
+  # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
+  # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a
+  # half-written description -- and the plain `opened-pr` row would read as a finished one.
+  #
+  # It does not halt the run, following the same precedent as a deferred gate: the work itself passed,
+  # what is incomplete is the description, and that is said loudly and recorded rather than silently
+  # accepted or used to stop the remaining landings. A human reading the ledger can see which PR to fix.
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    record pr "$1" 0 opened-pr-partial-body
+    say ""
+    say "landing $1 -> $url  (layer $1 of the stack)"
+    printf '%sloop: the PR body is PARTIAL -- /da-pr-describe was cut off (%s) after $%s.%s\n' \
+      "$c_red" "$ROUND_TRUNCATED" "$ROUND_COST" "$c_off" >&2
+    printf '  The PR is open and its code went through the gate and the review. Its DESCRIPTION did not
+  finish being written -- read it before anyone reviews from it, and raise BUDGET_ROUND_PR.\n' >&2
+    return 0
+  fi
   record pr "$1" 0 opened-pr
   say ""
   say "landing $1 -> $url  (layer $1 of the stack, ready for review)"
@@ -1294,7 +1641,11 @@ cmd_report() {
       byPhase[r.phase] = (byPhase[r.phase] || 0) + c;
       if (r.phase === "size") continue;
       if (r.landing != null) landings.add(String(r.landing));
-      if (r.outcome === "opened-pr") accepted.add(String(r.landing));
+      // Both PR outcomes count as reaching a PR. The metric is "did the landing get there", and a
+      // partial-bodied PR did: its code went through the gate and the review, and only the description
+      // was cut off. Counting it as not-reached would understate acceptance for a documentation defect
+      // -- and the `opened-pr-partial-body` row is where that defect is already recorded, per landing.
+      if (r.outcome === "opened-pr" || r.outcome === "opened-pr-partial-body") accepted.add(String(r.landing));
       if (r.halt_reason) halts[r.halt_reason] = (halts[r.halt_reason] || 0) + 1;
       if (r.phase === "implement") rounds++;
     }

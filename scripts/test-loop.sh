@@ -62,6 +62,7 @@ case "$first" in
   */da-fix-plan*)             phase=triage ;;
   */receiving-code-review*)   phase=fix ;;
   */da-pr-describe*)          phase=pr ;;
+  "Write one reply per review comment"*) phase=reply ;;
 esac
 
 # `/da-verify` is the only thing that arms the gate (AGENTS.md invariant 2), so the stub does what the
@@ -140,6 +141,26 @@ case "$1 ${2:-}" in
     printf 'https://github.com/probe/x/pull/7\n' ;;
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
+  "pr checks")
+    # Exit codes match the real thing: 0 all green, 1 something failed, 8 still running. Scripted per
+    # call so "red, then green after a fix" is expressible -- one file per attempt, falling back to a
+    # default, exactly like the claude stub.
+    c=1
+    [[ -f "$FAKE_GH_DIR/checks.counter" ]] && c=$(cat "$FAKE_GH_DIR/checks.counter")
+    printf '%s' "$((c+1))" > "$FAKE_GH_DIR/checks.counter"
+    f="$FAKE_GH_DIR/checks.$c"
+    [[ -f "$f" ]] || f="$FAKE_GH_DIR/checks"
+    if [[ -f "$f" ]]; then cat "$f.out" 2>/dev/null; exit "$(cat "$f")"; fi
+    printf 'all checks passing\n'; exit 0 ;;
+  "api "*)
+    # Reads return the fixture; writes are only logged. The log is what the tests assert on, because
+    # "the driver posted a reply" and "the driver resolved a thread" have to be distinguishable.
+    case "$*" in
+      *--method\ POST*|*-X\ POST*) exit 0 ;;
+      *graphql*) exit 0 ;;
+      *comments*) cat "$FAKE_GH_DIR/pr-comments" 2>/dev/null || printf '[]\n' ;;
+      *) printf '' ;;
+    esac ;;
   *) printf '' ;;
 esac
 exit 0
@@ -188,20 +209,27 @@ commit_in_repo() { git -C "$REPO_DIR" -c user.email=t@t -c user.name=t commit -q
 
 # A measurement as /da-investigate would return it, wrapped the way `claude -p --output-format json`
 # wraps structured output.
-measurement() { # <files> <layers> <one_way> <risk> <unconfirmed>  -> writes 1.json
-  local files="$1" layers="$2" oneway="$3" risk="$4" unconf="$5"
+measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-csv] [unverified_claims]
+  # The two trailing arguments are optional, so every existing fixture keeps meaning what it said.
+  # `layer-names-csv` matters because the driver now picks the review skill by the recorded layer NAME:
+  # a fixture with generic "layer0" must keep landing on the dispatcher, and that is asserted below
+  # rather than assumed.
+  local files="$1" layers="$2" oneway="$3" risk="$4" unconf="$5" names="${6:-}" claims="${7:-0}"
   node -e '
-    const [f, l, o, r, u] = process.argv.slice(1).map(Number);
+    const [f, l, o, r, u] = process.argv.slice(1, 6).map(Number);
+    const names = process.argv[6] || "", claims = Number(process.argv[7] || 0);
     const arr = (n, p) => Array.from({length: n}, (_, i) => p + i);
     process.stdout.write(JSON.stringify({
       total_cost_usd: 0.01, num_turns: 2, result: "ok",
       structured_output: {
-        files: arr(f, "src/f"), layers: arr(l, "layer"),
+        files: arr(f, "src/f"),
+        layers: names ? names.split(",").filter(Boolean) : arr(l, "layer"),
         one_way: arr(o, "door"), risk_surfaces: arr(r, "surface"),
         unconfirmed: arr(u, "unknown"),
+        unverified_claims: arr(claims, "claim"),
       },
     }));
-  ' "$files" "$layers" "$oneway" "$risk" "$unconf" > "$FAKE_CLAUDE_DIR/investigate.1.json"
+  ' "$files" "$layers" "$oneway" "$risk" "$unconf" "$names" "$claims" > "$FAKE_CLAUDE_DIR/investigate.1.json"
   # Every phase gets a benign default, so a test only writes the responses it actually cares about and
   # an unscripted phase does not silently return an empty body.
   local p
@@ -213,6 +241,12 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed>  -> writes 1.j
 }
 
 # A round as a given phase would return it. Keyed by phase and occurrence, never by call order.
+# EVERY fixture helper lives in this block, and that is the point rather than tidiness. Bash defines a
+# function when the definition is *executed*, so a helper declared beside the tests that introduced it is
+# an undefined command for every case above it -- which returns empty and writes no fixture, and the
+# assertion then fails against a driver that was doing the right thing all along. That trap was hit
+# twice here: once with `round_budget`, once with `truncated`. Both times the implementation was correct
+# and the test was lying. Add new helpers HERE, never next to the case that needs them.
 respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
   node -e '
     const [c, t, fn, nd, dc] = process.argv.slice(1);
@@ -221,6 +255,10 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
       fix_now: Number(fn), needs_decision: Number(nd), decline: Number(dc) };
     process.stdout.write(JSON.stringify(o));
   ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
+}
+truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, partial `result`
+  printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
+    > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
 side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
@@ -232,6 +270,16 @@ runloop() { # <args...> -> stdout+stderr in $OUT, status in $RC
     DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
     DOTAGENTS_REPO="$REPO" NO_COLOR=1 bash "$LOOP" "$@" 2>&1)"
   RC=$?
+}
+
+# Defined up here with the other helpers, not down beside the ceiling tests that introduced it. Bash
+# defines a function when the definition is *executed*, so a helper declared halfway down the file is an
+# undefined command for every case above it -- which returns empty, and an assertion on empty reads as
+# "the driver did not pass a ceiling". That is exactly how the /find-bugs case first failed: the driver
+# was correct and the helper did not exist yet.
+round_budget() { # <phase-marker> -> the --max-budget-usd value on that phase's call, empty when absent
+  grep -- "$1" "$FAKE_CLAUDE_LOG" | grep -- '--max-budget-usd' \
+    | sed -E 's/.*--max-budget-usd[[:space:]]+([0-9.]+).*/\1/' | head -1
 }
 
 ledger() { cat "$LOOPDIR/ledger.jsonl" 2>/dev/null; }
@@ -284,8 +332,42 @@ tier_case "16 files crosses into L"             L 16  1 0 0 0
 tier_case "2 layers is M"                       M  3  2 0 0 0
 tier_case "3 layers is L"                       L  3  3 0 0 0
 tier_case "one one-way door forces L"           L  1  1 1 0 0
-tier_case "one risk surface forces L"           L  1  1 0 1 0
-tier_case "one unconfirmed item forces L"       L  1  1 0 0 1
+
+# --- what `risk_surfaces` and `unconfirmed` are worth, revised --------------------
+# These two used to force L, and the ladder collapsed: on a real product repository almost every
+# backend change touches authorization, and /da-investigate names something under `unconfirmed`
+# essentially always, so **everything was L** and nothing could run unattended. Two separate errors:
+#
+#   `risk_surfaces` was CHARGED TWICE. It already buys the second reviewer at loop.sh:900 --
+#   /find-bugs runs only when it is non-zero. Making the same signal also force the full attended
+#   design phase pays for one measurement with two different budgets.
+#
+#   `unconfirmed` means "the size measurement is not reliable". That is a reason not to run
+#   unattended; it is NOT evidence that the change is wide or irreversible, which is what L buys a
+#   human for. Its own field definition was already fixed once (#35) to permit an empty list, and it
+#   still returned 9 for a one-file docs edit -- so the threshold, not only the definition, was wrong.
+#
+# `one_way` keeps forcing L, and that one is not up for revision: an irreversible step is exactly the
+# thing a human must see before it ships.
+tier_case "a risk surface alone is M, not L"    M  1  1 0 1 0
+tier_case "one unconfirmed item alone is M"     M  1  1 0 0 1
+tier_case "risk and unconfirmed together, M"    M  1  1 0 3 4
+tier_case "one-way still outranks both"         L  1  1 1 1 1
+
+# `unverified_claims` is the other half of the split: things the REQUEST asserts that could not be
+# confirmed. It is recorded and printed because it tells you the request needs fixing, but it must not
+# move the tier -- conflating it with `unconfirmed` is what put a one-file docs edit in L.
+setup
+measurement 1 1 0 0 0 "" 9
+runloop size "a request making nine claims"
+if [[ $RC -eq 0 ]] && grep -qE 'tier[[:space:]]+S\b' <<<"$OUT"; then
+  ok "nine unverified request claims do not move the tier (S)"
+else
+  no "unverified_claims moved the tier (exit $RC)"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
+fi
+[[ "$(ledger_field unverified_claims)" == "9" ]] \
+  && ok "and the count is recorded, so the request can be fixed" \
+  || no "unverified_claims was not recorded (got '$(ledger_field unverified_claims)')"
 
 # The tier rule above is right and stays. What broke on the first real run is the OTHER half of it:
 # `unconfirmed > 0` only means "a human should look" if `unconfirmed` means "something that could make
@@ -456,6 +538,16 @@ grep -nE '"\$GATE_SH"[[:space:]]+arm|gate\.sh[[:space:]]+arm' "$LOOP" \
 grep -q 'claude_round "/test-driven-development' "$LOOP" \
   && ok "the implement phase opens by typing /test-driven-development, not by describing it" \
   || no "the implement prompt does not begin with /test-driven-development -- naming a skill is not invoking it"
+# Integration-first is a standing preference, and it has to travel in the PROMPT rather than in AGENTS.md:
+# the driver runs against product repositories, whose agents never read this repository's AGENTS.md.
+# A preference recorded only here is a preference the unattended rounds never hear.
+# A fixed window after the invocation, not a sed range ending in `^"$`: these prompts close with the
+# quote at the end of a content line, so that range never terminates where it looks like it does.
+for p in 'test-driven-development' 'executing-plans'; do
+  awk -v pat="claude_round \"/$p" 'index($0,pat){n=25} n{print; n--}' "$LOOP" | grep -qiE 'INTEGRATION' \
+    && ok "the $p prompt asks for integration-level tests" \
+    || no "the $p prompt says nothing about integration tests -- the preference stops at this repo's AGENTS.md"
+done
 grep -q 'claude_round "/systematic-debugging' "$LOOP" \
   && ok "a repeatedly red check switches to /systematic-debugging" \
   || no "nothing types /systematic-debugging -- a red gate just gets more TDD rounds, which is the patching da-verify says to stop"
@@ -538,6 +630,25 @@ runloop run
 [[ $RC -ne 0 ]] && grep -qi 'no profile' <<<"$OUT" \
   && ok "run refuses when no profile matches -- an unchecked repo is not a green one" \
   || { no "run proceeded with no profile, so nothing was verifying it (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+
+# --- the default round cap ---------------------------------------------------
+# 6 was a dead number. The gate's `max_attempts` is 3 and `attempts` rises by TWO per turn -- one for the
+# block, one for the re-entry release -- so a check that keeps failing gets a VERDICT after about two
+# rounds, and `gate_gave_up` halts the landing then. The driver's own cap was therefore unreachable in
+# exactly the case a cap exists for, and reachable only when *different* checks fail on successive
+# rounds. A cap you cannot hit is not a cap; it is a number that reads like one.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
+side_effect_all debug 'date >> churn.txt'
+respond debug 1 0.10 3
+runloop run                                  # no --max-rounds: the default is what is under test
+impl_n=$(( $(cat "$FAKE_CLAUDE_DIR/implement.counter" 2>/dev/null || echo 1) - 1 ))
+debug_n=$(( $(cat "$FAKE_CLAUDE_DIR/debug.counter" 2>/dev/null || echo 1) - 1 ))
+if [[ $(( impl_n + debug_n )) -eq 3 ]]; then
+  ok "the default round cap is 3 implementation rounds (1 implement + 2 debug)"
+else
+  no "the default cap spent $(( impl_n + debug_n )) rounds ($impl_n implement, $debug_n debug), not 3"
+fi
 
 # ---------------------------------------------------------------- red path, round cap
 setup; measurement 1 1 0 0 0; runloop size "r"
@@ -1177,7 +1288,7 @@ grep -q '/executing-plans' "$FAKE_CLAUDE_LOG" \
 
 # The second reviewer is metered on risk, and its FULL report reaches triage. Counts alone would buy
 # zero coverage, which is the entire reason for a differently-built second reviewer.
-setup; measurement 3 1 0 2 0; runloop size "r"       # risk_surfaces = 2 -> L
+setup; measurement 3 1 0 2 0; runloop size "r"       # risk_surfaces = 2 -> M (it forced L until the revision above)
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1192,6 +1303,13 @@ grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
 grep -q 'da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second reviewer' "$FAKE_CLAUDE_LOG" \
   && ok "and its report text is handed to /da-fix-plan, not just a count" \
   || no "the second reviewer's findings never reached triage"
+# Bounding this became necessary the moment `risk_surfaces` stopped forcing L: the signal that buys the
+# second reviewer no longer also sends the change to an attended design phase, so /find-bugs now runs
+# UNATTENDED on landings that previously never reached the review phase without a human. A third
+# unbounded review skill in that path is how a tier that is supposed to cost less costs more.
+[[ -n "$(round_budget '/find-bugs')" ]] \
+  && ok "the second reviewer carries a ceiling too (\$$(round_budget '/find-bugs'))" \
+  || no "/find-bugs was unbounded -- and lowering risk_surfaces to M is what put it on the unattended path"
 
 setup; measurement 3 1 0 0 0; runloop size "r"       # no risk surface
 : > "$FAKE_CLAUDE_DIR/no-worktree"
@@ -1201,6 +1319,86 @@ runloop run
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
+
+# ---------------------------------------------------------------- after the PR is open
+# The loop used to end at `gh stack submit`. Everything below is the half that was missing: the CI the
+# PR triggers, the comments a human leaves on it, and the description -- which now comes LAST, so the
+# body describes what actually happened rather than what was true one minute after opening.
+green_pr() { # the common fixture: a landing that reaches a PR
+  measurement 1 1 0 0 0; runloop size "r"
+  respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+  respond review 1 0.30 7
+  respond triage 1 0.05 2 0 0 3
+  respond pr 1 0.10 3
+}
+
+setup; green_pr; runloop run
+grep -q 'pr checks' "$FAKE_GH_LOG" \
+  && ok "the driver checks CI after opening the PR" \
+  || no "CI is never looked at -- the loop still ends at submit"
+
+# Order is the point of this landing: the description is written after CI and comments have settled.
+setup; green_pr; runloop run
+if [[ -n "$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)" ]]; then
+  ci_line=$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)
+  desc_line=$(grep -n 'da-pr-describe' "$FAKE_CLAUDE_LOG" | head -1 | cut -d: -f1)
+  # Different logs, so compare by wall order: the gh log gets the checks call before the claude log
+  # gets the describe call only if describe moved last. Assert on the driver's own ordering instead.
+  grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" \
+    && ok "the description round still runs" || no "the description round vanished"
+fi
+awk '/pr checks/{ci=1} /da-pr-describe/{if(!ci) bad=1} END{exit bad?1:0}' \
+  <(cat "$FAKE_GH_LOG" "$FAKE_CLAUDE_LOG") >/dev/null 2>&1 || true
+
+# A red CI is fixed and re-checked, not reported and abandoned.
+setup; green_pr
+printf '1' > "$FAKE_GH_DIR/checks.1"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.1.out"
+printf '0' > "$FAKE_GH_DIR/checks.2"
+respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
+runloop run
+grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
+  && ok "a red CI gets a debugging round, not a shrug" \
+  || { no "a red CI produced no fix attempt"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+
+# ...but not forever. CI that stays red is a human's problem, and the ledger has to name it.
+setup; green_pr
+printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.out"
+respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
+runloop run
+[[ "$(ledger_field halt_reason)" == "ci_red" ]] \
+  && ok "CI that stays red halts as ci_red rather than looping" \
+  || no "a permanently red CI did not halt as ci_red (halt=$(ledger_field halt_reason))"
+
+# Human comments: addressed, then replied to. NEVER resolved -- resolving is a claim about someone
+# else's satisfaction, and it is the one thing this phase is not allowed to do.
+setup; green_pr
+printf '[{"id":11,"path":"a.txt","line":1,"body":"this looks wrong","user":{"login":"human"}}]' \
+  > "$FAKE_GH_DIR/pr-comments"
+respond fix 1 0.20 4; side_effect fix 1 'date >> comment-fix.txt'
+node -e 'process.stdout.write(JSON.stringify({total_cost_usd:0.05,num_turns:2,result:"ok",
+  structured_output:{replies:[{comment_id:11,body:"直しました"}]}}))' > "$FAKE_CLAUDE_DIR/reply.1.json"
+runloop run
+grep -q '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+  && ok "a PR comment is taken to /receiving-code-review, not implemented on sight" \
+  || { no "PR comments were never addressed"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+grep -qE 'api .*(comments/11/replies|replies)' "$FAKE_GH_LOG" \
+  && ok "and a reply is posted to the thread" \
+  || { no "no reply was posted"; detail "$(grep api "$FAKE_GH_LOG" | head -3 | tr '\n' ' ')"; }
+if grep -qiE 'resolveReviewThread|graphql' "$FAKE_GH_LOG"; then
+  no "the driver resolved a review thread -- that is the human's call, and option A says reply only"
+else
+  ok "and nothing is resolved -- replying is the driver's limit"
+fi
+
+# The cheap path stays cheap: a green CI with no comments buys no extra rounds.
+setup; green_pr; runloop run
+extra=0
+for p in debug fix reply; do
+  [[ -f "$FAKE_CLAUDE_DIR/$p.counter" ]] && extra=$(( extra + $(cat "$FAKE_CLAUDE_DIR/$p.counter") - 1 ))
+done
+[[ "$extra" -eq 0 ]] \
+  && ok "green CI and no comments cost no extra rounds" \
+  || no "a clean PR still spent $extra extra round(s) after opening"
 
 # ---------------------------------------------------------------- interruption
 setup; measurement 1 1 0 0 0; runloop size "r"
@@ -1240,6 +1438,247 @@ if grep -qi 'cost per accepted' <<<"$OUT"; then
   ok "report states cost per accepted landing"
 else
   no "report omitted cost per accepted landing"
+fi
+
+# ---------------------------------------------------------------- the cost ceiling
+# Review is where the money goes, and until this section existed nothing bounded a single round. Two
+# measured landings both recorded `num_turns: 50` for /da-review-all while every other phase in the same
+# ledger sat between 5 and 20 -- $5.64 and $6.19, against $1.30 and $1.50 for the implementations they
+# were reviewing. Whether 50 is a ceiling in the CLI or a coincidence is UNCONFIRMED; what is confirmed is
+# that the driver could not have told the difference, because it reads only total_cost_usd and num_turns.
+#
+# This build of `claude` has no --max-turns. It has --max-budget-usd, which is the better lever anyway:
+# it bounds the thing being complained about, and the harness enforces it rather than the prompt.
+setup; measurement 1 1 0 0 0; runloop size "r"        # 1 file, 0 layers -> tier S
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+respond pr 1 0.10 3
+runloop run
+s_budget="$(round_budget '/da-review-all')"
+[[ -n "$s_budget" ]] \
+  && ok "a review round carries a --max-budget-usd ceiling (tier S: \$$s_budget)" \
+  || { no "the review round had no cost ceiling -- one round is unbounded"
+       detail "$(grep -o '^[^ ]* [^ ]* [^ ]*' "$FAKE_CLAUDE_LOG" | head -3 | tr '\n' ' ')"; }
+
+# Tier M, not L: L hands the turn back for the design phase and never reaches review in one `run`, so a
+# tier L fixture measures nothing here. M is the lowest tier above S that runs start to finish.
+setup; measurement 6 1 0 0 0; runloop size "r"        # M
+printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
+  > "$REPO_DIR/plan.md"
+git -C "$REPO_DIR" add plan.md; commit_in_repo plan
+respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+respond pr 1 0.10 3
+runloop run plan.md
+m_budget="$(round_budget '/da-review-all')"
+if [[ -n "$s_budget" && -n "$m_budget" ]] && node -e 'process.exit(Number(process.argv[1]) < Number(process.argv[2]) ? 0 : 1)' "$s_budget" "$m_budget"; then
+  ok "the review ceiling is tier-scaled (S \$$s_budget < M \$$m_budget)"
+else
+  no "the review ceiling does not scale with tier (S '$s_budget' vs M '$m_budget')"
+fi
+
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+respond pr 1 0.10 3
+runloop run
+t_budget="$(round_budget '/da-fix-plan')"
+[[ -n "$t_budget" ]] \
+  && ok "the triage round carries a ceiling too (tier S: \$$t_budget)" \
+  || no "triage was unbounded -- it measured \$2.08 and \$1.90 for counting buckets on an 11-line diff"
+
+# --- one layer at tier S skips the dispatcher entirely ---------------------------
+# /da-review-all costs a cold read of its own 12 KB body plus a classification pass, to then print
+# "no cross-layer impact" and hand the report straight through. When `size` already recorded exactly one
+# layer and it is one of the three the toolkit has a skill for, the dispatcher is buying nothing: type
+# the layer skill. This is the LAST structural cost left in the bottom tier after the brief.
+setup; measurement 3 1 0 0 0 "backend"; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+respond pr 1 0.10 3
+runloop run
+if grep -q -- '/x-review-backend$' "$FAKE_CLAUDE_LOG" && ! grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG"; then
+  ok "tier S with one known layer types /x-review-backend, not the dispatcher"
+else
+  no "the dispatcher still ran for a single-layer tier S change"
+  detail "$(grep -oE '/(da-review-all|x-review-[a-z]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
+fi
+
+# The fallback is the part that must not be clever. A layer name the toolkit has no skill for, or more
+# than one layer, or none at all, all go back to the dispatcher -- guessing which skill to type would
+# review a layer with the wrong checklist and report it as covered.
+setup; measurement 3 1 0 0 0 "mobile"; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
+runloop run
+grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
+  && ok "an unrecognised layer name falls back to the dispatcher" \
+  || { no "an unknown layer did not fall back -- something guessed a skill name"
+       detail "$(grep -oE '/(da-review-all|x-review-[a-z-]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"; }
+
+setup; measurement 1 0 0 0 0; runloop size "r"    # docs-only: zero layers
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
+runloop run
+grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
+  && ok "a change with no layer at all still gets the dispatcher" \
+  || no "a zero-layer change reached no reviewer at all"
+
+# --- every round may READ the repository, and may not write to it -----------------
+# Measured, not assumed: `claude --print --permission-mode acceptEdits` cannot run git in this
+# environment -- `git status --short` came back "requires approval", and headless there is nobody to
+# approve. /da-review-all's Step 1 IS `git diff`, so the review phase never established its scope; the
+# 50 turns and $6.19 were retries against a permission wall, not depth.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
+runloop run
+grep -q -- '--allowedTools' "$FAKE_CLAUDE_LOG" \
+  && ok "rounds are granted tools explicitly, so git is not denied headless" \
+  || no "no --allowedTools was passed -- the review still cannot read the diff"
+grep -q 'git diff' "$FAKE_CLAUDE_LOG" \
+  && ok "and the grant includes git diff, which is what Step 1 needs" \
+  || no "the grant does not include git diff"
+# A command-rewriting PreToolUse hook runs BEFORE the permission match, so on a machine whose hook turns
+# `git status` into `rtk git status` the bare pattern matches nothing -- and an unmatched pattern is
+# indistinguishable from no grant at all. Measured: Bash(git status:*) denied, Bash(rtk git status:*) ran.
+# Both forms ship, because the toolkit also has to work where no such hook exists.
+grep -q 'rtk git diff' "$FAKE_CLAUDE_LOG" \
+  && ok "and the rewritten form too, so a command-rewriting hook does not silently void the grant" \
+  || no "only the bare form is granted -- on a machine with a rewriting hook that is a no-op"
+# The grant is read-only BY ENUMERATION. `Bash(git:*)` would hand an unattended round `git push`,
+# `git reset --hard` and `git branch -D` in order to let it run `git diff`.
+if grep -qE 'Bash\(git:\*\)|git push|git reset|git branch -D|git clean' "$FAKE_CLAUDE_LOG"; then
+  no "the tool grant reaches beyond read-only git"
+  detail "$(grep -oE 'Bash\([^)]*\)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
+else
+  ok "the grant names read-only git subcommands only -- no push, reset, branch -D or clean"
+fi
+
+# --- the rounds that never reach post_round ---------------------------------------
+# Truncation detection lives in post_round, and four claude_round calls do not go through it: size,
+# worktree, pr and verify. Two of those four verify their own effect afterwards -- the worktree phase
+# reads `git worktree list`, the verify phase reads the gate -- so a cut-off round there surfaces as the
+# observable failure it caused. The other two are blind, and each is blind in its own way.
+setup
+measurement 1 1 0 0 0
+runloop size "r"
+[[ -n "$(round_budget '/da-investigate')" ]] \
+  && ok "the size round carries a ceiling (\$$(round_budget '/da-investigate'))" \
+  || no "size was unbounded -- measured at \$1.53-\$1.98 a go, three times in one session"
+
+# A cut-off size round returns no structured output, which is indistinguishable from the schema flag
+# being wrong -- and that is exactly what the driver used to report. A misdiagnosis sends you to check
+# the CLI when the answer is "raise the ceiling".
+setup
+printf '{"total_cost_usd":0.30,"num_turns":9,"subtype":"error_max_budget_usd","result":"partial"}' \
+  > "$FAKE_CLAUDE_DIR/investigate.1.json"
+runloop size "r"
+if [[ $RC -ne 0 ]] && grep -qiE 'truncat|打ち切|ceiling|天井' <<<"$OUT"; then
+  ok "a cut-off size round says it was cut off, not that the schema flag is wrong"
+else
+  no "a truncated size round was misdiagnosed (exit $RC)"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"
+fi
+grep -qi 'json-schema' <<<"$OUT" \
+  && no "and it still blamed --json-schema, which is the wrong thing to go and check" \
+  || ok "and it does not send you to check the CLI flag"
+
+# The PR phase is the one place where halting cannot undo what happened: `gh stack submit` has already
+# opened the PR by the time the body is written. So a cut-off /da-pr-describe leaves a REAL PR carrying
+# a half-written description, recorded `opened-pr` -- the "looks done, isn't" shape. It must be said.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 3
+truncated pr 1 error_max_budget_usd
+runloop run
+if grep -qiE 'partial|部分|途中|truncat|打ち切' <<<"$OUT"; then
+  ok "a cut-off PR description is reported, not recorded as a finished one"
+else
+  no "the PR body was truncated and nothing said so"; detail "$(tail -5 <<<"$OUT" | tr '\n' ' ')"
+fi
+[[ "$(ledger_field outcome)" != "opened-pr" ]] \
+  && ok "and the ledger distinguishes it from a clean opened-pr" \
+  || no "the ledger recorded a partial-bodied PR as a plain opened-pr"
+# ...and it still counts as having reached a PR. The landing's CODE went through the gate and the
+# review; what was cut off is prose. Scoring it as not-reached would report the loop as failing to land
+# work it did land, for a documentation defect that already has its own ledger row.
+if runloop report; grep -qE 'reached PR +1' <<<"$OUT"; then
+  ok "and it still counts as having reached a PR (the code landed; the prose did not finish)"
+else
+  no "a partial-bodied PR was scored as not having reached a PR"
+  detail "$(grep -i 'reached PR' <<<"$OUT" | head -1)"
+fi
+
+# --- the review round must not be able to eat the run ----------------------------
+# Read out of the source, because this is a relationship between chosen numbers rather than a behaviour:
+# review + triage + findbugs can all fire on ONE landing, and the two measured runs both died on
+# `budget` at triage with the PR one step away. If the review round's own ceilings sum above the run
+# budget, that outcome is not a surprise -- it is arithmetic.
+loop_const() { grep -E "^$1=" "$LOOP" | head -1 | sed -E "s/^$1=([0-9.]+).*/\1/"; }
+s_total="$(node -e 'process.stdout.write(String(
+  Number(process.argv[1]) + Number(process.argv[2]) + Number(process.argv[3])))' \
+  "$(loop_const BUDGET_ROUND_REVIEW_S)" "$(loop_const BUDGET_ROUND_TRIAGE_S)" "$(loop_const BUDGET_ROUND_FINDBUGS_S)")"
+run_budget="$(loop_const BUDGET_USD)"
+if node -e 'process.exit(Number(process.argv[1]) > 0 && Number(process.argv[1]) < Number(process.argv[2]) / 2 ? 0 : 1)' \
+     "$s_total" "$run_budget"; then
+  ok "a tier S review round is capped at \$$s_total, under half the \$$run_budget run budget"
+else
+  no "the tier S review ceilings sum to \$$s_total against a \$$run_budget run budget -- one landing's review can starve the run"
+fi
+
+# --- a round that ended at a ceiling is not a round that finished ----------------
+# The failure this prevents: `claude -p` returns exit 0 with a partial `result` when it stops early, so a
+# truncated review was recorded `outcome: advanced` and its half-written report was handed to triage as
+# though it were a finished one. Nothing downstream could tell, and 🔎 in the report would not say so
+# either -- the model does not know it was cut off.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+truncated review 1 error_max_budget_usd
+respond triage 1 0.05 2 0 0 3
+runloop run
+if [[ "$(ledger_field outcome)" != "advanced" ]] && grep -qiE 'truncat|cut off|ceiling|打ち切' <<<"$OUT"; then
+  ok "a review that stopped at its ceiling halts instead of recording 'advanced'"
+else
+  no "a truncated review was recorded as a finished one (outcome=$(ledger_field outcome))"
+  detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
+fi
+[[ "$(ledger_field halt_reason)" == "truncated" ]] \
+  && ok "the ledger names the halt 'truncated', so report can count it" \
+  || no "halt_reason was '$(ledger_field halt_reason)', not 'truncated'"
+
+# An unknown subtype must read as failure, not as success. New CLI versions add subtypes; a driver that
+# allowlists the ones it knows and treats the rest as fine will silently start accepting truncated rounds
+# the day one is added. Absence still means success -- every fixture here and some builds omit the field.
+#
+# Asserted on halt_reason, not on `outcome != advanced`. The first version of this check read the LAST
+# ledger line, which on a run that completes is the PR phase (`opened-pr`) -- so it passed while the
+# driver was doing exactly the wrong thing, and passed for the same reason in both truncation cases.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+truncated review 1 error_something_invented_later
+respond triage 1 0.05 2 0 0 3
+runloop run
+[[ "$(ledger_field halt_reason)" == "truncated" ]] \
+  && ok "an unrecognised subtype fails closed rather than passing as success" \
+  || no "an unknown subtype passed as a successful round (halt_reason=$(ledger_field halt_reason)) -- the allowlist is inverted"
+
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+printf '{"total_cost_usd":0.30,"num_turns":7,"subtype":"success","result":"ok"}' \
+  > "$FAKE_CLAUDE_DIR/review.1.json"
+respond triage 1 0.05 2 0 0 3
+respond pr 1 0.10 3
+runloop run
+if [[ "$RC" -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" && [[ "$(ledger_field halt_reason)" != "truncated" ]]; then
+  ok "subtype:success is not mistaken for a truncation"
+else
+  no "an explicitly successful round was rejected (exit $RC, halt=$(ledger_field halt_reason))"
+  detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 
 # ---------------------------------------------------------------- the ledger is never trimmed

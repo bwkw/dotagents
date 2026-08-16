@@ -82,9 +82,15 @@ landing ごとに:
 
 | 段 | 判定 | 設計フェーズ | 人間の位置 |
 |---|---|---|---|
-| **S** | ≤5 files・1 layer・risk surface 0・**unconfirmed 0** | 無し | ループの**上**。台帳を読む |
-| **M** | ≤15 files・≤2 layers・one-way door 無し | `/da-design-review` を対話で | 承認1回（= 計画を commit） |
-| **L** | >15 files ／ 3 layers ／ one-way door ／ risk surface ／ **unconfirmed が残る** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+| **S** | ≤5 files・1 layer・one-way 0・risk surface 0・unconfirmed 0 | 無し | ループの**上**。台帳を読む |
+| **M** | ≤15 files ／ ≤2 layers ／ **risk surface** ／ **unconfirmed** | `/da-design-review` を対話で | 承認1回（= 計画を commit） |
+| **L** | >15 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+
+**規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
+崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
+`da-investigate` は確認できなかったことを挙げるのが仕事なので必ず何かを挙げる。結果として全部 L で、
+無人で回るものが1つも無くなる。入力が全部同じクラスに落ちる分類器は、分類していません。詳細と、
+それぞれが「厳しすぎた」ではなく**間違っていた**理由は `docs/loops.md`。
 
 **無人で端まで回るのは S だけです。** `/grill-me` は面接で、`da-design-review` の Step 1 は
 「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。

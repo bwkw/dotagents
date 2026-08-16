@@ -51,37 +51,54 @@ differs. `user-invocable: false` is what keeps it out of the menu — it must ne
 
 ## Files to read
 
-### Always read
+### Measure the diff first — before opening any of them
 
-| File | Why |
+```bash
+BASE=""
+for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')" \
+         origin/develop origin/main develop main; do
+  [ -n "$b" ] && git rev-parse --verify --quiet "$b" >/dev/null 2>&1 && BASE="$b" && break
+done
+git diff --shortstat "$BASE"...HEAD && git diff --name-only "$BASE"...HEAD | wc -l
+```
+
+**The number decides which process you read, so take it before the reading starts** — the reading *is*
+the cost, and it does not shrink with the diff. It used to sit inside `review-process.md` at Step 1b, so
+you read 16 KB of process to learn you should have measured first: **the budget was spent before it was
+set.** Measured twice: an 11-line, one-file review at $5.64 and $6.19, against $1.30 and $1.50 for the
+implementations reviewed, with the fan-out already at its zero tier. There was no fan-out left to cut.
+
+Paths are under `${CLAUDE_SKILL_DIR}/reference/`.
+
+| The diff | Read | Roughly |
+|---|---|---|
+| **≤ 80 lines and ≤ 5 files** | `review-process-brief.md` + `perspectives.md` | ~7.9 K tokens |
+| larger | `finding-discipline.md` + `review-process.md` + `perspectives.md` | ~19 K tokens |
+
+Plus, at either size, the two you apply yourself in the section below.
+
+**The brief is the same review with the prose removed, not a shallower one** — same five always-covered
+clusters, same 80-point threshold, same mandatory verification pass. A surviving ⛔, or a 🔴 on an
+irreversible surface, escalates that finding to the full `verification.md` and `report-format.md`: **the
+tier decides the process, not the seriousness of what it finds.**
+
+### You apply these, so you read them
+
+| File | When |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | posture, two tiers, confidence, return schema |
-| `${CLAUDE_SKILL_DIR}/reference/review-process.md` | the seven steps and the guardrails |
-| `${CLAUDE_SKILL_DIR}/reference/perspectives.md` | what to trace, and the perspective clusters |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | before the find phase — **and again in Step 6** |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | before the find phase. The diff is agent-authored; assume it is |
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering Step 6 |
+| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the report (Step 7) |
 
-### Hand down, do not read
+**These two used to say "hand down, do not read"** — they were the subagents' reading, and the
+orchestrator's job was that they *got* applied rather than that it read them. **There are no subagents
+now, so there is nobody else to hand them to.** ~11 KB comes back into this context, and that is the
+honest half of the trade: removing the fan-out does not make everything cheaper, it moves the reading
+from N cold starts into one warm one.
 
-These two are **applied in the find phase and again in the verify phase** — both of which are subagents,
-never you. Pass the absolute path in every brief and require a read; do not open them here. Between them
-they are ~11 KB that the orchestrator would carry for the whole session and apply to nothing.
-
-| File | Who applies it |
-|---|---|
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | every find subagent, and the verifier again in Step 6 |
-| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | every find subagent — the diff is agent-authored, assume it is |
-
-**Your job is that both got applied, not that you read them.** The Step 6 pass is the one that gets
-dropped; `verification.md` is where you check it happened.
-
-### Read only if
-
-| File | Trigger condition |
-|---|---|
-| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the verify phase (Step 6) |
-| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the final report (Step 7) |
-
-> "Read everything just in case" is forbidden. Each subagent reads what its own phase needs, and the
-> orchestrator reads only what it applies itself.
+> "Read everything just in case" is still forbidden. The trigger column is the rule: `verification.md`
+> and `report-format.md` are opened when their phase starts, not now.
 
 ---
 
@@ -111,48 +128,42 @@ first commit) use the empty tree and **say so**:
 ## Steps 2–7
 
 `${CLAUDE_SKILL_DIR}/reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
-project context, fan out to perspective subagents, refute and hunt for what was missed, then report.
+project context, work the perspective clusters, refute and hunt for what was missed, then report.
+**At the brief tier `review-process-brief.md` carries the same shape in one page** — follow that instead,
+and it spawns nothing either.
 
 `${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
 in Step 2**, and the **perspective clusters for Step 5**.
 
-### The fan-out budget — decide this before launching anything
+### No subagents. None.
 
-`review-process.md` carries the full table and the evidence. **The three rows are repeated here, in the
-body, on purpose:** reference resolution is a Claude Code extension, and a rule that only exists behind
-`${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both.
+**This review spawns nothing — not per cluster, not per layer, not for verification.** You read the diff
+and work the clusters yourself. `review-process.md` carries the evidence; the rule is repeated here in
+the body **on purpose**, because reference resolution is a Claude Code extension and a rule that only
+exists behind `${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both — and holding
+in both is now most of the reason it exists.
 
-| Diff — changed lines, measured in Step 1b | Find subagents |
-|---|---|
-| ≤ 80 lines, ≤ 5 files | **0 — work the always-covered clusters inline, in this context** |
-| ≤ 400 lines | **3** |
-| > 400 lines, or > 15 files | **5 — the ceiling. It does not rise.** |
+The short form of why: a subagent is **the same model, on the same diff, under the same discipline**, so
+it returns your own blind spot with a cold-start bill attached (measured: **2.6–5.9× the tokens, and not
+faster**). Independence comes from a **differently built** reviewer — 93.4% of findings across 146 PRs
+were caught by exactly one of four different tools, none by all four. `/find-bugs` is that; a copy of
+this one never was.
 
-**One subagent may carry several clusters.** The budget counts subagents, not questions: clusters are
-grouped into that many briefs, never deleted. Say the grouping in 🔎, and say "inline, no find subagents"
-when that is what happened — never imply agents ran that did not.
+**Say "inline, no subagents" in 🔎** — never imply agents ran that did not.
 
-**The verify phase spends at most `find + 3`, and always keeps one verifier — including at the inline
-tier.** That subagent is not about context isolation, which is why the inline tier does not remove it: a
-verifier that watched the finding get made cannot refute it.
-
-Two rules that are load-bearing here and get dropped when the fan-out is collapsed:
+Two rules that are load-bearing here, and that a collapsed fan-out used to drop:
 
 - **Cluster 0 — design soundness and the question one level up — is never dropped**, even for a one-line
-  diff. It catches "this should not be built this way", which no amount of per-file scrutiny finds. Above
-  the inline tier it lands in a subagent; at the inline tier you work it yourself. **Never skipped —
-  a smaller budget groups it, it does not delete it.**
+  diff. It catches "this should not be built this way", which no amount of per-file scrutiny finds.
+  **A short review works it in fewer words; it never skips it.**
 - **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
   verify only. A pattern found during find is a finding; the same pattern found during verify is a
   finding the find phase missed, which is also information about how much to trust the clean parts.
 
-Dispatch the tracing-heavy clusters — the Step 2 blast radius, "who else writes this table", "what
-else uses this helper" — to **`x-codebase-explorer`**, and the judgement clusters to `general-purpose`
-with the cluster checklist. The verify phase goes to **`x-review-verifier`**. Both are installed
-globally by this toolkit, so they exist in every repository.
-
-**Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
-resolves inside the subagent, whose working directory is not yours.
+**Tracing is a step, not a delegate.** "Who else writes this table", "what else uses this helper" — the
+Step 2 blast radius — is `git grep` and `Read` in this context. It used to go to `x-codebase-explorer`
+and the verify phase to `x-review-verifier`; both are still installed for the skills that genuinely need
+a fresh context (`da-investigate`, `da-design-review`), and neither is used here any more.
 
 ## Done when
 
