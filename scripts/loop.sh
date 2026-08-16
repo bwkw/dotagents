@@ -420,8 +420,18 @@ claude_round() { # <prompt> [inline-schema-json]
   # -- two grants that match nothing, silently, leaving git denied exactly as before. Indexed arrays and
   # `+=` are bash 3.2, so this stays macOS-safe; the associative kind would not be.
   local args
-  args=(--print --output-format json --permission-mode acceptEdits)
+  # ORDER IS LOAD-BEARING. `--allowedTools` is variadic (`<tools...>`), so it keeps consuming arguments
+  # until the next flag -- and the prompt is the final argument. Left last, the prompt is swallowed as
+  # one more tool name and `claude` exits 1 with "Input must be provided either through stdin or as a
+  # prompt argument", having spent nothing: $0, 0 turns, and a phase that looks like it declined.
+  #
+  # It shipped that way for a day and only half the loop was broken, which is why it was not obvious:
+  # `--max-budget-usd` happened to terminate the list, so every round WITH a ceiling worked (size,
+  # review, triage, pr) and every round without one did not (isolate, verify, implement, debug, fix).
+  # `--permission-mode` now always follows the grant, so the terminator is unconditional.
+  args=(--print --output-format json)
   args+=(--allowedTools "$ROUND_ALLOWED_TOOLS")
+  args+=(--permission-mode acceptEdits)
   # This build has no --max-turns; --max-budget-usd is the only per-round ceiling the CLI offers, and it
   # is the better one anyway -- it bounds what is actually being complained about, and the harness
   # enforces it rather than the prompt. Verified against `claude --help`: the only --max* flag present.
