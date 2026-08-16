@@ -420,26 +420,32 @@ if [[ -f "$dr" ]]; then
   fi
 fi
 
-# --- the fan-out budget has to be in the body, not only in reference/ -------
+# --- the no-subagent rule has to be in the body, not only in reference/ -----
 # Cursor has no ${CLAUDE_SKILL_DIR} and no documented equivalent -- its docs say relative paths from the
 # skill root. So a rule that lives only in reference/ is a rule Claude Code follows and Cursor may not,
-# and the failure is invisible: Cursor just fans out to every cluster like before, produces a normal
-# report, and nothing says the budget was never read. That is the same shape as invariant 1 (state the
-# constraint in the body; treat the Claude-only path as optimization on top), applied to the one rule
-# whose whole purpose is to stop spending subagents.
+# and the failure is invisible: Cursor just fans out like before, produces a normal report, and nothing
+# says the rule was never read. That is invariant 1 (state the constraint in the body; treat the
+# Claude-only path as optimization on top) applied to the rule that decides what a review COSTS.
+#
+# This check used to demand the opposite content -- the 0/3/5 fan-out budget and its "80 lines" inline
+# threshold. The budget is gone: the review spawns nothing at all now, so a body still carrying a
+# subagent allowance would be the stale half of a half-applied change. **The check was retargeted, not
+# deleted**, because the reason for it never depended on which rule was in force: whatever bounds the
+# spend has to bind in both agents, and only the body binds in both.
 echo
-echo "checking the fan-out budget is stated in the body"
+echo "checking the no-subagent rule is stated in the body"
 budget_missing=""
 for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
   bf="$REPO/skills/$bs/SKILL.md"
   [[ -f "$bf" ]] || { budget_missing="$budget_missing $bs(absent)"; continue; }
   bbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$bf")"
-  # The threshold and the zero together: "80" alone could be any number, "0" alone any list item.
-  grep -q '80' <<<"$bbody" && grep -qiE 'inline' <<<"$bbody" \
+  # Both halves: the prohibition, and the phrase the report has to carry. "no subagents" alone could sit
+  # in a sentence about something else; "inline" alone is any adverb.
+  grep -qiE 'no subagents' <<<"$bbody" && grep -qiE 'inline' <<<"$bbody" \
     || budget_missing="$budget_missing $bs"
 done
 if [[ -n "$budget_missing" ]]; then
-  err "fan-out-budget" "the inline tier is not in the body of:$budget_missing -- Cursor cannot resolve \${CLAUDE_SKILL_DIR}, so a budget only in reference/ does not bind there"
+  err "no-subagent-rule" "the no-subagent rule is not in the body of:$budget_missing -- Cursor cannot resolve \${CLAUDE_SKILL_DIR}, so a rule only in reference/ does not bind there"
 else
   printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
 fi

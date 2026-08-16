@@ -83,11 +83,12 @@ Paths are under `${CLAUDE_SKILL_DIR}/reference/`.
 | **≤ 80 lines and ≤ 5 files** | `review-process-brief.md` + `perspectives.md` | ~7.9 K tokens |
 | larger | `finding-discipline.md` + `review-process.md` + `perspectives.md` | ~19 K tokens |
 
+Plus, at either size, the two you apply yourself in the section below.
+
 **The brief is the same review with the prose removed, not a shallower one** — same five always-covered
-clusters, same 80-point threshold, same mandatory fresh verifier. A surviving ⛔, or a 🔴 on an
+clusters, same 80-point threshold, same mandatory verification pass. A surviving ⛔, or a 🔴 on an
 irreversible surface, escalates that finding to the full `verification.md` and `report-format.md`: **the
-tier decides the process, not the seriousness of what it finds.** At the brief tier the two "read only
-if" files below are already covered — do not open them.
+tier decides the process, not the seriousness of what it finds.**
 
 ### Hand down, do not read
 
@@ -141,53 +142,43 @@ first commit) use the empty tree and **say so**:
 ## Steps 2–7
 
 `${CLAUDE_SKILL_DIR}/reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
-project context, fan out to perspective subagents, refute and hunt for what was missed, then report.
+project context, work the perspective clusters, refute and hunt for what was missed, then report.
 **At the brief tier `review-process-brief.md` carries the same shape in one page** — follow that instead,
-and everything below about the fan-out budget resolves to its bottom row by definition.
+and it spawns nothing either.
 
 `${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
 in Step 2**, and the **perspective clusters for Step 5**.
 
-### The fan-out budget — decide this before launching anything
+### No subagents. None.
 
-`review-process.md` carries the full table and the evidence. **The three rows are repeated here, in the
-body, on purpose:** reference resolution is a Claude Code extension, and a rule that only exists behind
-`${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both.
+**This review spawns nothing — not per cluster, not per layer, not for verification.** You read the diff
+and work the clusters yourself. `review-process.md` carries the evidence; the rule is repeated here in
+the body **on purpose**, because reference resolution is a Claude Code extension and a rule that only
+exists behind `${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both — and holding
+in both is now most of the reason it exists.
 
-| Diff — changed lines, measured in Step 1b | Find subagents |
-|---|---|
-| ≤ 80 lines, ≤ 5 files | **0 — work the always-covered clusters inline, in this context** |
-| ≤ 400 lines | **3** |
-| > 400 lines, or > 15 files | **5 — the ceiling. It does not rise.** |
+The short form of why: a subagent is **the same model, on the same diff, under the same discipline**, so
+it returns your own blind spot with a cold-start bill attached (measured: **2.6–5.9× the tokens, and not
+faster**). Independence comes from a **differently built** reviewer — 93.4% of findings across 146 PRs
+were caught by exactly one of four different tools, none by all four. `/find-bugs` is that; a copy of
+this one never was.
 
-**One subagent may carry several clusters.** The budget counts subagents, not questions: clusters are
-grouped into that many briefs, never deleted. Say the grouping in 🔎, and say "inline, no find
-subagents" when that is what happened — never imply agents ran that did not.
+**Say "inline, no subagents" in 🔎** — never imply agents ran that did not.
 
-**The verify phase spends at most `find + 3`, and always keeps one verifier — including at the inline
-tier.** That subagent is not about context isolation, which is why the inline tier does not remove it: a
-verifier that watched the finding get made cannot refute it.
-
-Two rules that are load-bearing here and get dropped when the fan-out is collapsed:
+Two rules that are load-bearing here, and that a collapsed fan-out used to drop:
 
 - **Cluster 0 — design soundness and the question one level up — is never dropped**, even for a
   one-line diff. A single changed attribute can force a replacement, and the cluster asking "should this
-  resource exist in this shape at all" is what catches it. Above the inline tier it lands in a subagent;
-  at the inline tier you work it yourself. **A smaller budget groups it, it does not delete it.**
+  resource exist in this shape at all" is what catches it. **A short review works it in fewer words; it never skips it.**
 - **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
   verify only. Pattern 4 — config read live, against deploy ordering — is native to this layer: a
   parameter store value or a seeded catalog takes effect the moment it is written, not when the
   application rolls out.
 
-Dispatch the tracing-heavy clusters — which stacks reference this resource, what reads this parameter,
-where this role is assumed — to **`x-codebase-explorer`**, and the judgement clusters to
-`general-purpose` with the cluster checklist. The verify phase goes to **`x-review-verifier`**, which for
-this layer carries a deliberate exception: it will not refute a destructive or permission-widening
-finding merely because the trigger looks improbable. Both agents are installed globally by this
-toolkit, so they exist in every repository.
-
-**Give each subagent the absolute `${CLAUDE_SKILL_DIR}/reference/...` form**, not a relative path: it
-resolves inside the subagent, whose working directory is not yours.
+**Tracing is a step, not a delegate.** "Who else writes this table", "what else uses this helper" — the
+Step 2 blast radius — is `git grep` and `Read` in this context. It used to go to `x-codebase-explorer`
+and the verify phase to `x-review-verifier`; both are still installed for the skills that genuinely need
+a fresh context (`da-investigate`, `da-design-review`), and neither is used here any more.
 
 ## Done when
 

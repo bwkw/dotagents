@@ -120,9 +120,11 @@ work. That is why they are here rather than in a document you would read once.
     too. So a pin overrides the user in *both* agents. The reflex "it's Claude-only, so it's just an
     optimization" is the wrong reflex here, and it was written into this file once already.
 
-    **Take cost out of how *many* subagents run — never out of what they run on.** The fan-out budget in
-    `skills/_shared/review-process.md` is where that money is, and it is the same money.
-    `verify-skills.sh` errors on any `model:` that is not `inherit`.
+    **Take cost out of how *many* subagents run — never out of what they run on.** That sentence used to
+    point at the fan-out budget in `skills/_shared/review-process.md`; **the review now runs zero
+    subagents**, so the money came out of the count all the way down, and none of it out of the model.
+    The rule is unchanged and now has one fewer place to be broken. `verify-skills.sh` errors on any
+    `model:` that is not `inherit`.
 
 ## How implementation is done
 

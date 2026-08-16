@@ -7,7 +7,7 @@
 > | Instructions in the prompt | free | no | the default. Everything starts here. |
 > | `/goal` | re-evaluated **every turn** | no, but it re-asserts | a condition that must hold across a long session and that no script can express — "the public API shape must not change". Claude Code only. |
 > | Stop hook | runs once per turn | **yes**, on Claude Code | anything a command can decide. Cheaper than `/goal` and not subject to persuasion. |
-> | Verification subagent | one subagent | no, but it is independent | judgement calls a command cannot make — "does this diff satisfy the acceptance criteria?" |
+> | A separate `claude -p` round | one process | no, but it **is** independent | judgement calls a command cannot make — "does this diff satisfy the acceptance criteria?". A fresh process, unlike a subagent, is not the same context wearing a hat. |
 >
 > Prefer the Stop hook whenever the condition is mechanically checkable: it costs one run instead of
 > one per turn, and it cannot be talked out of its answer. Reach for `/goal` only when the condition
@@ -18,14 +18,34 @@
 Run after the find phase. False positives and false negatives are asymmetric problems, so **both
 6a and 6b are mandatory**. Skipping 6b is how a review produces a confident, wrong "clean".
 
-Every verifier is a **fresh subagent that did not take part in the find phase**. It sees the diff
-and the findings, not the reasoning that produced them — that is the whole point. A reviewer who
-watched the work get done evaluates the reasoning; a reviewer who did not evaluates the result.
+## This pass is inline, and it is self-verification. Say so.
 
-**Use the `x-review-verifier` agent.** It carries the refute-by-default asymmetry and the read-only
-constraint in its own definition, which means those hold *before* it reads anything — passing them in
-a prompt to `general-purpose` makes them a request instead. It is installed globally by this toolkit,
-so it exists in every repository.
+**No subagent.** This used to spawn a fresh `x-review-verifier` and called that non-negotiable, on the
+grounds that you cannot refute your own reasoning from inside the context that produced it.
+
+**That reasoning was right about the problem and wrong about the remedy.** A fresh subagent is the *same
+model* re-reading the *same diff* under the *same discipline*. It does not have a different disposition;
+it has the same one with an empty context — and the measured effects below say a verifier's lean is
+**per-reviewer and per-framing**, not per-instance. So a second instance of yourself buys a cold-start
+bill and the illusion of independence, which is worse than the honest version, because a report that says
+"a verifier confirmed it" reads as stronger than one that says "I checked my own work".
+
+**What you do instead, and it is not nothing:**
+
+1. **Change the framing, deliberately.** The find phase asked "what is wrong here". This pass asks the
+   opposite question — "show that this cannot happen" — and framing is the axis that measurably matters.
+2. **Judge only what is on the page.** Re-read the cited `file:line` and the path around it. Do not
+   re-run the reasoning that produced the finding; if a finding's persuasiveness survives only when you
+   reread its argument rather than its evidence, that is a refutation.
+3. **Say what it was.** 🔎 states **"self-verified inline, not independently"**. A reader who thinks an
+   independent agent signed off will weight the clean parts wrongly, and that misweighting is the entire
+   cost of doing this inline.
+
+**Real independence is bought elsewhere, and the toolkit already buys it**: `/find-bugs` is a
+**differently built** reviewer, and the measurement that justifies it is the one in `review-process.md`
+— 93.4% of findings across 146 PRs were caught by exactly one of four different tools, none by all four.
+Where a stronger or different model is available (`--advisor`), route this pass to it and say so in 🔎.
+**A different tool or a different model is independence. A second copy of this one never was.**
 
 ---
 
@@ -33,37 +53,18 @@ so it exists in every repository.
 
 Applies only to findings with `severity=critical` or `irreversible=true`.
 
-**Batch by perspective cluster.** One verification subagent handles all of one cluster's findings.
-Never spawn one agent per finding.
+**Work them cluster by cluster**, not finding by finding: the same code path usually carries several, and
+re-reading it once per finding is how this pass used to get expensive.
 
-### The verify budget
+**Order matters, because you are your own verifier.** Take the findings in **reverse severity order** —
+💡 and 🟡 first, ⛔ last. The measured position effect is that whatever you judge first sets the tone for
+the rest, and judging your own ⛔ first is the arrangement most likely to launder the whole list.
 
-**Verify spends at most `find + 3` subagents per layer**, where `find` is the tier this layer got from the
-budget table in `review-process.md`. One number, so the two caps below cannot contradict each other:
+**When there are more findings than you can genuinely re-read, prioritise by irreversibility then
+severity and send the remainder to 👤** — labelled unverified rather than silently downgraded. **A layer
+that produces more ⛔/🔴 than one pass can verify is telling you something** that another pass would not.
 
-| Find tier | 6a refutation + 6b skeptic | Three-lens headroom | Verify ceiling |
-|---|---|---|---|
-| **inline (0 finders)** | **1** — one subagent refutes and plays skeptic | 2 | **3** |
-| 3 finders | **3** — batched by cluster, one of them the skeptic | 3 | **6** |
-| 5 finders | **5** — batched by cluster, one of them the skeptic | 3 | **8** |
-
-**The inline tier still spends a subagent here, and this is the one place that is not negotiable.** The
-find phase went inline because context isolation is proportional to the reading; verification is not
-about context at all. A verifier must not have watched the finding get made — that is the entire
-mechanism, and you cannot refute your own reasoning from inside the context that produced it. So: zero
-find subagents, **one verifier, always**. A review that skips it to reach zero has removed the part that
-suppresses false positives, which is the half the reader actually relies on.
-
-The `+3` is the three-lens pass and **nothing else may spend it.** It covers the single most irreversible
-⛔/🔴 in the layer; at the 5-finder tier it may cover a second if the first came back unanimous and slots
-remain. Everything else at ⛔/🔴 gets one verifier from the base allocation.
-
-**When there are more findings than slots, prioritise by irreversibility then severity, and send the
-remainder to 👤** — labelled as unverified rather than silently downgraded. Never buy another agent.
-A diff that justified three finders does not justify eight verifiers, and a layer that produces more
-⛔/🔴 than its budget can verify is telling you something the extra verifiers would not.
-
-Instruction to the verifier, including the tie-breaking rule:
+The instruction to apply to each finding, including the tie-breaking rule:
 
 > For each finding, read the actual code path and try to show that **the claimed failure cannot
 > happen** — a guard exists, a constraint enforces it, the path is unreachable. If you can show
@@ -88,10 +89,16 @@ restated here.
 
 ### Perspective-diverse verification, for ⛔ and 🔴 only
 
-A finding that survives one verifier survived **one way of being wrong**. For the two severities where
-being wrong is expensive in both directions — a false ⛔ costs the reader's trust in the whole report, a
-missed one costs production — run **three verifiers with different lenses** instead of one, and let them
-disagree.
+A finding checked one way survived **one way of being wrong**. For the two severities where being wrong
+is expensive in both directions — a false ⛔ costs the reader's trust in the whole report, a missed one
+costs production — make **three separate passes with different lenses** and let them disagree with each
+other.
+
+**Three passes, not three agents.** This is the part of the old three-verifier design that survives
+intact, and it survives *because* the file already admitted what it was: "three lenses reduce the chance
+of one bad run; they do not remove bias shared by all three, **because it is the same model each time**".
+That was true of three subagents and it is true of three passes — so the subagents were paying a
+cold-start bill for a diversity that came from the **framing**, which costs nothing to vary inline.
 
 Three lenses, not three repetitions. Repetition mostly reproduces the same blind spot:
 
@@ -103,23 +110,22 @@ Three lenses, not three repetitions. Repetition mostly reproduces the same blind
 
 Rules that make the diversity worth its cost:
 
-- **Each verifier judges only its own lens.** Tell it so. It must not speculate about the other two or
-  soften its verdict anticipating them — independence is the only reason three is better than one.
+- **Each pass answers only its own lens.** Write the verdict for that lens before starting the next, and
+  do not soften one in anticipation of another — the separation is the only reason three beats one.
 - **Two of three must not refute** for the finding to survive at ⛔/🔴. One refutation with concrete
   evidence beats two shrugs; weigh the evidence, not the tally, and say when you overrode the count.
-- **The severity lens can only lower**, never raise. Raising is the find phase's job, and a verifier
-  that escalates is no longer verifying.
+- **The severity lens can only lower**, never raise. Raising is the find phase's job, and a verification
+  pass that escalates is no longer verifying.
 - **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
   of the report for findings nobody was going to act on urgently.
-- **Bounded by the `+3` headroom in the verify budget above** — normally the single most irreversible
-  ⛔/🔴 in the layer. The pass multiplies, and that is why it is metered: three lenses on three findings
-  across three layers is 27 subagents re-reading one diff. **A layer with more ⛔/🔴 than its budget can
-  three-lens has a bigger problem than verification depth** — say so, and 🔎 states which findings got
-  three lenses and which got one.
+- **Normally the single most irreversible ⛔/🔴**, and a second only if the first came back unanimous.
+  Inline the pass no longer costs an agent, but it still costs attention and output, and **a layer with
+  more ⛔/🔴 than one can three-lens has a bigger problem than verification depth** — say so, and 🔎
+  states which findings got three lenses and which got one.
 - **Do not claim independence you do not have.** Three lenses reduce the chance of one bad run; they do
   not remove bias shared by all three, because it is the same model each time. Report it as "checked
-  from three angles", not "three verifiers agreed", and route the pass to a different or stronger model
-  when one is available.
+  from three angles", never as agreement between reviewers, and route the pass to a different or
+  stronger model when one is available.
 
 ### The verifier is biased too — three measured ways
 
@@ -169,13 +175,16 @@ are not three independent opinions, and a report must not imply they are.
 **The infrastructure exception overrides the reachability lens.** For a destructive or
 permission-widening change — resource replacement, state loss, a delete that takes data with it, a
 widened IAM grant — improbability is not a refutation. Refute only by showing the guard exists or that
-the change is not in fact destructive. `x-review-verifier` carries this exception in its own definition.
+the change is not in fact destructive. **This exception is easiest to lose inline**, because the
+reachability lens is the one that feels most like diligence — "nobody would call it with that" is not a
+guard, and on a destructive change it is not a refutation either.
 
 ---
 
 ## 6b. Challenging the clears, and hunting what was missed — against false negatives
 
-One **skeptic** subagent, also fresh. May be launched in the same batch as 6a. It does three things.
+**A distinct pass, run after 6a rather than interleaved with it** — the two ask opposite questions, and
+running them together lets the refuting frame answer the hunting one. It does three things.
 
 **Challenge overconfident clears.** Find the high-risk places the find phase dismissed as "same as
 existing" or "no problem", and read the actual guard, citing `file:line`. Where you cannot confirm

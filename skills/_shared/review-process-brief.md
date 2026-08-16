@@ -49,9 +49,9 @@ what decides whether 80 lines are 80 lines of risk or 80 lines of nothing.
 
 ## 3. The five clusters — inline, in this context, in this order
 
-No find subagents at this tier. You already hold the diff, the map and this file; a subagent would start
-cold and buy all three again to look at sixty lines. **Subagents are not the unit of rigour — the
-clusters are.**
+**No subagents — at this tier or any other.** You already hold the diff, the map and this file; a
+subagent would start cold and buy all three again, and it would be the same model returning your own
+blind spot. **Subagents were never the unit of rigour — the clusters are.**
 
 | Cluster | The question it exists to ask |
 |---|---|
@@ -82,23 +82,30 @@ which did not, rather than implying all were worked.
 Return schema: as in `finding-discipline.md` — `{id, severity, irreversible, file, perspective, finding,
 why, recommendation, comment, kind, confidence}`.
 
-## 5. Verify — one fresh subagent, and this is not negotiable
+## 5. Verify — a second pass, in this context, with the question inverted
 
-The find phase went inline because context isolation is proportional to the reading. **Verification is not
-about context at all**: a verifier must not have watched the finding get made, and you cannot refute your
-own reasoning from inside the context that produced it. So zero find subagents, **one verifier, always**.
-A review that skips it to reach zero has removed the half that suppresses false positives.
+**No subagent.** A fresh one is the same model on the same diff under the same discipline: it returns
+your own disposition with an empty context, and a report saying "a verifier confirmed it" reads as
+stronger than "I checked my own work". **Real independence is `/find-bugs` — a differently built
+reviewer** (93.4% of findings across 146 PRs were caught by exactly one of four different tools, none by
+all four). Route to a stronger model where one is available (`--advisor`) and say so.
 
-Use the **`x-review-verifier`** agent — it carries refute-by-default and read-only in its own definition,
-which makes them hold before it reads anything. One subagent does both jobs in one brief:
+What makes this a real pass rather than a re-read: **invert the question, and judge only the evidence.**
 
-- **6a, refutation** — for every `critical` or `irreversible` finding: read the actual path and try to show
-  the claimed failure **cannot** happen. **When you cannot substantiate a finding, return `refuted`, not
-  `uncertain`.** Reserve `uncertain` for genuinely data- or runtime-dependent cases.
+- **6a, refutation** — for every `critical` or `irreversible` finding: read the actual path and try to
+  show the claimed failure **cannot** happen. **When you cannot substantiate a finding, return
+  `refuted`, not `uncertain`.** Reserve `uncertain` for genuinely data- or runtime-dependent cases.
   `confirmed` → keep; `refuted` → drop, report the count only; `uncertain` → demote to 👤.
-- **6b, the skeptic** — challenge the clears: the high-risk places dismissed as "same as existing", read
-  the actual guard and cite `file:line`. Then one fresh pass over the most irreversible surfaces for what
-  the find phase missed, and confirm cluster 0's 🧭 candidates were not quietly dropped.
+  **Take them in reverse severity order**, 💡 first and ⛔ last: whatever you judge first sets the tone,
+  and judging your own ⛔ first is the arrangement most likely to launder the list.
+- **6b, the skeptic** — a distinct pass, *after* 6a rather than mixed into it, or the refuting frame
+  answers the hunting one. Challenge the clears: the high-risk places dismissed as "same as existing",
+  read the actual guard and cite `file:line`. Then one fresh pass over the most irreversible surfaces for
+  what find missed, and confirm cluster 0's 🧭 candidates were not quietly dropped.
+
+**🔎 says "self-verified inline, not independently".** A reader who thinks an independent agent signed
+off will weight the clean parts wrongly, and that misweighting is the whole cost of doing this inline.
+
 
 **The infrastructure exception overrides reachability**: for a destructive or permission-widening change,
 improbability is not a refutation. Refute only by showing the guard exists.
@@ -132,7 +139,7 @@ dropped is the four-part expansion for everything below ⛔/🔴.
 差分の外でもよい。何を見れば決着するかを書く。
 
 ### 🔎 このレビューの確度
-読んだもの／仮定したもの／見なかったもの。**"brief 版・inline tier・find サブエージェント0・検証1"と明記する。**
+読んだもの／仮定したもの／見なかったもの。**"brief 版・inline・サブエージェント無し・検証は自己検証"と明記する。**
 綺麗な結果は「この深さで検出されなかった」であって「安全」ではない。
 
 ### 🔬 除外 / 📊 集計
