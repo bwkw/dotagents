@@ -36,6 +36,12 @@ BIN="$TMP/bin"; mkdir -p "$BIN"
 cat > "$BIN/claude" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_CLAUDE_LOG"
+# One argument per line, so ADJACENCY is checkable. `$*` above flattens, and the tool grant contains
+# spaces (`Bash(git diff:*)`), which makes "what came directly before the prompt" unanswerable there.
+# That distinction is not cosmetic: `--allowedTools` is VARIADIC in the real CLI, so a prompt sitting
+# directly after it is eaten as another tool name and `claude` dies with "Input must be provided".
+printf '%s\n' "$@" >> "$FAKE_CLAUDE_ARGV"
+printf -- '---\n' >> "$FAKE_CLAUDE_ARGV"
 
 # Responses are keyed by PHASE, not by call index. An earlier version numbered them 1,2,3... in call
 # order, which coupled every fixture to how many times the driver happens to invoke claude: adding one
@@ -175,9 +181,10 @@ setup() { # -> exports REPO_DIR, GATE, PROFILES, LOOPDIR, FAKE_* for one case
   REPO_DIR="$root/repo"; GATE="$root/gate"; PROFILES="$root/profiles"; LOOPDIR="$root/loop"
   FAKE_CLAUDE_DIR="$root/claude"; FAKE_GH_DIR="$root/gh"
   FAKE_CLAUDE_LOG="$root/claude.log"; FAKE_GH_LOG="$root/gh.log"
+  FAKE_CLAUDE_ARGV="$root/claude.argv"
   mkdir -p "$REPO_DIR" "$GATE" "$PROFILES" "$LOOPDIR" "$FAKE_CLAUDE_DIR" "$FAKE_GH_DIR"
-  : > "$FAKE_CLAUDE_LOG"; : > "$FAKE_GH_LOG"
-  export FAKE_CLAUDE_DIR FAKE_GH_DIR FAKE_CLAUDE_LOG FAKE_GH_LOG
+  : > "$FAKE_CLAUDE_LOG"; : > "$FAKE_GH_LOG"; : > "$FAKE_CLAUDE_ARGV"
+  export FAKE_CLAUDE_DIR FAKE_GH_DIR FAKE_CLAUDE_LOG FAKE_GH_LOG FAKE_CLAUDE_ARGV
   # A real bare remote, not a fictional URL: the PR phase pushes, and a driver whose push is stubbed
   # is a driver whose push is untested. The directory is named so the profile's `match.remote`
   # substring still finds it.
@@ -247,14 +254,15 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-c
 # assertion then fails against a driver that was doing the right thing all along. That trap was hit
 # twice here: once with `round_budget`, once with `truncated`. Both times the implementation was correct
 # and the test was lying. Add new helpers HERE, never next to the case that needs them.
-respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline]
+respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [unverified]
   node -e '
-    const [c, t, fn, nd, dc] = process.argv.slice(1);
+    const [c, t, fn, nd, dc, uv] = process.argv.slice(1);
     const o = { total_cost_usd: Number(c), num_turns: Number(t), result: "done" };
     if (fn !== "-") o.structured_output = {
-      fix_now: Number(fn), needs_decision: Number(nd), decline: Number(dc) };
+      fix_now: Number(fn), needs_decision: Number(nd), decline: Number(dc),
+      unverified: Number(uv) };
     process.stdout.write(JSON.stringify(o));
-  ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
+  ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
 truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, partial `result`
   printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
@@ -1320,6 +1328,61 @@ grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
 
+# --- "could not verify" is not "needs a decision" ---------------------------------
+# The third instance of one shape. `needs_decision > 0` halted the run unconditionally -- and
+# finding-discipline REQUIRES the review to file anything it could not confirm as 👤, exempt from the
+# confidence threshold. So a review that did its job honestly almost always produces one, and the halt
+# was close to tautological. Measured: the first landing to reach triage stopped here with 0 defects,
+# 3 🧭 and 1 👤 -- nothing was wrong with the code at all.
+#
+# Same disease as `unconfirmed > 0` forcing tier L, same cure: the field mixed two things.
+#   "a human must decide this"  -> still halts. The loop must not guess a judgement call.
+#   "I could not verify this"   -> does NOT halt. It rides into the PR body as a caveat, exactly the way
+#                                  GATE_DEFERRED already does for checks the agent may not run.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 0 3      # fix_now 0, needs_decision 0, decline 0, unverified 3
+respond pr 1 0.10 3
+runloop run
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "3 unverified findings do not stop the landing -- they are a caveat, not a decision"
+else
+  no "unverified findings halted the run (exit $RC, halt=$(ledger_field halt_reason))"
+  detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
+fi
+# ...and they must reach the reader. A caveat nobody is told is the same as no caveat.
+# Asserted on the PROMPT THE DRIVER ACTUALLY SENT, not on the source: grepping loop.sh near
+# /da-pr-describe for "未検証" passes on the GATE_DEFERRED text that was already there, which is a
+# different caveat about a different thing. The count has to appear in the describe call itself.
+# Searched across the WHOLE log, not on the line that carries `/da-pr-describe`. The stub logs `$*`, so
+# a multi-line prompt lands as many lines and only its first one holds the command -- the same trap this
+# file's header warns about, walked into twice more today.
+grep -q '確認できなかった (unverified) 所見が 3 件' "$FAKE_CLAUDE_LOG" \
+  && ok "and the describe round is handed the unverified count" \
+  || { no "the unverified findings never reached the PR body -- silently dropped"
+       detail "$(grep -c 'unverified' "$FAKE_CLAUDE_LOG") line(s) mention unverified at all"; }
+
+# A real decision still stops everything, budget remaining or not.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 2 0 0      # needs_decision 2
+runloop run
+[[ "$(ledger_field halt_reason)" == "needs_decision" ]] \
+  && ok "a genuine decision still halts the landing" \
+  || no "needs_decision no longer halts (halt=$(ledger_field halt_reason)) -- the split went too far"
+
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 0 0 0 4
+respond pr 1 0.10 3
+runloop run
+[[ "$(ledger 2>/dev/null | grep -c '"unverified":4')" -ge 1 ]] \
+  && ok "the ledger records the unverified count, so report can show it" \
+  || no "unverified was not recorded in the ledger"
+
 # ---------------------------------------------------------------- after the PR is open
 # The loop used to end at `gh stack submit`. Everything below is the half that was missing: the CI the
 # PR triggers, the comments a human leaves on it, and the description -- which now comes LAST, so the
@@ -1527,6 +1590,39 @@ runloop run
 grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
   && ok "a change with no layer at all still gets the dispatcher" \
   || no "a zero-layer change reached no reviewer at all"
+
+# --- the prompt must survive the flags --------------------------------------------
+# `--allowedTools` is VARIADIC (`<tools...>`). A prompt placed directly after it is consumed as one more
+# tool name, and `claude` exits 1 with "Input must be provided either through stdin or as a prompt
+# argument" -- before spending a token, so the ledger shows $0 and 0 turns and the phase looks like it
+# declined rather than like it never ran.
+#
+# It only bit the rounds with NO --max-budget-usd, because that flag happened to terminate the list:
+# size/review/triage/pr worked, isolate/verify/implement/debug/fix did not. The suite could not see it,
+# because the stub is a bash script that takes argv as given -- variadic parsing exists only in the real
+# CLI. So what is asserted is the ORDERING PROPERTY that makes the parse safe.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
+runloop run
+bad_calls=$(node -e '
+  const fs = require("fs");
+  const calls = fs.readFileSync(process.argv[1], "utf8").split("\n---\n").filter(c => c.trim());
+  let bad = 0;
+  for (const c of calls) {
+    const a = c.split("\n").filter(x => x.length);
+    const i = a.indexOf("--allowedTools");
+    if (i === -1) continue;
+    // The prompt is the final argument. Safe only when something else stands between it and the
+    // variadic list: the value, then at least one more flag.
+    if (i + 2 >= a.length) { bad++; continue; }          // value is the prompt, or nothing follows
+    if (!a[i + 2].startsWith("--")) bad++;               // the prompt sits directly after the value
+  }
+  process.stdout.write(String(bad));
+' "$FAKE_CLAUDE_ARGV")
+[[ "$bad_calls" == "0" ]] \
+  && ok "no round leaves its prompt directly after the variadic --allowedTools" \
+  || no "$bad_calls round(s) would have their prompt eaten as a tool name -- claude exits 1 before spending anything"
 
 # --- every round may READ the repository, and may not write to it -----------------
 # Measured, not assumed: `claude --print --permission-mode acceptEdits` cannot run git in this

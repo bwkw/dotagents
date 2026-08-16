@@ -420,8 +420,18 @@ claude_round() { # <prompt> [inline-schema-json]
   # -- two grants that match nothing, silently, leaving git denied exactly as before. Indexed arrays and
   # `+=` are bash 3.2, so this stays macOS-safe; the associative kind would not be.
   local args
-  args=(--print --output-format json --permission-mode acceptEdits)
+  # ORDER IS LOAD-BEARING. `--allowedTools` is variadic (`<tools...>`), so it keeps consuming arguments
+  # until the next flag -- and the prompt is the final argument. Left last, the prompt is swallowed as
+  # one more tool name and `claude` exits 1 with "Input must be provided either through stdin or as a
+  # prompt argument", having spent nothing: $0, 0 turns, and a phase that looks like it declined.
+  #
+  # It shipped that way for a day and only half the loop was broken, which is why it was not obvious:
+  # `--max-budget-usd` happened to terminate the list, so every round WITH a ceiling worked (size,
+  # review, triage, pr) and every round without one did not (isolate, verify, implement, debug, fix).
+  # `--permission-mode` now always follows the grant, so the terminator is unconditional.
+  args=(--print --output-format json)
   args+=(--allowedTools "$ROUND_ALLOWED_TOOLS")
+  args+=(--permission-mode acceptEdits)
   # This build has no --max-turns; --max-budget-usd is the only per-round ceiling the CLI offers, and it
   # is the better one anyway -- it bounds what is actually being complained about, and the harness
   # enforces it rather than the prompt. Verified against `claude --help`: the only --max* flag present.
@@ -817,6 +827,17 @@ This is an unattended run: set up an isolated workspace without asking for conse
 instruction as the declared preference the skill's Step 0 looks for. Do not run the project's tests as
 the baseline; something else owns verification here and will run the repository's configured checks."
   [[ "$ROUND_EXIT" == "143" ]] && die "interrupted while isolating"
+  # Every other outcome of the round used to be swallowed here: the code went straight to "did a
+  # worktree appear", so a round that timed out, errored, or was cut off at a ceiling reported itself as
+  # "the skill declined to isolate" -- a wrong diagnosis that sends you to read the skill instead of the
+  # round. The round's own numbers are the first thing to look at, so they are printed.
+  dim "   isolate round: exit $ROUND_EXIT, \$$ROUND_COST, ${ROUND_TURNS} turns${ROUND_TRUNCATED:+, CUT OFF ($ROUND_TRUNCATED)}"
+  if [[ "$ROUND_EXIT" != "0" || -n "$ROUND_TRUNCATED" ]]; then
+    halt isolate_round_failed "the isolation round did not complete (exit $ROUND_EXIT${ROUND_TRUNCATED:+, $ROUND_TRUNCATED}).
+  No worktree can be expected from a round that did not finish, and 'working in place' is the one
+  fallback this loop must not take silently -- in place means on whatever branch you are standing on."
+    return 1
+  fi
   after="$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
   new="$(comm -13 <(printf '%s\n' "$before" | sort) <(printf '%s\n' "$after" | sort) | head -1)"
 
@@ -855,6 +876,7 @@ record() { # <phase> <landing> <round> <outcome> [halt_reason]
     halt_reason "${5:-__null__}" \
     gate "{\"ok\":$([[ "${LAST_OK:-0}" == 1 ]] && echo true || echo false),\"check\":\"$(gate_field check)\",\"kind\":\"$(gate_field kind)\"}" \
     fix_now "${FIX_NOW:-0}" needs_decision "${NEEDS_DECISION:-0}" decline "${DECLINE:-0}" \
+    unverified "${UNVERIFIED:-0}" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "${ROUND_EXIT:-0}" \
     deferred "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split(" ").filter(Boolean):[]))' "${GATE_DEFERRED:-}")" \
     spent_usd "$SPENT" scorer_touched "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split("\n").filter(Boolean):[]))' "${SCORER_HITS:-}")"
@@ -937,13 +959,13 @@ review_skill_for_tier() {
 
 # One line, because it is passed as an argument rather than written to a file.
 triage_schema() {
-  printf '%s' '{"type":"object","required":["fix_now","needs_decision","decline"],"properties":{"fix_now":{"type":"integer"},"needs_decision":{"type":"integer"},"decline":{"type":"integer"}}}'
+  printf '%s' '{"type":"object","required":["fix_now","needs_decision","decline","unverified"],"properties":{"fix_now":{"type":"integer"},"needs_decision":{"type":"integer"},"decline":{"type":"integer"},"unverified":{"type":"integer"}}}'
 }
 
 # One landing, start to submitted PR. Sets HALT when it stops early.
 run_landing() { # <n> <what-lands> <one-way>
   local n="$1" what="$2" oneway="$3" r rr schema
-  LAST_OK=0; FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
+  LAST_OK=0; FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
 
   echo
   dim "── landing $n: $what"
@@ -1106,8 +1128,18 @@ and editing them aborts this landing."
     claude_round "/da-fix-plan
 
 Triage the review(s) below. Report only the bucket counts. \`fix_now\` counts Fix now plus Fix now
-smaller. \`needs_decision\` counts findings that need a human decision. \`decline\` counts what you
-decided not to fix.
+smaller. \`decline\` counts what you decided not to fix.
+
+The last two are a split, and getting it wrong stops work that should not stop:
+
+\`needs_decision\` -- a person has to CHOOSE something. A trade-off, an approval, a product call, a
+question only the owner of the code can answer. **This stops the landing**, so count only what genuinely
+cannot proceed without someone deciding.
+
+\`unverified\` -- something the review COULD NOT CONFIRM. A guard it did not read, a path it could not
+follow, a clear it could not substantiate. This is a statement about the review's own reach, not a
+request for a decision. **It does not stop anything**; it is carried into the PR body as a caveat.
+A 👤 saying that reading some file:line would settle it is this one, not the one above.
 
 === /da-review-all の所見 ===
 $REVIEW_REPORT
@@ -1122,19 +1154,34 @@ $SECOND_REPORT}" "$schema"
     FIX_NOW="$(round_structured fix_now)"
     NEEDS_DECISION="$(round_structured needs_decision)"
     DECLINE="$(round_structured decline)"
+    # Absent is 0 here, deliberately, unlike the two above: an older triage round -- or a hand-run
+    # /da-fix-plan -- has no reason to know about this field, and treating its absence as unreadable
+    # would halt on a report that is otherwise complete. Absence means "none were reported", which for
+    # a caveat is the safe reading; for `fix_now` it would not be, which is why those still refuse.
+    UNVERIFIED="$(round_structured unverified)"; UNVERIFIED="${UNVERIFIED:-0}"
+    # The NOTE, not the count, is what gets interpolated into the describe prompt: `${UNVERIFIED:+...}`
+    # expands on "0" too, because "0" is not the empty string. Making the note the empty thing means the
+    # caveat appears exactly when there is one.
+    UNVERIFIED_NOTE=""
+    [[ "$UNVERIFIED" =~ ^[0-9]+$ && "$UNVERIFIED" -gt 0 ]] && UNVERIFIED_NOTE="
+
+このレビューが **確認できなかった (unverified) 所見が $UNVERIFIED 件** あります。詳細は
+docs/fix-plans/ の該当ファイルです。**PR 本文にその件数と、何が確認されていないのかを明記してください。**
+これは「直すべき欠陥」でも「あなたが決めるべきこと」でもなく、**レビューの届かなかった範囲**です ——
+綺麗な結果を「安全」と読ませないために、読者に渡す必要があります。"
     if [[ -z "$FIX_NOW" || -z "$NEEDS_DECISION" ]]; then
       halt triage_unreadable "the triage round returned no bucket counts (exit $ROUND_EXIT).
   Nothing is claimed about what the review found."
-      FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
+      FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
       record triage "$n" "$rr" halted triage_unreadable; return 1
     fi
     # Non-numeric is also not zero, and `[[ x -gt 0 ]]` on a non-number exits non-zero under set -u
     # rather than comparing -- which would be a silent pass in the branch below.
-    case "$FIX_NOW$NEEDS_DECISION$DECLINE" in
+    case "$FIX_NOW$NEEDS_DECISION$DECLINE$UNVERIFIED" in
       *[!0-9]*)
         halt triage_unreadable "the triage counts were not numbers (fix_now='$FIX_NOW',
   needs_decision='$NEEDS_DECISION', decline='$DECLINE')."
-        FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0
+        FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
         record triage "$n" "$rr" halted triage_unreadable; return 1 ;;
     esac
     post_round triage "$n" "$rr" || return 1
@@ -1420,7 +1467,7 @@ submit_landing() { # <n> <what> <one-way>
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
-PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}"
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}"
 
   # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
   # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a
