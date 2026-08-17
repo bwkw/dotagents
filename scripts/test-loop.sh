@@ -166,6 +166,17 @@ case "$1 ${2:-}" in
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
   "pr checks")
+    # --json asks for STATES. The driver must decide from them, not from the exit code: `gh` documents
+    # exit 1 as "failed for any reason", which lumps a real failure together with "no checks exist yet".
+    # The driver asks with `--jq .[].state`, so what comes back is one STATE PER LINE. The fixture holds
+    # exactly that (an empty file = this PR reports no checks), because a stub that returns raw JSON here
+    # would hand the driver a string that is not any state -- which its own "unknown is not green" rule
+    # then correctly reads as red, failing every case for the wrong reason.
+    if [[ "$*" == *--json* ]]; then
+      if [[ -f "$FAKE_GH_DIR/checks-states" ]]; then cat "$FAKE_GH_DIR/checks-states"
+      else printf 'SUCCESS\n'; fi
+      exit 0
+    fi
     # Exit codes match the real thing: 0 all green, 1 something failed, 8 still running. Scripted per
     # call so "red, then green after a fix" is expressible -- one file per attempt, falling back to a
     # default, exactly like the claude stub.
@@ -300,7 +311,10 @@ fails_with()  { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.exit"; } # <phase> 
 hangs_for()   { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sleep"; } # <phase> <n> <seconds>
 
 runloop() { # <args...> -> stdout+stderr in $OUT, status in $RC
+  # The CI waits are seconds in production and must be ~nothing here, or every case that reaches the CI
+  # phase costs the suite its grace window in real time.
   OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" \
+    DOTAGENTS_LOOP_CI_WAIT="${DOTAGENTS_LOOP_CI_WAIT:-20}" DOTAGENTS_LOOP_CI_GRACE="${DOTAGENTS_LOOP_CI_GRACE:-5}" \
     DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
     DOTAGENTS_REPO="$REPO" NO_COLOR=1 bash "$LOOP" "$@" 2>&1)"
   RC=$?
@@ -1367,6 +1381,44 @@ grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
 
+# --- "no checks yet" is not "CI failed" -------------------------------------------
+# `gh` documents exit 1 as "failed for any reason". `gh pr checks` adds 8 for pending, so the driver read
+# {0 -> green, 8 -> wait, everything else -> RED} and thereby called all of these a failing CI:
+#   * a check genuinely failed
+#   * **the checks do not exist yet**, which is the normal state for the seconds after a push
+#   * authentication failed (exit 4)
+#
+# Measured on the seventh run: the push created workflow run 32007290138, the driver looked before GitHub
+# had registered it, read "red", and spent $1.71 / 41 turns on /systematic-debugging for a failure that
+# did not exist. The round correctly changed nothing, and `ci_fix_changed_nothing` stopped the landing —
+# a guard catching the consequence of a misread, one phase downstream of the misread.
+#
+# The cure is to stop inferring from the exit code and read the states.
+setup; green_pr
+: > "$FAKE_GH_DIR/checks-states"                  # registered nothing yet
+runloop run
+# Asserted on the SENTENCE only the state-reading path can produce. "not ci_red" alone was too weak:
+# the old exit-code path also reached green here, so the test passed either way.
+grep -qi 'no checks' <<<"$OUT" \
+  && ok "an empty check list is reported as 'no checks at all', not as a red CI" \
+  || { no "no checks yet was not distinguished (halt=$(ledger_field halt_reason))"
+       detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+grep -q '報告されるチェックが1つもありません' "$FAKE_CLAUDE_LOG" \
+  && ok "and the PR body is told, because 'nothing ran' is not a pass" \
+  || no "the PR body was not told that no checks exist"
+grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
+  && no "a debugging round was spent on a CI failure that does not exist" \
+  || ok "and no debugging round is bought for it"
+
+# A genuine failure state still stops it.
+setup; green_pr
+printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
+respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
+runloop run
+grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
+  && ok "a FAILURE state still buys a debugging round" \
+  || no "a real CI failure was ignored"
+
 # --- a stale remote-tracking ref must not block the push --------------------------
 # GitHub deletes the head branch when a PR merges, so after the loop's first landing merges,
 # `refs/remotes/origin/<branch>` survives locally pointing at something gone. git then refuses:
@@ -1539,8 +1591,8 @@ awk '/pr checks/{ci=1} /da-pr-describe/{if(!ci) bad=1} END{exit bad?1:0}' \
 
 # A red CI is fixed and re-checked, not reported and abandoned.
 setup; green_pr
+printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
 printf '1' > "$FAKE_GH_DIR/checks.1"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.1.out"
-printf '0' > "$FAKE_GH_DIR/checks.2"
 respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
 runloop run
 grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
@@ -1549,6 +1601,7 @@ grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
 
 # ...but not forever. CI that stays red is a human's problem, and the ledger has to name it.
 setup; green_pr
+printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
 printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.out"
 respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
 runloop run

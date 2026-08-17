@@ -103,7 +103,8 @@ BUDGET_ROUND_REPLY=1.00      # composing the replies (posting is the driver's jo
 
 # What happens after the PR is open.
 CI_ATTEMPTS=2         # fix attempts for a red CI before it becomes a human's problem
-CI_WAIT_SECONDS=900   # how long to wait for checks to stop being pending, per look
+CI_WAIT_SECONDS="${DOTAGENTS_LOOP_CI_WAIT:-900}"    # how long to wait for pending checks to settle
+CI_GRACE_SECONDS="${DOTAGENTS_LOOP_CI_GRACE:-120}"  # how long to wait for checks to EXIST after a push
 
 # **The tier S numbers are tight on purpose, and what makes that safe is that overrun is now LOUD.**
 # Before `truncated` existed, a ceiling could only be set generously: a round cut off mid-report returned
@@ -975,7 +976,7 @@ triage_schema() {
 run_landing() { # <n> <what-lands> <one-way>
   local n="$1" what="$2" oneway="$3" r rr schema
   LAST_OK=0; FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
-  UNREVIEWED_FIXES_NOTE=""
+  UNREVIEWED_FIXES_NOTE=""; CI_NONE_NOTE=""
 
   echo
   dim "── landing $n: $what"
@@ -1303,17 +1304,35 @@ stack_ready() { # -> 0 when the gh-stack extension is available
 # review that costs a person the most attention, because each arrival is an interrupt.
 #
 # `gh pr checks` exit codes are the contract: 0 all green, 1 something failed, 8 still running.
-ci_state() { # <pr-number> -> 0 green, 1 red, 2 gave up waiting. Sets CI_OUT.
-  local num="$1" waited=0 rc
-  while (( waited < CI_WAIT_SECONDS )); do
-    CI_OUT="$(gh pr checks "$num" 2>&1)"; rc=$?
-    case "$rc" in
-      0) return 0 ;;
-      8) sleep 10; waited=$((waited + 10)); continue ;;   # pending: the only code worth waiting on
-      *) return 1 ;;
-    esac
+# 0 green, 1 red, 2 gave up waiting on pending, 3 this PR reports no checks at all. Sets CI_OUT.
+#
+# **Decided from the STATES, never from the exit code.** `gh` documents exit 1 as "failed for any
+# reason", and `gh pr checks` only adds 8 for pending -- so an exit-code reading collapses these into
+# one answer: a check that failed, checks that **do not exist yet** (the normal state for the seconds
+# after a push), and an auth failure. Measured on the seventh run: the driver looked before GitHub had
+# registered the workflow, read "red", and spent $1.71 / 41 turns debugging a failure that did not exist.
+ci_state() { # <pr-number>
+  local num="$1" waited=0 graced=0 states
+  while :; do
+    CI_OUT="$(gh pr checks "$num" 2>&1)"
+    states="$(gh pr checks "$num" --json name,state --jq '.[].state' 2>/dev/null)"
+
+    if [[ -z "$states" ]]; then
+      # No checks REPORTED. Right after a push that means "not registered yet"; after the grace window
+      # it means this repository has nothing to report, which is a fact to carry, not a failure to fix.
+      (( graced >= CI_GRACE_SECONDS )) && return 3
+      sleep 5; graced=$((graced + 5)); continue
+    fi
+    # Any terminal-bad state is red. Named explicitly: a state this list does not know must not silently
+    # count as green, so the pending set is named too and anything else falls through to red.
+    grep -qE '^(FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)$' <<<"$states" && return 1
+    if grep -qE '^(PENDING|QUEUED|IN_PROGRESS|WAITING|REQUESTED|EXPECTED)$' <<<"$states"; then
+      (( waited >= CI_WAIT_SECONDS )) && return 2
+      sleep 10; waited=$((waited + 10)); continue
+    fi
+    grep -qvE '^(SUCCESS|NEUTRAL|SKIPPED)$' <<<"$states" && return 1   # an unknown state is not green
+    return 0
   done
-  return 2
 }
 
 ci_settle() { # <landing> <pr-number>
@@ -1325,6 +1344,15 @@ ci_settle() { # <landing> <pr-number>
       2) halt ci_pending "CI was still running after ${CI_WAIT_SECONDS}s on PR #$num. The PR is open and
   its code passed the local gate; what is unknown is what CI thinks. Nothing is claimed about it."
          record ci "$n" "$a" halted ci_pending; return 1 ;;
+      3) # No checks after the grace window. Not a failure and not a pass: there is nothing to read.
+         # Carried to the PR body rather than silently treated as green -- the same shape as a deferred
+         # gate, and the reason `gate.sh verify` reporting ok:true for "nothing ran" is a known trap here.
+         CI_NONE_NOTE="
+
+**この PR には報告されるチェックが1つもありません**（${CI_GRACE_SECONDS}s 待った結果）。ローカルの
+ゲートは通っていますが、**CI が何かを言ったわけではありません。** PR 本文にその旨を明記してください。"
+         say "   CI: this PR reports no checks at all -- nothing to read, and that is not a pass"
+         record ci "$n" "$a" advanced; return 0 ;;
     esac
     # Red. The last iteration exists only to report, never to fix -- so the cap is a cap.
     if (( a > CI_ATTEMPTS )); then
@@ -1520,7 +1548,7 @@ submit_landing() { # <n> <what> <one-way>
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
-PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}"
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}${CI_NONE_NOTE}"
 
   # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
   # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a
