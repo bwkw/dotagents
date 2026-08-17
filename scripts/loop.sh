@@ -1346,7 +1346,7 @@ a check stop running: a check removed is not a check passed."
     gate_verify_ok || { halt red_after_ci "the CI fix took the LOCAL gate red: $(gate_field check).
   Pushing it would trade a red CI for a red gate."; record ci "$n" "$a" halted red_after_ci; return 1; }
     commit_landing "$n" "CI fix" || return 1
-    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
+    prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
       record ci "$n" "$a" halted push_failed; return 1; }
   done
 }
@@ -1379,7 +1379,7 @@ $body"
     gate_verify_ok || { halt red_after_comments "the comment fixes took the gate red: $(gate_field check)."
       record comments "$n" 1 halted red_after_comments; return 1; }
     commit_landing "$n" "review comments" || return 1
-    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
+    prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
       record comments "$n" 1 halted push_failed; return 1; }
   fi
   record comments "$n" 1 advanced
@@ -1412,6 +1412,21 @@ $body" '{"type":"object","required":["replies"],"properties":{"replies":{"type":
   say "   replied to $posted of $count comment(s) -- nothing resolved; closing a thread is yours"
   record reply "$n" 1 advanced
   return 0
+}
+
+# Stale remote-tracking refs make `git push` refuse a branch the remote no longer has:
+#
+#   ! [rejected] worktree-unattended-run -> worktree-unattended-run (stale info)
+#
+# GitHub deletes the head branch when a PR merges (auto-delete-branch), so after the loop's FIRST
+# landing merges, `refs/remotes/origin/<that branch>` survives locally pointing at something gone. The
+# next landing that lands on the same branch name -- which is what happens when the isolation skill
+# picks its name from the repository rather than from the clock -- cannot push at all.
+#
+# Measured: the sixth run spent $7.84 and 2h13m, applied four review fixes, and died at `gh stack push`.
+# **Any repository with auto-delete-branch hits this on its second landing.**
+prune_stale_remotes() {
+  git fetch --prune --quiet origin 2>/dev/null || git remote prune origin >/dev/null 2>&1 || true
 }
 
 stack_layer() { # <n>
@@ -1460,7 +1475,7 @@ submit_landing() { # <n> <what> <one-way>
   [[ -n "$(changed_paths)" ]] && { halt dirty_at_pr "the tree is dirty at PR time"; \
     record pr "$1" 0 halted dirty_at_pr; return 1; }
 
-  gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed"; \
+  prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed"; \
     record pr "$1" 0 halted push_failed; return 1; }
   local url
   # --open, not the default: `gh stack submit` creates drafts, and these layers have already been
