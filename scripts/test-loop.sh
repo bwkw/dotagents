@@ -1419,6 +1419,41 @@ grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
   && ok "a FAILURE state still buys a debugging round" \
   || no "a real CI failure was ignored"
 
+# --- a paths profile must survive commit_landing ----------------------------------
+# THE RISK THIS LANDING IS MOST LIKELY TO SHIP. `commit_landing` runs mid-landing, before review, and
+# the gate's changed set is computed against a base. If that base is HEAD, the verify that follows the
+# FIX round sees only the fix's delta -- the implementation is already committed and therefore
+# invisible -- so every check whose paths matched the implementation becomes "not applicable", nothing
+# runs, and `gate-nothing-ran` blocks a landing that was fine.
+#
+# Invisible on a `scope: all` profile, which is every other fixture in this file. So the fixture has to
+# be a paths profile that goes all the way through the fix round, or nothing here tests the base at all.
+setup; measurement 1 1 0 0 0; runloop size "r"
+cat > "$PROFILES/probe.json" <<'JSON'
+{ "match": { "remote": "dotagents-loop-probe" },
+  "checks": [ { "id": "probe-gate", "cmd": "test -f GREEN", "gate": true,
+                "agent_may_run": true, "paths": ["docs/**"], "timeout": 10 } ],
+  "timeout_total": 60 }
+JSON
+# The implementation touches docs/ (so the check claims it). The FIX round touches something else, which
+# is what makes a HEAD-relative base wrong: after commit_landing, docs/ is committed and only the fix's
+# file is "changed".
+respond implement 1 0.20 5; side_effect implement 1 'mkdir -p docs && touch GREEN docs/x.md'
+respond review 1 0.30 7
+respond triage 1 0.05 2 1 0 0 0
+respond fix 1 0.10 3; side_effect fix 1 'printf y > note.txt'
+respond pr 1 0.10 3
+runloop run
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "a paths profile survives the post-fix verify (the landing base is pinned, not HEAD)"
+else
+  no "a paths landing died after commit_landing (exit $RC, halt=$(ledger_field halt_reason))"
+  detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
+fi
+grep -q 'gate diffs against' <<<"$OUT" \
+  && ok "   ...and the run says which base it pinned" \
+  || no "   the run never reported pinning a diff base"
+
 # --- a stale remote-tracking ref must not block the push --------------------------
 # GitHub deletes the head branch when a PR merges, so after the loop's first landing merges,
 # `refs/remotes/origin/<branch>` survives locally pointing at something gone. git then refuses:
