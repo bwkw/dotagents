@@ -1104,10 +1104,12 @@ and editing them aborts this landing."
     # the check was skipped because the tree is clean, and more rounds do not change that. Halting is
     # the only honest move: the profile cannot verify this landing.
     if [[ -n "$GATE_UNRAN" ]]; then
-      halt gate_unran "nothing was checked ($GATE_UNRAN). No gating check ran, so nothing here is
-  verified -- and \`gate.sh verify\` reports ok:true for that, which is why this is checked separately.
-  A \`{files}\`-scoped check is skipped when the tree is clean; if that is the whole profile, this
-  landing has no gate."
+      halt gate_unran "nothing was checked. No gating check ran, so nothing here is verified.
+  Skipped: $GATE_UNRAN
+  The gate now reports this in a field (\`ran\`) instead of leaving it to be inferred, and it BLOCKS
+  when files changed that no check claims -- so reaching here means either the tree was clean, or every
+  check that could have judged this work declined it. A \`paths\` that matches nothing looks exactly
+  like a check that is not needed."
       record implement "$n" "$r" halted gate_unran; return 1
     fi
     dim "   round $r: $(gate_field check) is $(gate_field kind)"
@@ -1704,6 +1706,25 @@ cmd_run() {
   PLAN_PATH="$plan"
 
   isolate || return 1
+
+  # THE BASE THE GATE DIFFS AGAINST, for the whole landing. Without this the gate answers a different
+  # question after every commit, and the answer gets worse as the landing progresses.
+  #
+  # `commit_landing` runs mid-landing (before review), and the gate's changed set is computed against
+  # HEAD. So the verify that follows the fix round sees ONLY the fix's delta -- the implementation it
+  # is supposed to be verifying is already committed and therefore invisible. Today that is harmless
+  # because every check is `scope: all` and ignores the file list. The moment a check declares which
+  # paths it cares about, it becomes the primary way to break a healthy landing: the checks that match
+  # the implementation are all "not applicable", nothing runs, and the gate blocks work that was fine.
+  #
+  # Pinned to the merge-base so every verify in this landing asks about the same thing: everything this
+  # landing has done, committed or not. Left unset outside `run`, so interactive `gate.sh verify` keeps
+  # its HEAD-relative behaviour exactly.
+  LANDING_BASE="$(git merge-base "$(default_branch)" HEAD 2>/dev/null || true)"
+  if [[ -n "$LANDING_BASE" ]]; then
+    export DOTAGENTS_GATE_DIFF_BASE="$LANDING_BASE"
+    dim "  gate diffs against $(printf '%.12s' "$LANDING_BASE") (this landing's base, not HEAD)"
+  fi
 
   # After isolation, not before: a fresh worktree comes with its own branch, so this check is about
   # where the work will actually land rather than where the command was typed.

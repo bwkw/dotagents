@@ -404,7 +404,7 @@ block() {
 write_gate_report() {
   [[ -n "${DOTAGENTS_GATE_REPORT:-}" ]] || return 0
   node -e '
-    const [out, profile, ran, skipped] = process.argv.slice(1);
+    const [out, profile, ran, skipped, changed] = process.argv.slice(1);
     // "<id>:<reason>" pairs. Split on the LAST colon so an id containing one survives.
     const skips = skipped.split(" ").filter(Boolean).map((s) => {
       const i = s.lastIndexOf(":");
@@ -412,11 +412,13 @@ write_gate_report() {
     });
     require("fs").writeFileSync(out, JSON.stringify({
       profile: profile || null,
+      changed_files: Number(changed),
       ran: Number(ran),
       checked: Number(ran) > 0,
       skipped: skips,
     }));
-  ' "$DOTAGENTS_GATE_REPORT" "${profile:-}" "${gate_ran:-0}" "${gate_skipped:-}" 2>/dev/null || true
+  ' "$DOTAGENTS_GATE_REPORT" "${profile:-}" "${gate_ran:-0}" "${gate_skipped:-}" \
+    "$(printf '%s' "${changed_root:-}" | grep -c . || true)" 2>/dev/null || true
 }
 
 # Let the turn end.
@@ -690,7 +692,16 @@ node -e '
   for (const c of p.checks || [])
     if (c.gate && c.agent_may_run) {
       const t = Number.isInteger(c.timeout) && c.timeout > 0 ? c.timeout : dflt;
-      console.log([c.id, t, c.mutates ? "1" : "0", c.cmd].join("\t"));
+      // `paths` joined by space so the shell can iterate it. This projection is the reason `scope` was
+      // never read by any executing code: every field not listed here is invisible to the loop below.
+      //
+      // "-" for absent, never the empty string. TAB IS A WHITESPACE CHARACTER, so `IFS=$'\t' read`
+      // COLLAPSES consecutive tabs -- an empty field in the middle shifts every column after it, and
+      // the command lands in `pathspec`. Caught by `ran` dropping from 14 to 3 on a profile that
+      // declares no paths at all: eleven checks "did not claim" files because their pattern was the
+      // command string. Without the gate-nothing-ran block that would have been a silent green.
+      const paths = Array.isArray(c.paths) && c.paths.length ? c.paths.join(" ") : "-";
+      console.log([c.id, t, c.mutates ? "1" : "0", paths, c.cmd].join("\t"));
     }
 ' "$profile" "$GATE_CHECK_TIMEOUT_DEFAULT" > "$work"
 
@@ -793,9 +804,65 @@ unrun=""
 gate_ran=0
 gate_skipped=""
 
-while IFS=$'\t' read -r id secs mutates cmd; do
+# THE CHANGED SET, computed once, ROOT-RELATIVE. Two consumers now -- the {files} substitution and the
+# `paths` predicate -- and two git invocations would be two answers whenever the tree moved between
+# them. `tree_fingerprint()` already gives this file a second, differently-rooted view of the same
+# tree; a third would be one too many.
+#
+# The base is DOTAGENTS_GATE_DIFF_BASE when set, HEAD otherwise. `scripts/loop.sh` pins it to the
+# landing's merge-base for the duration of a landing, because it commits mid-landing and a HEAD-relative
+# diff would then hide the very work being verified. Interactive use leaves it unset and gets HEAD.
+gate_diff_base="${DOTAGENTS_GATE_DIFF_BASE:-HEAD}"
+git -C "$repo_root" rev-parse --verify --quiet "$gate_diff_base" >/dev/null 2>&1 || gate_diff_base=HEAD
+changed_root=""
+while IFS= read -r -d '' _f; do
+  [[ -n "$_f" ]] || continue
+  changed_root="$changed_root$_f"$'\n'
+done < <(
+  git -C "$repo_root" -c core.quotePath=false diff -z --name-only --diff-filter=d "$gate_diff_base" 2>/dev/null
+  git -C "$repo_root" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
+)
+
+# Does any changed path match one of a check's declared prefixes/globs? Root-relative on both sides.
+# A trailing `/**` is the common case and is handled as a prefix; anything else goes through bash's
+# own pattern matching, so `docs/*.md` and a bare `CLAUDE.md` both work.
+gate_paths_match() { # <newline-separated changed paths> <space-separated patterns> -> prints matches
+  local paths="$1" pats="$2" f pat
+  # `read -a`, NOT `for pat in $pats`. Unquoted word splitting also does PATHNAME EXPANSION, so a
+  # pattern like `docs/**` was being replaced by the files that happened to exist under docs/ -- the
+  # pattern stopped being a pattern. It "worked" for `src/**` in a tree with no src/ (a failed glob
+  # stays literal), which is exactly how this would have shipped: correct on the paths that do not
+  # exist yet, silently wrong on the ones that do. `read` never globs.
+  local -a patarr
+  IFS=' ' read -r -a patarr <<<"$pats"
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    for pat in "${patarr[@]}"; do
+      case "$pat" in
+        */\*\*) [[ "$f" == "${pat%/\*\*}"/* ]] && { printf '%s\n' "$f"; break ;} ;;
+        *)        [[ "$f" == $pat ]]              && { printf '%s\n' "$f"; break ;} ;;
+      esac
+    done
+  done <<<"$paths"
+}
+
+# `cmd` stays LAST: it is the only field that can contain a tab, and read's final variable absorbs the
+# remainder, so a tab in a command cannot shift the columns before it.
+while IFS=$'\t' read -r id secs mutates pathspec cmd; do
   [[ -n "$id" ]] || continue
   case "$secs" in ''|*[!0-9]*|0) secs=$GATE_CHECK_TIMEOUT_DEFAULT ;; esac
+
+  # Does this check claim any of what changed? `paths` is repo-root-relative; a check with no `paths`
+  # claims everything, which is exactly today's behaviour.
+  applicable="$changed_root"
+  [[ "$pathspec" == "-" ]] && pathspec=""
+  if [[ -n "$pathspec" ]]; then
+    applicable="$(gate_paths_match "$changed_root" "$pathspec")"
+    if [[ -z "$applicable" ]]; then
+      gate_skipped="${gate_skipped:+$gate_skipped }$id:paths"
+      continue
+    fi
+  fi
 
   # {files} is a scope narrowing. With nothing changed there is nothing to check.
   if [[ "$cmd" == *"{files}"* ]]; then
@@ -813,14 +880,21 @@ while IFS=$'\t' read -r id secs mutates cmd; do
     # `v2/src/foo.ts` for a vitest already running inside `v2/`. Depending on passWithNoTests that
     # is a permanent false failure or a vacuous pass. `--relative` also scopes the list to that
     # subtree, which is the right answer too: a check that runs in v2/ is about v2/'s files.
+    # DERIVED from the single root-relative set above, not re-queried. `--relative` used to do two
+    # things at once -- strip the `<cwd>/` prefix and drop anything outside that subtree -- so both are
+    # done here. scripts/test-verify-gate.sh's `cwd: pkg` case is unchanged and is what proves it.
+    #
+    # The narrowing is the INTERSECTION with `paths`: a check declaring paths: ["docs/**"] must not be
+    # handed src/a.ts.
     files=""
-    while IFS= read -r -d '' _f; do
+    while IFS= read -r _f; do
       [[ -n "$_f" ]] || continue
+      if [[ -n "$sub" ]]; then
+        [[ "$_f" == "$sub"/* ]] || continue
+        _f="${_f#"$sub"/}"
+      fi
       files="$files $(printf '%q' "$_f")"
-    done < <(
-      git -C "$run_dir" -c core.quotePath=false diff -z --relative --name-only --diff-filter=d HEAD 2>/dev/null
-      git -C "$run_dir" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
-    )
+    done <<<"$applicable"
     # RECORDED, not silent. This `continue` used to leave no trace, so a profile whose gating checks
     # were all {files}-scoped reported "all gating checks green" on a clean tree -- byte-identical to a
     # real pass, and the gap documented at docs/loops.md:546. Still non-blocking and still exit 0: on a
@@ -941,6 +1015,34 @@ Raise 'timeout_total' in the profile, narrow the checks with scope: changed, or 
 the slow ones out of the gate."
 fi
 
+# Files changed, and not one gating check claimed them. THIS IS THE BLOCK THAT MAKES `paths` SAFE.
+#
+# Without it, `paths` re-creates the gap it was built alongside, one size larger. The {files}-empty skip
+# was harmless because it only happened on a CLEAN tree, where scripts/loop.sh's `round_changed_nothing`
+# catches it. `paths` produces a new situation nothing was watching: **the tree changed, the round did
+# real work, and every check that could have judged it declined.** `round_changed_nothing` does not fire
+# (the round edited something) and the gate would print "all gating checks green".
+#
+# Two answers where there used to be one:
+#   changed set empty  -> pass. The Stop hook fires at the end of every turn, including turns that only
+#                         read code; blocking those is how a gate gets switched off.
+#   changed and ran 0  -> BLOCK. Here.
+if [[ -z "$failed_id" && "$gate_ran" == "0" && -n "${changed_root//$'\n'/}" ]]; then
+  failed_id="gate-nothing-ran"
+  failed_kind="not_checked"
+  failed_cmd="(no gating check claimed the files that changed)"
+  failed_code="-"
+  failed_out="Skipped because their declared paths did not change: ${gate_skipped:-(none)}
+
+These files changed: $(printf '%s' "$changed_root" | tr '\n' ' ')
+
+Nothing was checked. That is not a pass -- a check that did not run says nothing about code that
+did change. Either a check is missing a path, or a path is missing a check.
+
+Fix the profile, do not delete this block: it is the only thing standing between 'we made the gate
+fast' and 'we made the gate quiet'."
+fi
+
 # ---------------------------------------------------------------- delegated checks
 
 # A check the agent may not run still has to happen. We require evidence that the user ran it,
@@ -950,14 +1052,26 @@ if [[ -z "$failed_id" ]]; then
   node -e '
     const p = require(process.argv[1]);
     for (const c of p.checks || [])
-      if (c.gate && !c.agent_may_run) console.log([c.id, c.delegate_reason || ""].join("\t"));
+      if (c.gate && !c.agent_may_run) {
+        const paths = Array.isArray(c.paths) && c.paths.length ? c.paths.join(" ") : "-";
+        console.log([c.id, paths, c.delegate_reason || ""].join("\t"));
+      }
   ' "$profile" > "$work"
 
   # Recorded rather than blocked on the spot. Blocking here bypassed the attempt counter entirely, so
   # a delegated check with nobody around to run it was a wall with no door: it blocked every turn
   # cycle forever and never moved any counter. It goes through the same budget as everything else now.
-  while IFS=$'\t' read -r id reason; do
+  while IFS=$'\t' read -r id pathspec reason; do
     [[ -n "$id" ]] || continue
+    # A delegated check obeys `paths` as well: a docs-only change must not demand a human's evidence
+    # for a typecheck it cannot have affected. Recorded as skipped, and NOT counted in `ran` -- a
+    # delegated check never ran anything, so counting it would let a fully-delegated profile read as
+    # checked. `-` is the absent sentinel; see the emitter for why it is not the empty string.
+    [[ "$pathspec" == "-" ]] && pathspec=""
+    if [[ -n "$pathspec" ]] && [[ -z "$(gate_paths_match "$changed_root" "$pathspec")" ]]; then
+      gate_skipped="${gate_skipped:+$gate_skipped }$id:delegated_paths"
+      continue
+    fi
     if ! grep -qs "\"$id\"" "$delegated_file" 2>/dev/null; then
       failed_id="$id"
       failed_kind="needs_human"

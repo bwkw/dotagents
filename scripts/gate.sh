@@ -544,6 +544,7 @@ cmd_verify() {
       process.stdout.write(JSON.stringify({
         repo: root, ok, exit: Number(rc), check: id, kind, detail,
         profile: sane ? (rep.profile ?? null) : null,
+        changed_files: sane ? (rep.changed_files ?? null) : null,
         ran: sane ? rep.ran : null,
         checked: sane ? rep.ran > 0 : null,
         skipped: sane ? (rep.skipped ?? []) : null,

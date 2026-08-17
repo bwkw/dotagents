@@ -1080,6 +1080,102 @@ node -e '
 # that an absent answer is never a yes. `verify` always writes the sidecar itself, so the shape that
 # needs pinning is the MERGE's reaction to a bad one -- asserted directly on the sanity test below
 # rather than through a contrived failure of the writer.
+# --- `paths`: a check runs only when it claims something that changed ------------
+# The two ways a test here could pass for the wrong reason, both closed by construction:
+#   1. the skipped check would have PASSED anyway -> so the skipped one is `exit 1`, which can only be
+#      green by not running
+#   2. nothing changed, so nothing ran for an unrelated reason -> so a real file is written first
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "needs-src",  "cmd": "exit 1", "gate": true, "agent_may_run": true,
+                "paths": ["src/**"] },
+              { "id": "needs-docs", "cmd": "true",   "gate": true, "agent_may_run": true,
+                "paths": ["docs/**"] } ] }
+JSON
+mkdir -p "$REPO/docs"; printf 'x\n' > "$REPO/docs/x.md"
+rc="$(verify --json "$REPO")"
+[[ "$rc" == "0" ]] \
+  && ok "paths: a docs change does not run the src-only check (which would have failed)" \
+  || no "   verify exited $rc -- the src check ran, or something else blocked (raw: $(head -c 200 "$TMP/verr"))"
+[[ "$(vj ran)" == "1" ]] \
+  && ok "   ...and exactly one check ran" || no "   ran=$(vj ran), expected 1"
+node -e '
+  let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+    let o=null; try { o=JSON.parse(s) } catch {}
+    const sk=(o&&o.skipped)||[];
+    process.exit(sk.some(x=>x.id==="needs-src"&&x.reason==="paths")?0:1);
+  });' < "$TMP/vout" \
+  && ok "   ...and the skip is named with reason=paths, not silent" \
+  || no "   skipped did not name needs-src:paths (raw: $(head -c 200 "$TMP/vout"))"
+
+# Files changed and NO gating check claims them. The check here WOULD PASS if it ran, so a block cannot
+# be attributed to redness -- it can only mean "nothing was checked".
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "needs-src", "cmd": "true", "gate": true, "agent_may_run": true,
+                "paths": ["src/**"] } ] }
+JSON
+rc="$(verify --json "$REPO")"
+[[ "$rc" != "0" ]] \
+  && ok "changed files that no check claims BLOCK, even though that check would have passed" \
+  || no "   verify exited 0 -- 'nothing ran' was reported as green, which is the whole failure"
+[[ "$(vj kind)" == "not_checked" ]] \
+  && ok "   ...with kind=not_checked, which is not the same as red" || no "   kind=$(vj kind)"
+[[ "$(vj ran)" == "0" ]] \
+  && ok "   ...and ran=0 says so in a field" || no "   ran=$(vj ran)"
+
+# Backwards compatibility: the same profile without `paths` runs and passes. One field, opposite result.
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "needs-src", "cmd": "true", "gate": true, "agent_may_run": true } ] }
+JSON
+rc="$(verify --json "$REPO")"
+[[ "$rc" == "0" && "$(vj ran)" == "1" ]] \
+  && ok "a check with no paths behaves exactly as before -- it always runs" \
+  || no "   exit=$rc ran=$(vj ran); the no-paths path regressed"
+
+# A clean tree with a `paths` check is the OTHER branch: nothing changed, so nothing to check, and the
+# Stop hook must not block turns that only read code.
+git -C "$REPO" add -A >/dev/null 2>&1
+git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm docs >/dev/null 2>&1
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "needs-src", "cmd": "true", "gate": true, "agent_may_run": true,
+                "paths": ["src/**"] } ] }
+JSON
+rc="$(verify --json "$REPO")"
+[[ "$rc" == "0" ]] \
+  && ok "a clean tree with a paths check passes -- read-only turns are not blocked" \
+  || no "   verify exited $rc on a clean tree; the gate would get switched off"
+[[ "$(vj changed_files)" == "0" ]] \
+  && ok "   ...and changed_files=0 distinguishes it from 'nothing was checked'" \
+  || no "   changed_files=$(vj changed_files)"
+
+# `paths` is ROOT-relative while `{files}` stays cwd-relative. Both halves in one case, because getting
+# either backwards is silent.
+rm -rf "$GATE"
+mkdir -p "$REPO/pkg/src"; printf 'a\n' > "$REPO/pkg/src/a.ts"; printf 'b\n' > "$REPO/other.txt"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" }, "cwd": "pkg",
+  "checks": [ { "id": "pkg-only", "cmd": "echo files={files}; false", "gate": true,
+                "agent_may_run": true, "scope": "changed", "paths": ["pkg/src/**"] } ] }
+JSON
+rc="$(verify --json "$REPO")"
+# Read from `detail` in the JSON, NOT from stderr: in --json mode gate.sh folds the hook's report into
+# the document and prints nothing on stderr. The first version of these two assertions grepped
+# $TMP/verr -- which is empty here, so the "no leak" one passed by finding nothing in nothing.
+[[ "$rc" != "0" ]] && grep -q 'files=src/a.ts' "$TMP/vout" \
+  && ok "paths matches root-relative while {files} stays cwd-relative (files=src/a.ts)" \
+  || no "   expected files=src/a.ts (exit=$rc ran=$(vj ran) changed=$(vj changed_files) kind=$(vj kind))"
+grep -q 'other.txt' "$TMP/vout" \
+  && no "   {files} leaked a path outside the check's paths" \
+  || ok "   ...and {files} is the INTERSECTION -- other.txt was not handed to it"
+git -C "$REPO" checkout -q -- . 2>/dev/null; rm -rf "$REPO/pkg" "$REPO/other.txt" "$REPO/docs"
+
 printf 'not json at all' > "$TMP/mangled"
 node -e '
   // The exact merge gate.sh performs, against a mangled sidecar: ok must be forced false and the
