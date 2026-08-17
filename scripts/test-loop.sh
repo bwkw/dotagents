@@ -142,7 +142,15 @@ case "$1 ${2:-}" in
     # The real extension creates and checks out the new layer branch; the driver commits onto it, so
     # the stub has to actually move HEAD or every layer after the first would commit to the wrong branch.
     shift 2; git checkout -q -b "${1:-layer}" 2>/dev/null ;;
-  "stack push") : ;;
+  "stack push")
+    # A REAL push to the fixture's bare remote. It used to be a no-op, and this file already argues the
+    # opposite for `stack submit`: a driver whose push is stubbed is a driver whose push is untested.
+    # The stale-ref rejection below only exists at the git level, so a no-op could never show it.
+    # `--force-with-lease`, because that is what makes the real failure possible: the lease is checked
+    # against the local remote-tracking ref, so a STALE one rejects the push with "stale info" even
+    # though the remote is fine. A plain push cannot produce it, and a stub that cannot produce it
+    # cannot test the fix.
+    git push --force-with-lease -q origin HEAD 2>/dev/null || exit 1 ;;
   "stack submit")
     # The real extension prints a URL when it CREATES the PR and prose when it does not:
     # "PR #45 for <branch> is up to date". Both are success. The fixture switches to the second shape,
@@ -1358,6 +1366,31 @@ runloop run
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && no "the second reviewer ran with no risk surface -- review is where the cost is" \
   || ok "no risk surface, no second reviewer"
+
+# --- a stale remote-tracking ref must not block the push --------------------------
+# GitHub deletes the head branch when a PR merges, so after the loop's first landing merges,
+# `refs/remotes/origin/<branch>` survives locally pointing at something gone. git then refuses:
+#
+#   ! [rejected] worktree-unattended-run -> worktree-unattended-run (stale info)
+#
+# Measured: the sixth run spent $7.84 over 2h13m, applied four review fixes, and died at `gh stack push`.
+# **Any repository with auto-delete-branch hits this on its second landing.**
+setup; green_pr
+# The shape exactly: the branch was pushed, the remote deleted it (auto-delete-branch on merge), and the
+# local remote-tracking ref survives pointing at a commit that ref no longer names. The lease check then
+# compares against something the remote cannot confirm.
+git -C "$REPO_DIR" branch -f loop-wt HEAD
+git -C "$REPO_DIR" push -q origin loop-wt
+git -C "$REPO_DIR" -c core.hooksPath=/dev/null push -q origin --delete loop-wt   # remote deletes it...
+git -C "$REPO_DIR" update-ref refs/remotes/origin/loop-wt "$(git -C "$REPO_DIR" rev-parse HEAD)"  # ...ref stays
+git -C "$REPO_DIR" branch -D loop-wt
+runloop run
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "a stale remote-tracking ref is pruned rather than halting the landing"
+else
+  no "a stale ref stopped the landing (exit $RC, halt=$(ledger_field halt_reason))"
+  detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
+fi
 
 # --- a PR that exists is not a PR that failed -------------------------------------
 # `gh stack submit` prints a URL when it creates the PR and prose when the PR is already current:

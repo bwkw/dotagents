@@ -78,7 +78,16 @@ BUDGET_USD=10         # per `run` invocation
 # of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
 # what an unbounded one demonstrably does.
 BUDGET_ROUND_REVIEW=5.00     # tier M/L
-BUDGET_ROUND_REVIEW_S=1.50   # tier S -- the tier that exists because it is meant to cost less
+BUDGET_ROUND_REVIEW_S=2.00   # tier S -- the tier that exists because it is meant to cost less.
+# **2.00, and this one is measured rather than chosen.** Four tier S reviews after the cost work:
+# $1.25 / $1.22 / $1.40 / $0.88 (20 / 20 / 28 / 15 turns). The old ceiling of 1.50 left 7% of headroom
+# over the observed maximum, which is not headroom -- it is a coin flip on whether the next landing
+# halts `truncated` after ~2 hours of work. The spread is 1.6x between the cheapest and dearest run of
+# the SAME phase, so a ceiling has to sit above the spread, not above the mean.
+#
+# Raising it does not weaken anything: `truncated` still halts loudly, and the only thing 2.00 buys is
+# that a normal run stops hitting the wall. It is still well under the $5.92 average this phase cost
+# before the brief form, the tool grant and the subagent removal.
 BUDGET_ROUND_TRIAGE=3.00     # tier M/L
 BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
 BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
@@ -1346,7 +1355,7 @@ a check stop running: a check removed is not a check passed."
     gate_verify_ok || { halt red_after_ci "the CI fix took the LOCAL gate red: $(gate_field check).
   Pushing it would trade a red CI for a red gate."; record ci "$n" "$a" halted red_after_ci; return 1; }
     commit_landing "$n" "CI fix" || return 1
-    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
+    prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the CI fix"; \
       record ci "$n" "$a" halted push_failed; return 1; }
   done
 }
@@ -1379,7 +1388,7 @@ $body"
     gate_verify_ok || { halt red_after_comments "the comment fixes took the gate red: $(gate_field check)."
       record comments "$n" 1 halted red_after_comments; return 1; }
     commit_landing "$n" "review comments" || return 1
-    gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
+    prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed after the comment fixes"
       record comments "$n" 1 halted push_failed; return 1; }
   fi
   record comments "$n" 1 advanced
@@ -1412,6 +1421,21 @@ $body" '{"type":"object","required":["replies"],"properties":{"replies":{"type":
   say "   replied to $posted of $count comment(s) -- nothing resolved; closing a thread is yours"
   record reply "$n" 1 advanced
   return 0
+}
+
+# Stale remote-tracking refs make `git push` refuse a branch the remote no longer has:
+#
+#   ! [rejected] worktree-unattended-run -> worktree-unattended-run (stale info)
+#
+# GitHub deletes the head branch when a PR merges (auto-delete-branch), so after the loop's FIRST
+# landing merges, `refs/remotes/origin/<that branch>` survives locally pointing at something gone. The
+# next landing that lands on the same branch name -- which is what happens when the isolation skill
+# picks its name from the repository rather than from the clock -- cannot push at all.
+#
+# Measured: the sixth run spent $7.84 and 2h13m, applied four review fixes, and died at `gh stack push`.
+# **Any repository with auto-delete-branch hits this on its second landing.**
+prune_stale_remotes() {
+  git fetch --prune --quiet origin 2>/dev/null || git remote prune origin >/dev/null 2>&1 || true
 }
 
 stack_layer() { # <n>
@@ -1460,7 +1484,7 @@ submit_landing() { # <n> <what> <one-way>
   [[ -n "$(changed_paths)" ]] && { halt dirty_at_pr "the tree is dirty at PR time"; \
     record pr "$1" 0 halted dirty_at_pr; return 1; }
 
-  gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed"; \
+  prune_stale_remotes; gh stack push >/dev/null 2>&1 || { halt push_failed "gh stack push failed"; \
     record pr "$1" 0 halted push_failed; return 1; }
   local url
   # --open, not the default: `gh stack submit` creates drafts, and these layers have already been
