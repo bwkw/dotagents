@@ -1904,6 +1904,34 @@ else
   no "the tier S review ceilings sum to \$$s_total against a \$$run_budget run budget -- one landing's review can starve the run"
 fi
 
+# --- a ceiling overrun exits NON-ZERO, so `truncated` has to be checked first -----
+# Measured: `claude --max-budget-usd 0.02 ...` returns **exit 1** with subtype error_max_budget_usd and
+# is_error true. `post_round` checked the exit code before the truncation, so the budget case -- the exact
+# case `truncated` was built for -- reported `round_failed`: "the review round exited 1. Nothing is
+# claimed about what it did." True, and useless. The specific reason ("cut off at its ceiling; raise it or
+# make the round cheaper") existed and was unreachable.
+#
+# The eighth run died this way at $2.07 against a $2.00 ceiling.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+truncated review 1 error_max_budget_usd
+fails_with review 1 1                       # ...and the process exits 1, as the real CLI does
+runloop run
+[[ "$(ledger_field halt_reason)" == "truncated" ]] \
+  && ok "a ceiling overrun halts as truncated even though the process exited 1" \
+  || no "the exit code masked the truncation (halt=$(ledger_field halt_reason))"
+grep -qiE 'ceiling|天井' <<<"$OUT" \
+  && ok "and the message names the ceiling, which is the actionable part" \
+  || no "the halt message does not mention the ceiling"
+
+# The two reasons that must still outrank it, because they are more specific about what happened.
+setup; measurement 1 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; fails_with implement 1 143
+runloop run
+[[ "$(ledger_field halt_reason)" == "interrupted" ]] \
+  && ok "SIGTERM still outranks truncation" \
+  || no "interrupted was masked (halt=$(ledger_field halt_reason))"
+
 # --- a round that ended at a ceiling is not a round that finished ----------------
 # The failure this prevents: `claude -p` returns exit 0 with a partial `result` when it stops early, so a
 # truncated review was recorded `outcome: advanced` and its half-written report was handed to triage as

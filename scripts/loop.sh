@@ -909,19 +909,23 @@ post_round() { # <phase> <landing> <round>
   is here. If this repeats, check whether \`claude\` is waiting for a login it cannot get."
     record "$1" "$2" "$3" halted round_timeout; return 1
   fi
+  # BEFORE the generic non-zero check below, because a ceiling overrun EXITS NON-ZERO. Measured:
+  # `claude --max-budget-usd 0.02 ...` returns exit 1 with subtype error_max_budget_usd and is_error true.
+  # Checked after the exit code, this branch was dead for the one case it was built for -- the budget case
+  # reported `round_failed` ("exited 1. Nothing is claimed about what it did"), which is true and useless,
+  # while the actionable reason sat here unreachable. The eighth run died that way at $2.07 against $2.00.
+  #
+  # 143 and 124 still come first: "you killed it" and "it never returned" say more than "it was cut off".
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    halt truncated "the $1 round was cut off at its ceiling (subtype: $ROUND_TRUNCATED) after
+  \$$ROUND_COST and ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a
+  finished one. Raise that round's ceiling if the work genuinely needs it, or make the round cheaper --
+  but do not read the partial report as a clean result."
+    record "$1" "$2" "$3" halted truncated; return 1
+  fi
   if [[ "$ROUND_EXIT" != "0" ]]; then
     halt round_failed "the $1 round exited $ROUND_EXIT. Nothing is claimed about what it did."
     record "$1" "$2" "$3" halted round_failed; return 1
-  fi
-  # Exit 0 with a partial answer. This is checked BEFORE the run budget below, deliberately: both fire
-  # on an expensive review, and `budget` would be the less useful of the two -- it says the run ran out,
-  # not that this round was cut off with its report half written.
-  if [[ -n "$ROUND_TRUNCATED" ]]; then
-    halt truncated "the $1 round was cut off (subtype: $ROUND_TRUNCATED) after \$$ROUND_COST and
-  ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a finished one.
-  Raise the round ceiling if the work genuinely needs it, or make the round cheaper -- but do not read
-  the partial report as a clean result."
-    record "$1" "$2" "$3" halted truncated; return 1
   fi
   if [[ -n "$SCORER_HITS" ]]; then
     halt scorer_touched "this round edited what judges it: $(printf '%s' "$SCORER_HITS" | tr '\n' ' ')
