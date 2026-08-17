@@ -1038,6 +1038,60 @@ vj() { node -e '
 [[ "$(vj check)" == "boom" ]] \
   && ok "   ...and names the check in a field, not in prose" || no "   check=$(vj check)"
 
+# --- what the gate DID, as fields ------------------------------------------------
+# `ok: true` never meant "verified": a check that never executed reported the same thing as one that
+# passed, and the only way to tell them apart was to match the sentence "all gating checks green"
+# against "nothing blocking". scripts/loop.sh carried a comment calling that "the SECOND prose
+# coupling". These fields are what replaced it.
+[[ "$(vj ran)" == "1" ]] \
+  && ok "   ...and reports how many gating checks actually ran" || no "   ran=$(vj ran), expected 1"
+[[ "$(vj checked)" == "true" ]] \
+  && ok "   ...and checked is true when one ran" || no "   checked=$(vj checked)"
+[[ "$(vj profile)" == *"scratch"* || "$(vj profile)" == *".json" ]] \
+  && ok "   ...and names the resolved profile, so nothing greps for 'no profile matches'" \
+  || no "   profile=$(vj profile)"
+
+# A clean tree with only {files}-scoped gating checks. The check is SKIPPED, and this used to be
+# reported byte-identically to a real pass (docs/loops.md:546). Still non-blocking -- on a clean tree
+# there is genuinely nothing to check -- but it must no longer be indistinguishable.
+rm -rf "$GATE"
+write_profile <<'JSON'
+{ "match": { "remote": "example/scratch" },
+  "checks": [ { "id": "only-changed", "cmd": "false {files}", "gate": true, "agent_may_run": true,
+                "scope": "changed" } ] }
+JSON
+git -C "$REPO" add -A >/dev/null 2>&1; git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm clean >/dev/null 2>&1
+verify --json "$REPO" >/dev/null
+[[ "$(vj ran)" == "0" ]] \
+  && ok "a clean tree runs no {files} check, and says ran=0" \
+  || no "   ran=$(vj ran) on a clean tree, expected 0"
+[[ "$(vj checked)" == "false" ]] \
+  && ok "   ...so checked is false -- 'nothing ran' is not 'green'" || no "   checked=$(vj checked)"
+node -e '
+  let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+    let o=null; try { o=JSON.parse(s) } catch {}
+    const sk=(o&&o.skipped)||[];
+    process.exit(sk.some(x=>x.id==="only-changed"&&x.reason==="no_files")?0:1);
+  });' < "$TMP/vout" \
+  && ok "   ...and names the skipped check with its reason, instead of vanishing" \
+  || no "   skipped did not name only-changed:no_files (raw: $(head -c 200 "$TMP/vout"))"
+
+# Fail closed. A missing or unreadable sidecar is "I could not tell", and this repository's own rule is
+# that an absent answer is never a yes. `verify` always writes the sidecar itself, so the shape that
+# needs pinning is the MERGE's reaction to a bad one -- asserted directly on the sanity test below
+# rather than through a contrived failure of the writer.
+printf 'not json at all' > "$TMP/mangled"
+node -e '
+  // The exact merge gate.sh performs, against a mangled sidecar: ok must be forced false and the
+  // fields must be null rather than optimistic.
+  const fs=require("fs");
+  let rep=null; try { rep=JSON.parse(fs.readFileSync(process.argv[1],"utf8")) } catch {}
+  const sane = rep && typeof rep === "object" && Number.isInteger(rep.ran);
+  process.exit(sane ? 1 : 0);
+' "$TMP/mangled" \
+  && ok "an unparseable sidecar is not treated as sane, so verify --json forces ok=false" \
+  || no "a mangled sidecar passed the sanity test"
+
 # The gate's own control variables must not reach the check. Found by running `gate.sh verify` against
 # this repository: DOTAGENTS_GATE_DRY=1 was inherited by ./scripts/test-verify-gate.sh, which then ran
 # every one of its hook invocations in dry mode, so verifying the repo reported its own gate suite as

@@ -508,29 +508,47 @@ cmd_verify() {
   local hook; hook="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hooks/dotagents-verify-gate.sh"
   [[ -f "$hook" ]] || die "cannot find hooks/dotagents-verify-gate.sh next to this script"
 
-  local out err rc=0
+  local out err report rc=0
   out="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
   err="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
+  report="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
   # shellcheck disable=SC2064
-  trap "rm -f '$out' '$err'" EXIT
+  trap "rm -f '$out' '$err' '$report'" EXIT
 
+  # DOTAGENTS_GATE_REPORT asks the hook for a machine-readable record of what it did. Only `verify`
+  # sets it, so a turn-end run is byte-for-byte what it was.
   printf '{"cwd":"%s","hook_event_name":"Stop"}' "$root" \
-    | DOTAGENTS_GATE_DRY=1 bash "$hook" >"$out" 2>"$err" || rc=$?
+    | DOTAGENTS_GATE_DRY=1 DOTAGENTS_GATE_REPORT="$report" bash "$hook" >"$out" 2>"$err" || rc=$?
 
   if (( as_json )); then
     node -e '
       const fs = require("fs");
-      const [outP, errP, rc, root] = process.argv.slice(1);
+      const [outP, errP, rc, root, reportP] = process.argv.slice(1);
       const read = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return "" } };
       const detail = (read(outP) + read(errP)).trim();
       // The hook prints "gate: <check id>" on the first line of a failure report.
       const m = detail.match(/^gate:\s*(\S+)/m);
       const id = m && m[1] !== "all" && m[1] !== "nothing" ? m[1] : null;
       const kind = (detail.match(/^\s*kind\s*:\s*(\S+)/m) || [])[1] ?? null;
+
+      // The sidecar carries the facts this document used to leave to prose. FAIL CLOSED when it is
+      // missing or unreadable: `checked: null` and `ok: false`, never "assume it ran". An absent
+      // answer is "I could not tell", which is the fail-open this repository keeps naming. There is
+      // no version-skew case to be gentle about -- `verify` deliberately runs the IN-REPO hook.
+      let rep = null;
+      try { rep = JSON.parse(read(reportP)) } catch {}
+      const sane = rep && typeof rep === "object" && Number.isInteger(rep.ran);
+      let ok = rc === "0";
+      if (!sane) ok = false;
+
       process.stdout.write(JSON.stringify({
-        repo: root, ok: rc === "0", exit: Number(rc), check: id, kind, detail,
+        repo: root, ok, exit: Number(rc), check: id, kind, detail,
+        profile: sane ? (rep.profile ?? null) : null,
+        ran: sane ? rep.ran : null,
+        checked: sane ? rep.ran > 0 : null,
+        skipped: sane ? (rep.skipped ?? []) : null,
       }, null, 2) + "\n");
-    ' "$out" "$err" "$rc" "$root"
+    ' "$out" "$err" "$rc" "$root" "$report"
   else
     cat "$out"
     cat "$err" >&2

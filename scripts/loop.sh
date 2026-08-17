@@ -66,7 +66,16 @@ MAX_ROUNDS=3          # implementation attempts per landing before handing back
 REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
 REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
-BUDGET_USD=10         # per `run` invocation
+# **15, and this one is arithmetic rather than a preference.** Measured maxima per phase, all from this
+# repository's ledger: size $0.74 · implement $4.56 · review $2.07 (cut off, so the true figure is higher)
+# · triage $0.74 · fix $1.19 · describe $1.50 (ceiling, never yet reached). That sums to **$10.8 before a
+# single CI fix round**, so a $10 run could not complete one landing however well each phase behaved --
+# and did not: run 7 spent $9.18 and stopped at CI, run 8 spent $7.77 and stopped at review.
+#
+# The number that actually needs bringing down is `implement` ($0.83 -> $4.56 across six runs, unbounded).
+# Raising the run budget buys the loop the chance to finish a landing; it does not make anything cheaper,
+# and it is recorded here as the honest cost of one tier S landing rather than as a target.
+BUDGET_USD=15         # per `run` invocation
 
 # Per-ROUND ceilings. $BUDGET_USD above bounds the run; until these existed nothing bounded a single
 # round, so one phase could eat the whole run's budget and the halt would name `budget` -- true, and
@@ -78,12 +87,16 @@ BUDGET_USD=10         # per `run` invocation
 # of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
 # what an unbounded one demonstrably does.
 BUDGET_ROUND_REVIEW=5.00     # tier M/L
-BUDGET_ROUND_REVIEW_S=2.00   # tier S -- the tier that exists because it is meant to cost less.
-# **2.00, and this one is measured rather than chosen.** Four tier S reviews after the cost work:
-# $1.25 / $1.22 / $1.40 / $0.88 (20 / 20 / 28 / 15 turns). The old ceiling of 1.50 left 7% of headroom
-# over the observed maximum, which is not headroom -- it is a coin flip on whether the next landing
-# halts `truncated` after ~2 hours of work. The spread is 1.6x between the cheapest and dearest run of
-# the SAME phase, so a ceiling has to sit above the spread, not above the mean.
+BUDGET_ROUND_REVIEW_S=3.00   # tier S -- the tier that exists because it is meant to cost less.
+# **3.00, measured -- and raised twice, because chasing the spread does not work.** Six tier S reviews:
+# $1.25 / $1.22 / $1.40 / $0.88 / $1.43 / $2.07. The last one was CUT OFF at a 2.00 ceiling, so its true
+# cost is higher than it reads. 1.50 was outrun in one run; 2.00 in two.
+#
+# **The spread grows because the FILE grows, not because the change does.** Every one of those runs was
+# the same request shape -- one file, `docs/loops.md` -- and a review reads the file the changed lines sit
+# in, not just the lines. So the honest fix is not a bigger number: it is a smaller file, and the 206-line
+# measurement log has been moved to `docs/loop-measurements.md` for exactly that reason. 3.00 buys room
+# while that takes effect; if it is outrun again, raise the *question*, not the ceiling.
 #
 # Raising it does not weaken anything: `truncated` still halts loudly, and the only thing 2.00 buys is
 # that a normal run stops hitting the wall. It is still well under the $5.92 average this phase cost
@@ -320,17 +333,18 @@ gate_verify_ok() { # -> 0 only when gating checks actually RAN and were green
   # Empty means gate.sh or node failed, not that the work is fine. Every helper below reads
   # $GATE_JSON, and an empty document makes each of them answer benignly.
   [[ -n "$out" ]] || { GATE_UNRAN="unreadable"; return 1; }
-  # A `{files}`-scoped check is skipped when the tree is clean, and the hook then exits 0 -- so `ok`
-  # is true although nothing executed. The gate says the two apart in prose and only in prose:
-  # "all gating checks green" versus "nothing blocking". Its own comment is explicit that these are
-  # different answers and only one means verified, but `verify --json` collapses both into ok:true,
-  # so the distinction has to be read out of `detail`.
+  # `ok: true` is not "verified": a check that never executed reports the same thing as one that
+  # passed. `verify --json` now carries `checked` -- true only when at least one gating check actually
+  # ran a command -- so this asks instead of matching sentences. `checked: null` means the gate could
+  # not say, which is not a yes.
   #
-  # This is the SECOND prose coupling to the gate's output (see gate_has_profile). The structural fix
-  # is a field in `verify --json`, which lives in the scorer and is deliberately out of scope here --
-  # docs/fix-plans/2026-08-11-loop-driver.md records that as the open decision.
-  if grep -q 'nothing blocking' <<<"$out"; then GATE_UNRAN="skipped"; return 1; fi
-  GATE_UNRAN=""
+  # This used to grep for the prose "nothing blocking" and a long comment here called it "the SECOND
+  # prose coupling to the gate's output". Both couplings are gone; the field is the answer now.
+  case "$(gate_json_field checked)" in
+    true) GATE_UNRAN="" ;;
+    false) GATE_UNRAN="$(gate_json_field skipped_ids)"; GATE_UNRAN="${GATE_UNRAN:-skipped}"; return 1 ;;
+    *) GATE_UNRAN="unreadable"; return 1 ;;
+  esac
 
   # `agent_may_run: false` means the repository forbids the AGENT from running this check -- not that
   # the work may ship unverified. Interactively /da-verify asks the user and waits. Here there is nobody
@@ -372,16 +386,37 @@ gate_field() { # <field> from the last verify
 }
 
 # No profile means no gating checks, and `verify` answers ok:true for that -- so `ok` alone cannot be
-# trusted. There is no structured field saying "nothing matched", so this reads the one string the
-# hook prints. Coupled to that wording on purpose: the alternative is resolving profiles here, which
-# would be a second implementation of the matcher.
+# trusted. `verify --json` now reports the resolved profile path, or null when nothing matched. This
+# used to grep for the string "no profile matches"; that was the FIRST of two prose couplings and it
+# is gone with the second.
 #
 # It reads the LAST verify rather than running its own. Running one costs a full suite -- minutes on
 # this repository -- and the first version did that on top of the implement loop's own first verify,
 # so every `run` paid for two complete suite runs before any work started. Call gate_verify_ok first.
 gate_has_profile() {
   [[ -n "${GATE_JSON:-}" ]] || return 1     # empty is "I could not tell", not "yes"
-  ! grep -q 'no profile matches' <<<"$GATE_JSON"
+  [[ -n "$(gate_json_field profile)" ]]
+}
+
+# One reader for the sidecar fields, so nothing goes back to matching sentences. `skipped_ids` is
+# synthesised: the ids of every check the gate declined to run, space-separated, for a halt message
+# that can name them.
+gate_json_field() { # <checked|profile|ran|skipped_ids> -> value, empty when absent or unreadable
+  node -e '
+    let s = "";
+    process.stdin.on("data", (d) => s += d).on("end", () => {
+      let o = null; try { o = JSON.parse(s) } catch {}
+      if (!o) return;
+      const f = process.argv[1];
+      if (f === "skipped_ids") {
+        const a = Array.isArray(o.skipped) ? o.skipped : [];
+        process.stdout.write(a.map((x) => x && x.id).filter(Boolean).join(" "));
+        return;
+      }
+      const v = o[f];
+      if (v != null) process.stdout.write(String(v));
+    });
+  ' "$1" <<<"${GATE_JSON:-}" 2>/dev/null || true
 }
 
 gate_gave_up() { # -> 0 when a VERDICT has been recorded
@@ -909,19 +944,23 @@ post_round() { # <phase> <landing> <round>
   is here. If this repeats, check whether \`claude\` is waiting for a login it cannot get."
     record "$1" "$2" "$3" halted round_timeout; return 1
   fi
+  # BEFORE the generic non-zero check below, because a ceiling overrun EXITS NON-ZERO. Measured:
+  # `claude --max-budget-usd 0.02 ...` returns exit 1 with subtype error_max_budget_usd and is_error true.
+  # Checked after the exit code, this branch was dead for the one case it was built for -- the budget case
+  # reported `round_failed` ("exited 1. Nothing is claimed about what it did"), which is true and useless,
+  # while the actionable reason sat here unreachable. The eighth run died that way at $2.07 against $2.00.
+  #
+  # 143 and 124 still come first: "you killed it" and "it never returned" say more than "it was cut off".
+  if [[ -n "$ROUND_TRUNCATED" ]]; then
+    halt truncated "the $1 round was cut off at its ceiling (subtype: $ROUND_TRUNCATED) after
+  \$$ROUND_COST and ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a
+  finished one. Raise that round's ceiling if the work genuinely needs it, or make the round cheaper --
+  but do not read the partial report as a clean result."
+    record "$1" "$2" "$3" halted truncated; return 1
+  fi
   if [[ "$ROUND_EXIT" != "0" ]]; then
     halt round_failed "the $1 round exited $ROUND_EXIT. Nothing is claimed about what it did."
     record "$1" "$2" "$3" halted round_failed; return 1
-  fi
-  # Exit 0 with a partial answer. This is checked BEFORE the run budget below, deliberately: both fire
-  # on an expensive review, and `budget` would be the less useful of the two -- it says the run ran out,
-  # not that this round was cut off with its report half written.
-  if [[ -n "$ROUND_TRUNCATED" ]]; then
-    halt truncated "the $1 round was cut off (subtype: $ROUND_TRUNCATED) after \$$ROUND_COST and
-  ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a finished one.
-  Raise the round ceiling if the work genuinely needs it, or make the round cheaper -- but do not read
-  the partial report as a clean result."
-    record "$1" "$2" "$3" halted truncated; return 1
   fi
   if [[ -n "$SCORER_HITS" ]]; then
     halt scorer_touched "this round edited what judges it: $(printf '%s' "$SCORER_HITS" | tr '\n' ' ')

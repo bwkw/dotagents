@@ -391,12 +391,41 @@ block() {
   exit 2
 }
 
+# A machine-readable record of WHAT THE GATE DID, written only when `DOTAGENTS_GATE_REPORT` names a
+# path. Nothing about the hook's stdout, its exit codes or the non-dry path changes.
+#
+# It exists because the gate could say "all gating checks green" and "nothing blocking" and the only
+# way to tell them apart was to match the sentence -- `scripts/loop.sh` calls that "the SECOND prose
+# coupling" in its own comment, and it is how a skipped check reads as a passed one. `ran` is the fact
+# nobody could ask for: how many gating checks actually executed a command.
+#
+# `${var:-}` throughout: `pass()` is called from four places BEFORE `profile` is assigned (:498, :508,
+# :545, :553 against :556), and this file runs under `set -u`.
+write_gate_report() {
+  [[ -n "${DOTAGENTS_GATE_REPORT:-}" ]] || return 0
+  node -e '
+    const [out, profile, ran, skipped] = process.argv.slice(1);
+    // "<id>:<reason>" pairs. Split on the LAST colon so an id containing one survives.
+    const skips = skipped.split(" ").filter(Boolean).map((s) => {
+      const i = s.lastIndexOf(":");
+      return i < 0 ? { id: s, reason: "unknown" } : { id: s.slice(0, i), reason: s.slice(i + 1) };
+    });
+    require("fs").writeFileSync(out, JSON.stringify({
+      profile: profile || null,
+      ran: Number(ran),
+      checked: Number(ran) > 0,
+      skipped: skips,
+    }));
+  ' "$DOTAGENTS_GATE_REPORT" "${profile:-}" "${gate_ran:-0}" "${gate_skipped:-}" 2>/dev/null || true
+}
+
 # Let the turn end.
 pass() {
   trace "$agent" "$cwd" "passed${1:+: $1}"
   if (( GATE_DRY )); then
     # Said out loud, because "green" and "there was nothing to check" are different answers and only
     # one of them means the work is verified.
+    write_gate_report
     printf 'gate: nothing blocking%s\n' "${1:+ -- $1}"
     exit 0
   fi
@@ -758,6 +787,11 @@ case "$max_attempts" in ''|*[!0-9]*|0) max_attempts=3 ;; esac
 
 gate_started="$(date +%s)"
 unrun=""
+# What the gate DID, for write_gate_report. `gate_ran` counts checks whose command actually executed;
+# `gate_skipped` collects "<id>:<reason>" for every check that did not. A skip that is not recorded is
+# the bug this pair exists to end -- see the {files} branch below.
+gate_ran=0
+gate_skipped=""
 
 while IFS=$'\t' read -r id secs mutates cmd; do
   [[ -n "$id" ]] || continue
@@ -787,7 +821,14 @@ while IFS=$'\t' read -r id secs mutates cmd; do
       git -C "$run_dir" -c core.quotePath=false diff -z --relative --name-only --diff-filter=d HEAD 2>/dev/null
       git -C "$run_dir" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
     )
-    [[ -n "${files// /}" ]] || continue
+    # RECORDED, not silent. This `continue` used to leave no trace, so a profile whose gating checks
+    # were all {files}-scoped reported "all gating checks green" on a clean tree -- byte-identical to a
+    # real pass, and the gap documented at docs/loops.md:546. Still non-blocking and still exit 0: on a
+    # clean tree there genuinely is nothing to check. What changes is that it now says so.
+    if [[ -z "${files// /}" ]]; then
+      gate_skipped="${gate_skipped:+$gate_skipped }$id:no_files"
+      continue
+    fi
     cmd="${cmd//\{files\}/${files# }}"
   fi
 
@@ -801,6 +842,7 @@ while IFS=$'\t' read -r id secs mutates cmd; do
   # by at most one check's timeout, which is why the hook entry in templates/ allows for both.
   if (( budget_total - ( $(date +%s) - gate_started ) <= 0 )); then
     unrun="${unrun:+$unrun }$id"
+    gate_skipped="${gate_skipped:+$gate_skipped }$id:budget"
     continue
   fi
 
@@ -822,6 +864,7 @@ command that does not do the forbidden thing."
   [[ "$mutates" == "1" ]] && before="$(tree_fingerprint)"
 
   run_check "$secs" "$cmd"
+  gate_ran=$((gate_ran + 1))
   out="$check_out"
   code="$check_code"
 
@@ -930,6 +973,7 @@ fi
 # Everything below this point writes state -- the attempt counter, a verdict, the pass/block dialect.
 # A dry run has produced its answer by now, so it stops here.
 if (( GATE_DRY )); then
+  write_gate_report
   if [[ -z "$failed_id" ]]; then
     printf 'gate: all gating checks green (%s)\n' "$gate_repo_root"
     exit 0
