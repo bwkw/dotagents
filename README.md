@@ -9,7 +9,7 @@
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
 1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
-**ループの回し方: [docs/loops.md](docs/loops.md)**
+**ループの回し方: [docs/loops.md](docs/loops.md)**（実測ログは [docs/loop-measurements.md](docs/loop-measurements.md)）
 
 何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
 直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)

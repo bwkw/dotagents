@@ -78,12 +78,16 @@ BUDGET_USD=10         # per `run` invocation
 # of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
 # what an unbounded one demonstrably does.
 BUDGET_ROUND_REVIEW=5.00     # tier M/L
-BUDGET_ROUND_REVIEW_S=2.00   # tier S -- the tier that exists because it is meant to cost less.
-# **2.00, and this one is measured rather than chosen.** Four tier S reviews after the cost work:
-# $1.25 / $1.22 / $1.40 / $0.88 (20 / 20 / 28 / 15 turns). The old ceiling of 1.50 left 7% of headroom
-# over the observed maximum, which is not headroom -- it is a coin flip on whether the next landing
-# halts `truncated` after ~2 hours of work. The spread is 1.6x between the cheapest and dearest run of
-# the SAME phase, so a ceiling has to sit above the spread, not above the mean.
+BUDGET_ROUND_REVIEW_S=3.00   # tier S -- the tier that exists because it is meant to cost less.
+# **3.00, measured -- and raised twice, because chasing the spread does not work.** Six tier S reviews:
+# $1.25 / $1.22 / $1.40 / $0.88 / $1.43 / $2.07. The last one was CUT OFF at a 2.00 ceiling, so its true
+# cost is higher than it reads. 1.50 was outrun in one run; 2.00 in two.
+#
+# **The spread grows because the FILE grows, not because the change does.** Every one of those runs was
+# the same request shape -- one file, `docs/loops.md` -- and a review reads the file the changed lines sit
+# in, not just the lines. So the honest fix is not a bigger number: it is a smaller file, and the 206-line
+# measurement log has been moved to `docs/loop-measurements.md` for exactly that reason. 3.00 buys room
+# while that takes effect; if it is outrun again, raise the *question*, not the ceiling.
 #
 # Raising it does not weaken anything: `truncated` still halts loudly, and the only thing 2.00 buys is
 # that a normal run stops hitting the wall. It is still well under the $5.92 average this phase cost
