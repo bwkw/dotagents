@@ -66,7 +66,16 @@ MAX_ROUNDS=3          # implementation attempts per landing before handing back
 REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
 REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
-BUDGET_USD=10         # per `run` invocation
+# **15, and this one is arithmetic rather than a preference.** Measured maxima per phase, all from this
+# repository's ledger: size $0.74 · implement $4.56 · review $2.07 (cut off, so the true figure is higher)
+# · triage $0.74 · fix $1.19 · describe $1.50 (ceiling, never yet reached). That sums to **$10.8 before a
+# single CI fix round**, so a $10 run could not complete one landing however well each phase behaved --
+# and did not: run 7 spent $9.18 and stopped at CI, run 8 spent $7.77 and stopped at review.
+#
+# The number that actually needs bringing down is `implement` ($0.83 -> $4.56 across six runs, unbounded).
+# Raising the run budget buys the loop the chance to finish a landing; it does not make anything cheaper,
+# and it is recorded here as the honest cost of one tier S landing rather than as a target.
+BUDGET_USD=15         # per `run` invocation
 
 # Per-ROUND ceilings. $BUDGET_USD above bounds the run; until these existed nothing bounded a single
 # round, so one phase could eat the whole run's budget and the halt would name `budget` -- true, and
