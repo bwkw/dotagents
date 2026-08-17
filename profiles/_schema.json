@@ -57,11 +57,6 @@
             "$comment": "scope:changed narrows a command to the changed files, which only means anything if the command has somewhere to put them.",
             "if": { "properties": { "scope": { "const": "changed" } }, "required": ["scope"] },
             "then": { "properties": { "cmd": { "pattern": "\\{files\\}" } } }
-          },
-          {
-            "$comment": "paths says the check is conditional; scope:all says it always runs. Both at once is a contradiction, and until now an invisible one -- scope is documentation while paths is executed.",
-            "if": { "required": ["paths"] },
-            "then": { "properties": { "scope": { "not": { "const": "all" } } } }
           }
         ],
         "additionalProperties": false,
@@ -104,7 +99,7 @@
             "type": "array",
             "minItems": 1,
             "items": { "type": "string", "minLength": 1 },
-            "description": "Repo-root-relative prefixes or globs; a trailing /** is a prefix. The check runs only when at least one changed file matches. Omit to always run. ROOT-relative, not cwd-relative -- a profile with \"cwd\": \"pkg\" still writes \"pkg/src/**\"; getting that backwards matches nothing, which would skip the check every turn. Skips are named in `verify --json`'s `skipped` rather than vanishing, and if files changed that NO gating check claims, the gate BLOCKS with kind not_checked: unclaimed files are a hole in the profile, not a pass."
+            "description": "WHETHER the check runs, orthogonal to `scope`, which is WHAT it runs on. Both together are normal and correct: \"only when scripts/ changed, and then over everything\" is `paths` plus `scope: all`. A schema rule forbidding that pair shipped here for one landing and was wrong -- it read `scope: all` as \"always runs\", which is not what scope means. Repo-root-relative prefixes or globs; a trailing /** is a prefix. The check runs only when at least one changed file matches. Omit to always run. ROOT-relative, not cwd-relative -- a profile with \"cwd\": \"pkg\" still writes \"pkg/src/**\"; getting that backwards matches nothing, which would skip the check every turn. Skips are named in `verify --json`'s `skipped` rather than vanishing, and if files changed that NO gating check claims, the gate BLOCKS with kind not_checked: unclaimed files are a hole in the profile, not a pass."
           }
         }
       }
