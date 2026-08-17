@@ -78,7 +78,16 @@ BUDGET_USD=10         # per `run` invocation
 # of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
 # what an unbounded one demonstrably does.
 BUDGET_ROUND_REVIEW=5.00     # tier M/L
-BUDGET_ROUND_REVIEW_S=1.50   # tier S -- the tier that exists because it is meant to cost less
+BUDGET_ROUND_REVIEW_S=2.00   # tier S -- the tier that exists because it is meant to cost less.
+# **2.00, and this one is measured rather than chosen.** Four tier S reviews after the cost work:
+# $1.25 / $1.22 / $1.40 / $0.88 (20 / 20 / 28 / 15 turns). The old ceiling of 1.50 left 7% of headroom
+# over the observed maximum, which is not headroom -- it is a coin flip on whether the next landing
+# halts `truncated` after ~2 hours of work. The spread is 1.6x between the cheapest and dearest run of
+# the SAME phase, so a ceiling has to sit above the spread, not above the mean.
+#
+# Raising it does not weaken anything: `truncated` still halts loudly, and the only thing 2.00 buys is
+# that a normal run stops hitting the wall. It is still well under the $5.92 average this phase cost
+# before the brief form, the tool grant and the subagent removal.
 BUDGET_ROUND_TRIAGE=3.00     # tier M/L
 BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
 BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
