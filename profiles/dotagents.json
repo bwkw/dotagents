@@ -11,7 +11,8 @@
     "the failure this profile exists to prevent, on the repository that ships the gate.",
     "The cost is accepted deliberately: an unrelated repository whose name merely starts with",
     "'dotagents' also matches, and its checks then fail loudly because these commands are not there.",
-    "Loudly wrong beats silently open -- the ordering the whole gate is built on."
+    "Loudly wrong beats silently open -- the ordering the whole gate is built on.",
+    "The `paths` on twelve of these are chosen so that NO plausible change set empties the gate. `skills-lint` and `da-review-all-canvas-contract` deliberately have none: they read skills/ and docs, so a documentation-only change still runs something. That is not politeness -- when every gating check declines, the gate BLOCKS with kind not_checked, so a profile that can be emptied is a profile that halts on its most common change."
   ],
   "match": {
     "remote": "/dotagents"
@@ -27,7 +28,11 @@
       "cmd": "for f in scripts/*.sh hooks/*.sh; do bash -n \"$f\" || exit 1; done",
       "gate": true,
       "agent_may_run": true,
-      "scope": "all"
+      "scope": "all",
+      "paths": [
+        "scripts/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "skills-lint",
@@ -42,7 +47,12 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "when": "always -- the gate is the one component that must fail closed, so its tests gate every turn"
+      "when": "always -- the gate is the one component that must fail closed, so its tests gate every turn",
+      "paths": [
+        "hooks/dotagents-verify-gate.sh",
+        "scripts/gate.sh",
+        "scripts/test-verify-gate.sh"
+      ]
     },
     {
       "id": "no-multibyte-after-var",
@@ -51,7 +61,11 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 15,
-      "when": "bash 3.2 under a UTF-8 locale absorbs a full-width character following an unbraced $var into the variable name, so the lookup is unbound and the run dies. macOS ships 3.2, so this passed on Linux and locally under the C locale and failed only on the macOS CI runner. Brace it as ${var}. No leading `!` unlike no-bash4: grep signals 'found' with exit 0, perl here signals it with exit 1, and negating turned a clean tree red."
+      "when": "bash 3.2 under a UTF-8 locale absorbs a full-width character following an unbraced $var into the variable name, so the lookup is unbound and the run dies. macOS ships 3.2, so this passed on Linux and locally under the C locale and failed only on the macOS CI runner. Brace it as ${var}. No leading `!` unlike no-bash4: grep signals 'found' with exit 0, perl here signals it with exit 1, and negating turned a clean tree red.",
+      "paths": [
+        "scripts/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "no-bash4",
@@ -59,14 +73,22 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "when": "macOS ships bash 3.2; these pass on Linux and fail there"
+      "when": "macOS ships bash 3.2; these pass on Linux and fail there",
+      "paths": [
+        "scripts/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "templates-valid",
       "cmd": "node -e 'const fs=require(\"fs\");for(const f of fs.readdirSync(\"templates\"))if(f.endsWith(\".json\"))JSON.parse(fs.readFileSync(\"templates/\"+f,\"utf8\"));for(const f of fs.readdirSync(\"profiles\"))if(f.endsWith(\".json\"))JSON.parse(fs.readFileSync(\"profiles/\"+f,\"utf8\"))'",
       "gate": true,
       "agent_may_run": true,
-      "scope": "all"
+      "scope": "all",
+      "paths": [
+        "templates/**",
+        "profiles/**"
+      ]
     },
     {
       "id": "claude-md-symlink",
@@ -75,7 +97,11 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 15,
-      "when": "Claude Code does not read AGENTS.md, so if the symlink becomes a regular file the always-loaded layer silently drifts"
+      "when": "Claude Code does not read AGENTS.md, so if the symlink becomes a regular file the always-loaded layer silently drifts",
+      "paths": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ]
     },
     {
       "id": "exec-bits",
@@ -84,7 +110,11 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 15,
-      "when": "every suite invokes through `bash <file>`, so a lost +x bit passes all of them and breaks `scripts/gate.sh arm`"
+      "when": "every suite invokes through `bash <file>`, so a lost +x bit passes all of them and breaks `scripts/gate.sh arm`",
+      "paths": [
+        "scripts/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "lint-hook-tests",
@@ -92,7 +122,12 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "timeout": 120
+      "timeout": 120,
+      "paths": [
+        "hooks/**",
+        "scripts/test-lint-hook.sh",
+        "templates/**"
+      ]
     },
     {
       "id": "installer-tests",
@@ -100,7 +135,13 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "timeout": 180
+      "timeout": 180,
+      "paths": [
+        "scripts/setup.sh",
+        "scripts/test-setup.sh",
+        "templates/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "non-interactive-tests",
@@ -108,7 +149,11 @@
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
-      "timeout": 180
+      "timeout": 180,
+      "paths": [
+        "scripts/**",
+        "hooks/**"
+      ]
     },
     {
       "id": "loop-tests",
@@ -117,7 +162,11 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 900,
-      "when": "always -- the driver decides unattended whether work may reach a PR, so the checks that stop it are not optional"
+      "when": "always -- the driver decides unattended whether work may reach a PR, so the checks that stop it are not optional",
+      "paths": [
+        "scripts/loop.sh",
+        "scripts/test-loop.sh"
+      ]
     },
     {
       "id": "da-review-all-canvas-contract",
@@ -135,7 +184,11 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 15,
-      "when": "a suite added to check.sh and not to this profile is a suite the gate stops running. Counting steps would not work -- the granularities differ (shell-syntax and no-bash4 are one check.sh step; templates-valid is not a check.sh step at all), so the invariant is coverage of the scripts check.sh invokes, not equal counts. The shell-function steps (syntax, CLAUDE.md symlink, exec bits) have their own checks above; the tree-clean step is about the suites not dirtying the repo and is meaningless inside the gate."
+      "when": "a suite added to check.sh and not to this profile is a suite the gate stops running. Counting steps would not work -- the granularities differ (shell-syntax and no-bash4 are one check.sh step; templates-valid is not a check.sh step at all), so the invariant is coverage of the scripts check.sh invokes, not equal counts. The shell-function steps (syntax, CLAUDE.md symlink, exec bits) have their own checks above; the tree-clean step is about the suites not dirtying the repo and is meaningless inside the gate.",
+      "paths": [
+        "scripts/check.sh",
+        "profiles/dotagents.json"
+      ]
     }
   ],
   "timeout_total": 1500
