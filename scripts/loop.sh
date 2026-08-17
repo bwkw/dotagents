@@ -333,17 +333,18 @@ gate_verify_ok() { # -> 0 only when gating checks actually RAN and were green
   # Empty means gate.sh or node failed, not that the work is fine. Every helper below reads
   # $GATE_JSON, and an empty document makes each of them answer benignly.
   [[ -n "$out" ]] || { GATE_UNRAN="unreadable"; return 1; }
-  # A `{files}`-scoped check is skipped when the tree is clean, and the hook then exits 0 -- so `ok`
-  # is true although nothing executed. The gate says the two apart in prose and only in prose:
-  # "all gating checks green" versus "nothing blocking". Its own comment is explicit that these are
-  # different answers and only one means verified, but `verify --json` collapses both into ok:true,
-  # so the distinction has to be read out of `detail`.
+  # `ok: true` is not "verified": a check that never executed reports the same thing as one that
+  # passed. `verify --json` now carries `checked` -- true only when at least one gating check actually
+  # ran a command -- so this asks instead of matching sentences. `checked: null` means the gate could
+  # not say, which is not a yes.
   #
-  # This is the SECOND prose coupling to the gate's output (see gate_has_profile). The structural fix
-  # is a field in `verify --json`, which lives in the scorer and is deliberately out of scope here --
-  # docs/fix-plans/2026-08-11-loop-driver.md records that as the open decision.
-  if grep -q 'nothing blocking' <<<"$out"; then GATE_UNRAN="skipped"; return 1; fi
-  GATE_UNRAN=""
+  # This used to grep for the prose "nothing blocking" and a long comment here called it "the SECOND
+  # prose coupling to the gate's output". Both couplings are gone; the field is the answer now.
+  case "$(gate_json_field checked)" in
+    true) GATE_UNRAN="" ;;
+    false) GATE_UNRAN="$(gate_json_field skipped_ids)"; GATE_UNRAN="${GATE_UNRAN:-skipped}"; return 1 ;;
+    *) GATE_UNRAN="unreadable"; return 1 ;;
+  esac
 
   # `agent_may_run: false` means the repository forbids the AGENT from running this check -- not that
   # the work may ship unverified. Interactively /da-verify asks the user and waits. Here there is nobody
@@ -385,16 +386,37 @@ gate_field() { # <field> from the last verify
 }
 
 # No profile means no gating checks, and `verify` answers ok:true for that -- so `ok` alone cannot be
-# trusted. There is no structured field saying "nothing matched", so this reads the one string the
-# hook prints. Coupled to that wording on purpose: the alternative is resolving profiles here, which
-# would be a second implementation of the matcher.
+# trusted. `verify --json` now reports the resolved profile path, or null when nothing matched. This
+# used to grep for the string "no profile matches"; that was the FIRST of two prose couplings and it
+# is gone with the second.
 #
 # It reads the LAST verify rather than running its own. Running one costs a full suite -- minutes on
 # this repository -- and the first version did that on top of the implement loop's own first verify,
 # so every `run` paid for two complete suite runs before any work started. Call gate_verify_ok first.
 gate_has_profile() {
   [[ -n "${GATE_JSON:-}" ]] || return 1     # empty is "I could not tell", not "yes"
-  ! grep -q 'no profile matches' <<<"$GATE_JSON"
+  [[ -n "$(gate_json_field profile)" ]]
+}
+
+# One reader for the sidecar fields, so nothing goes back to matching sentences. `skipped_ids` is
+# synthesised: the ids of every check the gate declined to run, space-separated, for a halt message
+# that can name them.
+gate_json_field() { # <checked|profile|ran|skipped_ids> -> value, empty when absent or unreadable
+  node -e '
+    let s = "";
+    process.stdin.on("data", (d) => s += d).on("end", () => {
+      let o = null; try { o = JSON.parse(s) } catch {}
+      if (!o) return;
+      const f = process.argv[1];
+      if (f === "skipped_ids") {
+        const a = Array.isArray(o.skipped) ? o.skipped : [];
+        process.stdout.write(a.map((x) => x && x.id).filter(Boolean).join(" "));
+        return;
+      }
+      const v = o[f];
+      if (v != null) process.stdout.write(String(v));
+    });
+  ' "$1" <<<"${GATE_JSON:-}" 2>/dev/null || true
 }
 
 gate_gave_up() { # -> 0 when a VERDICT has been recorded
