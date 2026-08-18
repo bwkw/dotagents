@@ -488,6 +488,7 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 | `scripts/test-lint-hook.sh` | **このリポジトリ最悪のバグを捕まえた**: scope チェックが誤った変数を見ていて**一度も発火していなかった** —— インストール済みで、何も強制していない状態 |
 | `scripts/test-setup.sh` | 偽の `$HOME` に対して。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
 | `scripts/check.sh` | 上記すべてを1コマンドに。**5つ覚える代わりに1つ** |
+| `scripts/handoff.sh` | 次のセッションへの引き継ぎを**状態から生成**する。git・台帳・`gh` から取れる事実と、`docs/handoff-notes.md` に人が書く判断を分けてある —— **未 commit・未 push・main に入っていないローカルブランチ**を先頭で警告するのは、3つとも実際に見失ったことがあるため |
 | `scripts/test-non-interactive.sh` | **人間を待つものが1つも無いことを主張する。** `--non-interactive` フラグは作りません —— 設定時にだけ通る第2の経路ができ、既定の経路がプロンプトへ退行してもフラグ付きテストは緑のままになる。実際に**stdin を閉じるとゲートがハングする**バグを見つけた（ハングすればハーネスに殺され、それは non-blocking = fail-open） |
 
 **削除したもの（同じテストに落ちた）:**
