@@ -588,7 +588,7 @@ TIER=""; M_FILES=0; M_LAYERS=0; M_ONEWAY=0; M_RISK=0; M_UNCONF=0
 #
 #   `one_way` still forces L, and this one is not up for revision. An irreversible step is exactly the
 #   thing that must not ship without somebody looking at it.
-# dotagents:tier-ladder S M L
+# dotagents:tier-ladder XS S M L
 # ^ THE DECLARED LADDER. `scripts/test-loop.sh` reads this line and asserts that every predicate below
 # answers every tier on it. Removing the marker removes the check, which is why it is called out here
 # the same way the dmi-gate markers are in AGENTS.md.
@@ -613,18 +613,29 @@ tier_die() { # <tier> <predicate>
 # May a landing run with no committed 🧱 Landing plan? Deliberately a separate name from
 # tier_has_design_phase even though the answers match today: :730 asks "can this proceed", :798 asks
 # "is there a phase to print", and a future rung could answer those differently.
-tier_needs_landing_plan()      { case "$1" in S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
-tier_has_design_phase()        { case "$1" in S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_needs_landing_plan()      { case "$1" in XS|S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_has_design_phase()        { case "$1" in XS|S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 # /grill-me and /research: an interview needs somebody in the room, so only the top rung prints them.
-tier_needs_interview()         { case "$1" in S|M) return 1 ;; L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
-tier_synthesises_landing_row() { case "$1" in S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_needs_interview()         { case "$1" in XS|S|M) return 1 ;; L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_synthesises_landing_row() { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 # One known layer and a small change: type the layer skill, skip the cross-layer dispatcher.
-review_may_skip_dispatcher()   { case "$1" in S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+review_may_skip_dispatcher()   { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+# THE ONE THING XS DROPS. A review still runs -- nothing ships unreviewed -- but its findings are not
+# taken to /da-fix-plan and no /receiving-code-review round applies them. What that buys: triage ($0.7)
+# + fix ($1.2) + a second full gate run. What it costs is in the notes below, and the cost is why the
+# report is written to disk before the PR round rather than living only in a prompt argument.
+tier_runs_fix_loop()           { case "$1" in XS) return 1 ;; S|M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+# Which tiers get the lean review allocation. THIS WAS AN INLINE `case` for one landing, and the
+# exhaustiveness test -- which finds predicates by name -- could not see it. So it was the single place
+# XS was not armed, and 61 assertions died on it. A decision the tests cannot enumerate is a decision
+# that will be forgotten exactly once per new tier.
+tier_gets_lean_budgets()       { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 
 decide_tier() {
-  TIER=S
-  if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=M; fi
-  if [[ "$M_FILES" -gt 15 || "$M_LAYERS" -ge 3 || "$M_ONEWAY" -gt 0 ]]; then TIER=L; fi
+  TIER=XS
+  if [[ "$M_FILES" -gt 5  || "$M_UNCONF" -gt 0 ]];                     then TIER=S; fi
+  if [[ "$M_FILES" -gt 10 || "$M_LAYERS" -ge 2 || "$M_RISK" -gt 0 ]];  then TIER=M; fi
+  if [[ "$M_FILES" -gt 30 || "$M_LAYERS" -ge 3 || "$M_ONEWAY" -gt 0 ]]; then TIER=L; fi
 }
 
 cmd_size() {
@@ -1048,7 +1059,11 @@ triage_schema() {
 run_landing() { # <n> <what-lands> <one-way>
   local n="$1" what="$2" oneway="$3" r rr schema
   LAST_OK=0; FIX_NOW=0; NEEDS_DECISION=0; DECLINE=0; UNVERIFIED=0
-  UNREVIEWED_FIXES_NOTE=""; CI_NONE_NOTE=""
+  UNREVIEWED_FIXES_NOTE=""; CI_NONE_NOTE=""; XS_UNTRIAGED_NOTE=""; XS_REVIEW_FILE=""
+  # UNVERIFIED_NOTE is assigned inside the TRIAGE block, which XS skips -- so without initialising it
+  # here, `set -u` kills the describe round on an unbound variable. Every note that the describe prompt
+  # interpolates has to exist on every path that can reach it, and XS added a path.
+  UNVERIFIED_NOTE=""
 
   echo
   dim "── landing $n: $what"
@@ -1170,16 +1185,10 @@ and editing them aborts this landing."
   # they found a real error in one of them. Cutting THAT would be buying a cheaper wrong answer.
   local review_rounds="$REVIEW_ROUNDS" review_budget="$BUDGET_ROUND_REVIEW"
   local triage_budget="$BUDGET_ROUND_TRIAGE" findbugs_budget="$BUDGET_ROUND_FINDBUGS" review_skill
-  # The lean allocation, chosen by tier. A `case` rather than a comparison for the same reason as the
-  # predicates above: a tier nobody answered would silently inherit the full budgets, which is the
-  # expensive direction to be wrong in.
-  case "$(ledger_last size tier)" in
-    S)
-      review_rounds="$REVIEW_ROUNDS_LEAN"; review_budget="$BUDGET_ROUND_REVIEW_LEAN"
-      triage_budget="$BUDGET_ROUND_TRIAGE_LEAN"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_LEAN" ;;
-    M|L) : ;;
-    *) tier_die "$(ledger_last size tier)" "review budgets" ;;
-  esac
+  if tier_gets_lean_budgets "$(ledger_last size tier)"; then
+    review_rounds="$REVIEW_ROUNDS_LEAN"; review_budget="$BUDGET_ROUND_REVIEW_LEAN"
+    triage_budget="$BUDGET_ROUND_TRIAGE_LEAN"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_LEAN"
+  fi
   review_skill="$(review_skill_for_tier)"
   schema="$(triage_schema)"
   for (( rr = 1; rr <= review_rounds; rr++ )); do
@@ -1215,6 +1224,36 @@ and editing them aborts this landing."
     # rounds is where their findings would be lost -- and a count would buy zero coverage, when coverage
     # is the entire reason for a second reviewer. da-fix-plan's own template says "**Source:** which
     # review(s)", plural, so two reports is a shape it already expects.
+    # XS DROPS THE FIX MACHINERY -- but not the review, and not the record of it.
+    if ! tier_runs_fix_loop "$(ledger_last size tier)"; then
+      # The report goes to DISK, with bash, before anything else. This is not optional.
+      # `REVIEW_REPORT` is a shell variable in a process that exits; the only thing that used to persist
+      # a review was /da-fix-plan writing docs/fix-plans/. Remove triage and the sole copy becomes an
+      # argument to /da-pr-describe -- whose ceiling overrun does NOT halt (it records
+      # opened-pr-partial-body and continues). So: PR opens, describe is cut off, the whole review is
+      # gone. The eighth unattended run died on exactly a ceiling overrun, so this is measured, not
+      # hypothetical. Costs one file write and zero rounds.
+      mkdir -p "$LOOP_DIR/reviews" 2>/dev/null || true
+      XS_REVIEW_FILE="$LOOP_DIR/reviews/$(basename "$(repo_root)")-$(branch)-$n.md"
+      printf '%s\n' "$REVIEW_REPORT" > "$XS_REVIEW_FILE" 2>/dev/null || XS_REVIEW_FILE=""
+      [[ -n "$XS_REVIEW_FILE" ]] && dim "   review $rr: untriaged (tier XS); report kept at $XS_REVIEW_FILE"
+
+      # The halt this tier gives up is `needs_decision` -- the only mechanism that stops a landing on a
+      # finding a human must DECIDE. At XS that becomes prose in a PR body, which is a defensible trade
+      # for a handful of files only if the human is told it happened.
+      XS_UNTRIAGED_NOTE="
+
+このレビューの所見は **triage されていません**（tier XS）。\`fix_now\` / \`needs_decision\` の切り分けは
+行われておらず、**判断が要る所見があっても駆動系は止まりません**。所見の全文は
+${XS_REVIEW_FILE:-（保存に失敗しました）} にあります。**PR 本文にその所見を転記し、「未 triage」と
+明記してください。**"
+
+      # A distinct outcome, so `report` can tell a clean review from one that was never triaged. Without
+      # it the ledger's absent fix_now reads as "the review found nothing to fix".
+      record review "$n" "$rr" advanced-untriaged
+      break
+    fi
+
     ROUND_BUDGET="$triage_budget"
     claude_round "/da-fix-plan
 
@@ -1628,7 +1667,7 @@ submit_landing() { # <n> <what> <one-way>
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
-PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}${CI_NONE_NOTE}"
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}${CI_NONE_NOTE}${XS_UNTRIAGED_NOTE}"
 
   # The one place halting cannot undo what already happened: `gh stack submit` opened the PR above,
   # before the body was written. So a cut-off /da-pr-describe leaves a REAL, open PR carrying a

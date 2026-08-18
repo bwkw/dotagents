@@ -80,11 +80,12 @@ landing ごとに:
 `/writing-plans`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
 検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
 
-| 段 | 判定 | 設計フェーズ | 人間の位置 |
-|---|---|---|---|
-| **S** | ≤5 files・1 layer・one-way 0・risk surface 0・unconfirmed 0 | 無し | ループの**上**。台帳を読む |
-| **M** | ≤15 files ／ ≤2 layers ／ **risk surface** ／ **unconfirmed** | `/da-design-review` を対話で | 承認1回（= 計画を commit） |
-| **L** | >15 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/writing-plans` → `/da-design-review` を対話で | ループの**中** |
+| 段 | 判定 | 設計フェーズ | レビュー | 人間の位置 |
+|---|---|---|---|---|
+| **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
+| **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
+| **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で | 2周 | 承認1回（= 計画を commit） |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/writing-plans` → `/da-design-review` | 2周 | ループの**中** |
 
 **規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
 崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
