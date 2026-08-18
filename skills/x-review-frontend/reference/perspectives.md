@@ -147,3 +147,20 @@ INP ≤ 200ms, CLS ≤ 0.1**.
 
 - Hardcoded strings; whether all required locales are present; agreement with generated API types;
   type safety eroded by `any` or unnecessary `as`.
+
+**Knowledge that belongs to the backend, re-stated here.** Which attributes are eligible, which kinds
+exist, what the ordering is — if the frontend enumerates it a second time, the two lists diverge the
+first time the backend adds one. **The server should send it and the frontend should follow.** When you
+see such a list in frontend code, ask what makes it impossible for it to disagree with the server.
+
+**Exhaustiveness the compiler enforces.** `as const satisfies readonly T[]` **type-checks on a subset**:
+the backend adds a kind, this list stays short, and nothing fails to compile. `Record<Union, …>` does
+not have that hole. For any options list, ordering or label map, ask: **if the server adds one tomorrow,
+does this file fail to build?**
+
+**Vocabulary matching the backend's, and nothing pointing at the old shape.** Types, constants and
+translation keys named after fields that were renamed or removed send the next reader looking for a
+shape that no longer exists. Search the diff's removed identifiers across the frontend too.
+
+**Dependency direction.** Importing a hook only to reach the type it happens to return is the shape to
+question — the type should live where it can be imported on its own.

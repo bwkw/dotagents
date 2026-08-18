@@ -82,6 +82,21 @@ which did not, rather than implying all were worked.
 Return schema: as in `finding-discipline.md` — `{id, severity, irreversible, file, perspective, finding,
 why, recommendation, comment, kind, confidence}`.
 
+## 4b. The four sweeps — they do not shrink with the diff
+
+These belong to no cluster and a small diff does not excuse them. Half the findings of the review these
+came from were in tests, docs and naming.
+
+- **Every file in the diff, one at a time** —— tests, fixtures, seeds, scenarios, specs. Say which you
+  opened and which you did not.
+- **What did this change make stale?** Search for every identifier the diff removed or renamed and judge
+  each surviving hit: *different concept* or *stale*. Counts in prose ("the 3 fields"), cross-references,
+  **mirrored docs (`.claude/` and `.cursor/`)**, JSDoc separated from what it documents.
+- **Is the diff proportional?** A thin wrapper, a one-caller utility, a class holding two functions:
+  **what would deleting it cost in lines?** Nothing → it should not be there.
+- **Verified, or sent to CI to find out?** If the repository can reproduce CI locally, say whether that
+  was run. A completion claim carries what was checked and where; **unchecked is written as unchecked.**
+
 ## 5. Verify — a second pass, in this context, with the question inverted
 
 **No subagent.** A fresh one is the same model on the same diff under the same discipline: it returns
