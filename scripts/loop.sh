@@ -1652,6 +1652,19 @@ submit_landing() { # <n> <what> <one-way>
     record pr "$1" 0 halted pr_failed; return 1; }
   local num; num="$(printf '%s' "$url" | sed 's@.*/@@')"
 
+  # RECORDED HERE, not at the end. The PR exists from this line onward -- CI, the comments and the
+  # description all run after it and any of them can halt. Writing the only `pr` row after all three
+  # meant a halt downstream left the ledger with NO row, and `report` then led with
+  # `reached PR 0 (0%)` and "acceptance is under 50%, the loop is handing review work back to you".
+  # Measured: the seventh run halted at `ci_fix_changed_nothing` with a real PR open on GitHub, counted
+  # as zero. Same disease as the `pr_failed` bug above -- the ledger saying something untrue about the
+  # outward world -- and the cure is the same shape: record the fact when it becomes a fact.
+  #
+  # `pr-reached` and `opened-pr` are different facts on purpose: reached a PR, and finished one. The
+  # names deliberately do not differ by word order alone -- `pr-opened` vs `opened-pr` is one typo, and
+  # one grep, away from silently reading as the other.
+  record pr "$1" 0 pr-reached
+
   # CI and the human's comments settle BEFORE the description is written. The description is the last
   # thing that happens to this PR, so that it describes what the change ended up being -- including the
   # CI fixes and whatever the review comments moved. Written at submit time it described a snapshot one
@@ -1911,7 +1924,10 @@ cmd_report() {
       // partial-bodied PR did: its code went through the gate and the review, and only the description
       // was cut off. Counting it as not-reached would understate acceptance for a documentation defect
       // -- and the `opened-pr-partial-body` row is where that defect is already recorded, per landing.
-      if (r.outcome === "opened-pr" || r.outcome === "opened-pr-partial-body") accepted.add(String(r.landing));
+      // `pr-reached` counts too: the PR exists once submit resolved it, whatever halted afterwards.
+      // Excluding it reported 0% for landings whose PR a human could open in a browser.
+      if (r.outcome === "opened-pr" || r.outcome === "opened-pr-partial-body"
+          || r.outcome === "pr-reached") accepted.add(String(r.landing));
       if (r.halt_reason) halts[r.halt_reason] = (halts[r.halt_reason] || 0) + 1;
       if (r.phase === "implement") rounds++;
     }

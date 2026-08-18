@@ -1618,6 +1618,46 @@ else
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 
+# --- the ledger must not understate what happened outside it ----------------------
+# `gh stack submit` opens the PR, and only then do CI, the comments and the description run. The `pr`
+# row was written after ALL of them, so any halt downstream left the ledger with no `pr` row at all --
+# and `report` leads with `reached PR 0 (0%)` plus "acceptance is under 50%, the loop is handing review
+# work back to you". Measured: the seventh run halted at `ci_fix_changed_nothing` with a real PR open
+# on GitHub, and the ledger counted zero.
+#
+# Same disease as the `pr_failed` bug one function below: the ledger saying something untrue about the
+# outward world. Reaching a PR and finishing one are different facts and need different rows.
+setup; green_pr
+printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint fail\n' > "$FAKE_GH_DIR/checks.out"
+respond debug 1 0.10 3      # the CI fix round changes nothing -> halts, as it should
+runloop run
+[[ "$(ledger 2>/dev/null | grep -c '"outcome":"pr-reached"')" -ge 1 ]] \
+  && ok "a PR that was opened is recorded as opened, even when a later phase halts" \
+  || no "the landing opened a PR and the ledger has no row for it"
+# Read from --json, not from the prose. The prose form was a FALSE GREEN: it passed with the fix
+# removed, so it was asserting nothing. Verified by deleting the record line and re-running -- the row
+# assertion above went red and this one did not. `reached_pr` is a number in the JSON and cannot be
+# matched by accident.
+runloop report --json
+if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+  try{process.exit(JSON.parse(s).reached_pr === 1 ? 0 : 1)}catch{process.exit(1)}})' <<<"$OUT"; then
+  ok "and report counts it as reached rather than leading with 0%"
+else
+  no "report still says the PR was not reached"; detail "$(head -c 160 <<<"$OUT")"
+fi
+
+# It must not count a landing that never got a PR at all.
+setup; green_pr
+: > "$FAKE_GH_DIR/submit-no-url"; : > "$FAKE_GH_DIR/no-pr"
+runloop run
+runloop report --json
+if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+  try{process.exit(JSON.parse(s).reached_pr === 0 ? 0 : 1)}catch{process.exit(1)}})' <<<"$OUT"; then
+  ok "and a landing with no PR is still not counted"
+else
+  no "report counted a PR that never existed"; detail "$(head -c 160 <<<"$OUT")"
+fi
+
 # --- a PR that exists is not a PR that failed -------------------------------------
 # `gh stack submit` prints a URL when it creates the PR and prose when the PR is already current:
 # "PR #45 for <branch> is up to date". The driver scraped stdout for a URL and called the second shape
