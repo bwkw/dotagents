@@ -64,7 +64,7 @@ LEDGER="$LOOP_DIR/ledger.jsonl"
 # A cap you cannot hit is not a cap; it is a number that reads like one.
 MAX_ROUNDS=3          # implementation attempts per landing before handing back
 REVIEW_ROUNDS=2       # review passes at tier M/L; the third would buy approval, not correctness
-REVIEW_ROUNDS_S=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
+REVIEW_ROUNDS_LEAN=1     # tier S: a ceiling on the worst case, not a cut in review depth (see run_landing)
 MAX_OPEN_PRS=5        # open layers in one stack; the reviewer is the bottleneck, not the agent
 # **15, and this one is arithmetic rather than a preference.** Measured maxima per phase, all from this
 # repository's ledger: size $0.74 · implement $4.56 · review $2.07 (cut off, so the true figure is higher)
@@ -87,7 +87,7 @@ BUDGET_USD=15         # per `run` invocation
 # of that tier should now cost with the brief form (skills/_shared/review-process-brief.md) and below
 # what an unbounded one demonstrably does.
 BUDGET_ROUND_REVIEW=5.00     # tier M/L
-BUDGET_ROUND_REVIEW_S=3.00   # tier S -- the tier that exists because it is meant to cost less.
+BUDGET_ROUND_REVIEW_LEAN=3.00   # tier S -- the tier that exists because it is meant to cost less.
 # **3.00, measured -- and raised twice, because chasing the spread does not work.** Six tier S reviews:
 # $1.25 / $1.22 / $1.40 / $0.88 / $1.43 / $2.07. The last one was CUT OFF at a 2.00 ceiling, so its true
 # cost is higher than it reads. 1.50 was outrun in one run; 2.00 in two.
@@ -102,9 +102,9 @@ BUDGET_ROUND_REVIEW_S=3.00   # tier S -- the tier that exists because it is mean
 # that a normal run stops hitting the wall. It is still well under the $5.92 average this phase cost
 # before the brief form, the tool grant and the subagent removal.
 BUDGET_ROUND_TRIAGE=3.00     # tier M/L
-BUDGET_ROUND_TRIAGE_S=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
+BUDGET_ROUND_TRIAGE_LEAN=0.75   # measured at $2.08 and $1.90 to count three buckets on an 11-line diff
 BUDGET_ROUND_FINDBUGS=3.00   # the second reviewer, tier M/L
-BUDGET_ROUND_FINDBUGS_S=1.50 # tier S
+BUDGET_ROUND_FINDBUGS_LEAN=1.50 # tier S
 # `size` runs before any tier is known, so it gets one number. Measured at $1.68 / $1.72 / $1.98 across
 # three measurements in one session -- 37% of that session's total spend on deciding how much process to
 # buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
@@ -588,6 +588,39 @@ TIER=""; M_FILES=0; M_LAYERS=0; M_ONEWAY=0; M_RISK=0; M_UNCONF=0
 #
 #   `one_way` still forces L, and this one is not up for revision. An irreversible step is exactly the
 #   thing that must not ship without somebody looking at it.
+# dotagents:tier-ladder S M L
+# ^ THE DECLARED LADDER. `scripts/test-loop.sh` reads this line and asserts that every predicate below
+# answers every tier on it. Removing the marker removes the check, which is why it is called out here
+# the same way the dmi-gate markers are in AGENTS.md.
+#
+# WHY PREDICATES AND NOT `[[ "$tier" == "S" ]]`. Seven sites used to compare the tier letter, and each
+# meant something DIFFERENT: may this run without a plan / is there a design phase to print / does the
+# interview apply / may the review dispatcher be skipped / which budgets / does a plan become required /
+# is a landing row synthesised. A string comparison accepts any tier and does something plausible with
+# it: `!= "S"` is true for a tier that has not been invented yet, and the plausible thing it does is
+# demand a landing plan that will never exist. This repository's record says adding a tier "broke three
+# places silently"; these are those places, plus a fourth (`tier_needs_interview`) that was missed when
+# the list was first drawn up.
+#
+# Every predicate is a `case` whose `*)` arm DIES. A tier no predicate answers is a tier whose behaviour
+# is a guess, and a guess about whether work needs human approval is not a thing to fail open on.
+tier_die() { # <tier> <predicate>
+  die "unknown tier '$1' in $2. The ladder is declared on the dotagents:tier-ladder line in this file,
+  and every predicate has to answer every tier on it. A tier that falls through is a tier whose
+  behaviour would be a guess."
+}
+
+# May a landing run with no committed 🧱 Landing plan? Deliberately a separate name from
+# tier_has_design_phase even though the answers match today: :730 asks "can this proceed", :798 asks
+# "is there a phase to print", and a future rung could answer those differently.
+tier_needs_landing_plan()      { case "$1" in S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_has_design_phase()        { case "$1" in S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+# /grill-me and /research: an interview needs somebody in the room, so only the top rung prints them.
+tier_needs_interview()         { case "$1" in S|M) return 1 ;; L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+tier_synthesises_landing_row() { case "$1" in S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+# One known layer and a small change: type the layer skill, skip the cross-layer dispatcher.
+review_may_skip_dispatcher()   { case "$1" in S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
+
 decide_tier() {
   TIER=S
   if [[ "$M_FILES" -gt 5 || "$M_LAYERS" -ge 2 || "$M_RISK" -gt 0 || "$M_UNCONF" -gt 0 ]]; then TIER=M; fi
@@ -727,7 +760,7 @@ cmd_auto() { # <request>
     echo
   fi
 
-  if [[ "$tier" == "S" ]]; then
+  if ! tier_needs_landing_plan "$tier"; then
     cmd_run
     return $?
   fi
@@ -795,7 +828,7 @@ cmd_design() {
 
   say "tier $tier"
   echo
-  if [[ "$tier" == "S" ]]; then
+  if ! tier_has_design_phase "$tier"; then
     say "No design phase. README's own standing rule: a change you can describe in one sentence skips"
     say "the plan. The gate is this repository's configured checks."
     say ""
@@ -815,7 +848,7 @@ cmd_design() {
   say "The stages, in order. Type them yourself -- this command does not run them, because every one"
   say "of them needs you in the room."
   echo
-  [[ "$tier" == "L" ]] && {
+  tier_needs_interview "$tier" && {
     say "  1. /research <topic>            the outside world. CANNOT BE CHECKED -- it writes a file at"
     say "                                  a path it chooses, so nothing here can look for it."
     say "  2. /grill-me                    the interview (it delegates to /grilling, which does the work"
@@ -990,7 +1023,7 @@ post_round() { # <phase> <landing> <round>
 # failure /da-review-all's own "Done when" list exists to catch.
 review_skill_for_tier() {
   local names layer
-  [[ "$(ledger_last size tier)" == "S" ]] || { printf '/da-review-all'; return 0; }
+  review_may_skip_dispatcher "$(ledger_last size tier)" || { printf '/da-review-all'; return 0; }
   names="$(ledger_last size layer_names)"
   # One name, no comma. Zero layers (a docs-only change) is not one layer -- it has no skill either, so
   # it goes to the dispatcher rather than to a guess.
@@ -1137,10 +1170,16 @@ and editing them aborts this landing."
   # they found a real error in one of them. Cutting THAT would be buying a cheaper wrong answer.
   local review_rounds="$REVIEW_ROUNDS" review_budget="$BUDGET_ROUND_REVIEW"
   local triage_budget="$BUDGET_ROUND_TRIAGE" findbugs_budget="$BUDGET_ROUND_FINDBUGS" review_skill
-  if [[ "$(ledger_last size tier)" == "S" ]]; then
-    review_rounds="$REVIEW_ROUNDS_S"; review_budget="$BUDGET_ROUND_REVIEW_S"
-    triage_budget="$BUDGET_ROUND_TRIAGE_S"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_S"
-  fi
+  # The lean allocation, chosen by tier. A `case` rather than a comparison for the same reason as the
+  # predicates above: a tier nobody answered would silently inherit the full budgets, which is the
+  # expensive direction to be wrong in.
+  case "$(ledger_last size tier)" in
+    S)
+      review_rounds="$REVIEW_ROUNDS_LEAN"; review_budget="$BUDGET_ROUND_REVIEW_LEAN"
+      triage_budget="$BUDGET_ROUND_TRIAGE_LEAN"; findbugs_budget="$BUDGET_ROUND_FINDBUGS_LEAN" ;;
+    M|L) : ;;
+    *) tier_die "$(ledger_last size tier)" "review budgets" ;;
+  esac
   review_skill="$(review_skill_for_tier)"
   schema="$(triage_schema)"
   for (( rr = 1; rr <= review_rounds; rr++ )); do
@@ -1687,7 +1726,7 @@ cmd_run() {
   [[ -n "$tier" ]] || die "no size recorded for this repository. Run: loop.sh size \"<what you want>\"
   The tier decides whether this may run unattended at all, and it is not a thing to skip past."
 
-  if [[ "$tier" != "S" ]]; then
+  if tier_needs_landing_plan "$tier"; then
     [[ -n "$plan" ]] || die "tier $tier requires a committed landing plan: loop.sh run <plan-path>
   Tier $tier means a human goes through the design phase first. See docs/loops.md."
   fi
@@ -1778,7 +1817,7 @@ cmd_run() {
   if [[ "$ROUND_EXIT" == "143" ]]; then die "interrupted while arming the gate"; fi
 
   local rows req
-  if [[ "$tier" == "S" && -z "$plan" ]]; then
+  if tier_synthesises_landing_row "$tier" && [[ -z "$plan" ]]; then
     # Tier S has no landing plan by design -- README's own standing rule is that a change you can
     # describe in one sentence skips the plan. The sentence is the request `size` was given, read back
     # from the ledger so the landing is named by what was asked for rather than by a placeholder.

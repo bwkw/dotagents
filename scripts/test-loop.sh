@@ -464,6 +464,73 @@ case "$(ledger_field 'tier')" in
   *)       no "size recorded tier '$(ledger_field 'tier')' from a reply that contained no measurement" ;;
 esac
 
+# ---------------------------------------------------------------- the tier ladder is answered
+# THE SAFETY NET FOR ADDING A RUNG. Seven sites used to compare the tier letter and each meant something
+# different; `[[ "$tier" != "S" ]]` is true for a tier that does not exist yet and quietly demands a
+# landing plan that will never be written. This repository's record says adding a tier "broke three
+# places silently" -- so the ladder is declared on a marker line and every predicate must answer every
+# tier on it.
+#
+# Written now, while the ladder is still S/M/L, precisely so that it goes RED when a rung is added and a
+# predicate is not extended. A test that arrives with the feature it guards proves nothing about the
+# moment the feature lands.
+ladder_tiers()     { sed -n 's/^# dotagents:tier-ladder //p' "$LOOP" | head -1; }
+tier_predicates()  { grep -oE '^tier_[a-z_]+\(\)|^review_may_skip_dispatcher\(\)' "$LOOP" \
+                       | sed 's/()//' | grep -v '^tier_die$'; }
+
+marker="$(ladder_tiers)"
+[[ -n "$marker" ]] \
+  && ok "the ladder is declared on a dotagents:tier-ladder marker ($marker)" \
+  || no "no dotagents:tier-ladder marker in loop.sh -- removing it removes this whole check"
+
+preds="$(tier_predicates)"
+[[ -n "$preds" ]] \
+  && ok "the tier predicates are discoverable by name ($(wc -w <<<"$preds" | tr -d ' ') of them)" \
+  || no "found no tier predicates to check"
+
+# Every (tier x predicate) pair must answer without dying. Detected by the MESSAGE, not the exit code:
+# `die` exits 1 (loop.sh:176) and so does a legitimate "no", so a code-based check reads a fall-through
+# as an answer. That was the first version of this test and it would have passed on a broken predicate.
+# The predicates are EXTRACTED, never sourced. `source "$LOOP"` runs loop.sh's top-level dispatcher,
+# which inherits this script's positional parameters -- so sourcing it to ask a pure question can start a
+# real `run`. The first version of this helper did exactly that and hung the suite for ten minutes.
+tier_defs="$TMP/tier-defs.sh"
+{ printf 'die() { printf "loop: %%s\\n" "$1" >&2; exit 1; }\n'
+  sed -n '/^tier_die() {/,/^}/p' "$LOOP"
+  grep -E '^(tier_[a-z_]+|review_may_skip_dispatcher)\(\) *\{ case' "$LOOP"
+} > "$tier_defs"
+tier_answer() { # <predicate> <tier> -> prints "died" or "answered"
+  local err
+  err="$( ( . "$tier_defs"; "$1" "$2" >/dev/null ) 2>&1 )"
+  case "$err" in *"unknown tier"*) printf died ;; *) printf answered ;; esac
+}
+unanswered=""
+for _t in $marker; do
+  for _p in $preds; do
+    [[ "$(tier_answer "$_p" "$_t")" == "answered" ]] || unanswered="$unanswered $_p($_t)"
+  done
+done
+[[ -z "$unanswered" ]] \
+  && ok "every predicate answers every declared tier" \
+  || no "these (predicate, tier) pairs fall through:$unanswered"
+
+# ...and the fall-through must be fatal rather than plausible. A predicate whose default returns 0 or 1
+# is the bug this section exists to prevent: it would answer a tier nobody thought about.
+silent=""
+for _p in $preds; do
+  grep -A 1 "^$_p()" "$LOOP" | grep -q 'tier_die' || silent="$silent $_p"
+done
+[[ -z "$silent" ]] \
+  && ok "and an unknown tier is fatal in every predicate, not merely plausible" \
+  || no "these predicates have a silent default:$silent"
+
+# A tier that is NOT on the ladder must die, proving the net is live rather than vacuous. XS is the rung
+# the next landing adds, so today it must be refused -- and the day it is added, this flips to answered
+# and the loop above starts requiring every predicate to have an XS arm.
+[[ "$(tier_answer tier_needs_landing_plan XS)" == "died" ]] \
+  && ok "an undeclared tier (XS) is refused today -- the net is live, not vacuous" \
+  || no "tier_needs_landing_plan answered XS, which is not on the ladder yet"
+
 # ---------------------------------------------------------------- run preconditions
 setup
 runloop run
@@ -835,7 +902,7 @@ respond pr     1 0.10 3
 runloop run plan.md
 # CHANGED DELIBERATELY, not silenced. This used to assert `review_cap` -- that the loop HALTS with the
 # second review's findings unfixed. That reading of the cap made tier S unable to reach a PR at all
-# (`REVIEW_ROUNDS_S=1` meant the fix round was never reachable), so the cap now governs how many times
+# (`REVIEW_ROUNDS_LEAN=1` meant the fix round was never reachable), so the cap now governs how many times
 # we REVIEW, and the last review's fixes are applied and gate-verified before it stops reviewing.
 # What must still hold is the thing the cap was for: no THIRD review is bought.
 rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
@@ -1508,7 +1575,7 @@ runloop run
   || no "no PR exists yet the driver carried on (halt=$(ledger_field halt_reason))"
 
 # --- the last review's fixes get applied ------------------------------------------
-# Fourth instance of the shape. `REVIEW_ROUNDS_S=1` capped COST, but the loop checked the cap BEFORE
+# Fourth instance of the shape. `REVIEW_ROUNDS_LEAN=1` capped COST, but the loop checked the cap BEFORE
 # applying the fixes, so at tier S a single Fix-now finding halted the landing with the fix never
 # attempted -- /receiving-code-review was unreachable there. Measured: the first landing to get past
 # triage stopped on `fix_now=1`, one mechanical edit short of a PR.
@@ -1930,7 +1997,7 @@ fi
 loop_const() { grep -E "^$1=" "$LOOP" | head -1 | sed -E "s/^$1=([0-9.]+).*/\1/"; }
 s_total="$(node -e 'process.stdout.write(String(
   Number(process.argv[1]) + Number(process.argv[2]) + Number(process.argv[3])))' \
-  "$(loop_const BUDGET_ROUND_REVIEW_S)" "$(loop_const BUDGET_ROUND_TRIAGE_S)" "$(loop_const BUDGET_ROUND_FINDBUGS_S)")"
+  "$(loop_const BUDGET_ROUND_REVIEW_LEAN)" "$(loop_const BUDGET_ROUND_TRIAGE_LEAN)" "$(loop_const BUDGET_ROUND_FINDBUGS_LEAN)")"
 run_budget="$(loop_const BUDGET_USD)"
 if node -e 'process.exit(Number(process.argv[1]) > 0 && Number(process.argv[1]) < Number(process.argv[2]) / 2 ? 0 : 1)' \
      "$s_total" "$run_budget"; then
