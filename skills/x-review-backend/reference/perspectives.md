@@ -87,6 +87,14 @@ does something other than what it was asked to do, and it reads as plausible whi
   partial application.
 - Additive-only? Are destructive changes split expand → migrate → contract? Are constraints being
   added without checking the production and staging data distribution?
+- **"The real data is fine" is a claim, and the local database is not the real data** — it is whatever
+  the last reset and seed made it. For a new constraint, a stricter read, or the removal of a data
+  assumption, require a query that can be run against **production or staging**, and the count it
+  returned. Data baked into snapshots and fixtures (task JSON, recorded payloads) counts as data.
+- **Machinery kept for values that do not exist.** Several indexes and a branch, or an inference rule
+  ("one disappeared and one appeared, so treat it as a rename") — ask **how many rows actually carry a
+  non-default value in that column**, in production. Zero means the whole apparatus is protecting
+  nothing; deleting one such mechanism removed 160 lines.
 - Index design; schema shapes that induce N+1; soundness of Temporal or event-sourcing usage; joins
   and relations onto views; new uses of `OrThrow`.
 - Timezone and date boundaries (date-only versus datetime, storing UTC, DST and month-end edges).
@@ -169,9 +177,40 @@ Report anything that fails one of these, naming the specific field or signature:
   the same three lines of narrowing?
 - **Enforcement** — is there a path around it? An `as` cast, a raw query typed `any`, a `JSON.parse`
   with no schema at the boundary.
+- **Modelled on one side only.** The commonest half-done version: the *set* of kinds gets narrowed
+  (`z.enum(['FIXED','TODAY'])`) while **kind and value stay separate fields**, so `{kind:'TODAY',
+  value:'2020-04-01'}` is still constructible. That looks like "we typed it" and is not. Ask the
+  invariant question **per layer**: the wire contract, the domain's input type, the state the domain
+  holds, the frontend's editing state — **which of them makes this unrepresentable?** If the answer for
+  any of them is "a runtime check", say so and make the author justify why a type cannot carry it.
+  What it costs to leave: every consumer keeps defensive code for a state that should not exist, forever.
+- **Every construction site, not just the one in the diff.** When a discriminated union or a refined type
+  is introduced, the same shape usually exists in several places — ETL runtime types, snapshot Zod
+  schemas, test helpers — and the PR fixes the domain one. **List all of them** (show the `grep`), and
+  ask whether construction can be funnelled through a single point.
+- **Exhaustiveness that the compiler enforces.** `as const satisfies readonly T[]` **type-checks on a
+  subset**: add a kind on the server and the frontend list keeps compiling, silently short. A
+  `Record<Union, …>` does not. Whenever you see an array plus `satisfies` for options, orderings or
+  label maps, ask: **if the server adds one tomorrow, does this fail to compile?**
 
 Worth most where money, permissions, tenancy, or irreversible operations are involved: an invariant
 the type guarantees cannot be forgotten at the eleventh call site somebody adds next quarter.
+
+### 8b. Where the rule lives, and whether it behaves the same on both sides
+
+- **Aggregate invariants written into Repository, QueryService or UseCase.** The test is one question:
+  **if another persistence path is added tomorrow, does this check have to be copied?** If yes, it
+  belongs in the domain. A rule enforced at the call site is a rule the next call site forgets.
+- **The same state handled two different ways.** Look for asymmetry between the read path and the write
+  path — "the query silently skips the malformed row, the aggregate rejects it". It sounds prudent
+  ("degrade the view, protect the screen; keep the aggregate strict") and to the user it reads as
+  **"it is not on the screen, yet saving 500s"**. Where an asymmetry exists, ask whether it is coherent
+  *from outside*, and whether the reason given is really a fact about the implementation (the
+  QueryService did not return a `Result`, so it could not fail) dressed up as intent.
+- **Does the error fit what happened?** An unreachable branch returning a message about a different
+  situation ("the fixed value is empty" used for "no default was supplied") is a lie the next reader
+  believes. And the status code: **corrupted stored data is not 4xx** — the caller cannot fix their
+  request.
 
 ### 9. Dependencies, licensing, and supply chain
 
@@ -191,6 +230,12 @@ header missing from a new file, which broke the build rather than being caught i
 
 - Tests for new entities, commands, and handlers; boundary values; failure paths. Integration tests
   for database writes, external integrations, and anything spanning a transaction.
+- **Is each test necessary, and is it at the right level?** The same rule asserted at contract, entity
+  and sql level is one rule paid for three times — and a rule that is a pure function should not be
+  reachable only through a sql test. Conversely, **an invariant the change moved into the type leaves a
+  test behind that now either fails to compile or asserts nothing.** Test names and comments describing
+  a state the types no longer permit ("sending the value alongside is normalised") are stale by
+  construction.
 - Do the tests exercise the production read and DI paths (no shortcut assertions, no swallowed
   `Result`s)?
 - **Where a path has silent, irreversible side effects** (see `silent-failure-patterns.md`), is the

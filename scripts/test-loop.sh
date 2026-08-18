@@ -294,7 +294,7 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [u
   ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
 green_pr() { # the common fixture: a landing that reaches a PR
-  measurement 1 1 0 0 0; runloop size "r"
+  measurement 6 1 0 0 0; runloop size "r"
   respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
   respond review 1 0.30 7
   respond triage 1 0.05 2 0 0 3
@@ -373,10 +373,16 @@ tier_case() { # <label> <expected> <files> <layers> <oneway> <risk> <unconfirmed
     no "$label should be $want (exit $RC)"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
   fi
 }
-tier_case "5 files, 1 layer, nothing else"      S  5  1 0 0 0
-tier_case "6 files crosses into M"              M  6  1 0 0 0
-tier_case "15 files is still M"                 M 15  1 0 0 0
-tier_case "16 files crosses into L"             L 16  1 0 0 0
+# The four rungs, at every boundary. The file counts tripled because the old ladder put a five-file
+# change in the same rung as a fifteen-file one, and the owner's own reading of real changes is that
+# ten files is still small. `>30` closes the top rather than "~50": a threshold written at 50 would
+# leave 31-49 falling through to M silently.
+tier_case "5 files, 1 layer, nothing else"     XS  5  1 0 0 0
+tier_case "6 files crosses into S"              S  6  1 0 0 0
+tier_case "10 files is still S"                 S 10  1 0 0 0
+tier_case "11 files crosses into M"             M 11  1 0 0 0
+tier_case "30 files is still M"                 M 30  1 0 0 0
+tier_case "31 files crosses into L"             L 31  1 0 0 0
 tier_case "2 layers is M"                       M  3  2 0 0 0
 tier_case "3 layers is L"                       L  3  3 0 0 0
 tier_case "one one-way door forces L"           L  1  1 1 0 0
@@ -398,7 +404,12 @@ tier_case "one one-way door forces L"           L  1  1 1 0 0
 # `one_way` keeps forcing L, and that one is not up for revision: an irreversible step is exactly the
 # thing a human must see before it ships.
 tier_case "a risk surface alone is M, not L"    M  1  1 0 1 0
-tier_case "one unconfirmed item alone is M"     M  1  1 0 0 1
+# CHANGED with the XS rung: the floor moves from M to S. `unconfirmed > 0` means "this measurement may
+# be wrong", which is a reason not to drop the fix machinery -- and it is NOT evidence the change is wide,
+# which is what M buys a human for. Left at M, /da-investigate names something essentially always, so XS
+# would be unreachable in practice and the docs edit that motivated the whole rung would stay at M and
+# buy nothing. Same two-axis argument as risk_surfaces, one rung lower.
+tier_case "one unconfirmed item floors at S"    S  1  1 0 0 1
 tier_case "risk and unconfirmed together, M"    M  1  1 0 3 4
 tier_case "one-way still outranks both"         L  1  1 1 1 1
 
@@ -406,7 +417,7 @@ tier_case "one-way still outranks both"         L  1  1 1 1 1
 # confirmed. It is recorded and printed because it tells you the request needs fixing, but it must not
 # move the tier -- conflating it with `unconfirmed` is what put a one-file docs edit in L.
 setup
-measurement 1 1 0 0 0 "" 9
+measurement 6 1 0 0 0 "" 9
 runloop size "a request making nine claims"
 if [[ $RC -eq 0 ]] && grep -qE 'tier[[:space:]]+S\b' <<<"$OUT"; then
   ok "nine unverified request claims do not move the tier (S)"
@@ -432,7 +443,7 @@ else
 fi
 
 setup
-measurement 1 1 0 0 0
+measurement 6 1 0 0 0
 runloop size "a request"
 grep -q 'structured_output' "$FAKE_CLAUDE_LOG" >/dev/null 2>&1
 grep -q -- '--bare' "$FAKE_CLAUDE_LOG" \
@@ -471,9 +482,15 @@ esac
 # places silently" -- so the ladder is declared on a marker line and every predicate must answer every
 # tier on it.
 #
-# Written now, while the ladder is still S/M/L, precisely so that it goes RED when a rung is added and a
-# predicate is not extended. A test that arrives with the feature it guards proves nothing about the
+# Written while the ladder was still S/M/L, precisely so that it would go RED when a rung was added and
+# a predicate was not extended. A test that arrives with the feature it guards proves nothing about the
 # moment the feature lands.
+#
+# **IT FIRED.** Adding XS took 61 assertions red, and the one place not armed was a decision the test
+# could not see: the lean review budgets were an inline `case` rather than a named predicate, so the
+# by-name scan walked straight past it. That is now `tier_gets_lean_budgets`. The lesson generalises past
+# this file: **a decision the tests cannot enumerate is a decision that gets forgotten exactly once per
+# new tier.**
 ladder_tiers()     { sed -n 's/^# dotagents:tier-ladder //p' "$LOOP" | head -1; }
 tier_predicates()  { grep -oE '^tier_[a-z_]+\(\)|^review_may_skip_dispatcher\(\)' "$LOOP" \
                        | sed 's/()//' | grep -v '^tier_die$'; }
@@ -524,12 +541,14 @@ done
   && ok "and an unknown tier is fatal in every predicate, not merely plausible" \
   || no "these predicates have a silent default:$silent"
 
-# A tier that is NOT on the ladder must die, proving the net is live rather than vacuous. XS is the rung
-# the next landing adds, so today it must be refused -- and the day it is added, this flips to answered
-# and the loop above starts requiring every predicate to have an XS arm.
-[[ "$(tier_answer tier_needs_landing_plan XS)" == "died" ]] \
-  && ok "an undeclared tier (XS) is refused today -- the net is live, not vacuous" \
-  || no "tier_needs_landing_plan answered XS, which is not on the ladder yet"
+# A tier that is NOT on the ladder must die, proving the net is live rather than vacuous. This probe used
+# to name XS, and it FLIPPED when XS was added -- which is exactly what it was for: the loop above then
+# began requiring an XS arm in every predicate, and found the one place it was missing (the review
+# budgets, which were an inline `case` the name-based discovery could not see). The probe now names a
+# rung nobody has proposed, so it keeps testing the net rather than the last rung added.
+[[ "$(tier_answer tier_needs_landing_plan XXL)" == "died" ]] \
+  && ok "an undeclared tier (XXL) is refused -- the net is live, not vacuous" \
+  || no "tier_needs_landing_plan answered XXL, which is not on the ladder"
 
 # ---------------------------------------------------------------- run preconditions
 setup
@@ -538,7 +557,7 @@ runloop run
   && ok "run refuses when size was never taken" \
   || { no "run did not refuse without a recorded size (exit $RC)"; detail "$OUT"; }
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 printf 'dirty\n' > "$REPO_DIR/dirty.txt"
 runloop run
 [[ $RC -ne 0 ]] && grep -qi 'not clean' <<<"$OUT" \
@@ -548,7 +567,7 @@ runloop run
 # Only when the work would actually land on it. With isolation the run moves to its own branch, so
 # being on main when you type the command is no longer the problem it was -- but working IN PLACE on
 # main still is, and that is the case pinned here.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 git -C "$REPO_DIR" checkout -q main
 runloop run
@@ -556,7 +575,7 @@ runloop run
   && ok "run refuses to work in place on the default branch" \
   || { no "run did not refuse on the default branch without isolation (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 git -C "$REPO_DIR" checkout -q main
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
@@ -566,7 +585,7 @@ runloop run
   || { no "an isolated run refused because the command was typed on main (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
 # Tier M and L must not start unattended without a plan a human committed.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 runloop run
 [[ $RC -ne 0 ]] && grep -qi 'landing plan' <<<"$OUT" \
   && ok "tier M refuses to run without a landing plan" \
@@ -574,7 +593,7 @@ runloop run
 
 # A plan that is merely present but untracked leaves the tree dirty, so the clean-tree precondition
 # reaches it first. That is a correct refusal, and it is what the common case actually hits.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 runloop run plan.md
@@ -585,7 +604,7 @@ runloop run plan.md
 # The plan-is-committed check on its own, reached by making the tree clean while the plan stays
 # untracked -- a gitignored plan is the one way those two conditions come apart, and without this
 # case the check would be unreachable and could rot green.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf 'plan.md\n' > "$REPO_DIR/.gitignore"
 git -C "$REPO_DIR" add .gitignore; commit_in_repo ignore
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
@@ -595,7 +614,7 @@ runloop run plan.md
   && ok "an uncommitted landing plan is not an approved one, even with a clean tree" \
   || { no "run accepted an uncommitted landing plan (exit $RC)"; detail "$OUT"; }
 
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -606,7 +625,7 @@ runloop run plan.md
   || { no "run accepted a plan modified after its commit (exit $RC)"; detail "$OUT"; }
 
 # ---------------------------------------------------------------- the loop, green path
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3           # nothing to fix now
@@ -689,7 +708,7 @@ grep -q '/da-pr-describe' "$FAKE_CLAUDE_LOG" \
 # The driver has to work when the skill legitimately declines to create one -- the skill itself
 # sanctions working in place on a sandbox permission error or a declined consent. Continuing is correct;
 # continuing while claiming isolation would not be.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
@@ -700,7 +719,7 @@ runloop run
 
 # Already isolated: the skill's own Step 0 says do not create another, and the driver must not ask for
 # one either. `git rev-parse --git-dir != --git-common-dir` is what makes a linked worktree detectable.
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 git -C "$REPO_DIR" worktree add -q "$REPO_DIR/.worktrees/pre" -b pre >/dev/null 2>&1
 WT="$REPO_DIR/.worktrees/pre"
 OUT="$(cd "$WT" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" \
@@ -716,7 +735,7 @@ grep -q '/using-git-worktrees' "$FAKE_CLAUDE_LOG" \
 # size and run must agree on which repository this is even across worktrees, or `run` cannot find the
 # tier that `size` recorded in the main checkout. The gate solves this by keying repository identity on
 # the shared git dir; the ledger does the same.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 git -C "$REPO_DIR" worktree add -q "$REPO_DIR/.worktrees/other" -b other >/dev/null 2>&1
 tier_seen="$(cd "$REPO_DIR/.worktrees/other" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" \
   DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" DOTAGENTS_REPO="$REPO" NO_COLOR=1 \
@@ -738,7 +757,7 @@ grep -nE 'git[^|;]*add[[:space:]]+(-A|--all|\.)' "$LOOP" \
 # No profile means no gate, and `gate.sh verify` reports ok:true in that case -- so a driver that
 # trusts `ok` alone treats "nothing was checked" as green. This is the fail-open the whole design is
 # against, so it is asserted rather than assumed.
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 rm -f "$PROFILES/probe.json"
 runloop size "r"
 runloop run
@@ -752,7 +771,7 @@ runloop run
 # rounds, and `gate_gave_up` halts the landing then. The driver's own cap was therefore unreachable in
 # exactly the case a cap exists for, and reachable only when *different* checks fail on successive
 # rounds. A cap you cannot hit is not a cap; it is a number that reads like one.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
 side_effect_all debug 'date >> churn.txt'
 respond debug 1 0.10 3
@@ -766,7 +785,7 @@ else
 fi
 
 # ---------------------------------------------------------------- red path, round cap
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 # Each round changes something and still leaves the check red -- otherwise round_changed_nothing fires
 # first, which is a different finding.
 respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
@@ -801,7 +820,7 @@ grep -qi 'already red before' <<<"$OUT" \
 # And the other direction, which is the half that makes the first one mean anything: a check that was
 # GREEN when the run started and is red at the cap was broken BY this run, and saying "already red" there
 # would be a lie that reads like exoneration. An unconditional sentence passes the assertion above.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"        # keep the gate in REPO_DIR so the fixture can stage it green
 : > "$REPO_DIR/GREEN"                     # `test -f GREEN` -- green before the first round
 git -C "$REPO_DIR" add -A >/dev/null 2>&1
@@ -825,7 +844,7 @@ plant_verdict() { printf 'mkdir -p "%s/repo/wt/main" && printf "2026-08-11T00:00
 # unarmed gate makes `status` report gave_up:false, the run proceeds, and `arm` consumes the verdict
 # while printing a NOTE that contains the word "verdict". A looser assertion here matched that NOTE
 # and passed for the wrong reason; the on-disk check below is what caught it.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 ( cd "$REPO_DIR" && DOTAGENTS_GATE_DIR="$GATE" bash "$REPO/scripts/gate.sh" arm >/dev/null 2>&1 )
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 printf '2026-08-11T00:00:00Z\nred\nprobe-gate\n3\n1\nclaude\ntest -f GREEN\n' > "$GATE/repo/wt/main/VERDICT"
@@ -839,7 +858,7 @@ runloop run
   || no "the verdict was erased by a run that refused to start"
 
 # A verdict appearing mid-landing, which is the case the gate actually produces.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.10 3; side_effect implement 1 "$(plant_verdict)"
 runloop run --max-rounds 5
@@ -851,7 +870,7 @@ runloop run --max-rounds 5
   || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not gave_up"
 
 # ---------------------------------------------------------------- scorer immutability
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.10 3
 side_effect implement 1 'mkdir -p profiles && printf "{}" > profiles/loosened.json && touch GREEN'
 runloop run
@@ -868,7 +887,7 @@ grep -q 'stack submit' "$FAKE_GH_LOG" && no "a scorer-touching landing opened a 
 # no " -> " between them. A parser that strips a 3-character status prefix from every field mangles the
 # old path, and the loop can then rename the gate out of the way without being stopped: the new path is
 # not guarded, and the old path no longer matches anything.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 mkdir -p "$REPO_DIR/scripts"; printf 'gate\n' > "$REPO_DIR/scripts/gate.sh"
 git -C "$REPO_DIR" add scripts/gate.sh; commit_in_repo "add a guarded file"
 respond implement 1 0.10 3
@@ -879,7 +898,7 @@ runloop run
   || { no "a round renamed scripts/gate.sh away and was not stopped (halt_reason '$(ledger_field 'halt_reason')')"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
 # ---------------------------------------------------------------- triage exits
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 1 0           # one finding needs a human decision
@@ -889,7 +908,7 @@ runloop run
   || { no "needs_decision did not halt the loop (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "needs_decision still opened a PR" || ok "needs_decision opens no PR"
 
-setup; measurement 6 1 0 0 0; runloop size "r"        # 6 files -> tier M, which still gets two rounds
+setup; measurement 11 1 0 0 0; runloop size "r"        # 6 files -> tier M, which still gets two rounds
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -919,7 +938,7 @@ grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG" | grep -q '^2$' \
 # the design phase for. The second round is where that ceiling lives, so tier S does not buy one.
 # Measured on that landing: the review had ALREADY self-scaled to the bottom fan-out tier ("inline, no
 # find subagents"), so this is not depth being cut -- depth was already minimal. It is the worst case.
-setup; measurement 1 1 0 0 0; runloop size "r"        # 1 file -> tier S
+setup; measurement 6 1 0 0 0; runloop size "r"        # 1 file -> tier S
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 still to fix
 respond fix    1 0.20 4
@@ -942,7 +961,7 @@ grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
   || no "tier S shipped or dropped its findings without saying which"
 
 # ---------------------------------------------------------------- one-way doors and the draft cap
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | yes |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -958,7 +977,7 @@ grep -q 'stack submit' "$FAKE_GH_LOG" \
   && ok "and it stopped because it was one-way, not because something else broke" \
   || no "one-way landing recorded halt_reason '$(ledger_field 'halt_reason')'"
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 # Head branch names, not PR numbers: the cap counts branches belonging to this stack, so that PRs the
 # human opened by hand do not trip a cap meant to bound the loop's own output.
 : > "$FAKE_CLAUDE_DIR/no-worktree"     # the cap matches head branches from this checkout
@@ -976,7 +995,7 @@ grep -q 'stack submit' "$FAKE_GH_LOG" \
 # ---------------------------------------------------------------- stacking, and its precondition
 # Landings are inherently a stack: landing 2 builds on landing 1. The first version of this driver used
 # one branch for the whole run, so a second landing's PR would have collided with the first's.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | first | probe-gate | no |\n| 2 | second | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1001,7 +1020,7 @@ runloop run plan.md
 # a layer by that name. Measured on the first plan this driver was ever handed that it did not generate:
 # the design-review output people actually copy has headings and evidence tables around the 🧱 one.
 # The header row is what `landing_plans()` already uses to identify a plan; parsing must use the same.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 { printf '# 🧱 Landing plan -- the title mentions it, deliberately\n\n'
   printf 'Some prose about why.\n\n'
   printf '| 主張 | 確認方法 | 結果 |\n|---|---|---|\n| the loop ran | the ledger | yes |\n\n'
@@ -1021,7 +1040,7 @@ grep -qE 'landing (主張|確認方法)' <<<"$OUT" \
 
 # The extension is a hard dependency. Falling back to `gh pr create` would silently produce an
 # unstacked PR -- a different shape of output than the one asked for, with nothing saying so.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_GH_DIR/no-stack-ext"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
@@ -1035,7 +1054,7 @@ runloop run
 # triage round returns nothing. Defaulting the counts to 0 would read as "the review found nothing to
 # fix" and submit a PR that was never triaged -- and the ledger would record fix_now:0, which is
 # indistinguishable from a clean review. Absence has to halt.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2          # no fix_now argument -> the response carries no structured_output
@@ -1056,7 +1075,7 @@ grep -q 'stack submit' "$FAKE_GH_LOG" \
 # #3 -- "clean" and "I could not tell" are the same answer from `changed_paths`, and all four consumers
 # take the benign branch. Simulated by pointing GIT_DIR at something that is not a git directory, which
 # is what an index.lock, a dubious-ownership refusal or a cwd outside a work tree look like from here.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" GIT_DIR=/nonexistent-git-dir \
   DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
   DOTAGENTS_REPO="$REPO" NO_COLOR=1 bash "$LOOP" run 2>&1)"; RC=$?
@@ -1068,7 +1087,7 @@ OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" GIT_DIR=/nonexistent-git-dir \
 # is clean, and the hook then exits 0 saying "nothing blocking". `verify --json` reports ok:true for
 # that, so the driver cannot tell it from a real pass. This shape was never exercised: the hermetic
 # profile above is scope:all.
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
   "checks": [ { "id": "probe-changed", "cmd": "test -f GREEN {files}", "gate": true,
@@ -1095,7 +1114,7 @@ grep -q 'stack submit' "$FAKE_GH_LOG" \
 
 # #2 -- post_round only looked at exit 143, so an API error, a rate limit or a rejected flag left the
 # round's failure invisible and the loop carried on.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; fails_with implement 1 1
 runloop run
 [[ "$(ledger_field 'halt_reason')" == "round_failed" ]] \
@@ -1103,7 +1122,7 @@ runloop run
   || no "#2 a failed round recorded halt_reason '$(ledger_field 'halt_reason')'"
 
 # #4 -- tier S skipped every landing-plan validation, but still parsed a plan path if one was passed.
-setup; measurement 1 1 0 0 0; runloop size "r"     # tier S
+setup; measurement 6 1 0 0 0; runloop size "r"     # tier S
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | snuck in | ? | no |\n' \
   > "$REPO_DIR/plan.md"
 printf 'plan.md\n' > "$REPO_DIR/.gitignore"
@@ -1116,7 +1135,7 @@ runloop run plan.md
 # #6 -- STACK_BASE_BRANCH was only set on the `gh stack init` path, so on the resume path (a stack
 # already exists, which is the expected state after any halt) the layer names compounded and the
 # open-PR cap counted against the wrong branch.
-setup; measurement 6 1 0 0 0; runloop size "r"
+setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | one | probe-gate | no |\n| 2 | two | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1157,7 +1176,7 @@ wait "$hang_pid" 2>/dev/null
 # #10 -- `record` hand-built its JSON, so a check id containing a quote made the whole ledger line
 # unparseable. The line that vanishes is the one carrying halt_reason, so the report would say
 # "halted nothing" about a landing that halted.
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
   "checks": [ { "id": "prob\"e-gate", "cmd": "test -f GREEN", "gate": true,
@@ -1182,7 +1201,7 @@ fi
 # The schema is passed INLINE, not as a file path. Measured against claude 2.1.148: `--json-schema`
 # takes the schema as a string, and handing it a path does not error -- it hangs forever. Every phase
 # that asks for structured output (size, triage) would have hung on first real use.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 grep -qE -- '--json-schema[[:space:]]+\{' "$FAKE_CLAUDE_LOG" \
   && ok "the schema is passed inline as JSON, not as a file path" \
   || { no "--json-schema was not followed by inline JSON -- a path argument hangs the CLI"; detail "$(head -1 "$FAKE_CLAUDE_LOG" | head -c 160)"; }
@@ -1192,7 +1211,7 @@ grep -qE -- '--json-schema[[:space:]]+/' "$FAKE_CLAUDE_LOG" \
 
 # A round that never returns. Neither the round cap, the budget, nor the gate can stop a hang, and this
 # repository keeps a whole suite about not hanging -- so the driver owns a deadline.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.10 3; hangs_for implement 1 30
 started=$(date +%s)
@@ -1213,7 +1232,7 @@ elapsed=$(( $(date +%s) - started ))
 # user and waits. Unattended there is nobody to ask, and more rounds cannot satisfy it either, so the
 # driver has to tell `needs_human` apart from `red`.
 
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 # One check the agent may run (green), one it may not.
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
@@ -1249,7 +1268,7 @@ grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" && grep -q 'probe-heavy' "$FAKE_CLAU
   || no "the PR body would not mention that a check was never run locally"
 
 # A check the agent MAY run and that fails is still red. Deferral must not swallow real failures.
-setup; measurement 1 1 0 0 0
+setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
   "checks": [
@@ -1274,7 +1293,7 @@ runloop run --max-rounds 2
 
 # Unsized + small -> it sizes and goes straight on to running.
 setup
-measurement 1 1 0 0 0
+measurement 6 1 0 0 0
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
@@ -1332,7 +1351,7 @@ runloop "大きいこと"
 
 # `loop.sh design` must never prompt: test-non-interactive.sh asserts there is no interactive path, and
 # the design phase is attended, so the temptation to ask is exactly here.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 runloop design
 [[ $RC -eq 0 ]] && ok "design exits 0" || { no "design exited $RC"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
 # "design does not prompt" is NOT asserted here. test-non-interactive.sh already sweeps every
@@ -1342,7 +1361,7 @@ runloop design
 
 # Tier decides the sequence, and the tiers differ in DEPTH of human involvement, not in whether one is
 # present. S has no design phase at all.
-setup; measurement 1 1 0 0 0; runloop size "r"      # S
+setup; measurement 6 1 0 0 0; runloop size "r"      # S
 runloop design
 grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
   && ok "design at tier S says there is no design phase" \
@@ -1383,7 +1402,7 @@ grep -qiE 'header|見出し|not a plan' <<<"$OUT" \
 
 # implement splits by tier. M/L have a committed plan, so /executing-plans is the right skill; S has no
 # plan at all, so it types /test-driven-development.
-setup; measurement 6 1 0 0 0; runloop size "r"       # M
+setup; measurement 11 1 0 0 0; runloop size "r"       # M
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1403,7 +1422,7 @@ grep -q 'executing-plans.*\n*.*test-driven-development\|Use /test-driven-develop
   && ok "the executing-plans prompt states TDD per step, which is the only guarantee of it" \
   || no "the executing-plans prompt does not require TDD -- executing-plans alone does not imply it"
 
-setup; measurement 1 1 0 0 0; runloop size "r"       # S
+setup; measurement 6 1 0 0 0; runloop size "r"       # S
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
@@ -1439,7 +1458,7 @@ grep -q 'da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second
   && ok "the second reviewer carries a ceiling too (\$$(round_budget '/find-bugs'))" \
   || no "/find-bugs was unbounded -- and lowering risk_surfaces to M is what put it on the unattended path"
 
-setup; measurement 3 1 0 0 0; runloop size "r"       # no risk surface
+setup; measurement 6 1 0 0 0; runloop size "r"       # no risk surface
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
@@ -1486,6 +1505,59 @@ grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
   && ok "a FAILURE state still buys a debugging round" \
   || no "a real CI failure was ignored"
 
+# --- XS drops the fix machinery, and must not drop the review with it -------------
+# XS exists because a five-file docs edit does not need triage, a fix round and a second five-minute
+# gate run. What it must NOT drop is the record: `REVIEW_REPORT` is a shell variable in a process that
+# exits, and the only thing that used to persist a review was /da-fix-plan writing docs/fix-plans/. With
+# triage gone the sole copy would be an argument to /da-pr-describe -- whose ceiling overrun does NOT
+# halt. PR opens, describe is cut off, review gone. The eighth unattended run died on exactly a ceiling
+# overrun, so that is measured rather than imagined.
+setup; measurement 3 1 0 0 0; runloop size "r"        # 3 files -> XS
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond pr 1 0.10 3
+runloop run
+[[ "$(ledger_field tier 2>/dev/null)" == "" ]] || true
+grep -qE -- '/da-review-all$|/x-review-' "$FAKE_CLAUDE_LOG" \
+  && ok "XS still reviews -- nothing ships unreviewed" \
+  || no "XS skipped the review entirely"
+grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" \
+  && no "XS ran triage, which is the thing it exists to drop" \
+  || ok "   ...and does not run /da-fix-plan"
+grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+  && no "XS ran a fix round" || ok "   ...nor a fix round"
+if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
+  ok "   ...and reaches a PR without them"
+else
+  no "XS did not reach a PR (exit $RC, halt=$(ledger_field halt_reason))"
+  detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
+fi
+# The three things that make the trade survivable, each asserted separately because each can be dropped
+# on its own without the others noticing.
+ls "$LOOPDIR/reviews/" >/dev/null 2>&1 && [[ -n "$(ls -A "$LOOPDIR/reviews/" 2>/dev/null)" ]] \
+  && ok "   ...and the review is written to disk, so a cut-off describe cannot lose it" \
+  || no "the review was never persisted -- a truncated describe round would erase it"
+grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
+  && ok "   ...and the PR body is told the findings are untriaged" \
+  || no "the PR body was not told that nothing triaged the findings"
+[[ "$(ledger | grep -c 'advanced-untriaged')" -ge 1 ]] \
+  && ok "   ...and the ledger says untriaged, not merely advanced" \
+  || no "the ledger cannot tell a clean review from an untriaged one"
+
+# S keeps everything XS drops. Same fixture, one more file.
+setup; measurement 6 1 0 0 0; runloop size "r"        # 6 files -> S
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+respond review 1 0.30 7
+respond triage 1 0.05 2 1 0 0 0
+respond fix 1 0.10 3; side_effect fix 1 'date >> f.txt'
+respond pr 1 0.10 3
+runloop run
+grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+  && ok "S still triages and applies fixes -- one file more than XS, opposite behaviour" \
+  || no "S lost the fix machinery too (exit $RC, halt=$(ledger_field halt_reason))"
+grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
+  && no "S claimed to be untriaged" || ok "   ...and does not claim to be untriaged"
+
 # --- a paths profile must survive commit_landing ----------------------------------
 # THE RISK THIS LANDING IS MOST LIKELY TO SHIP. `commit_landing` runs mid-landing, before review, and
 # the gate's changed set is computed against a base. If that base is HEAD, the verify that follows the
@@ -1495,7 +1567,7 @@ grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
 #
 # Invisible on a `scope: all` profile, which is every other fixture in this file. So the fixture has to
 # be a paths profile that goes all the way through the fix round, or nothing here tests the base at all.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
   "checks": [ { "id": "probe-gate", "cmd": "test -f GREEN", "gate": true,
@@ -1582,7 +1654,7 @@ runloop run
 #
 # What the cap should govern is how many times we REVIEW, not whether the last review's findings get
 # acted on. Applying is cheap and the gate re-verifies it; buying another review is the expensive thing.
-setup; measurement 1 1 0 0 0; runloop size "r"      # tier S -> exactly 1 review round
+setup; measurement 6 1 0 0 0; runloop size "r"      # tier S -> exactly 1 review round
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 1 0 0 0                      # fix_now 1
@@ -1604,7 +1676,7 @@ grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
   || no "fixes applied after the last review reach the PR with nothing said about it"
 
 # A decision still outranks everything -- it stops before any fix is attempted.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 1 1 0 0                      # fix_now 1 AND needs_decision 1
@@ -1624,7 +1696,7 @@ runloop run
 #   "a human must decide this"  -> still halts. The loop must not guess a judgement call.
 #   "I could not verify this"   -> does NOT halt. It rides into the PR body as a caveat, exactly the way
 #                                  GATE_DEFERRED already does for checks the agent may not run.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 0 3      # fix_now 0, needs_decision 0, decline 0, unverified 3
@@ -1649,7 +1721,7 @@ grep -q '確認できなかった (unverified) 所見が 3 件' "$FAKE_CLAUDE_LO
        detail "$(grep -c 'unverified' "$FAKE_CLAUDE_LOG") line(s) mention unverified at all"; }
 
 # A real decision still stops everything, budget remaining or not.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 2 0 0      # needs_decision 2
@@ -1658,7 +1730,7 @@ runloop run
   && ok "a genuine decision still halts the landing" \
   || no "needs_decision no longer halts (halt=$(ledger_field halt_reason)) -- the split went too far"
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 0 4
@@ -1743,7 +1815,7 @@ done
   || no "a clean PR still spent $extra extra round(s) after opening"
 
 # ---------------------------------------------------------------- interruption
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0 0; fails_with implement 1 143
 runloop run
 [[ "$(ledger_field 'halt_reason')" == "interrupted" ]] \
@@ -1751,7 +1823,7 @@ runloop run
   || no "exit 143 recorded halt_reason '$(ledger_field 'halt_reason')'"
 
 # ---------------------------------------------------------------- the ledger itself
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 2; respond pr 1 0.10 3
 runloop run
@@ -1791,7 +1863,7 @@ fi
 #
 # This build of `claude` has no --max-turns. It has --max-budget-usd, which is the better lever anyway:
 # it bounds the thing being complained about, and the harness enforces it rather than the prompt.
-setup; measurement 1 1 0 0 0; runloop size "r"        # 1 file, 0 layers -> tier S
+setup; measurement 6 1 0 0 0; runloop size "r"        # 1 file, 0 layers -> tier S
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
@@ -1805,7 +1877,7 @@ s_budget="$(round_budget '/da-review-all')"
 
 # Tier M, not L: L hands the turn back for the design phase and never reaches review in one `run`, so a
 # tier L fixture measures nothing here. M is the lowest tier above S that runs start to finish.
-setup; measurement 6 1 0 0 0; runloop size "r"        # M
+setup; measurement 11 1 0 0 0; runloop size "r"        # M
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1821,7 +1893,7 @@ else
   no "the review ceiling does not scale with tier (S '$s_budget' vs M '$m_budget')"
 fi
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
@@ -1837,7 +1909,7 @@ t_budget="$(round_budget '/da-fix-plan')"
 # "no cross-layer impact" and hand the report straight through. When `size` already recorded exactly one
 # layer and it is one of the three the toolkit has a skill for, the dispatcher is buying nothing: type
 # the layer skill. This is the LAST structural cost left in the bottom tier after the brief.
-setup; measurement 3 1 0 0 0 "backend"; runloop size "r"
+setup; measurement 6 1 0 0 0 "backend"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
@@ -1853,7 +1925,7 @@ fi
 # The fallback is the part that must not be clever. A layer name the toolkit has no skill for, or more
 # than one layer, or none at all, all go back to the dispatcher -- guessing which skill to type would
 # review a layer with the wrong checklist and report it as covered.
-setup; measurement 3 1 0 0 0 "mobile"; runloop size "r"
+setup; measurement 6 1 0 0 0 "mobile"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
@@ -1862,7 +1934,7 @@ grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
   || { no "an unknown layer did not fall back -- something guessed a skill name"
        detail "$(grep -oE '/(da-review-all|x-review-[a-z-]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"; }
 
-setup; measurement 1 0 0 0 0; runloop size "r"    # docs-only: zero layers
+setup; measurement 6 0 0 0 0; runloop size "r"    # docs-only: zero layers
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
@@ -1880,7 +1952,7 @@ grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
 # size/review/triage/pr worked, isolate/verify/implement/debug/fix did not. The suite could not see it,
 # because the stub is a bash script that takes argv as given -- variadic parsing exists only in the real
 # CLI. So what is asserted is the ORDERING PROPERTY that makes the parse safe.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
@@ -1908,7 +1980,7 @@ bad_calls=$(node -e '
 # environment -- `git status --short` came back "requires approval", and headless there is nobody to
 # approve. /da-review-all's Step 1 IS `git diff`, so the review phase never established its scope; the
 # 50 turns and $6.19 were retries against a permission wall, not depth.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
@@ -1940,7 +2012,7 @@ fi
 # reads `git worktree list`, the verify phase reads the gate -- so a cut-off round there surfaces as the
 # observable failure it caused. The other two are blind, and each is blind in its own way.
 setup
-measurement 1 1 0 0 0
+measurement 6 1 0 0 0
 runloop size "r"
 [[ -n "$(round_budget '/da-investigate')" ]] \
   && ok "the size round carries a ceiling (\$$(round_budget '/da-investigate'))" \
@@ -1965,7 +2037,7 @@ grep -qi 'json-schema' <<<"$OUT" \
 # The PR phase is the one place where halting cannot undo what happened: `gh stack submit` has already
 # opened the PR by the time the body is written. So a cut-off /da-pr-describe leaves a REAL PR carrying
 # a half-written description, recorded `opened-pr` -- the "looks done, isn't" shape. It must be said.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
@@ -2014,7 +2086,7 @@ fi
 # make the round cheaper") existed and was unreachable.
 #
 # The eighth run died this way at $2.07 against a $2.00 ceiling.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_budget_usd
 fails_with review 1 1                       # ...and the process exits 1, as the real CLI does
@@ -2027,7 +2099,7 @@ grep -qiE 'ceiling|天井' <<<"$OUT" \
   || no "the halt message does not mention the ceiling"
 
 # The two reasons that must still outrank it, because they are more specific about what happened.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; fails_with implement 1 143
 runloop run
 [[ "$(ledger_field halt_reason)" == "interrupted" ]] \
@@ -2039,7 +2111,7 @@ runloop run
 # truncated review was recorded `outcome: advanced` and its half-written report was handed to triage as
 # though it were a finished one. Nothing downstream could tell, and 🔎 in the report would not say so
 # either -- the model does not know it was cut off.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_budget_usd
 respond triage 1 0.05 2 0 0 3
@@ -2061,7 +2133,7 @@ fi
 # Asserted on halt_reason, not on `outcome != advanced`. The first version of this check read the LAST
 # ledger line, which on a run that completes is the PR phase (`opened-pr`) -- so it passed while the
 # driver was doing exactly the wrong thing, and passed for the same reason in both truncation cases.
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_something_invented_later
 respond triage 1 0.05 2 0 0 3
@@ -2070,7 +2142,7 @@ runloop run
   && ok "an unrecognised subtype fails closed rather than passing as success" \
   || no "an unknown subtype passed as a successful round (halt_reason=$(ledger_field halt_reason)) -- the allowlist is inverted"
 
-setup; measurement 1 1 0 0 0; runloop size "r"
+setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 printf '{"total_cost_usd":0.30,"num_turns":7,"subtype":"success","result":"ok"}' \
   > "$FAKE_CLAUDE_DIR/review.1.json"
@@ -2092,7 +2164,7 @@ node -e '
   for (let i = 0; i < 400; i++) l.push(JSON.stringify({ts:"t",repo:"r",branch:"b",phase:"implement"}));
   fs.writeFileSync(process.argv[1], l.join("\n") + "\n");
 ' "$LOOPDIR/ledger.jsonl"
-measurement 1 1 0 0 0; runloop size "r"
+measurement 6 1 0 0 0; runloop size "r"
 lines="$(wc -l < "$LOOPDIR/ledger.jsonl" | tr -d ' ')"
 [[ "$lines" -gt 400 ]] \
   && ok "the ledger is append-only and never trimmed ($lines lines)" \

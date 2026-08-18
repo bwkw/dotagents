@@ -12,7 +12,7 @@ is worse than no translation. This toolkit has one user, and they read Japanese.
 Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape is
 in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
 context — is in `docs/mechanisms.md`, with sources. What was decided, and what was decided *wrongly*, is
-in `docs/decisions.md`. How to run work through the loop driver — the S/M/L tiers, what stops a landing,
+in `docs/decisions.md`. How to run work through the loop driver — the XS/S/M/L tiers, what stops a landing,
 and how to read the ledger — is in `docs/loops.md`. This file holds only what you cannot get by looking.
 
 ## Invariants

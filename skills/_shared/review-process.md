@@ -172,6 +172,40 @@ five agents. So 🔎 names **any cluster that got only a token pass**, and says 
 review and the dishonest one differ by that sentence, and the uncapped fan-out never wrote it either: it
 was equally shallow at 29 subagents and reported nothing about it.
 
+## Step 5b. The four sweeps that apply to every layer
+
+The clusters above are about the code. These four are about **the diff as a whole**, they belong to no
+layer, and each one is a category of finding that a cluster-by-cluster read structurally cannot produce.
+They came out of a real review that landed 14 findings, **half of them in tests, documentation and
+naming** — the half a "reviewed the main changes" pass never reaches.
+
+**1. Read every file in the diff, one at a time.** Not "the important ones". Tests, fixtures, seed
+scripts, scenario files, skill references, specs. A change is not reviewed until every file it touches
+has been opened; say which files you opened and which you did not.
+
+**2. Sweep for what the change made stale.** Renames and deletions leave references behind, and nothing
+fails. Search the codebase for **every identifier the diff removed or renamed** and judge each surviving
+hit as either *a different concept* or *stale*. Specifically:
+
+- references to deleted error classes, functions, types
+- prose saying "validated at runtime" where the change moved it into the type
+- **counts** — "the 8 axes", "these 3 fields" — which stop being true the moment a shape changes
+- cross-references pointing at headings that the diff renamed
+- **mirrored documents** (`.claude/` and `.cursor/`, or any doc kept in two places) — both copies
+- JSDoc separated from what it documents, by an insertion landing between them
+
+**3. Is the diff proportional to the change?** Abstraction introduced to satisfy a review comment is
+still abstraction. A thin wrapper, a utility with one caller, a class that exists to hold two functions:
+**ask what deleting it would cost in lines.** If the answer is "nothing", it should not be there. The
+same question run the other way: two places assembling the same thing with a few fields different should
+be one place.
+
+**4. Was it verified, or was it sent to CI to find out?** "CI will tell us" is not verification when the
+repository can reproduce CI locally — find the command and say whether it was run. A completion report
+must carry **what was checked and where**: "type errors 0", "unit N passed", "sql against a real
+instance N passed", "the production query returns 0 rows". **Anything unchecked is written as unchecked.**
+Fixing one annotation at a time and pushing again is a finding about the process, not just the code.
+
 ## Step 6. Verify
 
 Follow `verification.md`. Both 6a (refutation) and 6b (challenging the clears, hunting what was
