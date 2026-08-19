@@ -1944,8 +1944,20 @@ cmd_report() {
       .filter((o) => o && o.repo === repo);
     const byPhase = {}, landings = new Set(), accepted = new Set(), halts = {};
     let total = 0, rounds = 0;
+    // ROWS WRITTEN BEFORE `consume_round_numbers` KEEP THEIR WRONG NUMBERS, and the ledger is
+    // append-only on purpose -- a test asserts that it is never trimmed. So the totals below cannot be
+    // corrected; they can only be qualified, and this counts by how much. Detected by the SYMPTOM, not
+    // by a date: `record` wrote the round globals, so a round whose numbers were written twice appears
+    // as two rows of one landing with the same cost AND the same turn count. A date would need the
+    // version of `loop.sh` that wrote each row, which the row does not carry.
+    const seen = new Set();
+    let dupExcess = 0, dupRows = 0;
     for (const r of rows) {
       const c = Number(r.cost_usd) || 0;
+      if (c > 0) {
+        const key = [r.landing, c, r.turns].join("|");
+        if (seen.has(key)) { dupExcess += c; dupRows++; } else { seen.add(key); }
+      }
       total += c;
       byPhase[r.phase] = (byPhase[r.phase] || 0) + c;
       if (r.phase === "size") continue;
@@ -1970,6 +1982,7 @@ cmd_report() {
         cost_total_usd: total, cost_per_accepted_usd: a ? total / a : null,
         implement_rounds: rounds, rounds_per_landing: n ? rounds / n : null,
         cost_by_phase: byPhase, halted: halts,
+        double_counted_usd: dupExcess, double_counted_rows: dupRows,
       }, null, 2) + "\n");
     } else {
       const pct = n ? Math.round((a / n) * 100) : 0;
@@ -1981,6 +1994,14 @@ cmd_report() {
       console.log(`cost by phase           ${phases || "--"}`);
       const h = Object.keys(halts).map((k) => `${k} ${halts[k]}`).join(", ");
       console.log(`halted                  ${h || "nothing"}`);
+      if (dupRows) {
+        console.log("");
+        console.log(`${money(dupExcess)} of the figures above is counted twice, across ${dupRows} row(s).`);
+        console.log("Those rows repeat the cost and turn count of a round already billed: they were");
+        console.log("written before the driver stopped billing one round more than once. The ledger is");
+        console.log("append-only, so they keep them: cost by phase and cost per accepted are overstated");
+        console.log("by that much.");
+      }
       if (n && a / n < 0.5) {
         console.log("");
         console.log("Acceptance is under 50%: the loop is handing review work back to you rather than");
