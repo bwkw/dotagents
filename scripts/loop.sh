@@ -109,7 +109,14 @@ BUDGET_ROUND_FINDBUGS_LEAN=1.50 # tier S
 # three measurements in one session -- 37% of that session's total spend on deciding how much process to
 # buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
 BUDGET_ROUND_SIZE=1.25
-BUDGET_ROUND_PR=1.50         # writing one PR body
+# MEASURED ONCE, at $1.55 -- and raised on the asymmetry, not on the number. The first end-to-end run
+# (2026-08-19, tier XS) had `/da-pr-describe` cut off at $1.50, and the PR opened with the template
+# UNFILLED: no summary, no verification, and unchecked boxes that claim nothing. Too low costs the
+# entire body and the landing continues anyway (`opened-pr-partial-body` does not halt); too high costs
+# money and says so out loud, because a ceiling overrun surfaces as `truncated`. One sample cannot pick
+# a number -- this repository's own note says deciding from one sample always misses -- so the value is
+# taken from its sibling round rather than from $1.55 + a guess.
+BUDGET_ROUND_PR=2.50         # writing one PR body; same as COMMENTS, which is the same kind of work
 BUDGET_ROUND_CI=2.00         # one attempt at a red CI
 BUDGET_ROUND_COMMENTS=2.50   # addressing a round of human review comments
 BUDGET_ROUND_REPLY=1.00      # composing the replies (posting is the driver's job, not the round's)
