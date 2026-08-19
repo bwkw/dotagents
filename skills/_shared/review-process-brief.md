@@ -58,7 +58,7 @@ blind spot. **Subagents were never the unit of rigour — the clusters are.**
 | **0. Design soundness** | Should this be built this way at all? The only cluster that can conclude no. |
 | **1. Intent and semantic correctness** | Is the code internally consistent and answering a *different question* than the one asked? Measured as 51.3% of bugs that survive review — the largest single category. |
 | **2. Architecture and boundaries** | Layer direction, module boundaries, where responsibility sits. |
-| **3. Aggregates and transaction boundaries** | What one transaction may span; cross-aggregate invariants. |
+| **3. Aggregates and transaction boundaries** | What one transaction may span; cross-aggregate invariants. **A new lock says the invariant crosses aggregates; a new undo path says the two boundaries disagree** — raise the boundary, not the mechanism. A rule read off an aggregate's fields from outside is that aggregate's method. |
 | **4. Security, authorization, tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The one category where being wrong once is already the incident. |
 
 Then the layer's own clusters, as far as the diff reaches them. At this size most will not apply — say
@@ -82,10 +82,10 @@ which did not, rather than implying all were worked.
 Return schema: as in `finding-discipline.md` — `{id, severity, irreversible, file, perspective, finding,
 why, recommendation, comment, kind, confidence}`.
 
-## 4b. The four sweeps — they do not shrink with the diff
+## 4b. The five sweeps — they do not shrink with the diff
 
-These belong to no cluster and a small diff does not excuse them. Half the findings of the review these
-came from were in tests, docs and naming.
+These belong to no cluster and a small diff does not excuse them. Half the findings of the review the
+first four came from were in tests, docs and naming.
 
 - **Every file in the diff, one at a time** —— tests, fixtures, seeds, scenarios, specs. Say which you
   opened and which you did not.
@@ -96,6 +96,11 @@ came from were in tests, docs and naming.
   **what would deleting it cost in lines?** Nothing → it should not be there.
 - **Verified, or sent to CI to find out?** If the repository can reproduce CI locally, say whether that
   was run. A completion claim carries what was checked and where; **unchecked is written as unchecked.**
+- **Every finding is a query —— where is its twin?** In one review of nine findings, **four were the
+  second copy of another**. Look at: interface ↔ implementation, sibling handlers, the read path ↔ the
+  write path (SQL against a domain method), wire type ↔ domain type, mirrored docs and fixtures. Report
+  the set as **one finding with every `file:line`** —— "and similar elsewhere" leaves the search to the
+  author.
 
 ## 5. Verify — a second pass, in this context, with the question inverted
 

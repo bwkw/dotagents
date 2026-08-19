@@ -77,6 +77,35 @@ does something other than what it was asked to do, and it reads as plausible whi
 - New or updated dependencies: is there no alternative, licence, known CVEs, direct imports only as
   direct dependencies, transitive pins via overrides, and is the lockfile diff intentional?
 
+The five questions below are how the third bullet is actually answered. Each has a tell in the diff, and
+none of them look like a violation line by line — which is why "the rule is in the domain layer" gets
+ticked while the rule is in three handlers.
+
+- **Behaviour that belongs on the aggregate, sitting outside it.** The tells: a helper whose first
+  argument is the entity and which reads two of its fields to reach a verdict; a use case comparing
+  `submission.version` against the flow's own; a `*-helper.ts` or `*Service` next to the entity holding
+  what reads as a rule. **A function that opens an aggregate's fields to decide something about that
+  aggregate is that aggregate's method** — invisible in a diff, because every individual line is just a
+  field read. Cluster 8b carries the test to apply and what to do instead.
+- **A lock is a statement about where the boundary is.** An advisory lock, a `SELECT FOR UPDATE`
+  spanning two tables, or a serialisable transaction introduced to protect an invariant means **the
+  invariant crosses aggregates and no single transaction covers it.** The lock may well be the right
+  trade; the finding is the boundary, and it is worth raising as 🧭 even when the locking is correct. Ask
+  whether the invariant can be made **local** — one side holding the value it needs rather than reading
+  the other's — and, if the lock stays, what forces the *next* entry point to take it
+  (`silent-failure-patterns.md`, pattern 1).
+- **Needing compensation means the transaction boundary and the aggregate boundary disagree.** An undo
+  path spanning two aggregates is a saga, whether or not the PR calls it one. Check it is built as one —
+  a single applier, reached by every path (cluster 6) — rather than as error handling written per call
+  site. And where the effect left the system (a filing, a charge, an email), no compensation exists at
+  all: that is cluster 3's irreversibility, not a rollback.
+- **CQRS buys a second read path, never a second definition of a rule.** A QueryService, projection or
+  list SQL that re-derives what the aggregate decides is one rule modelled twice; they agree until the
+  next state is added; 8b carries the tell.
+- **Ports belong to the domain, and consumers depend on them as declared.** The abstract repository sits
+  under the domain; a use case that re-types its shape inline instead of importing it has silently forked
+  the interface (cluster 8).
+
 ### 3. Data model, persistence, migrations ★irreversibility
 
 - **Migration irreversibility**: dropping or renaming a column, changing a type, adding NOT NULL,
@@ -132,6 +161,21 @@ release on **every** path including the error path: connections, file handles, s
 timers, listeners, spans. An unbounded buffer, cache, or in-memory accumulator that grows per request is
 the same defect with a slower fuse.
 
+**Guards before the first side effect.** A validation that runs *after* the mutation it exists to prevent
+turns a rejection into an undo: the version and position check landing after the row is claimed, the
+quota check after the counter is incremented, the eligibility check after the notification is queued. Ask
+of every new guard **what has already happened by the time it fails.** Reordering it is usually free, and
+it deletes the rollback path — which is where the next item's bugs live.
+
+**Compensation handed back to the caller.** A function that returns *what should be undone* — a rollback
+descriptor, a list of side effects to reverse, a cleanup callback — has moved a side effect into a value,
+and the compiler does not force anyone to spend it. One caller applies it, the next drops it on the floor,
+and the state is left half-changed with nothing failing and nothing logged. Two questions: **is there
+exactly one applier, and does every path that produces one reach it?** Ask the same of pairs that must
+always happen together — release the claim *and* revert the status. **A two-step pair assembled by hand at
+five call sites is wrong at the fifth**, and the omission is invisible in a diff that shows only the
+site being added.
+
 - Idempotency: re-runs, retries, and duplicate delivery must not double-apply — double provisioning,
   double billing, duplicate notifications. Retry and backoff behaviour.
 - **Concurrent write conflicts** — lost update, check-then-write TOCTOU, unique-constraint races —
@@ -177,6 +221,13 @@ Report anything that fails one of these, naming the specific field or signature:
   the same three lines of narrowing?
 - **Enforcement** — is there a path around it? An `as` cast, a raw query typed `any`, a `JSON.parse`
   with no schema at the boundary.
+- **A structural subset standing in for a declared port.** Typing a dependency inline —
+  `deps: { findById(id): Promise<X> }` — rather than importing the abstract repository from where it is
+  declared compiles forever: the real class can gain a parameter, change a return type, or move, and
+  **nothing points at the mismatch**, because structural typing only asks whether *this* shape is
+  satisfied. Test doubles satisfy the hand-written shape too, so the suite stays green while the fake and
+  the real one drift apart. Ask why the declared interface is not imported — "it made the test easier to
+  write" is the reason that produces this, and it trades a compile error for a runtime one.
 - **Modelled on one side only.** The commonest half-done version: the *set* of kinds gets narrowed
   (`z.enum(['FIXED','TODAY'])`) while **kind and value stay separate fields**, so `{kind:'TODAY',
   value:'2020-04-01'}` is still constructible. That looks like "we typed it" and is not. Ask the
@@ -211,6 +262,26 @@ the type guarantees cannot be forgotten at the eleventh call site somebody adds 
   situation ("the fixed value is empty" used for "no default was supplied") is a lie the next reader
   believes. And the status code: **corrupted stored data is not 4xx** — the caller cannot fix their
   request.
+- **A predicate that carries only half of the invariant.** The rule is "the latest submission **and**
+  the caller's own step". Extracted as a helper answering the version half alone, it reads *complete* at
+  the call site — its name does not say what is missing — so the position half gets checked in some
+  callers and forgotten in others. Both halves of the fix matter: give the predicate the whole question
+  (**one `Result` carrying the reason**, not two booleans every caller must remember to AND), and put it
+  on the aggregate whose fields it reads. **A helper that opens two fields of one aggregate to decide
+  something about that aggregate is that aggregate's method**; the fields merely being reachable from
+  outside is not an argument for deciding it outside.
+- **Which failure wins is domain knowledge too.** When two guards can reject the same request, their
+  order decides the message the user sees. Ordered independently in each handler, the same state answers
+  differently depending on the route taken to it, and correcting one leaves the other. Ask whether the
+  precedence exists in exactly one place.
+- **The rule, and its `WHERE` clause.** A status predicate written once as `isSubmitted()` on the entity
+  and once as SQL for the list screen is two rules that agree today. The tell is an **exclusion list**:
+  `status NOT IN ('Recalled')`, or `!== 'Recalled'`, **admits every status added after it** — the next
+  state joins the set silently, and a screen starts showing rows it was never meant to. The inclusion
+  form excludes new states instead, which fails visibly and cheaply. So: which direction is safe here,
+  and can both sides be derived from one place? Where a screen genuinely needs a different set, that
+  divergence belongs in the code as a **named exception with its reason** — the returned-items tab needs
+  the status the aggregate excludes — not as two expressions that happen to differ.
 
 ### 9. Dependencies, licensing, and supply chain
 
@@ -232,10 +303,12 @@ header missing from a new file, which broke the build rather than being caught i
   for database writes, external integrations, and anything spanning a transaction.
 - **Is each test necessary, and is it at the right level?** The same rule asserted at contract, entity
   and sql level is one rule paid for three times — and a rule that is a pure function should not be
-  reachable only through a sql test. Conversely, **an invariant the change moved into the type leaves a
-  test behind that now either fails to compile or asserts nothing.** Test names and comments describing
-  a state the types no longer permit ("sending the value alongside is normalised") are stale by
-  construction.
+  reachable only through a sql test. The reason is not tidiness: **a rule pinned only by a slow sql or
+  end-to-end test is a rule whose test is deleted the next time the suite is too slow** — and the guard
+  deciding whether a button is enabled is a pure function of the aggregate, so pin it at that level.
+  Conversely, **an invariant the change moved into the type leaves a test behind that now either fails to
+  compile or asserts nothing.** Test names and comments describing a state the types no longer permit
+  ("sending the value alongside is normalised") are stale by construction.
 - Do the tests exercise the production read and DI paths (no shortcut assertions, no swallowed
   `Result`s)?
 - **Where a path has silent, irreversible side effects** (see `silent-failure-patterns.md`), is the

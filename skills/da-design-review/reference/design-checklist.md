@@ -20,6 +20,41 @@ impossible to take back, and does it know that it is doing so?**
 - **Does this propagate a pattern?** If the plan follows an existing pattern, is that pattern sound,
   or is this the Nth instance of something nobody has revisited? Open it once and check. → 🧭
 
+## 0b. Aggregate and transaction boundaries ★a rewrite if wrong
+
+The skill body weights these with architecture and security, **above where code review weights them**,
+and this dimension is where that weighting is spent: at plan stage a boundary is a paragraph, and
+afterwards it is every call site that grew around it. **A plan silent on all of this is ❓, not a pass.**
+
+- **What is one aggregate here, and what is one transaction?** For every write the plan describes: which
+  aggregate owns it, and does a single transaction cover the whole state change? "Update the submission
+  and advance the flow" without saying whether that is one transaction has not decided anything yet.
+- **Write the invariants as sentences, then ask what can see them.** "Only the latest submission may be
+  approved, and only by the current step's approver" names two things. **Can one aggregate see everything
+  the sentence names?** If not, the invariant is cross-aggregate, and the plan must say what holds it:
+  the same transaction, a lock, or an accepted window in which it can be violated.
+- **A lock in the plan is a statement about the boundary, not a detail of it.** Reaching for an advisory
+  lock, a `SELECT FOR UPDATE` across two tables, or a serialisable transaction says the boundary sits
+  somewhere the invariant does not. Sometimes that is the cheaper answer — but ask the alternative out
+  loud: **can the invariant be made local**, one side holding the value it needs instead of reading the
+  other's? And if the lock stays: **what forces every future entry point to take it?** A choke point or
+  an architecture test, never a comment enumerating today's callers
+  (`silent-failure-patterns.md`, pattern 1).
+- **If the plan needs to undo, the two boundaries already disagree.** Release the claim, revert the
+  status, cancel what was sent — that is a saga, and it must be planned as one: **one applier, reached by
+  every failing path**, not "roll back on error" left to the implementation. Where the effect left the
+  system, no compensation exists at any layer — that belongs in dimension 1.
+- **Guards before the first side effect.** Ordering is free in a plan and expensive in code: validate
+  before claiming, incrementing, sending or writing. Every guard the plan places after a mutation is a
+  rollback path somebody has to write, test and get right.
+- **Where will the rule live once written?** The test to apply now: **if a second entry point — an admin
+  screen, a batch job, a new endpoint — is added next quarter, must this check be copied?** If yes, the
+  plan should say the rule sits on the aggregate. The same for ports: the repository interface belongs in
+  the domain, its implementation outside.
+- **One rule, one definition — including the read side.** A list screen filtering on status in SQL while
+  the aggregate decides the same thing in code is one rule written twice; they agree until the next status
+  exists. The plan should name which is authoritative and how the other derives from it.
+
 ## 1. One-way doors ★highest priority
 
 The distinguishing question of a design review: **what becomes irreversible, and when?**
