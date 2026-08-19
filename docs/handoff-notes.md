@@ -5,47 +5,53 @@
 
 ### いま半端なもの
 
-- **PR が3本、マージ待ちです。** #55（レビュー観点）・#56（この引き継ぎ機構）・#57（台帳の PR 到達）。
-  3本ともファイルの重なりはゼロで、順序の制約もありません。**マージだけは自動では実行できませんでした**
-  —— `gh pr merge` が権限分類器に止められるので、人が押す必要があります
-- **`fa5bb58`（台帳が PR 到達を数えない件）はもう回し切ってあります。** `bash scripts/check.sh` 全12項目緑、
-  main に rebase 済み（`0f2f2c1`）。**残っているのは実走**で、`pr-reached` を記録する経路は一度も
-  走っていません
-- **`CHANGELOG.md` が main に存在しません。** `release/v1.0.0` と `portability/remaining-items-onto-main`
-  が**別々に**「Unreleased を 1.0.0 に確定」しようとしていて、**どちらも入っていない**。`LICENSE`・
-  `CONTRIBUTING.md`・`SECURITY.md` は入っているので、公開の作業は途中まで landing しています
+- **PR は3本ともマージ済みです**（#55 レビュー観点 / #56 この引き継ぎ機構 / #57 台帳の PR 到達）。
+  合流後の main で `check.sh` を回し直しています —— **3本は別々の main に対して検査していたので、
+  3本が同時に載った状態は誰も走らせていませんでした。**
+- **`fa5bb58` は PR #57 として入りました**（`0f2f2c1`）。`pr-opened` は `pr-reached` に改名してあります
+  —— `opened-pr` と語順しか違わない outcome は、タイプミス1回と grep 1回で互いに読み替わるため。
+  **残っているのは実走で、`pr-reached` を書く経路はまだ一度も走っていません。**
+- **`CHANGELOG.md` は「入っていない」のではなく、外すと決めてあります。** `5eda631`（移植性を直すことと
+  製品にすることを混同していた）で削除され、`docs/decisions.md`（「外したもの: `CHANGELOG.md`、タグ」）と
+  `docs/portability.md` の9行目（「**やらないと決めた**」）に理由ごと残っています。**この項は一度
+  「1.0.0 をどうするか決める」という未決事項として書かれました** —— ブランチ名と `git cherry` だけを見て、
+  **決定の記録を検索しなかった**ためです。**未マージのブランチは、未着手の作業とは限りません。**
 
-### 未マージのローカルブランチ 16本 —— patch-id で見た分類
+### 残っているローカルブランチ 6本 —— 整理済み
 
-`git cherry origin/main <branch>` で判定（`-` は同じ patch が main に既にある）。**ブランチ名から
-推測しないこと**、と同時に**16本あるという表示に怯まないこと** —— 実際に未着手なのは4本です。
+**37本を7本（main + 6）にしました。** 判定は `git cherry origin/main <branch>` の patch-id です:
+内容が main にあるもの10本（マージ済み3本を含む）と、main の祖先21本を削除しました。後者は
+`git branch -d` —— **未マージなら拒否される側**を使っているので、原理的に取り違えが起きません。
 
-| 状態 | ブランチ | 扱い |
-|---|---|---|
-| **内容は main にある**（全 commit が `-`） | `feat/skill-body-integrity` `fix-cursor-model-claim` `portability/remaining-items` `portability/works-on-another-machine` `pr-describe-table-and-japanese` `revert-model-pin` `review-perspectives-and-change-map` | 削除して良い |
-| **一部だけ未 landing** | `portability/remaining-items-onto-main`（4本中1本 = CHANGELOG の 1.0.0） | 上の CHANGELOG の件と同じ |
-| **未 landing** | `release/v1.0.0`（CHANGELOG）`review-fanout-cost` `worktree-dotagents-work` `worktree-unattended-landing` `worktree-unattended-run` | 下記 |
-| **PR 待ち** | `chore/handoff-script` `feat/review-perspectives-twins` `fix/ledger-records-pr-arrival` | #55 / #56 / #57 |
+| 残っているもの | なぜ |
+|---|---|
+| `release/v1.0.0` `portability/remaining-items-onto-main` | **決定により不要**（上の CHANGELOG の項） |
+| `review-fanout-cost` | **前提が消えている** —— レビューは subagent 0本（`AGENTS.md` invariant 10） |
+| `worktree-unattended-landing` | **内容は main にある**（`CI_ATTEMPTS` / `CI_WAIT_SECONDS` は `docs/loops.md:667,686`）。捨てて良い |
+| `worktree-unattended-run` | 停止理由の「中心／外周」表 88行が **main に無い**。中身の検証が要る |
+| `worktree-dotagents-work` | README の実走記述を直す変更。**本文自体が古い**ので、取り込まず今日の台帳から書き直した |
 
-- **`review-fanout-cost` は前提が消えています。** レビューは subagent 0本になったので、ファンアウトに
-  予算を付ける変更は入れる先がありません（`AGENTS.md` の invariant 10 が「the review now runs zero
-  subagents」と書いている）
-- **`worktree-*` の3本は実走の産物**で、いずれも `docs/loops.md` か `README.md` の1ファイル編集です。
-  その後の docs 編集と重なっている可能性が高いので、**差分を読んでから**判断すること
-- `origin` に残っているのは `feat/skill-body-integrity` 1本だけで、**PR が無いまま**残っています
+**`origin` には `feat/skill-body-integrity` が PR 無しで残っています**（内容は main）。remote 側の
+削除はしていません。
 
 ### 次にやること（優先順）
 
 1. **tier XS の初実走。** 実装もテストも入っているが**一度も走っていない**。テストでしか通っていない
    経路が3つ: `advanced-untriaged` の台帳記録 / レビュー報告のディスク保存（`$LOOP_DIR/reviews/`）/
    PR 本文の未 triage 注記
-2. **review の天井を上げる。** 現在 $1.50 に対し実測 $0.88〜$2.07 で、**$2.07 の回が `round_failed`
-   で死んでいる**。根拠は揃っているので $2.50 前後へ
+2. **review の天井は、もう上がっています —— 次は測ること。** この項は「現在 $1.50 に対し実測
+   $0.88〜$2.07、$2.07 の回が `round_failed` で死んでいる」と書かれていましたが、**二重に誤り**でした:
+   `$1.50` は `BUDGET_ROUND_PR`（PR 本文を書く周）で、review の天井は `BUDGET_ROUND_REVIEW=5.00` /
+   `_LEAN=3.00`（当時 `_S=2.00`）。そして `round_failed` は予算超過ではなく「**exited N。何をしたかに
+   ついては何も主張しない**」（`scripts/loop.sh:1006`）。**8回目が $2.07 で死んだのは天井超過が
+   `round_failed` に化けていたから**で、判定順も天井も修正済みです（`loop.sh:991-1003` がこの回を
+   名指しで記録）。**残っているのは、上げたあとの実走が1本も無いこと** —— いまの $3.00 は測定では
+   なく選び直した数字です
 3. **implement に天井が無い。** 実測 $0.83〜$4.56 と5倍以上振れる。**1サンプルで決めると必ず外す**
 4. **ゲートが landing の壁時計を支配**（`docs/decisions.md` §29、未対処）。ただし「docs 1ファイルの
    ゲートが 5〜8分から3秒」になった PR があるので、部分的に解消している可能性あり —— **未確認**
-5. **`CHANGELOG.md` と 1.0.0 をどうするか決める。** ファイルが main に無い状態で、確定しようとした
-   ブランチが2本ある
+5. **`worktree-unattended-run` の88行を読んで、入れるか捨てるか決める。** 停止理由を「中心／外周」に
+   分けた表で、main には無い唯一の未 landing な中身です
 
 ### 繰り返し出ている形（次も出ます）
 
