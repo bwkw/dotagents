@@ -30,6 +30,15 @@ What to do, concretely:
 The last step is the one that gets skipped. "All current callers happen to be correct" is a snapshot,
 not an invariant; the fifth caller is written by someone who never read this PR.
 
+**The tell is a comment that enumerates the callers.** "Acquired by these three paths only", "always
+called after the lock is held" — that is the invariant written in the one place nothing can check, and it
+reads as a guarantee precisely because someone was specific enough to count. The list is true the day it
+is written and silently false the day a fourth entry point appears; the author of that entry point never
+opens the comment, because nothing sends them there. Ask for the mechanism instead: a **choke point** the
+new caller cannot go around — the lock taken inside the only function through which the operation can
+start — or an architecture test that fails when a caller shows up outside the set. **A doc comment
+documents an intent; it never enforces one.**
+
 ## 2. Fail-open or fail-closed — which way does the silence fall?
 
 For every default value, evaluation error, missing context, or absent key, establish the **direction

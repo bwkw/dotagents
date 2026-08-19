@@ -153,6 +153,12 @@ exist, what the ordering is — if the frontend enumerates it a second time, the
 first time the backend adds one. **The server should send it and the frontend should follow.** When you
 see such a list in frontend code, ask what makes it impossible for it to disagree with the server.
 
+When the re-stated rule is a **conjunction**, check that every term survived the copy. An enablement
+check that keeps "this step is mine" and drops "this is the latest version" renders a button that looks
+actionable on stale data, and the missing term surfaces only as an error *after* the click. The safe
+shape is the server deciding and sending the single answer, with the reason attached for the disabled
+case.
+
 **Exhaustiveness the compiler enforces.** `as const satisfies readonly T[]` **type-checks on a subset**:
 the backend adds a kind, this list stays short, and nothing fails to compile. `Record<Union, …>` does
 not have that hole. For any options list, ordering or label map, ask: **if the server adds one tomorrow,

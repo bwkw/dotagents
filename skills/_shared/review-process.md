@@ -172,12 +172,13 @@ five agents. So 🔎 names **any cluster that got only a token pass**, and says 
 review and the dishonest one differ by that sentence, and the uncapped fan-out never wrote it either: it
 was equally shallow at 29 subagents and reported nothing about it.
 
-## Step 5b. The four sweeps that apply to every layer
+## Step 5b. The five sweeps that apply to every layer
 
-The clusters above are about the code. These four are about **the diff as a whole**, they belong to no
+The clusters above are about the code. These five are about **the diff as a whole**, they belong to no
 layer, and each one is a category of finding that a cluster-by-cluster read structurally cannot produce.
-They came out of a real review that landed 14 findings, **half of them in tests, documentation and
-naming** — the half a "reviewed the main changes" pass never reaches.
+The first four came out of a real review that landed 14 findings, **half of them in tests, documentation
+and naming** — the half a "reviewed the main changes" pass never reaches. The fifth came out of a later
+one, where **four of nine findings turned out to be the second copy of another finding.**
 
 **1. Read every file in the diff, one at a time.** Not "the important ones". Tests, fixtures, seed
 scripts, scenario files, skill references, specs. A change is not reviewed until every file it touches
@@ -205,6 +206,21 @@ repository can reproduce CI locally — find the command and say whether it was 
 must carry **what was checked and where**: "type errors 0", "unit N passed", "sql against a real
 instance N passed", "the production query returns 0 rows". **Anything unchecked is written as unchecked.**
 Fixing one annotation at a time and pushing again is a finding about the process, not just the code.
+
+**5. Every finding is a query — run it across the codebase before writing it down.** The four twins in
+that review were: the same doc comment left documenting the member below it, on the interface *and* on the
+implementation; the same guard expression pasted into a second handler; the same status rule written once
+as an entity method and once as a `WHERE` clause. Every one was found by asking **"where else does this
+exist?"** — none by reading the file the first copy was in. The places a twin hides:
+
+- **interface ↔ implementation** — the mechanical mistakes get made on both sides, in one sitting
+- **sibling handlers, use cases and endpoints** that were copied from each other
+- **the read path ↔ the write path** — the same rule as SQL and as a domain method
+- **the wire type ↔ the domain type ↔ the editing state** — one shape, narrowed in only one of them
+- **mirrored documents**, and a fixture or snapshot holding the shape a second time
+
+Report the set as **one finding carrying every `file:line`**. "And similar elsewhere" is not that: it
+leaves the search to the author, who will do it for the sites they remember.
 
 ## Step 6. Verify
 
