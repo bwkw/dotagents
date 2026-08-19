@@ -58,7 +58,7 @@ blind spot. **Subagents were never the unit of rigour — the clusters are.**
 | **0. Design soundness** | Should this be built this way at all? The only cluster that can conclude no. |
 | **1. Intent and semantic correctness** | Is the code internally consistent and answering a *different question* than the one asked? Measured as 51.3% of bugs that survive review — the largest single category. |
 | **2. Architecture and boundaries** | Layer direction, module boundaries, where responsibility sits. |
-| **3. Aggregates and transaction boundaries** | What one transaction may span; cross-aggregate invariants. |
+| **3. Aggregates and transaction boundaries** | What one transaction may span; cross-aggregate invariants. **A new lock says the invariant crosses aggregates; a new undo path says the two boundaries disagree** — raise the boundary, not the mechanism. A rule read off an aggregate's fields from outside is that aggregate's method. |
 | **4. Security, authorization, tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The one category where being wrong once is already the incident. |
 
 Then the layer's own clusters, as far as the diff reaches them. At this size most will not apply — say

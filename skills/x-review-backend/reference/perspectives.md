@@ -77,6 +77,35 @@ does something other than what it was asked to do, and it reads as plausible whi
 - New or updated dependencies: is there no alternative, licence, known CVEs, direct imports only as
   direct dependencies, transitive pins via overrides, and is the lockfile diff intentional?
 
+The five questions below are how the third bullet is actually answered. Each has a tell in the diff, and
+none of them look like a violation line by line — which is why "the rule is in the domain layer" gets
+ticked while the rule is in three handlers.
+
+- **Behaviour that belongs on the aggregate, sitting outside it.** The tells: a helper whose first
+  argument is the entity and which reads two of its fields to reach a verdict; a use case comparing
+  `submission.version` against the flow's own; a `*-helper.ts` or `*Service` next to the entity holding
+  what reads as a rule. **A function that opens an aggregate's fields to decide something about that
+  aggregate is that aggregate's method** — invisible in a diff, because every individual line is just a
+  field read. Cluster 8b carries the test to apply and what to do instead.
+- **A lock is a statement about where the boundary is.** An advisory lock, a `SELECT FOR UPDATE`
+  spanning two tables, or a serialisable transaction introduced to protect an invariant means **the
+  invariant crosses aggregates and no single transaction covers it.** The lock may well be the right
+  trade; the finding is the boundary, and it is worth raising as 🧭 even when the locking is correct. Ask
+  whether the invariant can be made **local** — one side holding the value it needs rather than reading
+  the other's — and, if the lock stays, what forces the *next* entry point to take it
+  (`silent-failure-patterns.md`, pattern 1).
+- **Needing compensation means the transaction boundary and the aggregate boundary disagree.** An undo
+  path spanning two aggregates is a saga, whether or not the PR calls it one. Check it is built as one —
+  a single applier, reached by every path (cluster 6) — rather than as error handling written per call
+  site. And where the effect left the system (a filing, a charge, an email), no compensation exists at
+  all: that is cluster 3's irreversibility, not a rollback.
+- **CQRS buys a second read path, never a second definition of a rule.** A QueryService, projection or
+  list SQL that re-derives what the aggregate decides is one rule modelled twice; they agree until the
+  next state is added; 8b carries the tell.
+- **Ports belong to the domain, and consumers depend on them as declared.** The abstract repository sits
+  under the domain; a use case that re-types its shape inline instead of importing it has silently forked
+  the interface (cluster 8).
+
 ### 3. Data model, persistence, migrations ★irreversibility
 
 - **Migration irreversibility**: dropping or renaming a column, changing a type, adding NOT NULL,
