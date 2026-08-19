@@ -109,7 +109,14 @@ BUDGET_ROUND_FINDBUGS_LEAN=1.50 # tier S
 # three measurements in one session -- 37% of that session's total spend on deciding how much process to
 # buy. Measuring is allowed to cost something; it is not allowed to cost more than the work.
 BUDGET_ROUND_SIZE=1.25
-BUDGET_ROUND_PR=1.50         # writing one PR body
+# MEASURED ONCE, at $1.55 -- and raised on the asymmetry, not on the number. The first end-to-end run
+# (2026-08-19, tier XS) had `/da-pr-describe` cut off at $1.50, and the PR opened with the template
+# UNFILLED: no summary, no verification, and unchecked boxes that claim nothing. Too low costs the
+# entire body and the landing continues anyway (`opened-pr-partial-body` does not halt); too high costs
+# money and says so out loud, because a ceiling overrun surfaces as `truncated`. One sample cannot pick
+# a number -- this repository's own note says deciding from one sample always misses -- so the value is
+# taken from its sibling round rather than from $1.55 + a guess.
+BUDGET_ROUND_PR=2.50         # writing one PR body; same as COMMENTS, which is the same kind of work
 BUDGET_ROUND_CI=2.00         # one attempt at a red CI
 BUDGET_ROUND_COMMENTS=2.50   # addressing a round of human review comments
 BUDGET_ROUND_REPLY=1.00      # composing the replies (posting is the driver's job, not the round's)
@@ -710,6 +717,7 @@ such claim here and none of them under \`unconfirmed\`; this field does not affe
     layer_names "$layers" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "$ROUND_EXIT" \
     outcome sized halt_reason __null__
+  consume_round_numbers   # this row is the size round's only row -- see `consume_round_numbers`
 
   echo
   say "tier $TIER"
@@ -959,7 +967,25 @@ halt() { # <reason> <message>
   printf '  %s\n' "$2" >&2
 }
 
+# A ROUND'S NUMBERS ARE CONSUMED ONCE, and this is where that happens. `ROUND_COST` / `ROUND_TURNS` are
+# globals that outlive the round that set them, and `report`'s `cost by phase` sums exactly `cost_usd` --
+# so any row written WITHOUT a new round behind it bills its phase for money another phase spent.
+#
+# Measured on the first end-to-end run (2026-08-19): `pr-reached` is written outside any round and
+# carried the review round's $1.93 / 26 turns, so `cost by phase` reported `pr $5.27` with $1.93 of
+# review inside it -- and `review` itself was counted twice, once on `advanced` and again on
+# `advanced-untriaged`, which is a second row for the same round. Zeroing here is not a cosmetic
+# correction: those rows genuinely cost nothing, and the round that did cost something is already on
+# the row that consumed it.
+#
+# It also gets the CI loop right without any per-call-site decision. A CI-fix round's money lands on
+# whichever row is written after it (a halt, or the `advanced` row once CI turns green); the next pass
+# with no round writes 0. `SPENT` is accumulated in `claude_round` and is untouched by this, so the
+# run's budget accounting does not depend on it.
+consume_round_numbers() { ROUND_COST=0; ROUND_TURNS=0; }
+
 record() { # <phase> <landing> <round> <outcome> [halt_reason]
+  local rc=0
   ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" \
     phase "$1" landing "$2" round "$3" outcome "$4" \
     halt_reason "${5:-__null__}" \
@@ -968,9 +994,10 @@ record() { # <phase> <landing> <round> <outcome> [halt_reason]
     unverified "${UNVERIFIED:-0}" \
     cost_usd "${ROUND_COST:-0}" turns "${ROUND_TURNS:-0}" exit "${ROUND_EXIT:-0}" \
     deferred "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split(" ").filter(Boolean):[]))' "${GATE_DEFERRED:-}")" \
-    spent_usd "$SPENT" scorer_touched "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split("\n").filter(Boolean):[]))' "${SCORER_HITS:-}")"
+    spent_usd "$SPENT" scorer_touched "$(node -e 'const v=process.argv[1];process.stdout.write(JSON.stringify(v?v.split("\n").filter(Boolean):[]))' "${SCORER_HITS:-}")" || rc=$?
+  consume_round_numbers
+  return "$rc"
 }
-
 # Everything that must be checked after any round, in one place. Returns non-zero when the landing
 # has to stop, with HALT set.
 post_round() { # <phase> <landing> <round>
@@ -1690,11 +1717,14 @@ PR 本文にそれを明記してください —— **CI が走らせるまで�
   # what is incomplete is the description, and that is said loudly and recorded rather than silently
   # accepted or used to stop the remaining landings. A human reading the ledger can see which PR to fix.
   if [[ -n "$ROUND_TRUNCATED" ]]; then
+    # Read before the record: `record` consumes the round's numbers, so this message has to hold its
+    # own copy or it prints the cost as 0 -- the number a reader needs in order to raise the ceiling.
+    local cut_cost="$ROUND_COST"
     record pr "$1" 0 opened-pr-partial-body
     say ""
     say "landing $1 -> $url  (layer $1 of the stack)"
     printf '%sloop: the PR body is PARTIAL -- /da-pr-describe was cut off (%s) after $%s.%s\n' \
-      "$c_red" "$ROUND_TRUNCATED" "$ROUND_COST" "$c_off" >&2
+      "$c_red" "$ROUND_TRUNCATED" "$cut_cost" "$c_off" >&2
     printf '  The PR is open and its code went through the gate and the review. Its DESCRIPTION did not
   finish being written -- read it before anyone reviews from it, and raise BUDGET_ROUND_PR.\n' >&2
     return 0

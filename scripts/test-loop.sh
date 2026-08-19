@@ -1543,6 +1543,21 @@ grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
 [[ "$(ledger | grep -c 'advanced-untriaged')" -ge 1 ]] \
   && ok "   ...and the ledger says untriaged, not merely advanced" \
   || no "the ledger cannot tell a clean review from an untriaged one"
+# Two rows for ONE review round. The round's money belongs to the row that consumed it, and the second
+# row must bill nothing -- `report`'s `cost by phase` sums `cost_usd`, so a repeated figure counts the
+# same spend twice. Measured on the first end-to-end run: `advanced` and `advanced-untriaged` both
+# carried $1.93 / 26 turns for a single round.
+if [[ "$(ledger | node -e '
+  let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    const rows=s.split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
+    const adv=rows.find((r)=>r.outcome==="advanced"&&r.phase==="review");
+    const unt=rows.find((r)=>r.outcome==="advanced-untriaged");
+    process.stdout.write(!adv||!unt ? "missing"
+      : (Number(adv.cost_usd) > 0 && Number(unt.cost_usd) === 0 && Number(unt.turns) === 0 ? "once" : "twice"))})')" == "once" ]]; then
+  ok "   ...and the round is billed once: the untriaged row carries no cost of its own"
+else
+  no "one review round is billed on two rows, so cost-by-phase counts it twice"
+fi
 
 # S keeps everything XS drops. Same fixture, one more file.
 setup; measurement 6 1 0 0 0; runloop size "r"        # 6 files -> S
@@ -1644,6 +1659,22 @@ if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   ok "and report counts it as reached rather than leading with 0%"
 else
   no "report still says the PR was not reached"; detail "$(head -c 160 <<<"$OUT")"
+fi
+
+# The row is a FACT, not a round: no `claude` round produced it, so it must bill nothing. `record`
+# writes the round globals (`cost_usd` / `turns`), which still hold the PREVIOUS round's numbers, and
+# `report`'s `cost by phase` sums exactly that field. Measured on the first end-to-end run: the
+# `pr-reached` row carried the review round's $1.93 / 26 turns, and `report` said `pr $5.27` with
+# $1.93 of review money inside it. **The PR that fixed one ledger lie shipped another one.**
+if [[ "$(ledger | node -e '
+  let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    const rows=s.split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
+    const r=rows.find((r)=>r.outcome==="pr-reached");
+    process.stdout.write(r ? String(Number(r.cost_usd)) + "/" + String(Number(r.turns)) : "no-row")})')" == "0/0" ]]; then
+  ok "the pr-reached row bills nothing -- it is a fact, not a round"
+else
+  no "the pr-reached row carries the previous round's cost, so cost-by-phase bills pr for review"
+  detail "$(ledger | grep -o '\"outcome\":\"pr-reached\".*' | head -c 120)"
 fi
 
 # It must not count a landing that never got a PR at all.
