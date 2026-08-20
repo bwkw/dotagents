@@ -305,6 +305,14 @@ truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, par
   printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
     > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
+errored() { # <phase> <n> -- a round that ERRORED: is_error true, subtype "success", exit 1.
+  # Measured on the 10th run: the implement round came back like this at $1.2784895 / 24 turns and the
+  # driver called it "cut off at its ceiling (subtype: success)", then advised raising a ceiling that
+  # does not exist for that phase.
+  printf '{"total_cost_usd":0.30,"num_turns":24,"subtype":"success","is_error":true,"result":"partial"}' \
+    > "$FAKE_CLAUDE_DIR/$1.$2.json"
+  printf '%s\n' 1 > "$FAKE_CLAUDE_DIR/$1.$2.exit"
+}
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
 side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
 fails_with()  { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.exit"; } # <phase> <n> <exit-code>
@@ -2170,6 +2178,41 @@ grep -qiE 'ceiling|天井' <<<"$OUT" \
   || no "the halt message does not mention the ceiling"
 
 # The two reasons that must still outrank it, because they are more specific about what happened.
+# --- an error is not a ceiling, and must not be reported as one ------------------
+# `is_error: true` with `subtype: "success"` is a real shape: the 10th run's implement round returned it
+# at $1.2784895 / 24 turns. Detection is deny-by-default and that is right -- but the halt NAMED it
+# "cut off at its ceiling (subtype: success)" and advised "raise that round's ceiling", and **implement
+# has no ceiling**: there is no BUDGET_ROUND_IMPLEMENT. A wrong reason pointing at a knob that does not
+# exist is worse than no reason, and the ledger recorded `truncated`, which is false.
+setup; measurement 6 1 0 0 0; runloop size "r"
+errored implement 1
+runloop run
+[[ "$(ledger_field halt_reason)" == "round_errored" ]] \
+  && ok "an errored round is not recorded as truncated" \
+  || no "an error was filed as a ceiling overrun (halt=$(ledger_field halt_reason))"
+grep -qiE 'ceiling|天井' <<<"$OUT" \
+  && no "the message still points at a ceiling that this phase does not have" \
+  || ok "and the message does not point at a ceiling"
+
+# The same shape in the size round, which DOES have a ceiling -- the advice is still wrong, because
+# raising a budget does not fix a round that errored.
+setup; errored investigate 1   # the size round measures with /da-investigate: that is the fixture name
+runloop size "r"
+grep -qiE 'BUDGET_ROUND_SIZE' <<<"$OUT" \
+  && no "an errored size round was told to raise its budget" \
+  || ok "an errored size round is not told to raise its budget"
+
+# Deny-by-default is preserved for ceilings this CLI does not have yet: `error_max_*` keeps the ceiling
+# reading, so a future ceiling subtype is still named as one rather than demoted to a generic error.
+setup; measurement 6 1 0 0 0; runloop size "r"
+respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
+truncated review 1 error_max_tokens
+fails_with review 1 1
+runloop run
+[[ "$(ledger_field halt_reason)" == "truncated" ]] \
+  && ok "an error_max_* subtype this build has never seen still reads as a ceiling" \
+  || no "a future ceiling subtype was demoted (halt=$(ledger_field halt_reason))"
+
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; fails_with implement 1 143
 runloop run
@@ -2209,7 +2252,10 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_something_invented_later
 respond triage 1 0.05 2 0 0 3
 runloop run
-[[ "$(ledger_field halt_reason)" == "truncated" ]] \
+# The LABEL changed when ceilings and errors were split: an invented subtype is not a ceiling, so it
+# reads as `round_errored`. What must not change is that it FAILS CLOSED -- and the row read is still
+# the one this comment warns about. `error_max_*` keeping the ceiling reading is asserted separately.
+[[ "$(ledger_field halt_reason)" == "round_errored" ]] \
   && ok "an unrecognised subtype fails closed rather than passing as success" \
   || no "an unknown subtype passed as a successful round (halt_reason=$(ledger_field halt_reason)) -- the allowlist is inverted"
 
