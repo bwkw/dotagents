@@ -42,6 +42,19 @@
       "scope": "all"
     },
     {
+      "id": "halt-docs",
+      "cmd": "./scripts/verify-halt-docs.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "when": "docs/loops.md's halt-reason table and the strings loop.sh actually writes must stay the same set. The suite is in check.sh; the gate has to run it too, or a divergence lands whenever nobody types check.sh.",
+      "paths": [
+        "docs/loops.md",
+        "scripts/loop.sh",
+        "scripts/verify-halt-docs.sh"
+      ]
+    },
+    {
       "id": "gate-tests",
       "cmd": "./scripts/test-verify-gate.sh",
       "gate": true,
