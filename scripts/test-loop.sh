@@ -2227,6 +2227,49 @@ else
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 
+# ------------------------------------------------- report says how much of the total is counted twice
+# The rows written before `consume_round_numbers` kept a round's numbers on a second row, and the ledger
+# is append-only by design (the assertion below is what keeps it that way), so those figures cannot be
+# corrected -- only qualified. Detected by the symptom rather than by a date: the row does not carry the
+# version of `loop.sh` that wrote it. Measured on the real ledger when this went in: $8.30 across 6 rows,
+# three of them from before the change that added the newest one, which is why the caveat is phrased as
+# a property of the data and not of one commit.
+setup; measurement 1 0 0 0 0; runloop size "r"     # one genuine row, to borrow the repo key from
+KEY="$(ledger_field repo)"
+node -e '
+  const fs = require("fs");
+  const [file, repo] = process.argv.slice(1);
+  const row = (phase, outcome, cost, turns) => JSON.stringify({
+    ts: "2026-08-19T00:00:00Z", repo, branch: "b", phase, landing: "1", round: 1,
+    outcome, halt_reason: null, cost_usd: cost, turns,
+  });
+  fs.appendFileSync(file, [
+    row("review", "advanced", 1.93, 26),            // the round that actually cost the money
+    row("pr", "pr-reached", 1.93, 26),              // the same numbers again, on a row with no round
+    row("implement", "advanced", 0.5, 4),           // a different round: must NOT be counted as a repeat
+  ].join("\n") + "\n");
+' "$LOOPDIR/ledger.jsonl" "$KEY"
+runloop report --json
+if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+  try { const j = JSON.parse(s);
+    process.exit(j.double_counted_rows === 1 && Math.abs(j.double_counted_usd - 1.93) < 0.001 ? 0 : 1)
+  } catch { process.exit(1) }})' <<<"$OUT"; then
+  ok "report counts the repeated figures and leaves the distinct round alone"
+else
+  no "report did not identify the double-counted row"; detail "$(head -c 200 <<<"$OUT")"
+fi
+runloop report
+grep -q "counted twice" <<<"$OUT" \
+  && ok "   ...and says so in the human output, next to the totals it qualifies" \
+  || no "the human report shows overstated totals with nothing saying they are overstated"
+
+# And a ledger with no repeats must say nothing: a caveat that is always printed is furniture.
+setup; measurement 1 0 0 0 0; runloop size "r"
+runloop report
+grep -q "counted twice" <<<"$OUT" \
+  && no "report warns about double counting on a ledger that has none" \
+  || ok "and a ledger with no repeated figures gets no caveat"
+
 # ---------------------------------------------------------------- the ledger is never trimmed
 setup
 node -e '
