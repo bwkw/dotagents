@@ -458,6 +458,7 @@ SECOND_REPORT=""
 ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 ROUND_BUDGET=""       # per-round ceiling in USD; empty means unbounded. Set by the caller, cleared here.
 ROUND_TRUNCATED=""    # the subtype that cut the round off; EMPTY means it ran to completion. Not `0` --
+ROUND_BAD_KIND=""     # "ceiling" | "error" | "" -- how ROUND_TRUNCATED should be REPORTED.
                       # this is read with `-n`, and the string "0" is not empty, so a `0` here would
                       # halt every round the moment anything reached post_round without a claude_round.
 
@@ -534,6 +535,20 @@ claude_round() { # <prompt> [inline-schema-json]
       const bad = (o.subtype != null && o.subtype !== "success") || o.is_error === true;
       process.stdout.write(bad ? String(o.subtype ?? "is_error") : "") }
     catch { process.stdout.write("") }})' <<<"$raw")"
+  # A ceiling and an error are different failures, and until this split existed they were the same
+  # message. Detection above is deny-by-default and stays that way -- what is decided HERE is only what
+  # to call it. `error_max_*` is a ceiling (and a future CLI's `error_max_tokens` still reads as one);
+  # anything else, including `is_error: true` with `subtype: "success"`, is an error that claims nothing.
+  #
+  # Measured on the 10th run: the implement round returned exactly that shape at $1.2784895 / 24 turns
+  # and the driver said "cut off at its ceiling (subtype: success)" and advised raising that round's
+  # ceiling. **There is no BUDGET_ROUND_IMPLEMENT.** The advice pointed at a knob that does not exist,
+  # and the ledger recorded `truncated`, which was false.
+  case "$ROUND_TRUNCATED" in
+    "")            ROUND_BAD_KIND="" ;;
+    error_max_*)   ROUND_BAD_KIND="ceiling" ;;
+    *)             ROUND_BAD_KIND="error" ;;
+  esac
   ROUND_BUDGET=""   # one round, one ceiling. A leaked ceiling would silently cap the next phase too.
   return 0
 }
@@ -687,6 +702,9 @@ such claim here and none of them under \`unconfirmed\`; this field does not affe
   # either -- and the two diagnoses send you to different places. Blaming the schema flag for a round
   # that ran out of budget is a full detour into the CLI for a problem whose fix is a number in this file.
   # `size` does not go through post_round, so this is the only place it can be caught.
+  [[ "$ROUND_BAD_KIND" != "error" ]] || die "the size round reported an error (subtype: $ROUND_TRUNCATED,
+  exit $ROUND_EXIT) after \$$ROUND_COST and ${ROUND_TURNS} turns. No measurement was produced. This is
+  NOT a budget cut -- raising a number will not fix a round that errored."
   [[ -z "$ROUND_TRUNCATED" ]] || die "the size round was cut off (subtype: $ROUND_TRUNCATED) after
   \$$ROUND_COST and ${ROUND_TURNS} turns, against a ceiling of \$$BUDGET_ROUND_SIZE. No measurement was
   produced, and a truncated one would not be a measurement either.
@@ -1022,6 +1040,15 @@ post_round() { # <phase> <landing> <round>
   # while the actionable reason sat here unreachable. The eighth run died that way at $2.07 against $2.00.
   #
   # 143 and 124 still come first: "you killed it" and "it never returned" say more than "it was cut off".
+  # An error is not a ceiling. Same detection, different reason, and no advice about a budget -- for
+  # `implement` there is no budget to raise, so the old message sent you looking for a constant that
+  # does not exist.
+  if [[ "$ROUND_BAD_KIND" == "error" ]]; then
+    halt round_errored "the $1 round reported an error (subtype: $ROUND_TRUNCATED, exit $ROUND_EXIT)
+  after \$$ROUND_COST and ${ROUND_TURNS} turns. Nothing is claimed about what it did, and this is NOT a
+  budget cut: read the round's own output rather than raising a number."
+    record "$1" "$2" "$3" halted round_errored; return 1
+  fi
   if [[ -n "$ROUND_TRUNCATED" ]]; then
     halt truncated "the $1 round was cut off at its ceiling (subtype: $ROUND_TRUNCATED) after
   \$$ROUND_COST and ${ROUND_TURNS} turns. Its answer is PARTIAL and nothing downstream may treat it as a
