@@ -36,7 +36,9 @@
 #      worse than an absent one. Making it declarable per repository is recorded as follow-up in
 #      docs/fix-plans/2026-08-11-loop-driver.md.
 #
-# Tier S is the only one that runs unattended end to end. `/grill-me` is an interview and
+# Tiers XS and S run unattended end to end -- the one landing that actually closed was XS. (This line
+# said "S is the only one" until after XS existed and had closed a landing: a tier added above a
+# sentence does not update it.) `/grill-me` is an interview and
 # `da-design-review` says "Show this to the user" in its first step -- both need somebody there. The
 # tiers differ in how deep the human goes, not in whether one is present.
 #
