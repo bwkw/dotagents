@@ -9,7 +9,7 @@
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
 1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
-**ループの回し方: [docs/loops.md](docs/loops.md)**（実測ログは [docs/loop-measurements.md](docs/loop-measurements.md)）
+**ループの回し方: [docs/loops.md](docs/loops.md)**（実測は台帳が持っています —— `scripts/loop.sh report`）
 
 何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
 直す前に読むもの: [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -498,7 +498,7 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 | `scripts/test-setup.sh` | 偽の `$HOME` に対して。インストーラは**資格情報と他ツールの hook を含むファイル**を編集する |
 | `scripts/verify-halt-docs.sh` | **停止理由の表とコードが同じ集合であることを主張する。** 実際に **7値ぶん黙って乖離**していた（`ci_pending` で止まった run の理由が、人を送り込む先の表に無い）。3方向を見ます: 駆動系が出せる理由に行があるか／行が存在しない停止を説明していないか（`review_cap` は台帳の古い行のために**宣言して**残す）／**台帳に入らない4つに印が付いているか**（`halt()` は stderr だけ、台帳を書くのは `record()` の第5引数）。宣言は `docs/loops.md` のマーカー行にあり、**消せば通るのではなくエラー**になります |
 | `scripts/check.sh` | 上記すべてを1コマンドに。**5つ覚える代わりに1つ** |
-| `scripts/handoff.sh` | 次のセッションへの引き継ぎを**状態から生成**する。git・台帳・`gh` から取れる事実と、`docs/handoff-notes.md` に人が書く判断を分けてある —— **未 commit・未 push・main に入っていないローカルブランチ**を先頭で警告するのは、3つとも実際に見失ったことがあるため |
+| `scripts/handoff.sh` | 次のセッションへの引き継ぎを**状態から生成**する。git・台帳・`gh` から取るので陳腐化しません —— **未 commit・未 push・main に入っていないローカルブランチ**を先頭で警告するのは、3つとも実際に見失ったことがあるため。手書きの「持ち越し」節は撤廃しました（写しの方が古くなるので） |
 | `scripts/test-non-interactive.sh` | **人間を待つものが1つも無いことを主張する。** `--non-interactive` フラグは作りません —— 設定時にだけ通る第2の経路ができ、既定の経路がプロンプトへ退行してもフラグ付きテストは緑のままになる。実際に**stdin を閉じるとゲートがハングする**バグを見つけた（ハングすればハーネスに殺され、それは non-blocking = fail-open） |
 
 **削除したもの（同じテストに落ちた）:**

@@ -13,9 +13,10 @@ Layout, installation, and the upstream skill list are in `README.md`. Why the to
 in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
 context — is in `docs/mechanisms.md`, with sources. What was decided, and what was decided *wrongly*, is
 in `docs/decisions.md`. How to run work through the loop driver — the XS/S/M/L tiers, what stops a landing,
-and how to read the ledger — is in `docs/loops.md`. **What a session hands to the next one** — what is
-half-finished and why — is in `docs/handoff-notes.md`, printed together with the live state by
-`scripts/handoff.sh`. This file holds only what you cannot get by looking.
+and how to read the ledger — is in `docs/loops.md`. `scripts/handoff.sh` prints where a session
+left off, entirely from git, the ledger and `gh` — **there is no hand-written companion to it any more**,
+because a copy of the repository's state is the thing that goes stale. This file holds only what you
+cannot get by looking.
 
 ## Invariants
 
