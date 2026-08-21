@@ -108,6 +108,10 @@ elif [[ -f "$FAKE_CLAUDE_DIR/$phase.sh" ]]; then bash "$FAKE_CLAUDE_DIR/$phase.s
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.sleep" ]] && sleep "$(cat "$FAKE_CLAUDE_DIR/$phase.$n.sleep")"
 code=0
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.exit" ]] && code=$(cat "$FAKE_CLAUDE_DIR/$phase.$n.exit")
+# A real round says WHY it failed on stderr, and the driver used to send that to /dev/null -- which is
+# why the 10th run's errored implement round could not be re-diagnosed afterwards. The stub can now
+# produce it, so "is stderr kept?" is answerable by a test rather than by reading the redirect.
+[[ -f "$FAKE_CLAUDE_DIR/$phase.$n.err" ]] && cat "$FAKE_CLAUDE_DIR/$phase.$n.err" >&2
 cat "$resp" 2>/dev/null
 exit "$code"
 STUB
@@ -312,6 +316,7 @@ errored() { # <phase> <n> -- a round that ERRORED: is_error true, subtype "succe
   printf '{"total_cost_usd":0.30,"num_turns":24,"subtype":"success","is_error":true,"result":"partial"}' \
     > "$FAKE_CLAUDE_DIR/$1.$2.json"
   printf '%s\n' 1 > "$FAKE_CLAUDE_DIR/$1.$2.exit"
+  printf '%s\n' "${3:-}" > "$FAKE_CLAUDE_DIR/$1.$2.err"   # what a real round would say on stderr
 }
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
 side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
@@ -2193,6 +2198,25 @@ runloop run
 grep -qiE 'ceiling|天井' <<<"$OUT" \
   && no "the message still points at a ceiling that this phase does not have" \
   || ok "and the message does not point at a ceiling"
+
+# ---- the round's own output has to still exist for "read the round's output" to be an instruction ----
+# The 10th run's implement round errored and NOTHING said why: stdout went to a mktemp that was rm'd,
+# and stderr went to /dev/null. The halt message told a human to read output that had been deleted.
+# LOOP_DIR is outside the repository ($HOME/.claude/.dotagents-loop), so keeping it there cannot dirty
+# the tree -- a file written inside the checkout would look like a round that edited something.
+setup; measurement 6 1 0 0 0; runloop size "r"
+errored implement 1 "auth error: OAuth token has expired"
+runloop run
+saved="$(grep -rl 'is_error' "$LOOPDIR/rounds" 2>/dev/null | head -1)"
+[[ -n "$saved" ]] \
+  && ok "the round's raw JSON outlives the round" \
+  || no "nothing under \$LOOP_DIR/rounds holds the round's own output -- it is still being deleted"
+grep -rq 'OAuth token has expired' "$LOOPDIR/rounds" 2>/dev/null \
+  && ok "and its stderr, which is where a round says why it failed" \
+  || no "stderr is still going to /dev/null -- the one place the reason was"
+grep -q "$LOOPDIR/rounds" <<<"$OUT" \
+  && ok "and the halt message says where to look" \
+  || no "the message says to read the round's output without saying where it is"
 
 # The same shape in the size round, which DOES have a ceiling -- the advice is still wrong, because
 # raising a budget does not fix a round that errored.

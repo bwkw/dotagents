@@ -459,6 +459,9 @@ ROUND_COST=0; ROUND_TURNS=0; ROUND_EXIT=0; ROUND_OUT=""
 ROUND_BUDGET=""       # per-round ceiling in USD; empty means unbounded. Set by the caller, cleared here.
 ROUND_TRUNCATED=""    # the subtype that cut the round off; EMPTY means it ran to completion. Not `0` --
 ROUND_BAD_KIND=""     # "ceiling" | "error" | "" -- how ROUND_TRUNCATED should be REPORTED.
+ROUND_ERR=""          # the round's stderr. Was /dev/null until a halt had to cite it.
+ROUND_LOG_BASE=""     # $LOOP_DIR/rounds/<stamp>-<repo>-<phase>-<pid>; .json and .err hang off it.
+ROUND_LOG_DIR=""
                       # this is read with `-n`, and the string "0" is not empty, so a `0` here would
                       # halt every round the moment anything reached post_round without a claude_round.
 
@@ -492,10 +495,32 @@ claude_round() { # <prompt> [inline-schema-json]
   [[ -n "$schema" ]] && args+=("$SCHEMA_FLAG" "$schema")
   out="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-round.XXXXXX")" || die "mktemp failed"
 
+  # Where this round's own words go, and why they are kept. On the 10th run an implement round errored
+  # and the halt message said to read its output -- which by then had been deleted twice over: stdout
+  # into a mktemp that is rm'd below, stderr into /dev/null. A misdiagnosis you cannot re-diagnose is
+  # the expensive kind.
+  #
+  # Under LOOP_DIR ($HOME/.claude/.dotagents-loop), never inside the checkout: a file written in the
+  # repository would read as a round that edited something, which is a different halt (and a wrong one).
+  #
+  # NOT pruned. The gate's trace.log self-trims at 200 lines and AGENTS.md records what that cost --
+  # anything kept only there is deleted by ordinary operation. Diagnosis material is exactly what must
+  # not evaporate on a schedule. One round is a few KB.
+  ROUND_LOG_DIR="$LOOP_DIR/rounds"
+  mkdir -p "$ROUND_LOG_DIR" 2>/dev/null || true
+  # The phase is not passed in, so it comes off the prompt's own first line -- the skill name, which is
+  # what the phase IS. Sanitised because it lands in a filename. `$$` is the same for every round of one
+  # run, so the files group by run and sort by time within it.
+  local label; label="$(printf '%s' "${prompt%%$'\n'*}" | tr -cd 'A-Za-z0-9-' | cut -c1-40)"
+  ROUND_LOG_BASE="$ROUND_LOG_DIR/$(date -u +%Y%m%dT%H%M%S)-$$-${label:-round}"
+  errf="$(mktemp "${TMPDIR:-/tmp}/dotagents-loop-round-err.XXXXXX")" || die "mktemp failed"
+
   # Bounded, and stdin closed. macOS has no `timeout`, so this polls the way
   # scripts/test-non-interactive.sh does. stdin is closed because a `claude` whose credentials have
   # expired will otherwise sit waiting for a login it can never get in an unattended run.
-  claude "${args[@]}" "$prompt" >"$out" 2>/dev/null </dev/null &
+  # stderr goes to a file, not to /dev/null: it is where a round says WHY it failed, and it is also
+  # kept out of the driver's own output so the terminal stays readable. Both, not one or the other.
+  claude "${args[@]}" "$prompt" >"$out" 2>"$errf" </dev/null &
   pid=$!
   t=0
   ROUND_TIMED_OUT=0
@@ -515,7 +540,12 @@ claude_round() { # <prompt> [inline-schema-json]
   (( ROUND_TIMED_OUT )) && ROUND_EXIT=124
 
   raw="$(cat "$out" 2>/dev/null)"
-  rm -f "$out"
+  ROUND_ERR="$(cat "$errf" 2>/dev/null)"
+  # Copied BEFORE the temp files go, and the paths are exported so a halt can name them. `cp` rather
+  # than `mv` so a failure here cannot lose what the driver still has in memory.
+  cp "$out" "$ROUND_LOG_BASE.json" 2>/dev/null || true
+  [[ -s "$errf" ]] && { cp "$errf" "$ROUND_LOG_BASE.err" 2>/dev/null || true; }
+  rm -f "$out" "$errf"
   ROUND_OUT="$raw"
   ROUND_COST="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).total_cost_usd??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
   ROUND_TURNS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).num_turns??0))}catch{process.stdout.write("0")}})' <<<"$raw")"
@@ -1018,6 +1048,13 @@ record() { # <phase> <landing> <round> <outcome> [halt_reason]
 }
 # Everything that must be checked after any round, in one place. Returns non-zero when the landing
 # has to stop, with HALT set.
+# The first line of stderr, inline. A path is the durable answer; one line is the one that stops a
+# human from having to open a file to learn it was an expired token.
+round_err_head() {
+  [[ -n "$ROUND_ERR" ]] || return 0
+  printf '\n  stderr began: %s' "$(head -1 <<<"$ROUND_ERR" | cut -c1-160)"
+}
+
 post_round() { # <phase> <landing> <round>
   SCORER_HITS="$(scorer_touched)"
   if [[ "$ROUND_EXIT" == "143" ]]; then
@@ -1046,7 +1083,8 @@ post_round() { # <phase> <landing> <round>
   if [[ "$ROUND_BAD_KIND" == "error" ]]; then
     halt round_errored "the $1 round reported an error (subtype: $ROUND_TRUNCATED, exit $ROUND_EXIT)
   after \$$ROUND_COST and ${ROUND_TURNS} turns. Nothing is claimed about what it did, and this is NOT a
-  budget cut: read the round's own output rather than raising a number."
+  budget cut: read the round's own output rather than raising a number. It is at
+  $ROUND_LOG_BASE.json (and .err if the round said anything there)$(round_err_head)"
     record "$1" "$2" "$3" halted round_errored; return 1
   fi
   if [[ -n "$ROUND_TRUNCATED" ]]; then
