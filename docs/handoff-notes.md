@@ -73,8 +73,10 @@ worktree 2つ（`unattended-run`, `unattended-run-2`）の掃除は、destructiv
 2. **`findbugs` が走る landing を1本。** 題材は製品側から。`risk_surfaces > 0` が要る
 3. **上げた天井（review $3.00 / PR $2.50）の実走。** いまは選び直した数字で、実測が乗っていません
 4. **`implement` に天井が無い。** 実測 $0.83〜$4.56 と5倍以上振れる。**1サンプルで決めると必ず外す**
-5. **ゲートが landing の壁時計を支配**（`docs/decisions.md` §29、未対処）。「docs 1ファイルのゲートが
-   5〜8分から3秒」になった PR があるので部分的に解消している可能性あり —— **未確認**
+5. **ゲートの壁時計は測りました**（`docs/decisions.md` §29）。**docs の周は約 3.0s、`scripts/loop.sh` を
+   触る周は約 600s** —— `paths` 絞り込みが効いていて、支配は消えたのではなく `loop-tests` 1本
+   （579.6s、全体の82%）に移りました。**`timeout 900` に対して余裕は1.55倍。上げるのは3度目に
+   なるので、上げる前に数字をもう1本**
 
 ### 繰り返し出ている形（次も出ます）
 
@@ -103,6 +105,8 @@ worktree 2つ（`unattended-run`, `unattended-run-2`）の掃除は、destructiv
 
 ### 測ってあるもの / 選んだだけの数字
 
+- **測ってある（壁時計）**: ゲート全15検査 **703.6s**、うち `loop-tests` **579.6s**（§29 執筆時 308s の
+  1.9倍）、`gate-tests` 59.1s、`lint-hook-tests` 35.3s、常時走る分 2.8s
 - **測ってある**: **landing 1本 $6.70**（9回目、tier XS、`findbugs` 以外の全段）、review $0.88〜$2.07
   （20〜28 turns）、implement $0.83〜$4.56、size $0.44〜$1.98、triage $0.59〜$0.74、**PR 段 $1.55 —— 唯一、
   天井に当たって測れた数字**、`gh pr checks` の終了コード 8 = 実行中
