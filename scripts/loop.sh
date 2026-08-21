@@ -95,7 +95,7 @@ BUDGET_ROUND_REVIEW_LEAN=3.00   # tier S -- the tier that exists because it is m
 # **The spread grows because the FILE grows, not because the change does.** Every one of those runs was
 # the same request shape -- one file, `docs/loops.md` -- and a review reads the file the changed lines sit
 # in, not just the lines. So the honest fix is not a bigger number: it is a smaller file, and the 206-line
-# measurement log has been moved to `docs/loop-measurements.md` for exactly that reason. 3.00 buys room
+# measurement log lives in the ledger for exactly that reason -- `report` reads it. 3.00 buys room
 # while that takes effect; if it is outrun again, raise the *question*, not the ceiling.
 #
 # Raising it does not weaken anything: `truncated` still halts loudly, and the only thing 2.00 buys is

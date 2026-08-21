@@ -2,12 +2,12 @@
 # What the next session needs to know, generated from the repository rather than remembered.
 #
 #   scripts/handoff.sh            print the handoff
-#   scripts/handoff.sh --notes    print only the hand-written carry-over section
 #
-# **Facts are generated; judgement is written down.** Everything above "持ち越し" comes from git, the
-# ledger and gh, so it cannot go stale. Everything below it comes from `docs/handoff-notes.md`, which a
-# human (or the session that is ending) edits -- because "what is half-finished and why" is not
-# derivable from the tree, and a handoff that only lists facts hands over no context at all.
+# **Everything here is generated, so none of it can go stale.** There used to be a second half: a
+# hand-written `docs/handoff-notes.md` carrying "what is half-finished and why". It was removed once the
+# driver worked, because a hand-maintained copy of the repository's state is a copy that goes wrong --
+# and it did, twice in one session: it offered a settled decision as an open question, and attributed a
+# budget number to the wrong phase. Both were derivable from the tree it was meant to supplement.
 #
 # Written after a session lost its own thread twice: once when uncommitted work vanished, and once when
 # the context was 13 merged PRs behind the repository and did not know it. Both are visible below.
@@ -15,19 +15,13 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO}" || exit 1
-NOTES="${REPO}/docs/handoff-notes.md"
 LEDGER="${DOTAGENTS_LOOP_DIR:-${HOME}/.claude/.dotagents-loop}/ledger.jsonl"
-
-if [[ "${1:-}" == "--notes" ]]; then
-  [[ -f "${NOTES}" ]] && cat "${NOTES}" || echo "(docs/handoff-notes.md がありません)"
-  exit 0
-fi
 
 say() { printf '%s\n' "$*"; }
 
 say "# 引き継ぎ — $(date '+%Y-%m-%d %H:%M')"
 say ""
-say "\`scripts/handoff.sh\` が生成。**「持ち越し」より上は git と台帳から取っているので陳腐化しません。**"
+say "\`scripts/handoff.sh\` が生成。**全部 git・台帳・gh から取っているので陳腐化しません。**"
 say ""
 
 # --- 現在地 -------------------------------------------------------------------
@@ -157,14 +151,5 @@ say ""
 say "退避→削除→実行→復元を**1コマンドに**するのは、待ち時間に触ると確認が無効になるためです。"
 say ""
 
-# --- 判断の側 -----------------------------------------------------------------
-say "---"
-say ""
-if [[ -f "${NOTES}" ]]; then
-  cat "${NOTES}"
-else
-  say "## 持ち越し"
-  say ""
-  say "\`docs/handoff-notes.md\` がありません。**セッションを終える側がここを書くこと** —— 何が"
-  say "半端で、なぜそうなっているかは、木からは導けません。"
-fi
+# 判断の側は、もう書き写しません。半端なものは PR とその CI に、決めたことは docs/decisions.md に、
+# 金と停止理由は台帳に出ます。どれも生きているので、写しを持つと写しの方が古くなります。
