@@ -77,9 +77,11 @@ reach where four exist, and each surplus state buys a branch somebody has to adj
   produces it, the finding is **the type, not the branch** — report the field that admits the state,
   not the guard that handles it. Deleting the guard and leaving the type is the fix that comes back.
 - **A record of optionals where the domain has a sum.** A loading flag plus `data | null` plus
-  `error | null` is the canonical shape: eight combinations, four meanings. Ask whether the states can
-  be enumerated instead, each variant carrying only the data it actually has — then the surplus
-  branches have nowhere to attach.
+  `error | null` is the canonical shape: eight combinations, four meanings. Ask for a **discriminated
+  union** instead — the same construct is a tagged union in TypeScript, an `enum` in Rust, a `sealed`
+  hierarchy in Kotlin or Java, a `Literal`-tagged union in Python — with each variant carrying only the
+  data it actually has. The surplus branches then have nowhere to attach, and adding a variant later
+  makes the compiler name every call site instead of leaving that to whoever remembers.
 - **A `default` clause, or a `catch` that continues, over a closed set of cases.** The compiler had the
   whole set and was talked out of using it, so the case added elsewhere next month is absorbed in
   silence. Where a total branch is genuinely wanted, ask for the form that still fails to compile — an

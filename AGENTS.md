@@ -199,4 +199,5 @@ paragraph every review skill reads. A layer's `reference/perspectives.md` holds 
 concrete shape that mechanism takes in that stack, naming the field, file type or API. When both are
 true, the mechanism goes in `_shared/` and the layer file **points at it in one line instead of
 restating it** — two copies of one lens drift, and the drift is invisible because both still read
-well. Decision 30 in `docs/decisions.md` has the reasoning and what this costs.
+well. `verify-skills.sh` checks that the pointer resolves, so the one line cannot outlive the file it
+names. Decision 30 in `docs/decisions.md` has the reasoning and the boundary of that check.
