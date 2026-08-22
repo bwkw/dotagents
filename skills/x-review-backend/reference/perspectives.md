@@ -244,6 +244,12 @@ Report anything that fails one of these, naming the specific field or signature:
   `Record<Union, …>` does not. Whenever you see an array plus `satisfies` for options, orderings or
   label maps, ask: **if the server adds one tomorrow, does this fail to compile?**
 
+- **Read it backwards from the defensive code as well.** Everything above starts at the type; the same
+  defect is visible from the call site, as a guard for a state no construction site produces. The
+  procedure for that direction is in `llm-authored-code.md` and is not restated here. On this layer the
+  surplus state almost always entered through a DTO of optionals or a nullable column that the domain
+  type copied unchanged, so the fix belongs at that boundary rather than at the guard.
+
 Worth most where money, permissions, tenancy, or irreversible operations are involved: an invariant
 the type guarantees cannot be forgotten at the eleventh call site somebody adds next quarter.
 

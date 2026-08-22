@@ -279,6 +279,23 @@ check_skill() {
       [[ -e "$dir/reference/$mentioned" ]] \
         || err "$id" "names reference/$mentioned but no such file exists -- anyone following that instruction has nothing to open"
     done
+
+    # And one level further out: a reference file naming a sibling by bare filename. AGENTS.md says a
+    # layer's perspectives.md points at a shared lens in one line instead of restating it, which makes
+    # that one line load-bearing while nothing checked it -- delete the link and the instruction reads
+    # fine and opens nothing. Only non-symlink reference files are checked: a _shared/ file naming
+    # another _shared/ file resolves in the skills that link both and dangles in the ones that do not
+    # (7 such pairs today), which is a different problem than a layer file pointing at nothing, and
+    # closing it would mean linking 16KB of review-process.md into skills that deliberately do not
+    # read it.
+    local sibling
+    for ref in "$dir"/reference/*.md; do
+      [[ -f "$ref" && ! -L "$ref" ]] || continue
+      for sibling in $(grep -oE '`[a-z0-9_-]+\.md`' "$ref" | tr -d '`' | sort -u); do
+        [[ -e "$dir/reference/$sibling" ]] \
+          || err "$id" "reference/$(basename "$ref") names $sibling, which is not in this skill's reference/ -- the one-line pointer that replaced a restatement has nothing behind it"
+      done
+    done
   fi
 
   # --- invariant: user-invocable: false only on a dispatch target ------------
