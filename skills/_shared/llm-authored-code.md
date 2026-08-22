@@ -123,6 +123,17 @@ than the problem needs: a strategy interface with one implementation, a config o
 generic helper used once. `finding-discipline.md` suppresses ordinary nits, but this one is a
 `design-doubt` worth raising, because each layer is permanent and the next change pays for it.
 
+**The same failure inside the type system, and the ceiling on the section above.** Tightening a type is
+the fix for a guard that should not exist; the over-tightened form is a conditional type, a deep
+generic, or a mapped type that computes the invariant somewhere other than where the type is declared.
+It is more precise and worse to work with, for a human and a model alike: the error message is the
+expanded type rather than the mistake, and it points at neither the declaration nor the call site. A
+type earns its keep when it **has a name**, when its **definition sits in one place and reads there**,
+when that name can be **grepped**, and when violating it **produces a message saying where to go and
+what to change**. A discriminated union passes all four. A type-level construct encoding the same
+invariant passes none, so when "make this unrepresentable" is answered with type-level computation
+rather than a named union, that is a `design-doubt` too — even though it is the stronger type.
+
 ---
 
 ## How to report these

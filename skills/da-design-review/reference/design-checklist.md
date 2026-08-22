@@ -15,6 +15,11 @@ impossible to take back, and does it know that it is doing so?**
 - Over- or under-engineered: abstraction with a single implementation, configuration nobody will
   change, generality bought before a second case exists — or the reverse, a special case that will
   obviously need to generalise within a month.
+- **Type-level machinery offered as the safety mechanism.** A plan that answers "how do we stop this
+  state existing" with a conditional type, a deep generic, or a mapped type buys precision and pays it
+  back in error messages nobody can act on. The bar: does the type have a name, does its definition
+  read in one place, can that name be grepped, and does violating it say where to go and what to
+  change? A named union clears all four; computed types clear none. Ask for the union.
 - **What the plan assumes stays true.** List the assumptions and mark the load-bearing ones. An
   unstated assumption is the usual root cause of a plan that was right when written.
 - **Does this propagate a pattern?** If the plan follows an existing pattern, is that pattern sound,
