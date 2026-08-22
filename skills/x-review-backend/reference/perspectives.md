@@ -250,6 +250,20 @@ Report anything that fails one of these, naming the specific field or signature:
   surplus state almost always entered through a DTO of optionals or a nullable column that the domain
   type copied unchanged, so the fix belongs at that boundary rather than at the guard.
 
+- **Which direction the failure was pushed.** A constraint can go forward, into the return type
+  (`Result`, an optional, a union with an error variant), or backward, into the argument type
+  (`NonEmpty`, a parsed identifier, a tenant-scoped handle). Forward costs one handler per call site;
+  backward costs one check per construction site, and there are normally far fewer of those. So when a
+  function starts returning a failure that every caller now handles, ask what stops the requirement
+  being expressed in the parameter type instead. At the outer boundary there is no choice — input from
+  outside has to be pushed forward — which is exactly why the boundary is where the parsing belongs
+  and the inside is where the narrow types do.
+- **The ceiling on all of the above.** Everything here pushes toward a stronger type, and there is a
+  point past which stronger is worse: see over-abstraction in `llm-authored-code.md` for the four
+  conditions a type has to meet to be worth having. A conditional type or a deep generic encoding the
+  same invariant is more precise and harder to act on, so when the answer to "make this
+  unrepresentable" arrives as type-level computation rather than a named union, say so.
+
 Worth most where money, permissions, tenancy, or irreversible operations are involved: an invariant
 the type guarantees cannot be forgotten at the eleventh call site somebody adds next quarter.
 

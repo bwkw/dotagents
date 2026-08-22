@@ -178,3 +178,9 @@ shape that no longer exists. Search the diff's removed identifiers across the fr
 
 **Dependency direction.** Importing a hook only to reach the type it happens to return is the shape to
 question — the type should live where it can be imported on its own.
+
+**And the ceiling on tightening.** This is the layer where type-level cleverness actually appears —
+conditional types, deep generics, a mapped type encoding the rule. Stronger is not automatically
+better: the four conditions a type has to meet to be worth having are in `llm-authored-code.md` under
+over-abstraction. Where a named union would carry the same rule, prefer it, and say so when a diff
+chooses the computed form.
