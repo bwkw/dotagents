@@ -6,8 +6,9 @@ almost the inverse of human error: the code compiles, reads well, follows the su
 and is confidently wrong about a fact.
 
 > The signals that matter most here are **not** stylistic. They are: an unfamiliar API used
-> confidently, a suspiciously precise function signature, and a dependency the team has never used
-> before. When the author is a model, spend the review budget there.
+> confidently, a suspiciously precise function signature, a dependency the team has never used
+> before, and a guard for a state nothing constructs. When the author is a model, spend the review
+> budget there.
 
 ---
 
@@ -60,13 +61,47 @@ Specific shapes to grep for in the diff:
 - **Pagination, streaming, and loop termination** — the case where there is one more page than expected,
   or zero.
 
-## 4. Placeholder credentials and secrets
+## 4. Guards for states the type should not have allowed
+
+The mirror image of happy-path bias, and the one a sweep for missing guards will mistake for
+diligence. Where a type admits a state the domain does not have, agent-authored code fills it in — a
+branch, a fallback, a `?? null`. Nothing was omitted. The author handled every state the signature
+offered, which is the right thing to do with that signature.
+
+The cost lands on the reviewer. Whether a guard is **live or dead** cannot be read off the function
+holding it; it takes tracing every site that constructs the value, and that answer is never written
+down, so the next reader traces it again. Three independent flags on one record put eight states in
+reach where four exist, and each surplus state buys a branch somebody has to adjudicate.
+
+- **For every defensive branch in the diff, name the state that reaches it.** If no construction site
+  produces it, the finding is **the type, not the branch** — report the field that admits the state,
+  not the guard that handles it. Deleting the guard and leaving the type is the fix that comes back.
+- **A record of optionals where the domain has a sum.** A loading flag plus `data | null` plus
+  `error | null` is the canonical shape: eight combinations, four meanings. Ask whether the states can
+  be enumerated instead, each variant carrying only the data it actually has — then the surplus
+  branches have nowhere to attach.
+- **A `default` clause, or a `catch` that continues, over a closed set of cases.** The compiler had the
+  whole set and was talked out of using it, so the case added elsewhere next month is absorbed in
+  silence. Where a total branch is genuinely wanted, ask for the form that still fails to compile — an
+  exhaustiveness assertion rather than a fallback.
+- **Two branches with the same body for different reasons.** Usually one of them is real and the other
+  is the type's slack. Worth separating before either is trusted.
+- **When the invariant genuinely cannot be a type, ask where it is enforced.** A lint rule or a schema
+  check fails on the machine that runs it; the same rule written into a review checklist or an
+  instruction file fails only when somebody remembers it. Prefer the one CI can lose sleep over, and
+  treat "the convention is documented" as unenforced.
+
+Severity is usually `design-doubt`, on the same footing as over-abstraction below — the code is correct
+today and the next change pays. It becomes correctness when the surplus state **is** reachable and the
+branch handles it wrongly, which is the "right type, wrong value" shape arriving by this route.
+
+## 5. Placeholder credentials and secrets
 
 Placeholder API keys, tokens, and admin credentials get completed inline and read as configuration.
 Grep the diff for anything key-shaped, and treat a "example"/"changeme"/"xxx" value in a code path as
 either a real leak or a broken default — both are findings.
 
-## 5. Plausible-but-wrong business logic
+## 6. Plausible-but-wrong business logic
 
 The hardest of these, and the reason a human still reads the diff. The code is well-formed and does
 something *reasonable* that is not what was asked.
@@ -79,7 +114,7 @@ something *reasonable* that is not what was asked.
 - **Right type, wrong value.** An edge-case branch that returns a well-typed answer that is incorrect —
   zero instead of null, an empty list instead of an error, the first match instead of the best.
 
-## 6. Over-abstraction
+## 7. Over-abstraction
 
 The opposite failure to the usual review instinct. Agent-authored code tends toward *more* structure
 than the problem needs: a strategy interface with one implementation, a config option nobody sets, a

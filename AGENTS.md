@@ -192,3 +192,11 @@ Start from `_template/`, then `./scripts/verify-skills.sh`. Required sections, i
 - **Evidence discipline** — either in the body or delegated to a `reference/` file. Only what was
   verified directly; cite `path/file.ts:L42`; say "could not confirm" rather than guessing; keep fact
   and inference apart; attach URLs to external claims.
+
+**Where a review lens goes.** `skills/_shared/` holds the **mechanism** — a lens that applies in every
+layer and in both the find and the verify phase. It is symlinked, so a paragraph added there is a
+paragraph every review skill reads. A layer's `reference/perspectives.md` holds the **instance**: the
+concrete shape that mechanism takes in that stack, naming the field, file type or API. When both are
+true, the mechanism goes in `_shared/` and the layer file **points at it in one line instead of
+restating it** — two copies of one lens drift, and the drift is invisible because both still read
+well. Decision 30 in `docs/decisions.md` has the reasoning and what this costs.

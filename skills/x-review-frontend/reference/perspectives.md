@@ -100,6 +100,14 @@ renders something other than what was asked for.
   updates; guarding against discarding unsaved form input; multiple submission and race conditions;
   how a global state change ripples to other screens.
 
+**Screen state held as a product of flags.** `isLoading` plus `data | null` plus `error | null` is this
+layer's most common instance of the shape in `llm-authored-code.md` — eight combinations in reach where
+four have meanings, and every render path then carries a branch for one of the surplus four. The tell in
+a diff is **two branches rendering the same empty state**: one for "loaded and empty", one for "not
+loading, no error, no data", which is not a state the screen has. Ask whether the states are a union with
+the data attached to the variant that owns it, and whether the render is exhaustive over it rather than a
+chain of early returns.
+
 ### 5. Accessibility — against WCAG 2.2
 
 **2.2 is the current standard** and supersedes 2.1; it adds nine criteria aimed at low vision,
