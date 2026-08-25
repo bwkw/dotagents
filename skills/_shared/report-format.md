@@ -256,3 +256,30 @@ reason the subset is allowed to be smaller.
 gaps will always find something; acting on all of it produces over-engineering — extra abstraction
 layers, defensive code, tests for cases that cannot occur. If the filtered count is zero, say so and
 explain why, rather than letting it pass as a thorough review.
+
+## Design review substitutions
+
+`da-design-review` reviews a plan, not a diff, and reports through this file with three substitutions.
+They live here rather than in that skill's body because presentation is this file's subject for every
+review in the toolkit, and the design variant was a second copy of these rules.
+
+- **⛔ becomes 🚪 one-way doors** — decisions expensive or impossible to reverse once shipped. They lead
+  the report. For each: what becomes irreversible, **at what moment**, and what would have to be true to
+  proceed safely. If you cannot name the moment, it is not a door.
+- **🧭 carries more weight than in code review.** At plan stage "this is the wrong shape" is actionable;
+  after implementation it is a rewrite.
+- **📍 points at a section of the plan**, plus the `file:line` in the code it conflicts with when there
+  is one.
+
+The four required parts, read for a plan:
+
+| Part | Here it means |
+|---|---|
+| **1. What changed** | *What the plan proposes to do*, restated from Step 1 and confirmed. First, and present even when nothing is found. |
+| **2. Why this is wrong, in detail** | The mechanism the plan implies → the concrete failure it produces → **when** it produces it (which deploy step, which migration, which load) → and whether the *shape* of the plan causes it rather than one sentence in it. "This will be slow" is not this part; "the backfill locks the orders table for the duration and the plan runs it before the read path moves off it" is. |
+| **3. Plain explanation** | Two to four sentences for whoever has to decide, jargon glossed. |
+| **4. 💬 Suggested comment** | Pasteable onto that plan section, or onto the PR that will implement it. |
+
+**A plan is a document, so anything unwritten looks missing** — which is why the design review's
+refutation pass exists and why ❓ is a bucket of its own rather than a severity.
+

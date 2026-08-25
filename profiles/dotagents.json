@@ -17,6 +17,10 @@
   "match": {
     "remote": "/dotagents"
   },
+  "spec_system": {
+    "kind": "plans",
+    "root": "docs/plans"
+  },
   "forbidden": [
     "setup.sh uninstall",
     "git push --force",

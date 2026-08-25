@@ -188,3 +188,52 @@ answer is needed *before implementation starts* or can be settled during it. Onl
 **Reachability is weaker evidence here.** In code review you can often demonstrate that a path is
 unreachable. In a plan the code does not exist yet, so err toward raising the concern and marking
 confidence honestly — but do not inflate severity to compensate for the uncertainty.
+
+## Pre-mortem — why the past tense, with the measurement
+
+`SKILL.md` Step 4 asks for the incident review written as though it already happened. The tense is the
+mechanism, not the style.
+
+Imagining an outcome as **already having happened** — prospective hindsight — raises the number of
+correctly identified causes by roughly **30%** against asking what *could* go wrong (Mitchell, Russo &
+Pennington 1989; the technique is Gary Klein's, HBR 2007).
+
+Forward-looking risk questions produce the list everyone already has. **Past-tense questions surface
+what people privately suspect and would not otherwise put in writing** — which is the half a design
+review exists to collect.
+
+Be concrete about the first symptom. *"the queue backed up and nobody noticed for a day"* is a finding;
+*"there may be performance issues"* is not.
+
+## Report skeleton
+
+`SKILL.md` Step 6 names this file for it. **The order is load-bearing**: the irreversible decisions sit
+above everything somebody can still fix, so a reader who stops after two sections has read the part that
+cannot be undone.
+
+```markdown
+## Design Review — <plan name>
+
+### What I understand the plan to do
+(Step 1, three to five sentences)
+
+### 🚪 One-way doors
+| Decision | Irreversible from | Why it cannot be undone | What must be true to proceed |
+
+### 🔴 Must resolve before implementing
+### 🟡 Should resolve
+### 🧭 Design doubts (judgement, not defects)
+### ❓ Missing from the plan
+(Step 4: rollback, data migration, in-flight requests, observability, …)
+
+### 🧱 Landing plan
+| # | What lands | What gates it | One-way? | Before the next one starts |
+|---|---|---|---|---|
+
+### 🔎 Confidence
+- Which claims I grounded in code, with `file:line`; which I took on trust; where I hit the 25-file
+  budget. A clean review means "no problem found at this depth", not a design sign-off.
+- **The validator's output**, pasted, or the fact that the repository has none. Green means well-formed,
+  not sound.
+```
+

@@ -1,7 +1,7 @@
 ---
 name: da-design-review
 description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches one-way doors, migration order, and rollback. Read-only.
-argument-hint: "[path to plan/spec] (default: the most recent plan under docs/)"
+argument-hint: "[change-id | path to the spec or plan] (default: resolve from the repository's spec_system, then ask)"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(gh:*), WebFetch
 metadata:
   source: bwkw/dotagents
@@ -24,13 +24,14 @@ a separate act, done deliberately.
 | Condition | If unmet |
 |---|---|
 | A plan, spec, or design document is identified | **Stop.** Ask which document to review. Never review an imagined plan. |
+| The repository's `spec_system` resolved, or its absence was reported | Step 0. Never guess the subject from the tree |
 | The document describes changes to a codebase you can read | Continue, but say in 🔎 that you could not ground the claims in code |
 
 ## Position in the workflow
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/research`, `/grill-me`, `/writing-plans` or an ADR | `/da-design-review` | revise, then `/executing-plans` |
+| `/da-spec` (or `/writing-plans`, `/research`, an ADR) | `/da-design-review` | revise, then `/executing-plans` |
 
 ## Files to read
 
@@ -41,6 +42,7 @@ a separate act, done deliberately.
 | the plan or spec under review | the subject |
 | `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | posture and reporting rules; passed to every subagent |
 | `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` | the review dimensions |
+| `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | which artifact is the subject, the repository's own rules, the validator, and how 🧱 relates to its task list |
 
 ### Read only if
 
@@ -56,14 +58,23 @@ a separate act, done deliberately.
 
 ---
 
+## Step 0. Find the subject, and run what checks it
+
+Follow `${CLAUDE_SKILL_DIR}/reference/spec-system.md`. In an `openspec` repository the subject is the
+whole change directory — proposal, design, tasks **and the spec deltas** — not one file of it, and the
+standard includes the rules file the profile names.
+
+**Then run `spec_system.validate` and paste the output, before any judgement.** A malformed delta is
+not a design finding and must not be reported as one; and a review that reads a spec whose validity was
+mechanically checkable, without checking it, is asserting where it could have measured.
+
 ## Step 1. Restate the plan in your own words
 
 Before critiquing anything, write what you understand the plan to do, in three to five sentences:
 what changes, why, and in what order.
 
 **Show this to the user.** A misread plan produces confident, irrelevant findings, and this is the
-cheapest possible place to catch that. If the plan is too vague to restate, that is itself the first
-finding — stop and report it.
+cheapest place to catch it. Too vague to restate is itself the first finding — stop and report it.
 
 ## Step 2. Ground the plan in the actual code
 
@@ -74,19 +85,17 @@ For each of the plan's load-bearing claims — "this table is append-only", "no 
 this", "the frontend already handles a missing field" — **open the code and check**, citing
 `file:line`. When you cannot confirm one, that is a finding, not a footnote.
 
-Budget: **25 files**. On reaching it, stop and record what you did not verify. An unbounded
-"investigate the codebase" burns the context you need for the actual review.
+Budget: **25 files.** On reaching it, stop and record what you did not verify — an unbounded
+"investigate the codebase" burns the context the review itself needs.
 
 ## Step 3. Review across the dimensions
 
 Read `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` and work through it.
 
-For a substantial plan, dispatch the dimensions to **parallel subagents**, one per dimension group,
-launched in a single message. Pass each the plan, the Step 2 findings, and the contents of
-`finding-discipline.md`. **Run this in subagents rather than inline in the main context** — the
-checklist and the code excerpts are bulky, and inline they would crowd out the synthesis.
-
-For a small plan (a handful of files, nothing irreversible), work through it directly.
+For a substantial plan, dispatch the dimensions to **parallel subagents** in a single message, one per
+dimension group, each given the plan, the Step 2 findings and `finding-discipline.md`. The checklist and
+code excerpts are bulky; inline they crowd out the synthesis. **Small plan — a handful of files, nothing
+irreversible — work through it directly.**
 
 ## Step 4. The question one level up
 
@@ -109,11 +118,8 @@ Before moving on, write this out properly rather than thinking about it:
 > what the first symptom was, how long it took anyone to notice, and what the retrospective concluded
 > should have been obvious.
 
-The grammatical shift is not stylistic. Imagining an outcome as **already having happened** —
-prospective hindsight — raises the number of correctly identified causes by roughly **30%** against
-asking what *could* go wrong (Mitchell, Russo & Pennington 1989; the technique is Gary Klein's, HBR
-2007). Forward-looking risk questions produce the list everyone already has. Past-tense questions
-surface what people privately suspect and would not otherwise put in writing.
+**The tense is not stylistic** — the measurement and the citations are in `design-checklist.md` under
+*Pre-mortem*. Forward-looking risk questions produce the list everyone already has.
 
 Write it as narrative, and be concrete about the first symptom: *"the queue backed up and nobody
 noticed for a day"* is a finding; *"there may be performance issues"* is not.
@@ -151,50 +157,22 @@ reported everything it thought of — say which, plainly, in 🔎.
 Follow `${CLAUDE_SKILL_DIR}/reference/report-format.md` for bucketing and presentation, with these
 substitutions:
 
-- **⛔ becomes "one-way doors"** — decisions that are expensive or impossible to reverse once
-  shipped. These lead the report. For each: what becomes irreversible, at what moment it becomes
-  irreversible, and what would have to be true to proceed safely.
-- **🧭 carries more weight here than in code review.** At plan stage, "this seems like the wrong
-  shape" is still actionable; after implementation it is a rewrite.
-- 📍 Location points at a **section of the plan**, plus the `file:line` in the code it conflicts with
-  when there is one.
+**The four required parts still apply, read for a plan rather than a diff** — `report-format.md` carries
+them under *Design review substitutions*, together with the ⛔ → 🚪 mapping and how 📍 points at a plan
+section. **Architecture, aggregate and transaction boundaries, and security are weighted highest here**,
+more than in code review: at plan stage they are cheap to move and afterwards they are a rewrite. A plan
+silent on any of the three is a ❓, not a pass.
 
-**The four required parts still apply, read for a plan rather than a diff.** They are what makes a design
-review actionable instead of a list of misgivings:
-
-| Part | Here it means |
-|---|---|
-| **1. What changed** | *What the plan proposes to do*, restated from Step 1 and confirmed. First, and present even when nothing is found. |
-| **2. Why this is wrong, in detail** | The mechanism the plan implies → the concrete failure it produces → **when** it produces it (which deploy step, which migration, which load) → and whether the *shape* of the plan causes it rather than one sentence in it. "This will be slow" is not this part; "the backfill locks the orders table for the duration and the plan runs it before the read path moves off it" is. |
-| **3. Plain explanation** | Two to four sentences for whoever has to decide, jargon glossed. |
-| **4. 💬 Suggested comment** | Pasteable onto that plan section, or onto the PR that will implement it. |
-
-**Architecture, aggregate and transaction boundaries, and security are weighted highest here too** —
-more so than in code review, because at plan stage they are still cheap to move and afterwards they are a
-rewrite. If a plan is silent on any of the three, that silence is a ❓, not a pass.
+**The full skeleton is in `design-checklist.md` under *Report skeleton*.** Follow it exactly — the
+order puts the irreversible decisions above everything somebody can still fix. Two sections are
+reproduced here because they must not go missing:
 
 ```markdown
-## Design Review — <plan name>
-
-### What I understand the plan to do
-(Step 1, three to five sentences)
-
 ### 🚪 One-way doors
 | Decision | Irreversible from | Why it cannot be undone | What must be true to proceed |
 
-### 🔴 Must resolve before implementing
-### 🟡 Should resolve
-### 🧭 Design doubts (judgement, not defects)
-### ❓ Missing from the plan
-(Step 4: rollback, data migration, in-flight requests, observability, …)
-
 ### 🧱 Landing plan
 | # | What lands | What gates it | One-way? | Before the next one starts |
-|---|---|---|---|---|
-
-### 🔎 Confidence
-- Which claims I grounded in code, with `file:line`; which I took on trust; where I hit the 25-file
-  budget. A clean review means "no problem found at this depth", not a design sign-off.
 ```
 
 ### The landing plan is the same judgement, written down
@@ -203,6 +181,10 @@ You have already decided what is irreversible and what must deploy in order. **W
 divide is the conclusion of that**, and nothing else here decides it: `da-fix-plan` orders fixes into
 commits inside one change, `da-review-all` asks whether two layers ship together only as a finding. So
 plans reach implementation with the split unmade.
+
+**N rows means N changes** — N openspec `changes/<id>/` directories, N plan files otherwise. Not one
+change with the landings as task groups: a landing ships on its own and a task does not.
+`spec-system.md` carries that mapping, because `da-spec` has to create what this table decided.
 
 The rules are in `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` under **Landing boundaries**.
 The one that decides most: **every landing needs a gate you can name** — if you cannot say what proves

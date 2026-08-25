@@ -27,6 +27,30 @@
       "type": "string",
       "description": "Directory relative to the repo root where checks run. Omit to run at the root."
     },
+    "spec_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "How this repository records intent before code exists. A per-repository fact that the toolkit had nowhere to put: the routing lived as a parenthetical in README.md, which is never loaded at runtime, so nothing ever read it. Omit for a repository that records intent nowhere -- and then say so in the report rather than inventing a location for it.",
+      "properties": {
+        "kind": {
+          "enum": ["openspec", "plans", "none"],
+          "description": "openspec: the repository has openspec/{specs,changes} and one change is a DIRECTORY -- proposal, design, tasks, plus spec deltas per capability. plans: one Markdown plan per change, the shape upstream writing-plans produces. none: intent is not recorded on disk here, so do not invent a convention for it."
+        },
+        "root": {
+          "type": "string",
+          "description": "Directory holding the artifacts, relative to the repo root. 'openspec' for openspec; for plans, wherever the plan files live."
+        },
+        "rules": {
+          "type": "string",
+          "description": "File carrying the repository's OWN authoring rules, to be read before writing or reviewing anything here. For openspec that is 'openspec/config.yaml', which states the required headings, the normative vocabulary, and that a MODIFIED requirement is restated whole. Reviewing against generic dimensions while the repository has written its own down is the failure this field exists to stop."
+        },
+        "validate": {
+          "type": "string",
+          "description": "Command that mechanically checks one change; '<id>' is substituted with the change id. Run it and report its output as evidence BEFORE judging. A spec whose validity is machine-checkable must not be reviewed by reading alone -- that is the same rule da-verify applies to code, applied to intent."
+        }
+      }
+    },
     "max_attempts": {
       "type": "integer",
       "minimum": 1,

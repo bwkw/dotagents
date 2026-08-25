@@ -561,6 +561,31 @@ if [[ -f "$fd" ]]; then
   fi
 fi
 
+# --- routing must not live only in a file nothing loads at runtime ----------------
+# README.md carried the whole of it: "spec をディスクに（リポジトリが openspec を使うならそちら）". README.md
+# is not loaded at runtime -- AGENTS.md has no `@` import for it -- so every invocation ignored the
+# parenthetical and wrote a plan file in the upstream skill's default location. Months of that, and
+# nothing failed, because a rule written where it cannot bind produces no error, only the old behaviour.
+#
+# The check is the containment: whatever the docs claim the toolkit routes on, a skill body has to say
+# too. `spec_system` is the field, and it is checked in both directions -- declared in the schema, and
+# read by a skill -- because a profile field nothing reads is the same failure wearing the other shoe.
+echo
+echo "checking the spec-system routing binds where it is read"
+spec_bad=""
+docs_mention="$(grep -rlF 'openspec' "$REPO/README.md" "$REPO/docs" 2>/dev/null | head -1)"
+skill_mention="$(grep -rlF 'spec_system' "$REPO/skills" 2>/dev/null | head -1)"
+if [[ -n "$docs_mention" && -z "$skill_mention" ]]; then
+  spec_bad="the docs route on a spec system that no skill body reads"
+elif [[ -n "$skill_mention" ]] && ! grep -qF '"spec_system"' "$REPO/profiles/_schema.json" 2>/dev/null; then
+  spec_bad="a skill reads spec_system but the profile schema does not declare it, so additionalProperties:false rejects every profile that sets it"
+fi
+if [[ -n "$spec_bad" ]]; then
+  err "spec-system" "$spec_bad -- README.md is not loaded at runtime, so routing stated only there is not routing"
+else
+  printf '%s✓%s the spec-system routing is stated in a skill body and declared in the schema\n' "$c_green" "$c_off"
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own
