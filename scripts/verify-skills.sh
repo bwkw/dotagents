@@ -574,7 +574,16 @@ echo
 echo "checking the spec-system routing binds where it is read"
 spec_bad=""
 docs_mention="$(grep -rlF 'openspec' "$REPO/README.md" "$REPO/docs" 2>/dev/null | head -1)"
-skill_mention="$(grep -rlF 'spec_system' "$REPO/skills" 2>/dev/null | head -1)"
+# A SKILL.md **body**, not a reference file: Cursor cannot resolve ${CLAUDE_SKILL_DIR}, so routing that
+# lives only under reference/ does not bind there -- which is the same failure as putting it in README,
+# one level in. The first version of this check accepted a reference file and passed while the three
+# bodies had it stripped out.
+skill_mention=""
+for smf in "$REPO"/skills/*/SKILL.md; do
+  [[ -e "$smf" ]] || continue
+  awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$smf" | grep -qF 'spec_system' \
+    && { skill_mention="$smf"; break; }
+done
 if [[ -n "$docs_mention" && -z "$skill_mention" ]]; then
   spec_bad="the docs route on a spec system that no skill body reads"
 elif [[ -n "$skill_mention" ]] && ! grep -qF '"spec_system"' "$REPO/profiles/_schema.json" 2>/dev/null; then
