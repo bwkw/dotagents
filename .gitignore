@@ -12,6 +12,10 @@ profiles/*.json
 # Templates to copy. The `_` prefix is what keeps them inert: both the gate hook and gate.sh skip
 # profiles starting with it, so shipping one cannot put somebody else's commands on your turn end.
 !profiles/_example.*.json
+# The review voice is prose, not config, and it is the most personal file in here: it describes how
+# somebody writes to their colleagues. Same allowlist shape, same reason -- untracked unless opted in.
+profiles/*.md
+!profiles/_example.*.md
 
 # Anything explicitly marked local
 *.local.*
