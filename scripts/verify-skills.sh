@@ -467,6 +467,40 @@ else
   printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
 fi
 
+# --- the diff-size measurement has to be scoped to what is actually reviewed ---
+# Every review skill sizes the diff before it reads anything, and the number decides both which process
+# gets read and whether the report may call itself a review. But `da-review-all` hands each layer a
+# per-layer file list and says "do not re-derive the full diff" -- while the sizing snippet measured
+# `"$BASE"...HEAD` with no paths. So a 45-file change split 15/15/15 made every one of the three layers
+# measure 45 and declare itself a sample, each while holding 15 files. The failure is silent in the worst
+# direction: the report is *more* modest than the work, so nothing looks wrong.
+#
+# The check is on the snippet, not on prose, because the snippet is what gets run. `SCOPE` must be
+# assigned in the file (so it is never unset) and every sizing `git diff` must pass it.
+echo
+echo "checking the diff-size measurement is scoped to the reviewed paths"
+scope_bad=""
+for sf in _shared/review-process.md _shared/review-process-brief.md \
+          x-review-backend/SKILL.md x-review-frontend/SKILL.md x-review-infra/SKILL.md; do
+  sp="$REPO/skills/$sf"
+  [[ -f "$sp" ]] || { scope_bad="$scope_bad $sf(absent)"; continue; }
+  grep -qE '^[[:space:]]*SCOPE=' "$sp" || { scope_bad="$scope_bad $sf(no-SCOPE)"; continue; }
+  # `--shortstat` appears only in the sizing one-liner, which also carries the `--name-only | wc -l`
+  # half -- so both halves have to take the scope, and requiring two occurrences on the line says that
+  # without matching the prose elsewhere that legitimately shows an unscoped `git diff --name-only`
+  # (establishing scope in the first place is a whole-diff operation).
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    n_scoped="$(grep -o -- '-- \$SCOPE' <<<"$line" | wc -l | tr -d ' ')"
+    (( n_scoped >= 2 )) || scope_bad="$scope_bad $sf(unscoped)"
+  done < <(grep -F -- '--shortstat' "$sp")
+done
+if [[ -n "$scope_bad" ]]; then
+  err "diff-size-scope" "the diff-size measurement is not scoped to the reviewed paths in:$scope_bad -- a dispatched layer measures the whole change and reports its own work as a sample"
+else
+  printf '%s✓%s the diff-size measurement is scoped in all 5 sizing snippets\n' "$c_green" "$c_off"
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own

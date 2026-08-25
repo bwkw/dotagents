@@ -65,21 +65,36 @@ Then the mechanics:
 that decides whether the output is a review or a sample, and **it has to be taken before the reading
 starts**, because afterwards it is indistinguishable from an excuse.
 
+**Measure what you were asked to review, not what the branch contains.** Step 1.3 already forbids
+re-deriving the full diff when paths were given; this measurement is bound by the same rule, and it is
+the easier one to break because an unscoped number still comes out looking plausible.
+
 ```bash
-git diff --shortstat "$BASE"...HEAD && git diff --name-only "$BASE"...HEAD | wc -l
+SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $ARGUMENTS. Empty = the whole diff.
+git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
 | Size | What the report is, and what it must say |
 |---|---|
 | **≲ 400 changed lines** | A review. Read every changed file in full. |
 | **400 – 1,000 lines** | Still a review, but **name which files were read in full and which were skimmed.** A reader cannot calibrate a clean result without knowing which half it came from. |
-| **> 1,000 lines, or > 40 files** | **Not a review — a sample.** Say so **at the top, next to the map**, not buried in 🔎. State how the sample was chosen (highest-risk paths from the Step 2 trace, the irreversible surfaces, the files the change centres on) and **what was not opened at all**. |
+| **> 1,000 lines** | **Not a review — a sample.** Say so **at the top, next to the map**, not buried in 🔎. State how the sample was chosen (highest-risk paths from the Step 2 trace, the irreversible surfaces, the files the change centres on) and **what was not opened at all**. |
 
 **Why the threshold is here and not higher.** A large diff does not degrade the review gently; the model
 loses coherence and **falls back to pattern-matching on style**, which is exactly the output that looks
 like a thorough review and contains none of the findings that matter. Producing plausible style comments
 on a 2,000-line diff and calling it reviewed is worse than saying it was sampled — the first hides the
 gap, the second hands it to the human.
+
+**Why the threshold counts lines and not files.** `> 40 files` used to share that last row. It had no
+mechanism behind it — only the line count did — and the only case it caught that the line count does not
+is the wide-and-shallow one: a rename, an import path sweep, one field added to every DTO. **That is
+precisely where sampling is worth least.** The risk is spread evenly across the sites and completeness
+*is* the review: open 20 of 60 call sites and you have reviewed nothing, because the finding is at one of
+the 40 you skipped. The remedy below did not apply there either — a codemod usually cannot be split into
+halves that both ship. **Breadth is not what breaks a review; the volume that has to be held together at
+once is, and lines measure that.** If you want a breadth signal, count the **independent subsystems** the
+change reaches — that is Step 2's job, not this one's.
 
 **The right move above the threshold is usually to send it back.** Say plainly that the change is too
 large to review as one unit and name the split you would make. `da-design-review` decides that split at

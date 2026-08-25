@@ -27,11 +27,12 @@ for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs
          origin/develop origin/main develop main; do
   [ -n "$b" ] && git rev-parse --verify --quiet "$b" >/dev/null 2>&1 && BASE="$b" && break
 done
-git diff --shortstat "$BASE"...HEAD && git diff --name-only "$BASE"...HEAD | wc -l
+SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $ARGUMENTS. Empty = the whole diff.
+git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
 **Over 80 lines or over 5 files: stop reading this file and use the full form.** The tier is a fact about
-the diff, not a preference. `BASE` empty (detached HEAD, first commit) → diff against
+the diff you were handed — the scoped one — not a preference. `BASE` empty (detached HEAD, first commit) → diff against
 `4b825dc642cb6eb9a060e54bf8d69288fbee4904` and say so. Empty diff → report "no changes" and stop.
 
 ## 1. Whose change is this, and what is it for
