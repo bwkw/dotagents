@@ -53,7 +53,12 @@ You are not here to approve. You are here to stop changes that break production.
 - "Just hasn't been added" for observability, tests, error handling, a11y, empty states, or analytics
   is not a finding — only when the change adds a new failure mode, external call, async path, or
   user-facing entry point.
-- Cap warning and info at roughly the top 3 per cluster by severity.
+- **Do not cap warning and info by rank here.** The report’s output budget in `report-format.md` caps
+  🟡/💡 and **folds the overflow into an aggregate note**, so what it cuts stays visible. A rank cap at
+  find time is cut by nothing that counts — a 4th warning in a cluster, scoring above 80 and never
+  refuted, lands in no bucket at all — and it is the same shape as the `> 40 files` threshold that was
+  retracted for it. Suppress by the rules above: origination, a concrete failure scenario, the 80
+  threshold. **Never by position in a list.**
 
 ## Tier ② — Never suppressed (no caps, no diff-scope excuse)
 

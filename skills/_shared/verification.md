@@ -56,9 +56,16 @@ Applies only to findings with `severity=critical` or `irreversible=true`.
 **Work them cluster by cluster**, not finding by finding: the same code path usually carries several, and
 re-reading it once per finding is how this pass used to get expensive.
 
-**Order matters, because you are your own verifier.** Take the findings in **reverse severity order** —
-💡 and 🟡 first, ⛔ last. The measured position effect is that whatever you judge first sets the tone for
-the rest, and judging your own ⛔ first is the arrangement most likely to launder the whole list.
+**Order matters, because you are your own verifier.** Take the findings in **reverse severity order
+within this pass’s scope** — 🔴 first, ⛔ last. The measured position effect is that whatever you judge
+first sets the tone for the rest, and judging your own ⛔ first is the arrangement most likely to launder
+the whole list.
+
+**This used to read "💡 and 🟡 first" — the two severities the line above excludes.** Resolving it went one
+of two ways, and both lost something: widen the scope and you triple the cost of the cheap half of the
+report, against the rule four paragraphs down; keep the scope and you drop the ordering, and with it the
+position guard this paragraph exists for. **A pass may not be told to order findings it was told not to
+take.**
 
 **When there are more findings than you can genuinely re-read, prioritise by irreversibility then
 severity and send the remainder to 👤** — labelled unverified rather than silently downgraded. **A layer
@@ -118,10 +125,15 @@ Rules that make the diversity worth its cost:
   pass that escalates is no longer verifying.
 - **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
   of the report for findings nobody was going to act on urgently.
-- **Normally the single most irreversible ⛔/🔴**, and a second only if the first came back unanimous.
-  Inline the pass no longer costs an agent, but it still costs attention and output, and **a layer with
-  more ⛔/🔴 than one can three-lens has a bigger problem than verification depth** — say so, and 🔎
-  states which findings got three lenses and which got one.
+- **The 3 most irreversible ⛔/🔴 per layer** <!-- dotagents:lens-cap 3 -->; everything past that gets
+  one lens. Inline the pass costs attention and output, but it no longer costs an agent — and **the
+  agent was the whole cost basis for capping it.** Decision 16 set the cap at 3 while each lens was a
+  cold subagent; the commit that removed every subagent cut it to *one* finding, and said only that the
+  three lenses survive as three passes. **The number moved 3× in the tightening direction at the exact
+  moment its reason disappeared**, and `docs/decisions.md` went on stating 3 — so the record described a
+  review this file no longer performed. Restored to 3, and now checked in `verify-skills.sh`.
+- **A layer with more ⛔/🔴 than it can three-lens has a bigger problem than verification depth** — say
+  so, and 🔎 states which findings got three lenses and which got one.
 - **Do not claim independence you do not have.** Three lenses reduce the chance of one bad run; they do
   not remove bias shared by all three, because it is the same model each time. Report it as "checked
   from three angles", never as agreement between reviewers, and route the pass to a different or
