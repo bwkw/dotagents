@@ -67,11 +67,14 @@ for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs
          origin/develop origin/main develop main; do
   [ -n "$b" ] && git rev-parse --verify --quiet "$b" >/dev/null 2>&1 && BASE="$b" && break
 done
-git diff --shortstat "$BASE"...HEAD && git diff --name-only "$BASE"...HEAD | wc -l
+SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $ARGUMENTS. Empty = the whole diff.
+git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
 **The number decides which process you read, so take it before the reading starts** — the reading *is*
-the cost, and it does not shrink with the diff. It used to sit inside `review-process.md` at Step 1b, so
+the cost, and it does not shrink with the diff. **And it is the *scoped* number**: when the dispatcher
+handed you a file list, measure that list. Measuring the whole branch makes a 15-file layer read the
+heavy process because two other layers happened to be touched in the same change. It used to sit inside `review-process.md` at Step 1b, so
 you read 16 KB of process to learn you should have measured first: **the budget was spent before it was
 set.** Measured twice: an 11-line, one-file review at $5.64 and $6.19, against $1.30 and $1.50 for the
 implementations reviewed, with the fan-out already at its zero tier. There was no fan-out left to cut.
