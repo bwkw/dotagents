@@ -234,6 +234,24 @@ Each item: the doubt — why it is concerning — how to settle it. May fall out
 | 🔬 Filtered out | |
 ```
 
+## When the change is an open PR
+
+The report is finished at this point, and it is the **complete** set. A pull request wants something
+smaller: the findings worth another person's attention, in the voice of the person whose name goes on
+them.
+
+**Offer that in one line, then stop.** Do not post anything, and do not skip the offer either — a review
+that ends without it leaves the author to transcribe it by hand. If the user wants it, follow
+[`pr-comments.md`](pr-comments.md), which owns all of it: selection **by rule, never by rank**, the
+register (from `profiles/review-voice.md`, and it asks rather than inventing one), every draft shown
+verbatim, and the literal **`Go`** before a single byte leaves the session.
+
+**`Go` posts comments.** It is never `--approve` or `--request-changes` — a PR's review state is the
+human's, always — and it covers one post, not the round after the author replies.
+
+**Nothing is dropped by selecting.** Everything stays in the report, one scroll up, which is the only
+reason the subset is allowed to be smaller.
+
 **A report where nothing was filtered out has not been calibrated.** Reviewers instructed to find
 gaps will always find something; acting on all of it produces over-engineering — extra abstraction
 layers, defensive code, tests for cases that cannot occur. If the filtered count is zero, say so and
