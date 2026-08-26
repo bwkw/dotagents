@@ -49,7 +49,7 @@ bash 前提なので WSL のみのはずですが、未確認です。node は C
 | **1. 何を作るか固める** | ○ `/grill-me` | 選んだ選択肢を、要件が本当に固まるまで質問攻めにする |
 | | ● `/da-investigate` | **この**コードベースで何に触るか。`file:line`、予算内、**確認できなかったことを名指し** |
 | **2. 書き下す** | ○ `/documentation-and-adrs` | 決定を ADR として |
-| | ○ `/writing-plans` | spec をディスクに（リポジトリが openspec を使うならそちら） |
+| | **● `/da-spec`** | **spec をディスクに。** リポジトリの `spec_system` を profile から解決して、openspec なら change を作る/**既存を更新する**、そうでなければ ○ `/writing-plans` に渡す。validator があれば回して出力を貼る |
 | | **● `/da-design-review`** | 書いたものを**コードが存在しない段階で**レビュー —— 一方通行の扉、移行順序、ロールバック、過去形のプリモーテム |
 | | `/clear` | 計画はディスクにある。実装は新セッションで |
 | **3. 実装する** | ○ `/executing-plans` | 書かれた計画を節目付きで進める |
@@ -77,7 +77,7 @@ landing ごとに:
 
 **上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
 [docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grill-me`・
-`/writing-plans`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
+`/da-spec`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
 検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
 
 | 段 | 判定 | 設計フェーズ | レビュー | 人間の位置 |
@@ -85,7 +85,7 @@ landing ごとに:
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
 | **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で | 2周 | 承認1回（= 計画を commit） |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/writing-plans` → `/da-design-review` | 2周 | ループの**中** |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
 
 **規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
 崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
@@ -122,7 +122,7 @@ landing ごとに:
 | | |
 |---|---|
 | **ループが打つ**（11本） | `/da-investigate`（測る）→ `/using-git-worktrees`（隔離）→ `/da-verify`（arm）→ `/test-driven-development` または `/executing-plans` → `/da-review-all` → `/find-bugs` → `/da-fix-plan` → `/receiving-code-review` → `/da-pr-describe`、そして `gh stack submit` |
-| **あなたが打つ** | **`/grill-me`・`/writing-plans`・`/da-design-review`** —— **面接に相手が要るので、ループは打てません**（打てば「誰も居ない部屋への質問」になります）。tier **M・L** でここに来ると、駆動系は順序を印字して**止まります**（exit 0） |
+| **あなたが打つ** | **`/grill-me`・`/da-spec`・`/da-design-review`** —— **面接に相手が要るので、ループは打てません**（打てば「誰も居ない部屋への質問」になります）。tier **M・L** でここに来ると、駆動系は順序を印字して**止まります**（exit 0） |
 | **あなたしか押せない** | **merge。** `gh pr merge` は権限分類器が止めます |
 
 **`/grill-me` は起点ではありません。** XS・S は `size`（`/da-investigate`）から始まり、grill-me は
@@ -264,7 +264,7 @@ scripts/loop.sh "やりたいことを1文で"
 scripts/loop.sh "認証を OIDC に寄せる"
 #   → tier L。「あなたの手番です」と順序が出る
 
-#   あなたが打つ: /grill-me → /writing-plans → /da-design-review
+#   あなたが打つ: /grill-me → /da-spec → /da-design-review
 #   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
 
 scripts/loop.sh "認証を OIDC に寄せる"
@@ -344,6 +344,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 | 「レビューして」 | `/da-review-all` —— `/find-bugs` にも行きえる | `/code-review` |
 | 「セキュアか」 | `/find-bugs`（バグ＋セキュリティ＋品質） | `/security-review` |
 | 「終わった？」 | `/da-verify`。profile が無ければ**埋めるだけの profile を返して止まる** —— 代替スキルはもう無く、保存するまでゲートも無い |
+| 「spec 書いて」／「openspec 更新して」 | **`/da-spec`** —— profile の `spec_system` で分岐。**既存の change を先に探す**（作る前に）。validator の出力を貼る | `/writing-plans`（spec system の無いリポジトリ向け） |
 | 「整理して」 | `/simplify` —— 設計上、品質専用 | —— |
 | 「毎日動かして」 | バンドルの `/schedule` | 単発の繰り返しは `/loop` |
 

@@ -17,6 +17,11 @@
   "match": {
     "remote": "/dotagents"
   },
+  "spec_system": {
+    "$comment": "docs/plans/ is NOT this: that holds the 🧱 landing plans, which scripts/loop.sh discovers by their 'What gates it' header. The implementation plan is what writing-plans produces, and loop.sh:plan_files() looks for it here.",
+    "kind": "plans",
+    "root": "docs/superpowers/plans"
+  },
   "forbidden": [
     "setup.sh uninstall",
     "git push --force",

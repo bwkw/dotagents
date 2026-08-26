@@ -26,8 +26,8 @@ one scroll up. What Step 1 does is decide what to *say out loud*.
 | 🔴 | inline comment on the line | **Always.** |
 | 🟡 | inline comment on the line | **Only when all three hold**: this change originates it, it names a concrete failure scenario (input and state → result), and **you would act on it yourself.** |
 | 💡 | **one** rolled-up comment, `Nit:` prefixed, listing them as lines | Never one comment each. Five separate nits cost more trust than the five fixes are worth. |
-| 🧭 | **one top-level comment, phrased as a question** | It is not a defect at a line, so it does not get a line. "This shape will cost us — is that priced in?" |
-| 👤 | one top-level question naming **what would settle it or whom to ask** | Never phrased as a finding. It is a statement about what you did not read. |
+| 🧭 | **in the review body**, phrased as a question | It is not a defect at a line, so it does not get a line. "This shape will cost us — is that priced in?" |
+| 👤 | **in the review body**, naming what would settle it or whom to ask | Never phrased as a finding. It is a statement about what you did not read. |
 | 🔬 refuted, or below the confidence threshold | **Nothing.** | It did not survive the verify pass. Posting it is exactly the false positive that pass exists to stop. |
 
 **The filter, stated once:** the trust metric is the **adoption rate** of what you post (decision 14 —
@@ -69,21 +69,31 @@ Print, for each comment: the **target** (`file:line`, or "top-level"), the **buc
 the **body verbatim** — exactly the bytes that would be posted. Then the ones you decided *not* to post,
 one line each with the rule that excluded them, so the selection is auditable and not just asserted.
 
-Then stop and say what `Go` would do: *"`Go` posts N inline comments and M top-level comments to PR
-#X as a single review. Nothing else."*
+Then stop and say what `Go` would do: *"`Go` posts one review to PR #X — N inline comments plus a body
+carrying the 🧭 and 👤 items. Nothing else."*
 
 **Wait for the literal `Go`.** "Looks good", "sure", silence, or a reply about something else is not it.
 Anything less than the token means keep drafting.
 
 ## Step 4. Post — once, as one review
 
-One `gh pr review` with all inline comments attached, not N separate calls: a PR with fourteen
-notification emails from one review is the reviewer's fault, not the author's.
+**One call, all comments attached** — not N. A PR with fourteen notification emails from one review is
+the reviewer's fault, not the author's.
+
+**`gh pr review` cannot do this.** Its flags are `--body` / `--body-file` / `--approve` / `--comment` /
+`--request-changes` and nothing else: it posts a review *body* and has no way to attach a comment to a
+line. Reaching for it and then falling back to one `gh api` call per finding is exactly the N-call shape
+this step exists to prevent. Post the review as one REST call instead:
 
 ```bash
-gh pr review <number> --comment --body-file <top-level.md>   # plus --comment-file per line comment,
-                                                             # or the REST API for multi-line anchors
+# review.json: { "event": "COMMENT", "body": "<the top-level text>",
+#                "comments": [ { "path": "src/a.ts", "line": 42, "side": "RIGHT", "body": "…" }, … ] }
+gh api --method POST "repos/{owner}/{repo}/pulls/<number>/reviews" --input review.json
 ```
+
+`line` + `side` anchors to a single line; `start_line` + `line` spans a range. **Both must be lines the
+diff actually touches** — an anchor outside the diff is rejected for the whole call, so a bad 📍 loses
+every comment, not one.
 
 **`Go` authorizes this post and nothing after it.** A follow-up edit, a reply to the author's response, a
 second round after they push — each needs its own `Go`. Approval does not carry forward, and it never

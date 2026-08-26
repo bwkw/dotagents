@@ -479,11 +479,16 @@ fi
 # assigned in the file (so it is never unset) and every sizing `git diff` must pass it.
 echo
 echo "checking the diff-size measurement is scoped to the reviewed paths"
+# Derived, not listed. A hardcoded set of five silently exempts the sixth review skill somebody adds;
+# `--shortstat` appears only in the sizing snippet, so the files that size a diff ARE the files to check.
 scope_bad=""
-for sf in _shared/review-process.md _shared/review-process-brief.md \
-          x-review-backend/SKILL.md x-review-frontend/SKILL.md x-review-infra/SKILL.md; do
-  sp="$REPO/skills/$sf"
-  [[ -f "$sp" ]] || { scope_bad="$scope_bad $sf(absent)"; continue; }
+scope_files="$(grep -rlF -- '--shortstat' "$REPO/skills" 2>/dev/null | sort)"
+scope_n="$(printf '%s\n' "$scope_files" | grep -c .)"
+if (( scope_n < 5 )); then
+  err "diff-size-scope" "only $scope_n file(s) under skills/ size a diff -- there were 5, so one lost its measurement step rather than having it scoped"
+fi
+for sp in $scope_files; do
+  sf="${sp#"$REPO/skills/"}"
   grep -qE '^[[:space:]]*SCOPE=' "$sp" || { scope_bad="$scope_bad $sf(no-SCOPE)"; continue; }
   # `--shortstat` appears only in the sizing one-liner, which also carries the `--name-only | wc -l`
   # half -- so both halves have to take the scope, and requiring two occurrences on the line says that
@@ -533,13 +538,24 @@ fi
 # of two rules the file states as both binding.
 echo
 echo "checking the refutation pass does not order findings it excludes"
+# Proved to fail OPEN in its first form: it was `grep -q '<the scope sentence>' && <the real test>`, so
+# rewording a sentence it does not own silently disabled it. Verified with a control -- the defect
+# present, original sentence -> error; the defect present, sentence reworded -> pass. CONTRIBUTING is
+# explicit that a guardrail which opens is worse than none, so the anchor is now asserted rather than
+# used as a condition, and the ordering test is scoped to 6a's own section rather than the whole file
+# (the phrase "severity order" also appears in the bias notes further down).
 vf="$REPO/skills/_shared/verification.md"
 if [[ -f "$vf" ]]; then
-  if grep -q 'Applies only to findings with `severity=critical`' "$vf" \
-     && grep -A1 'severity order' "$vf" | grep -qE '💡|🟡'; then
-    err "verify-scope" "6a accepts only critical/irreversible but its ordering rule names 💡/🟡 -- the pass is told to order findings it was told not to take"
+  if ! grep -q 'Applies only to findings with `severity=critical`' "$vf"; then
+    err "verify-scope" "skills/_shared/verification.md no longer states 6a's scope in the form this check anchors on -- reword the check together with the file, or the check passes by not finding its anchor"
   else
-    printf '%s✓%s the refutation pass orders only the severities it accepts\n' "$c_green" "$c_off"
+    # 6a runs from its own heading to 6b's; the ordering rule must not name a severity 6a excludes.
+    sect="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
+    if grep -A1 'severity order' <<<"$sect" | grep -qE '💡|🟡'; then
+      err "verify-scope" "6a accepts only critical/irreversible but its ordering rule names 💡/🟡 -- the pass is told to order findings it was told not to take"
+    else
+      printf '%s✓%s the refutation pass orders only the severities it accepts\n' "$c_green" "$c_off"
+    fi
   fi
 fi
 
@@ -554,11 +570,94 @@ echo
 echo "checking the find phase has no undisclosed rank cap"
 fd="$REPO/skills/_shared/finding-discipline.md"
 if [[ -f "$fd" ]]; then
-  if grep -qE 'top [0-9]+ per cluster' "$fd"; then
+  # One phrasing was one way to write the cap. These are the shapes it actually comes back as.
+  if grep -qiE '(top|highest|first|best) [0-9]+ per cluster|cap [^.]{0,30} (at|to) [0-9]+ per cluster|[0-9]+ per cluster by severity' "$fd"; then
     err "find-rank-cap" "the find phase caps findings by rank again -- nothing counts what a rank cap drops, so use the report's output budget in report-format.md, which folds the overflow into a note the reader can see"
   else
     printf '%s✓%s the find phase drops nothing that no bucket counts\n' "$c_green" "$c_off"
   fi
+fi
+
+# --- routing must not live only in a file nothing loads at runtime ----------------
+# README.md carried the whole of it: "spec をディスクに（リポジトリが openspec を使うならそちら）". README.md
+# is not loaded at runtime -- AGENTS.md has no `@` import for it -- so every invocation ignored the
+# parenthetical and wrote a plan file in the upstream skill's default location. Months of that, and
+# nothing failed, because a rule written where it cannot bind produces no error, only the old behaviour.
+#
+# The check is the containment: whatever the docs claim the toolkit routes on, a skill body has to say
+# too. `spec_system` is the field, and it is checked in both directions -- declared in the schema, and
+# read by a skill -- because a profile field nothing reads is the same failure wearing the other shoe.
+echo
+echo "checking the spec-system routing binds where it is read"
+spec_bad=""
+docs_mention="$(grep -rlF 'openspec' "$REPO/README.md" "$REPO/docs" 2>/dev/null | head -1)"
+# A SKILL.md **body**, not a reference file: Cursor cannot resolve ${CLAUDE_SKILL_DIR}, so routing that
+# lives only under reference/ does not bind there -- which is the same failure as putting it in README,
+# one level in. The first version of this check accepted a reference file and passed while the three
+# bodies had it stripped out.
+#
+# And it stopped at the FIRST body that matched, which is invariant 7's failure exactly: it found one,
+# reported the routing sound, and never looked at the sibling. A test mutation (spec_system renamed to a
+# placeholder) shipped in da-spec's body while da-design-review's copy still had the real name -- 14
+# occurrences of a field that does not exist, in the skill the routing is *for*, and this check was green
+# for it. So: every body that reaches for the shared file must name the field, and the ones that do are
+# counted rather than short-circuited.
+skill_mention=""
+spec_partial=""
+for smf in "$REPO"/skills/*/SKILL.md; do
+  [[ -e "$smf" ]] || continue
+  sbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$smf")"
+  grep -qF 'spec-system.md' <<<"$sbody" || continue      # not a skill that routes on it
+  if grep -qF 'spec_system' <<<"$sbody"; then
+    skill_mention="$smf"
+  else
+    spec_partial="$spec_partial $(basename "$(dirname "$smf")")"
+  fi
+done
+if [[ -n "$spec_partial" ]]; then
+  spec_bad="these skills read reference/spec-system.md but never name the spec_system field:$spec_partial -- one body carrying a renamed or placeholder field name is a skill pointed at a key no profile has"
+elif [[ -n "$docs_mention" && -z "$skill_mention" ]]; then
+  spec_bad="the docs route on a spec system that no skill body reads"
+elif [[ -n "$skill_mention" ]] && ! grep -qF '"spec_system"' "$REPO/profiles/_schema.json" 2>/dev/null; then
+  spec_bad="a skill reads spec_system but the profile schema does not declare it, so additionalProperties:false rejects every profile that sets it"
+fi
+if [[ -n "$spec_bad" ]]; then
+  err "spec-system" "$spec_bad -- README.md is not loaded at runtime, so routing stated only there is not routing"
+else
+  printf '%s✓%s the spec-system routing is stated in a skill body and declared in the schema\n' "$c_green" "$c_off"
+fi
+
+# --- the tier ladder is written twice, so the two copies have to name the same skills ---
+# README.md and docs/loops.md both carry the M/L rows, and the design-phase cell of each names the
+# skills a human types. They drifted the moment one entry point was renamed: README said /da-spec while
+# loops.md still said /writing-plans, and a reader had no way to tell which was current. The prose
+# differs deliberately between the two files (one is a tour, one is the manual), so this compares the
+# only part that must not differ -- the set of skills named.
+echo
+echo "checking the tier ladder names the same skills in both copies"
+# Presence and content are separate questions: the first form conflated them, so a tier whose design
+# phase legitimately became "無し" in BOTH copies -- which is already true of XS and S -- was reported as
+# a missing row. And an escaped \| inside any cell shifts every awk column silently, so that is refused
+# loudly instead of being read wrong.
+tier_line() { grep -m1 "^| \*\*$2\*\* |" "$1" 2>/dev/null; }
+tier_cell() { awk -F'|' '{print $4}' <<<"$1" | grep -oE '/[a-z][a-z0-9-]+' | sort -u | tr '\n' ' '; }
+tier_bad=""
+for tier in M L; do
+  l_readme="$(tier_line "$REPO/README.md" "$tier")"
+  l_loops="$(tier_line "$REPO/docs/loops.md" "$tier")"
+  [[ -n "$l_readme" ]] || { tier_bad="$tier_bad $tier(absent-in-README)"; continue; }
+  [[ -n "$l_loops"  ]] || { tier_bad="$tier_bad $tier(absent-in-loops)"; continue; }
+  case "$l_readme$l_loops" in
+    *'\|'*) tier_bad="$tier_bad $tier(escaped-pipe-in-cell)"; continue ;;
+  esac
+  r_readme="$(tier_cell "$l_readme")"
+  r_loops="$(tier_cell "$l_loops")"
+  [[ "$r_readme" == "$r_loops" ]] || tier_bad="$tier_bad $tier(README:${r_readme:-none}vs loops:${r_loops:-none})"
+done
+if [[ -n "$tier_bad" ]]; then
+  err "tier-ladder" "README.md and docs/loops.md disagree about which skills a tier's design phase runs:$tier_bad -- one of them is telling somebody to type a command the other retired"
+else
+  printf '%s✓%s the M and L tiers name the same skills in README and docs/loops.md\n' "$c_green" "$c_off"
 fi
 
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
