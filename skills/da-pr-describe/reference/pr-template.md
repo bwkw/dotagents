@@ -25,14 +25,17 @@ only; leave internal matters to the diff.
 
 ## Template
 
-Use only the sections you need. Never emit an empty section. The visual summary link goes first
-when there is one.
+Use only the sections you need. **Never emit an empty section — delete it.** 変更の形 and 検討した代案
+are the two that are usually absent, and both are deleted rather than left with a placeholder.
 
 ````markdown
-<!-- 冒頭のビジュアル。変更に「形」がある場合だけ。Artifact が使える環境なら1つ目、
-     使えない環境（Cursor など）なら2つ目。どちらも無理に作らない。 -->
+## 変更の形
 
-📋 **変更サマリ（ビジュアル）** → <artifact URL>
+<!-- 変更に「形」がある場合だけ —— 変わったフロー、順序、触れる層、状態遷移。
+     見出しがそのまま判定条件です。形が無ければ**節ごと消す**（`検討した代案` と同じ）。
+     埋めるために描かない。Artifact が使える環境なら1つ目、使えない環境（Cursor など）なら2つ目。 -->
+
+📋 → <artifact URL>
 
 > 差分を開く前に、変わることを一目で。共有を有効にしないと開けない場合があります。
 
@@ -79,7 +82,7 @@ flowchart LR
 <!-- レビュアが引っかかるであろう意図的な設計判断と、次フェーズに送った既知の欠落だけ。最小限に。 -->
 ````
 
-**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
+**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `変更の形`=The shape of the change / `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
 
 
 ---
@@ -180,7 +183,16 @@ nothing self-evident. Omit if empty.
 
 ---
 
-## 冒頭のビジュアル
+## 変更の形 (The shape of the change)
+
+**It is a section now, and the heading is the test.** It used to be an unheaded block at the top, which
+made it the one part of the body with no name — so "is there one?" had no place to be answered, and the
+guidance about skipping it lived only in this file. As a section it behaves like 検討した代案: **present
+when there is something, deleted when there is not**, and that is one fewer rule to remember because the
+two now work the same way.
+
+**It stays above 概要.** A reader who opens a PR to decide whether to review it now sees the shape first;
+the argument for putting it after the prose is real, and it is written down at the end of this section.
 
 **Two paths, and both produce something.** This used to be Artifact-only, so a PR written from Cursor
 silently got no visual at all. Pick by what the environment actually has, and **say which path you
@@ -204,3 +216,9 @@ and what survives renders badly. That is the whole distinction: the table and th
 HTML page goes behind a link.
 
 For a set of PRs spanning several repositories, give each PR its own visual and link each to its own.
+
+**The open question, recorded rather than settled**: a diagram of an unfamiliar system is hard to read
+before the two sentences that say what it is for, which argues for 概要 first. The counter is that the
+visual exists to be seen *before* deciding to read anything, and a reader who has to scroll past prose to
+reach it has lost that. **Kept above 概要 because that is what the skill has always done and nothing has
+gone wrong with it** — change it on evidence from a real PR, not on this paragraph.

@@ -103,11 +103,15 @@ that must be checked by hand or in a real environment before merge. Real externa
 real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
 environment-specific configuration or permissions.
 
-### Step 4. Put a visual at the top — by whichever route this environment has
+### Step 4. 変更の形 — a section, present only when there is one
 
 **First ask whether the change has a shape at all**: a flow that changed, a sequence, which layers are
 touched, a state machine. A flag value changing has no shape, and the table already says everything —
-**skip this step rather than draw something to fill the slot.** Never fabricate a URL.
+**delete the whole section rather than draw something to fill it.** Never fabricate a URL.
+
+It is a heading (`## 変更の形`), above 概要, and it behaves like 検討した代案: **there when there is
+something, gone when there is not.** Those two are the only optional sections, and they are optional the
+same way — one fewer rule than the unheaded block it replaced.
 
 When it does have a shape, take the route the environment supports:
 
@@ -140,8 +144,8 @@ nothing to go on, **ask** — guessing wrong is visible to everyone on the PR. P
 commands and code excerpts stay verbatim inside a sentence of either language.
 
 
-Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL, link it at the very
-top of the body — or the Mermaid block, if that was the route. **Markdown tables and Mermaid fences go
+Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL or a Mermaid block, it
+goes under `## 変更の形`, the first section of the body. If it produced neither, that heading is absent. **Markdown tables and Mermaid fences go
 inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
 
 ### Step 6. Show it, then update
@@ -165,7 +169,8 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 - [ ] **No table cell contains a sentence** — every cell is a value or a short phrase
 - [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
       internal churn and was dropped
-- [ ] A visual is at the top, or the change genuinely has no shape and that was stated
+- [ ] `## 変更の形` carries a visual, **or the section is absent** because the change has no shape — never
+      a heading with nothing under it, and never a diagram drawn to fill one
 - [ ] The title is a standalone sentence written as an order, in the repository's language
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
 - [ ] No internal-only churn made it into the body
