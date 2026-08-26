@@ -731,6 +731,41 @@ else
     "$c_green" "$c_off" "$real_mine" "$real_typed" "$real_layer" "$real_agents"
 fi
 
+# --- the schema's shape and the instruction that reads it must agree ---------------
+# `validate` was changed from a shell string to argv in profiles/_schema.json to remove the injection
+# surface -- and the file that TELLS the agent how to run it kept saying "a command; substitute the
+# change id", with a bare shell line under it. The schema would have rejected the string form the
+# instruction described. Reported as fixed, in two files, while living in one.
+#
+# Nothing caught it because a schema type and a paragraph of prose have no shared surface. This gives
+# them one: if the schema says array, the instruction has to show an array and carry the id constraint.
+echo
+echo "checking the validator instruction matches the schema's shape"
+sch="$REPO/profiles/_schema.json"
+ss="$REPO/skills/_shared/spec-system.md"
+if [[ -f "$sch" && -f "$ss" ]]; then
+  val_is_array="$(node -e '
+    try { const v = require(process.argv[1]).properties.spec_system.properties.validate;
+          console.log(v && v.type === "array" ? "yes" : "no") } catch { console.log("absent") }
+  ' "$sch" 2>/dev/null)"
+  case "$val_is_array" in
+    yes)
+      vbad=""
+      grep -qF '["pnpm", "openspec"' "$ss" || vbad="$vbad no-argv-example"
+      grep -qF 'a-z0-9._-' "$ss"           || vbad="$vbad no-id-constraint"
+      grep -qiE 'refuse an argv whose|`sh`, `bash`' "$ss" || vbad="$vbad no-shell-refusal"
+      if [[ -n "$vbad" ]]; then
+        err "validate-shape" "the schema declares spec_system.validate as argv but skills/_shared/spec-system.md does not teach it that way ($vbad) -- the instruction the agent follows would describe a form the schema rejects, and the id would go back into a shell"
+      else
+        printf '%s✓%s the validator instruction matches the schema: argv, id constrained, shells refused\n' "$c_green" "$c_off"
+      fi ;;
+    no)
+      err "validate-shape" "spec_system.validate is declared as a shell string again -- it was made argv so a profile could not carry a pipeline and the change id could not escape into the command" ;;
+    *)
+      printf '%s—%s spec_system.validate not declared -- skipped\n' "$c_dim" "$c_off" ;;
+  esac
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own
