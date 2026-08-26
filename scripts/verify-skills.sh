@@ -696,6 +696,41 @@ else
   printf '%s✓%s the change table is %s in all three copies\n' "$c_green" "$c_off" "$(printf '%s' "$change_cols" | head -1)"
 fi
 
+# --- counts written in prose must be the counts on disk ---------------------------
+# README and AGENTS.md state how many skills there are, in sentences. Adding da-spec made three of those
+# sentences wrong at once -- "自作は10スキル", "da- は打つもの（7）", "the same seven entries" -- and every
+# one of them still read perfectly. A number in prose has no way to notice the directory changed.
+#
+# The counts are declared on a marker beside the sentence and computed here. dotagents:skill-count
+echo
+echo "checking the skill counts in prose match the directories"
+real_mine="$(ls -d "$REPO"/skills/*/ 2>/dev/null | grep -vE '_shared|_template' | wc -l | tr -d ' ')"
+real_typed="$(ls -d "$REPO"/skills/da-*/ 2>/dev/null | wc -l | tr -d ' ')"
+real_layer="$(ls -d "$REPO"/skills/x-review-*/ 2>/dev/null | wc -l | tr -d ' ')"
+real_agents="$(ls -1 "$REPO"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')"
+count_bad=""; count_seen=0
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  count_seen=$((count_seen+1))
+  for pair in $line; do
+    case "$pair" in
+      mine=*)   [[ "${pair#mine=}"   == "$real_mine"   ]] || count_bad="$count_bad mine(says ${pair#mine=}, is $real_mine)" ;;
+      typed=*)  [[ "${pair#typed=}"  == "$real_typed"  ]] || count_bad="$count_bad typed(says ${pair#typed=}, is $real_typed)" ;;
+      layer=*)  [[ "${pair#layer=}"  == "$real_layer"  ]] || count_bad="$count_bad layer(says ${pair#layer=}, is $real_layer)" ;;
+      agents=*) [[ "${pair#agents=}" == "$real_agents" ]] || count_bad="$count_bad agents(says ${pair#agents=}, is $real_agents)" ;;
+    esac
+  done
+done < <(grep -rhoE 'dotagents:skill-count [a-z0-9= ]+' "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null \
+         | sed 's/dotagents:skill-count //')
+if (( count_seen < 2 )); then
+  err "skill-count" "fewer than 2 'dotagents:skill-count' markers -- README.md and AGENTS.md both state these numbers in prose, and an unmarked sentence goes stale without failing"
+elif [[ -n "$count_bad" ]]; then
+  err "skill-count" "the counts written in prose no longer match the directories:$count_bad -- adding or removing a skill changes sentences in two files, and both still read correctly when wrong"
+else
+  printf '%s✓%s the prose counts match: %s skills, %s typed, %s layer, %s agents\n' \
+    "$c_green" "$c_off" "$real_mine" "$real_typed" "$real_layer" "$real_agents"
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own

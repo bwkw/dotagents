@@ -1327,7 +1327,7 @@ runloop "大きいこと"
 grep -qE 'あなたの手番|your turn' <<<"$OUT" \
   && ok "and it says plainly that it is your turn" \
   || { no "it did not say whose turn it is"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
-for want in grilling writing-plans da-design-review; do
+for want in grilling da-spec da-design-review; do
   grep -q "$want" <<<"$OUT" && ok "  names /$want" || no "  omitted /$want"
 done
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "it opened a PR without a design phase" || ok "and opens nothing"
@@ -1382,7 +1382,7 @@ grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
 
 setup; measurement 20 3 1 1 1; runloop size "r"     # L
 runloop design
-for want in grilling writing-plans da-design-review; do
+for want in grilling da-spec da-design-review; do
   grep -q "$want" <<<"$OUT" \
     && ok "design at tier L names /$want" \
     || no "design at tier L omitted /$want"
