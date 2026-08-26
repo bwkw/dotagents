@@ -46,7 +46,7 @@ draft body to a temporary file outside the repo.
 
 | File | Trigger condition |
 |---|---|
-| the `artifact-design` skill | Only when publishing the visual summary, and only if the Artifact tool exists in this environment |
+| the `artifact-design` skill | Before publishing the visual as an Artifact — the route wherever the Artifact tool exists |
 
 ---
 
@@ -81,8 +81,9 @@ Without it the change reads as a solution to an unstated problem.
 
 **Then ask whether an obvious alternative was rejected.** If one was, name it and the evidence that
 ruled it out (a slower flag, a narrower exclude that would hide real errors, a deploy-time failure CI
-never saw) **in the same cell** — otherwise the reviewer opens the diff to ask 「なぜこの形？」. If no
-real alternative existed, say nothing; **do not restate the problem in different words to fill space.**
+never saw) — otherwise the reviewer opens the diff to ask 「なぜこの形？」. It goes in **検討した代案**,
+a section, so it can carry a number and a link. If no real alternative existed, **delete that section**;
+do not restate the problem in different words to fill it.
 
 Also pin down, for each change:
 
@@ -92,28 +93,41 @@ Also pin down, for each change:
   a pure addition. **If a change cannot be written as a before/after pair, that is the signal it is
   internal churn** and does not belong in the table.
 
-Those four are the table's columns.
+**Those three are the table's columns, and all three are short values.** The problem and the rejected
+alternative are prose, not a fourth column: a cell can hold only inline formatting, so a column of
+sentences sets the row width and squeezes the three that were doing the scanning. Collect the ticket,
+issue, design-doc and benchmark links here too — they belong in 概要.
 
 Separately, collect candidates for **manual verification**: things automated tests cannot cover and
 that must be checked by hand or in a real environment before merge. Real external API behaviour,
 real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
 environment-specific configuration or permissions.
 
-### Step 4. Put a visual at the top — by whichever route this environment has
+### Step 4. 全体像 — a section, present only when there is one
 
 **First ask whether the change has a shape at all**: a flow that changed, a sequence, which layers are
 touched, a state machine. A flag value changing has no shape, and the table already says everything —
-**skip this step rather than draw something to fill the slot.** Never fabricate a URL.
+**delete the whole section rather than draw something to fill it.** Never fabricate a URL.
+
+It is a heading (`## 全体像`), above 概要, and it behaves like 検討した代案: **there when there is
+something, gone when there is not.** Those two are the only optional sections, and they are optional the
+same way — one fewer rule than the unheaded block it replaced.
 
 When it does have a shape, take the route the environment supports:
 
 | Environment | Route |
 |---|---|
-| **Artifact tool available (Claude)** | Read `artifact-design`, publish one HTML page, link the URL at the top. Add the line about sharing possibly needing to be enabled — artifacts are private by default. |
-| **No Artifact tool (Cursor, or anywhere else)** | A **Mermaid block inline at the top of the body.** GitHub renders ` ```mermaid ` fences natively in PR descriptions, so it needs no tool and no hosting. |
+| **Artifact tool available (Claude)** | Read `artifact-design`, publish one page, **get it shared**, link the URL |
+| **No Artifact tool (Cursor, or anywhere else)** | A ` ```mermaid ` fence inline — GitHub renders it for every reader, no account, no hosting |
 
-**Say which route you took.** This used to be Artifact-only, which meant a PR written from Cursor
-silently had no visual — the divergence this step now closes.
+**Sharing is a step of this skill, not a caveat.** An Artifact is private by default and **the tool has no
+share action** — making it visible to teammates is something the human does in the artifact view. So an
+unshared link is a 404 for every reviewer while opening fine for the author: **it fails quietly, in the
+direction nobody checks.**
+
+**Publish → stop and ask the user to share it, naming the URL → only then put it in the body.** If they
+would rather not share it, use a Mermaid fence instead. **A link the reviewer cannot open is worse than
+no visual**, because it reads as content that exists.
 
 Either way, **do not restate the 変わること table.** The body already carries the scannable view; a page
 or diagram that repeats it is one more thing to open and dismiss.
@@ -136,8 +150,9 @@ nothing to go on, **ask** — guessing wrong is visible to everyone on the PR. P
 commands and code excerpts stay verbatim inside a sentence of either language.
 
 
-Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL, link it at the very
-top of the body — or the Mermaid block, if that was the route. **Markdown tables and Mermaid fences go
+Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL or a Mermaid block, it
+goes under `## 全体像`, the first section of the body. If it produced neither, that heading is absent.
+**A URL goes in only after the user has confirmed the Artifact is shared.** **Markdown tables and Mermaid fences go
 inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
 
 ### Step 6. Show it, then update
@@ -153,14 +168,19 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 ## Done when
 
 - [ ] The reviewer can tell what changes from the description alone
-- [ ] Every 変わること row names the **problem** in なぜ, not a benefit — and where an alternative was
-      rejected, the evidence that ruled it out sits in the same cell
+- [ ] **概要 carries the problem**, not a benefit and not a restatement of the change — and the ticket,
+      issue, design doc or benchmark numbers are linked there rather than left out
+- [ ] **検討した代案 exists only if one was actually rejected**, with the evidence that ruled it out —
+      otherwise the section is deleted, not filled
 - [ ] No 領域 cell names a class, function, or flag
-- [ ] No なぜ cell restates the 変更前 → 変更後 pair in different words
+- [ ] **No table cell contains a sentence** — every cell is a value or a short phrase
 - [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
       internal churn and was dropped
-- [ ] A visual is at the top, or the change genuinely has no shape and that was stated
-- [ ] Every cell is one or two sentences; anything longer moved its detail to 補足
+- [ ] `## 全体像` carries a visual, **or the section is absent** because the change has no shape — never
+      a heading with nothing under it, and never a diagram drawn to fill one
+- [ ] If it is an Artifact link, **the user confirmed it is shared** — an unshared link opens for the
+      author and 404s for every reviewer, so this cannot be inferred from the link working
+- [ ] The title is a standalone sentence written as an order, in the repository's language
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
 - [ ] No internal-only churn made it into the body
 - [ ] Everything requiring manual verification is listed, unchecked, with a reason

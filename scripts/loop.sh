@@ -786,7 +786,7 @@ such claim here and none of them under \`unconfirmed\`; this field does not affe
     L) say "This needs the full design phase, attended. Something here is irreversible, touches a"
        say "risk surface, or was not confirmed -- and an unmeasured change is the worst thing to"
        say "hand to an unattended loop."
-       say "Next:  /grill-me   →   /writing-plans   →   /da-design-review"
+       say "Next:  /grill-me   →   /da-spec   →   /da-design-review"
        say "       then commit the 🧱 Landing plan, then:  scripts/loop.sh run <plan-path>" ;;
   esac
 }
@@ -923,7 +923,7 @@ cmd_design() {
     say "  2. /grill-me                    the interview (it delegates to /grilling, which does the work"
     say "                                  -- install both or it does nothing). CANNOT BE CHECKED."
   }
-  say "  3. /writing-plans               $( ((have_plan)) && printf 'FOUND: %s' "$plan_note" || printf 'not found%s' "${plan_note:+ -- $plan_note}" )"
+  say "  3. /da-spec                     $( ((have_plan)) && printf 'FOUND: %s' "$plan_note" || printf 'not found%s' "${plan_note:+ -- $plan_note}" )"
   say "  4. /documentation-and-adrs      $( ((have_adr)) && printf 'FOUND: %s' "$adr" || printf 'no ADR (only needed if you made a decision worth recording)' )"
   say "  5. /da-design-review            CANNOT BE CHECKED -- it writes no file at all. Its 🧱 Landing"
   say "                                  plan exists only in the conversation, so YOU copy that table"

@@ -45,11 +45,28 @@ nothing, because the checklist it passed was not the one that applies.
 
 ## Run the validator, and paste its output
 
-`spec_system.validate` is a command; substitute the change id.
+`spec_system.validate` is **argv, not a shell string** — one element per argument, and the element that
+is exactly `<id>` is replaced by the change id:
 
-```bash
-pnpm openspec validate <id> --strict      # whatever the profile says
+```json
+["pnpm", "openspec", "validate", "<id>", "--strict"]
 ```
+
+**The array is the point.** A profile cannot smuggle a pipeline, a `;`, or a `$( )` past a reader, and
+the change id cannot escape into the command because it is its own argument. **Refuse an argv whose
+first element is `sh`, `bash` or `zsh`, or that contains `-c`** — that is a command string wearing an
+array's clothes, and it puts back everything the array removed.
+
+**The change id must match `^[a-z0-9][a-z0-9._-]*$`.** It arrives from `$ARGUMENTS` or from a directory
+listing, and both are attacker-reachable in a repository you did not write. Anything else: stop and say
+which id was rejected. Do not "clean it up" and continue.
+
+**Check every element against the profile's `forbidden` list before running.** Be honest about what that
+is worth: the gate hook enforces `forbidden` on the checks *it* runs, and nothing enforces it on a
+command an agent types. Its own comment says why — *a rule written in a skill is a request, not a
+guarantee, and guardrails belong in hooks.* **The guarantee is the `allowed-tools` allowlist**, which the
+harness applies; this check is the request on top of it. **A validator the allowlist does not cover is
+reported as unrunnable — never rerouted through an interpreter that happens to be allowed.**
 
 **Run it before judging, and show the output.** A spec whose validity is machine-checkable must not be
 assessed by reading alone — that is the rule `da-verify` applies to code, applied to intent. Describing
