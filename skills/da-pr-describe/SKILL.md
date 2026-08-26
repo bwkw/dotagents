@@ -46,7 +46,7 @@ draft body to a temporary file outside the repo.
 
 | File | Trigger condition |
 |---|---|
-| the `artifact-design` skill | Only when publishing the visual summary, and only if the Artifact tool exists in this environment |
+| the `artifact-design` skill | Only when the visual is an Artifact rather than the default Mermaid block — which is the exception, not the norm |
 
 ---
 
@@ -103,25 +103,27 @@ that must be checked by hand or in a real environment before merge. Real externa
 real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
 environment-specific configuration or permissions.
 
-### Step 4. 変更の形 — a section, present only when there is one
+### Step 4. 全体像 — a section, present only when there is one
 
 **First ask whether the change has a shape at all**: a flow that changed, a sequence, which layers are
 touched, a state machine. A flag value changing has no shape, and the table already says everything —
 **delete the whole section rather than draw something to fill it.** Never fabricate a URL.
 
-It is a heading (`## 変更の形`), above 概要, and it behaves like 検討した代案: **there when there is
+It is a heading (`## 全体像`), above 概要, and it behaves like 検討した代案: **there when there is
 something, gone when there is not.** Those two are the only optional sections, and they are optional the
 same way — one fewer rule than the unheaded block it replaced.
 
 When it does have a shape, take the route the environment supports:
 
-| Environment | Route |
-|---|---|
-| **Artifact tool available (Claude)** | Read `artifact-design`, publish one HTML page, link the URL at the top. Add the line about sharing possibly needing to be enabled — artifacts are private by default. |
-| **No Artifact tool (Cursor, or anywhere else)** | A **Mermaid block inline at the top of the body.** GitHub renders ` ```mermaid ` fences natively in PR descriptions, so it needs no tool and no hosting. |
+**Mermaid is the default, in every environment** — a ` ```mermaid ` fence, which GitHub renders inline
+for every reader with no account and no sharing step.
 
-**Say which route you took.** This used to be Artifact-only, which meant a PR written from Cursor
-silently had no visual — the divergence this step now closes.
+**Reach for an Artifact only when the shape exceeds a diagram** (grouped before/after tables, several
+views on one page). It is **private by default**, so a link in a PR body is dead for every reviewer until
+you share it: share it before posting, or do not link it. Read `artifact-design` first.
+
+**The route used to be picked by which tool the author had.** That optimises for the author's capability
+and against the reader, which is the one trade a PR description must never make.
 
 Either way, **do not restate the 変わること table.** The body already carries the scannable view; a page
 or diagram that repeats it is one more thing to open and dismiss.
@@ -145,7 +147,7 @@ commands and code excerpts stay verbatim inside a sentence of either language.
 
 
 Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL or a Mermaid block, it
-goes under `## 変更の形`, the first section of the body. If it produced neither, that heading is absent. **Markdown tables and Mermaid fences go
+goes under `## 全体像`, the first section of the body. If it produced neither, that heading is absent. **Markdown tables and Mermaid fences go
 inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
 
 ### Step 6. Show it, then update
@@ -169,7 +171,7 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 - [ ] **No table cell contains a sentence** — every cell is a value or a short phrase
 - [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
       internal churn and was dropped
-- [ ] `## 変更の形` carries a visual, **or the section is absent** because the change has no shape — never
+- [ ] `## 全体像` carries a visual, **or the section is absent** because the change has no shape — never
       a heading with nothing under it, and never a diagram drawn to fill one
 - [ ] The title is a standalone sentence written as an order, in the repository's language
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated

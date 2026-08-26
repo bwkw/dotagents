@@ -25,24 +25,24 @@ only; leave internal matters to the diff.
 
 ## Template
 
-Use only the sections you need. **Never emit an empty section — delete it.** 変更の形 and 検討した代案
+Use only the sections you need. **Never emit an empty section — delete it.** 全体像 and 検討した代案
 are the two that are usually absent, and both are deleted rather than left with a placeholder.
 
 ````markdown
-## 変更の形
+## 全体像
 
-<!-- 変更に「形」がある場合だけ —— 変わったフロー、順序、触れる層、状態遷移。
-     見出しがそのまま判定条件です。形が無ければ**節ごと消す**（`検討した代案` と同じ）。
-     埋めるために描かない。Artifact が使える環境なら1つ目、使えない環境（Cursor など）なら2つ目。 -->
-
-📋 → <artifact URL>
-
-> 差分を開く前に、変わることを一目で。共有を有効にしないと開けない場合があります。
+<!-- 図が描ける変更のときだけ —— 変わったフロー、順序、触れる層、状態遷移。
+     描かなかったなら**節ごと消す**（`検討した代案` と同じ）。埋めるために描かない。
+     既定は Mermaid。全レビュアがそのまま見られる唯一の形です。 -->
 
 ```mermaid
-%% Artifact が無い環境ではこちら。GitHub が本文内で描画する。
 flowchart LR
 ```
+
+<!-- Artifact は、図では足りないとき（領域ごとの一覧、before/after の並置、複数ビュー）だけ。
+     **既定で非公開なので、共有しない限りレビュアは開けません。** 使うなら共有まで済ませること。 -->
+
+📋 → <artifact URL>
 
 ## 概要
 
@@ -82,7 +82,7 @@ flowchart LR
 <!-- レビュアが引っかかるであろう意図的な設計判断と、次フェーズに送った既知の欠落だけ。最小限に。 -->
 ````
 
-**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `変更の形`=The shape of the change / `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
+**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `全体像`=At a glance / `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
 
 
 ---
@@ -183,7 +183,7 @@ nothing self-evident. Omit if empty.
 
 ---
 
-## 変更の形 (The shape of the change)
+## 全体像 (At a glance)
 
 **It is a section now, and the heading is the test.** It used to be an unheaded block at the top, which
 made it the one part of the body with no name — so "is there one?" had no place to be answered, and the
@@ -194,14 +194,29 @@ two now work the same way.
 **It stays above 概要.** A reader who opens a PR to decide whether to review it now sees the shape first;
 the argument for putting it after the prose is real, and it is written down at the end of this section.
 
-**Two paths, and both produce something.** This used to be Artifact-only, so a PR written from Cursor
-silently got no visual at all. Pick by what the environment actually has, and **say which path you
-took** — never fabricate a URL.
+**Mermaid is the default, in every environment.** Not a fallback — the default.
 
-| Environment | What goes at the top |
-|---|---|
-| **Artifact tool available (Claude)** | Publish one HTML page and link the URL. It can group by area, place before/after side by side, or carry a diagram — things a Markdown table cannot. Read the `artifact-design` skill first. **Artifacts are private by default**, so add the one line telling the reviewer sharing may need enabling. |
-| **No Artifact tool (Cursor, or anywhere else)** | A **Mermaid block inline in the body.** GitHub renders ```mermaid fences natively in PR descriptions, so this needs no tool and no hosting, and it looks the same to every reviewer. |
+**The route used to be chosen by what the author's tool could do, and that is the wrong axis for a PR
+body.** A PR description is read by other people. An Artifact is **private by default** — a page on
+claude.ai that the author can later choose to share — so a link dropped into a PR body is, until somebody
+shares it, **a link every reviewer fails to open**. Choosing it because Claude happens to offer it
+optimises for the author's capability and against the reader, which is the one trade a description must
+never make.
+
+A ` ```mermaid ` fence renders inline on GitHub for **every** reader: no account, no sharing step, no
+hosting, nothing to click. That is the whole argument.
+
+| | When | Cost |
+|---|---|---|
+| **Mermaid, inline** | **Default.** A flow, a sequence, the layers touched, a state machine — anything a diagram can carry | none. It is already in the body |
+| **Artifact** | Only when the shape genuinely exceeds a diagram: grouped before/after tables, several views on one page, something a Markdown table cannot hold. Read `artifact-design` first | **You must share it**, or the link is dead for the reviewer. Do that before posting, and say in the body that it is a link out |
+
+**This also removes the divergence this section used to record.** Being Artifact-only meant a PR written
+from Cursor silently got no visual; picking by environment fixed that but left two behaviours for one
+skill. One default that works everywhere leaves none — and `verify-skills.sh` no longer has to care which
+agent wrote the PR.
+
+**Never fabricate a URL**, and never link an Artifact you have not shared.
 
 **Neither is mandatory, and a bad one is worse than none.** The visual earns its place only when the
 change *has a shape*: a flow that changed, a sequence, which layers are touched, a state machine. A flag
