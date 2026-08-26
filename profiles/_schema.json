@@ -47,8 +47,10 @@
           "description": "File carrying the repository's OWN authoring rules, to be read before writing or reviewing anything here. For openspec that is 'openspec/config.yaml', which states the required headings, the normative vocabulary, and that a MODIFIED requirement is restated whole. Reviewing against generic dimensions while the repository has written its own down is the failure this field exists to stop."
         },
         "validate": {
-          "type": "string",
-          "description": "Command that mechanically checks one change; '<id>' is substituted with the change id. Run it and report its output as evidence BEFORE judging. A spec whose validity is machine-checkable must not be reviewed by reading alone -- that is the same rule da-verify applies to code, applied to intent."
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Command that mechanically checks one change, as ARGV -- not a shell string. One element per argument; the element that is exactly '<id>' is replaced by the change id. Example: [\"pnpm\", \"openspec\", \"validate\", \"<id>\", \"--strict\"]. Argv rather than a string on purpose: a profile cannot then smuggle a pipeline, a ';', or a substitution past a reader, and the change id cannot escape into the command because it is its own element. An argv beginning with a shell (sh/bash/zsh) or containing '-c' defeats that and must be refused by whatever runs it. Run it and report its output as evidence BEFORE judging -- a spec whose validity is machine-checkable must not be reviewed by reading alone, which is the rule da-verify applies to code, applied to intent."
         }
       }
     },

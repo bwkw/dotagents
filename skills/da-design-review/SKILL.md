@@ -2,7 +2,7 @@
 name: da-design-review
 description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches one-way doors, migration order, and rollback. Read-only.
 argument-hint: "[change-id | path to the spec or plan] (default: resolve from the repository's spec_system, then ask)"
-allowed-tools: Task, Read, Grep, Glob, Bash, WebFetch
+allowed-tools: Task, Read, Grep, Glob, WebFetch, Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npm:*), Bash(npx:*), Bash(yarn:*), Bash(make:*), Bash(bundle:*)
 metadata:
   source: bwkw/dotagents
 ---
@@ -68,12 +68,12 @@ standard includes the rules file the profile names.
 not a design finding and must not be reported as one; and a review that reads a spec whose validity was
 mechanically checkable, without checking it, is asserting where it could have measured.
 
-> **`Bash` is unrestricted here for exactly one reason and carries exactly one extra permission.**
-> `spec_system.validate` is defined per repository — `pnpm`, `make`, `bundle`, `./bin/…` — so an
-> allowlist of interpreters would silently fail on the repositories it did not guess. **Run the
-> profile's `validate` string verbatim and nothing else**, and check it against the profile's
-> `forbidden` list first, exactly as `da-verify` does. Everything else in this skill stays read-only:
-> `git`, `gh`, and reading. **This skill still never writes.**
+> **The allowlist in the frontmatter is the enforcement.** `Bash` was briefly unrestricted here with the
+> constraint written as prose; a denied tool call is refused loudly while a sentence is only a request,
+> so the permission is back in the frontmatter where the harness applies it. **A validator the allowlist
+> does not cover is reported as unrunnable, not worked around.** Run the profile's `validate` argv and
+> nothing else, refuse one that starts with a shell or contains `-c`, and check it against `forbidden`
+> first. Everything else stays read-only: `git`, `gh`, reading. **This skill never writes.**
 
 ## Step 1. Restate the plan in your own words
 

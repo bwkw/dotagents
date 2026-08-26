@@ -2,7 +2,7 @@
 name: da-spec
 description: Write the change onto disk in the form this repository actually uses, or update the existing one. Use when a spec, proposal, design or plan needs recording before implementation — openspec changes, spec deltas, plan files. Resolves the repository's own convention and its authoring rules rather than picking a location. Writes only spec artifacts, never source.
 argument-hint: "[what the change is | change-id | path] (default: ask)"
-allowed-tools: Read, Grep, Glob, Write, Edit, Bash
+allowed-tools: Read, Grep, Glob, Write, Edit, Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npm:*), Bash(npx:*), Bash(yarn:*), Bash(make:*), Bash(bundle:*)
 metadata:
   source: bwkw/dotagents
 ---
@@ -16,7 +16,7 @@ It exists because **the routing used to live in `README.md`**, in a parenthetica
 repository using openspec should get openspec instead of a plan file. `README.md` is not loaded at
 runtime, so nothing ever read it, and the answer was always a plan file in the upstream skill's
 default location. **A rule written where it cannot bind is not a rule** — this file is the place it
-binds, and `SPECSYSTEM_REMOVED` in the profile is the place the fact lives.
+binds, and `spec_system` in the profile is the place the fact lives.
 
 ## Preconditions
 
@@ -27,7 +27,7 @@ Stop immediately if any row fails. Report which condition failed. Do not continu
 | The working directory is inside a git repository with an `origin` remote | Stop, say so, do not guess a location |
 | **What the change is, is stated** | **Stop and ask.** A spec written from an inferred goal is a spec for the wrong change, and it reads as authoritative. |
 | A profile matches this repository | Continue **only** as far as Step 1, which reports the gap and asks. Never invent a convention |
-| `SPECSYSTEM_REMOVED.kind` is `none` | Stop. Say the repository records intent nowhere, and ask where it should go — do not create a directory |
+| `spec_system.kind` is `none` | Stop. Say the repository records intent nowhere, and ask where it should go — do not create a directory |
 
 ## Position in the workflow
 
@@ -42,8 +42,8 @@ Stop immediately if any row fails. Report which condition failed. Do not continu
 | File | Why |
 |---|---|
 | `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | how to resolve the convention, why not from the tree, and the validator rule. Shared with `da-design-review`, so the two cannot disagree about where the artifact lives |
-| the matching `profiles/*.json` → `SPECSYSTEM_REMOVED` | which convention this repository uses, and where |
-| the file named by `SPECSYSTEM_REMOVED.rules` | **the repository's own authoring rules.** Not optional: writing to a generic template when the repository has written its rules down produces an artifact that fails its own validator |
+| the matching `profiles/*.json` → `spec_system` | which convention this repository uses, and where |
+| the file named by `spec_system.rules` | **the repository's own authoring rules.** Not optional: writing to a generic template when the repository has written its rules down produces an artifact that fails its own validator |
 
 ### Read only if
 
@@ -59,8 +59,8 @@ Stop immediately if any row fails. Report which condition failed. Do not continu
 
 ## Step 1. Resolve the convention — do not choose one
 
-Follow `${CLAUDE_SKILL_DIR}/reference/spec-system.md`: resolve `SPECSYSTEM_REMOVED` from the profile, read the
-rules file it names, and stop and ask when there is no profile or no `SPECSYSTEM_REMOVED`. **Observing a
+Follow `${CLAUDE_SKILL_DIR}/reference/spec-system.md`: resolve `spec_system` from the profile, read the
+rules file it names, and stop and ask when there is no profile or no `spec_system`. **Observing a
 directory is not being told to write into it.**
 
 ## Step 2. Look for the change that already exists — before creating one
@@ -94,14 +94,14 @@ asking is one message against a split record nobody notices for a month.
 `kind: openspec` → read `${CLAUDE_SKILL_DIR}/reference/openspec.md`, then write the change directory.
 
 `kind: plans` → **use the `writing-plans` skill and follow it exactly**, then place the file where
-`SPECSYSTEM_REMOVED.root` says rather than at that skill's default. **Do not restate its guidance here.**
+`spec_system.root` says rather than at that skill's default. **Do not restate its guidance here.**
 Task decomposition, right-sizing and the plan header are its subject and it is maintained upstream;
 duplicating it here would produce two versions that drift, and the copy in this repository would be
 the stale one.
 
 Either way, two rules that are this skill's own:
 
-- **The rules file wins over any template.** If `SPECSYSTEM_REMOVED.rules` requires headings, a normative
+- **The rules file wins over any template.** If `spec_system.rules` requires headings, a normative
   vocabulary, or that a modified requirement is restated whole, that is the standard. A generic
   template that reads well and fails the validator is worse than no artifact.
 - **Write what you verified, and mark what you did not.** A spec is read later as settled fact. An
@@ -113,12 +113,20 @@ Per `${CLAUDE_SKILL_DIR}/reference/spec-system.md`. **Red means not finished** �
 than reporting the artifact as written. Green means well-formed and nothing more; say that in those
 words, and leave the design judgement to `/da-design-review`.
 
-> **`Bash` is unrestricted, and the constraint is here rather than in the frontmatter.** The validator
-> is defined per repository — `pnpm`, `make`, `bundle`, `./bin/…` — so an interpreter allowlist fails
-> silently on every repository it did not guess, which is worse than no allowlist. **Run the profile's
-> `validate` string verbatim and nothing else**, and **check it against the profile's `forbidden` list
-> first**, exactly as `da-verify` does. `pnpm run <anything>` is not in scope just because the
-> validator happens to start with `pnpm`.
+> **The frontmatter allowlist is the enforcement, and the prose below is not.** An earlier version of
+> this file opened `Bash` and put the constraint in a sentence, reasoning that an allowlist would fail
+> silently on an interpreter it did not guess. **That had the failure direction backwards**: a denied
+> tool call is refused loudly, in front of the user, while a sentence is a request. The gate hook says
+> it in one line — *a rule written in a skill is a request, not a guarantee*.
+>
+> So: **if the repository's validator is not one the allowlist covers, say so and stop.** Do not route
+> it through a covered interpreter to get it to run. Report "the validator could not be run here" and
+> let the profile or the allowlist be changed deliberately.
+>
+> Within what is allowed: **run the profile's `validate` argv and nothing else.** Refuse an argv whose
+> first element is a shell (`sh`, `bash`, `zsh`) or that contains `-c` — that is a command string
+> wearing an array's clothes. Check every element against the profile's `forbidden` list first.
+> `pnpm run <anything>` is not in scope just because the validator happens to start with `pnpm`.
 
 ## Evidence discipline
 
@@ -139,7 +147,7 @@ Report, in this order:
 ## Done when
 
 - [ ] The convention came from the **profile**, not from what the tree looked like
-- [ ] `SPECSYSTEM_REMOVED.rules` was read **before** writing, and the artifact follows it
+- [ ] `spec_system.rules` was read **before** writing, and the artifact follows it
 - [ ] Step 2 ran: an existing change was **searched for by capability** and the choice to update or
       create is stated with its reason
 - [ ] The validator ran and its output is **pasted**, or its absence is stated
@@ -147,5 +155,5 @@ Report, in this order:
 
 ## Next
 
-`/da-design-review` on what was just written. It reads the same `SPECSYSTEM_REMOVED` and reviews the change
+`/da-design-review` on what was just written. It reads the same `spec_system` and reviews the change
 directory rather than guessing at a plan path.

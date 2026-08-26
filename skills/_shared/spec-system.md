@@ -12,7 +12,7 @@ git remote get-url origin
 
 Find the profile whose `match.remote` is a substring of that URL. The dotagents checkout is recorded in
 `~/.claude/.dotagents-managed.json` under `repo`; profiles live in `<repo>/profiles/`. Read
-`SPECSYSTEM_REMOVED`.
+`spec_system`.
 
 | `kind` | The artifact for one change |
 |---|---|
@@ -20,7 +20,7 @@ Find the profile whose `match.remote` is a substring of that URL. The dotagents 
 | `plans` | one Markdown file under `<root>` |
 | `none` | nothing. The repository records intent nowhere — **say that, and do not create a convention** |
 
-**No profile, or no `SPECSYSTEM_REMOVED`: stop and ask.** Report what you observed in the tree, propose the
+**No profile, or no `spec_system`: stop and ask.** Report what you observed in the tree, propose the
 block, and wait.
 
 **Observing `openspec/` is not the same as being told to use it.** A directory can survive a
@@ -34,7 +34,7 @@ the rule is in a file a skill reads.
 
 ## Read the repository's own rules before writing or judging anything
 
-`SPECSYSTEM_REMOVED.rules` names the file — for openspec, `openspec/config.yaml`, which states the required
+`spec_system.rules` names the file — for openspec, `openspec/config.yaml`, which states the required
 headings, the normative vocabulary, and that a modified requirement is restated whole. It usually
 delegates further, to `.cursor/rules/*` or `AGENTS.md`.
 
@@ -45,7 +45,7 @@ nothing, because the checklist it passed was not the one that applies.
 
 ## Run the validator, and paste its output
 
-`SPECSYSTEM_REMOVED.validate` is a command; substitute the change id.
+`spec_system.validate` is a command; substitute the change id.
 
 ```bash
 pnpm openspec validate <id> --strict      # whatever the profile says
