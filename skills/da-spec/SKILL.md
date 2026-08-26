@@ -2,7 +2,7 @@
 name: da-spec
 description: Write the change onto disk in the form this repository actually uses, or update the existing one. Use when a spec, proposal, design or plan needs recording before implementation — openspec changes, spec deltas, plan files. Resolves the repository's own convention and its authoring rules rather than picking a location. Writes only spec artifacts, never source.
 argument-hint: "[what the change is | change-id | path] (default: ask)"
-allowed-tools: Read, Grep, Glob, Write, Edit, Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npx:*)
+allowed-tools: Read, Grep, Glob, Write, Edit, Bash
 metadata:
   source: bwkw/dotagents
 ---
@@ -112,6 +112,13 @@ Either way, two rules that are this skill's own:
 Per `${CLAUDE_SKILL_DIR}/reference/spec-system.md`. **Red means not finished** — fix and re-run rather
 than reporting the artifact as written. Green means well-formed and nothing more; say that in those
 words, and leave the design judgement to `/da-design-review`.
+
+> **`Bash` is unrestricted, and the constraint is here rather than in the frontmatter.** The validator
+> is defined per repository — `pnpm`, `make`, `bundle`, `./bin/…` — so an interpreter allowlist fails
+> silently on every repository it did not guess, which is worse than no allowlist. **Run the profile's
+> `validate` string verbatim and nothing else**, and **check it against the profile's `forbidden` list
+> first**, exactly as `da-verify` does. `pnpm run <anything>` is not in scope just because the
+> validator happens to start with `pnpm`.
 
 ## Evidence discipline
 

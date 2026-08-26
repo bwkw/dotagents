@@ -33,6 +33,7 @@
       "required": ["kind"],
       "description": "How this repository records intent before code exists. A per-repository fact that the toolkit had nowhere to put: the routing lived as a parenthetical in README.md, which is never loaded at runtime, so nothing ever read it. Omit for a repository that records intent nowhere -- and then say so in the report rather than inventing a location for it.",
       "properties": {
+        "$comment": {},
         "kind": {
           "enum": ["openspec", "plans", "none"],
           "description": "openspec: the repository has openspec/{specs,changes} and one change is a DIRECTORY -- proposal, design, tasks, plus spec deltas per capability. plans: one Markdown plan per change, the shape upstream writing-plans produces. none: intent is not recorded on disk here, so do not invent a convention for it."
