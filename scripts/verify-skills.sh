@@ -595,6 +595,28 @@ else
   printf '%s✓%s the spec-system routing is stated in a skill body and declared in the schema\n' "$c_green" "$c_off"
 fi
 
+# --- the tier ladder is written twice, so the two copies have to name the same skills ---
+# README.md and docs/loops.md both carry the M/L rows, and the design-phase cell of each names the
+# skills a human types. They drifted the moment one entry point was renamed: README said /da-spec while
+# loops.md still said /writing-plans, and a reader had no way to tell which was current. The prose
+# differs deliberately between the two files (one is a tour, one is the manual), so this compares the
+# only part that must not differ -- the set of skills named.
+echo
+echo "checking the tier ladder names the same skills in both copies"
+tier_row() { grep -m1 "^| \*\*$2\*\* |" "$1" 2>/dev/null | awk -F'|' '{print $4}' | grep -oE '/[a-z][a-z0-9-]+' | sort -u | tr '\n' ' '; }
+tier_bad=""
+for tier in M L; do
+  r_readme="$(tier_row "$REPO/README.md" "$tier")"
+  r_loops="$(tier_row "$REPO/docs/loops.md" "$tier")"
+  [[ -z "$r_readme$r_loops" ]] && { tier_bad="$tier_bad $tier(row-missing)"; continue; }
+  [[ "$r_readme" == "$r_loops" ]] || tier_bad="$tier_bad $tier(README:${r_readme:-none}vs loops:${r_loops:-none})"
+done
+if [[ -n "$tier_bad" ]]; then
+  err "tier-ladder" "README.md and docs/loops.md disagree about which skills a tier's design phase runs:$tier_bad -- one of them is telling somebody to type a command the other retired"
+else
+  printf '%s✓%s the M and L tiers name the same skills in README and docs/loops.md\n' "$c_green" "$c_off"
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own

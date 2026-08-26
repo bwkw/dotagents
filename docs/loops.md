@@ -53,7 +53,8 @@ loop.sh design                     →     何を打つか / 何が検証済み�
    ↓ S ならこのレーンは空
 /grill-me → /grilling                    ← 要件を詰める（面接）
 /research                                ← 外の世界（必要なとき）
-/writing-plans                           ← spec。各ステップに「TDD」を明記
+/da-spec                                 ← spec をディスクに。plans なリポジトリでは
+                                            /writing-plans に渡すので成果物は同じ
 /documentation-and-adrs                  ← 決定を残す（したなら）
 /da-design-review                        ← 🧱 Landing plan（会話の中）
 人間が plan を commit                    ← これが承認の印
@@ -97,7 +98,8 @@ loop.sh design                     →     何を打つか / 何が検証済み�
 
 | 段 | 成果物 | 検査 |
 |---|---|---|
-| `/writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-*.md` | ✅ **強い。** `# … Implementation Plan` / `**Goal:**` / `## Global Constraints` / `- [ ]` が揃っているかまで見ます —— **パスだけ見ると、空ファイルがゲートを通ります** |
+| `/da-spec`（`plans` なリポジトリでは `/writing-plans` に渡す） | `docs/superpowers/plans/YYYY-MM-DD-*.md` | ✅ **強い。** `# … Implementation Plan` / `**Goal:**` / `## Global Constraints` / `- [ ]` が揃っているかまで見ます —— **パスだけ見ると、空ファイルがゲートを通ります** |
+| `/da-spec`（`openspec` なリポジトリ） | `openspec/changes/<id>/` | ❌ **見ていません。** `plan_files()` は `docs/superpowers/plans/` しか探さないので、**検証済みの change がある状態で「計画が無い」と言います。** 駆動系側は未対応で、`da-spec` / `da-design-review` は既に対応済み —— 対話で回す分には通りますが、`loop.sh design` は openspec リポジトリではまだ進めません |
 | `/documentation-and-adrs` | `docs/decisions/ADR-*.md` ほか | ⚠️ 弱い（パスが慣習依存） |
 | 🧱 Landing plan | 人間が写した commit 済みファイル | ✅ 強い（`run` の前提条件） |
 | `/research` | エージェントが選んだパス | ❌ **無い** |
@@ -126,7 +128,7 @@ plan」とあります。つまり 🧱 Landing plan は**会話の中にしか�
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
 | **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で1周 | 2周 | 承認1回。Landing plan を commit |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/writing-plans` → `/da-design-review` | 2周 | ループの**中** |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
 
 **ファイル数を3倍にしたのは実態に合わせたためです。** 旧 ladder は5ファイルの変更と15ファイルの変更を
 同じ段に入れていました。`>30` で上を閉じているのは、「L は約50」を閾値として書くと **31〜49 が M に
