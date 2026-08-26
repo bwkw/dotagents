@@ -501,6 +501,66 @@ else
   printf '%s✓%s the diff-size measurement is scoped in all 5 sizing snippets\n' "$c_green" "$c_off"
 fi
 
+# --- caps on the review must not disagree with the record, or with themselves ---
+# The three-lens verify pass is the review's quality cap: how many of the most serious findings get
+# checked from three angles instead of one. Decision 16 set it at "the 3 most irreversible per layer",
+# on a cost argument that only held while each lens was a *subagent*. daa6ad9 removed every subagent
+# and, in the same commit, cut the cap to one finding -- while its message said only that the three
+# lenses survive as three passes. So the number moved 3x in the tightening direction at the exact moment
+# its cost basis disappeared, docs/decisions.md kept stating the old one, and nothing failed.
+#
+# A marker on each live statement, compared. History is left alone: the marker sits on what is in force,
+# never on the row recording what used to be.
+echo
+echo "checking the three-lens cap agrees between the rule and the record"
+lens_caps="$(grep -rhoE 'dotagents:lens-cap [0-9]+' \
+  "$REPO/skills/_shared/verification.md" "$REPO/docs/decisions.md" 2>/dev/null | grep -oE '[0-9]+')"
+lens_n="$(printf '%s\n' "$lens_caps" | grep -c .)"
+lens_uniq="$(printf '%s\n' "$lens_caps" | sort -u | grep -c .)"
+if (( lens_n < 2 )); then
+  err "lens-cap" "the three-lens cap carries fewer than 2 'dotagents:lens-cap <n>' markers -- it must be stated in skills/_shared/verification.md (the rule) and docs/decisions.md (the record), or the next change to it goes unrecorded again"
+elif (( lens_uniq != 1 )); then
+  err "lens-cap" "the three-lens cap disagrees between the rule and the record ($(printf '%s ' $lens_caps)) -- docs/decisions.md would describe a review the skill does not perform"
+else
+  printf '%s✓%s the three-lens cap is %s in both the rule and the record\n' "$c_green" "$c_off" "$(printf '%s\n' "$lens_caps" | head -1)"
+fi
+
+# --- a phase must not order findings it does not accept -------------------------
+# 6a is scoped to critical/irreversible. daa6ad9 then added an anti-anchoring ordering rule naming the
+# two severities 6a excludes. A model resolving that either widens the scope -- tripling the cost of the
+# cheap half of the report, which the same file forbids two paragraphs later -- or drops the ordering,
+# losing the position-effect guard the file justifies with measurement. Either way it silently picks one
+# of two rules the file states as both binding.
+echo
+echo "checking the refutation pass does not order findings it excludes"
+vf="$REPO/skills/_shared/verification.md"
+if [[ -f "$vf" ]]; then
+  if grep -q 'Applies only to findings with `severity=critical`' "$vf" \
+     && grep -A1 'severity order' "$vf" | grep -qE '💡|🟡'; then
+    err "verify-scope" "6a accepts only critical/irreversible but its ordering rule names 💡/🟡 -- the pass is told to order findings it was told not to take"
+  else
+    printf '%s✓%s the refutation pass orders only the severities it accepts\n' "$c_green" "$c_off"
+  fi
+fi
+
+# --- a cut nothing counts is the shape the 40-file threshold had ---------------
+# The find phase used to cap warning/info at "the top 3 per cluster by severity". The report already
+# caps them and *folds the overflow into an aggregate note*, and 🔬 counts what verification refuted and
+# what fell below the confidence threshold. A 4th warning in a cluster -- above 80, never refuted -- was
+# dropped before any of those, so it appeared in no count at all. Two caps in series where the outer one
+# already discloses: the inner one only removes information. Same shape as `> 40 files` -- the cap is
+# invisible in the output, so the report reads as complete.
+echo
+echo "checking the find phase has no undisclosed rank cap"
+fd="$REPO/skills/_shared/finding-discipline.md"
+if [[ -f "$fd" ]]; then
+  if grep -qE 'top [0-9]+ per cluster' "$fd"; then
+    err "find-rank-cap" "the find phase caps findings by rank again -- nothing counts what a rank cap drops, so use the report's output budget in report-format.md, which folds the overflow into a note the reader can see"
+  else
+    printf '%s✓%s the find phase drops nothing that no bucket counts\n' "$c_green" "$c_off"
+  fi
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own

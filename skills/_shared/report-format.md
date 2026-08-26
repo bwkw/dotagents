@@ -63,9 +63,10 @@ every review they have read before this one.
 
 Summary-table totals must equal the post-merge finding count.
 
-**Output budget** (final report only — separate from the ~3-per-cluster cap during the find phase):
-🟡 at most ~7, 💡 at most ~5; fold the overflow into a single aggregate note. Never truncate ⛔, 🔴,
-or 🧭.
+**Output budget** — **the only cap on findings, and it discloses what it cuts**: 🟡 at most ~7, 💡 at
+most ~5; fold the overflow into a single aggregate note and count it in 🔬. Never truncate ⛔, 🔴, or 🧭.
+The find phase has no rank cap of its own (`finding-discipline.md`): two caps in series meant the inner
+one dropped findings the outer one’s note never counted.
 
 ## How each finding is presented
 
@@ -218,6 +219,7 @@ Each item: the doubt — why it is concerning — how to settle it. May fall out
 ### 🔬 除外したもの（参考・件数のみ）
 - N refuted during verification
 - N scored below the confidence threshold
+- N folded into the aggregate note by the output budget (🟡/💡 only)
 (one-line summaries only if useful — do not restate them)
 
 ### 📊 集計
