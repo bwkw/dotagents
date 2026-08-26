@@ -660,6 +660,42 @@ else
   printf '%s✓%s the M and L tiers name the same skills in README and docs/loops.md\n' "$c_green" "$c_off"
 fi
 
+# --- the change table is written three times, so the three have to be one table -------
+# Decision 15 aligned the review report's 変更内容 with da-pr-describe's 変わること on purpose: two
+# vocabularies for the same change make the reader reconcile them. That alignment is only real while the
+# copies match, and nothing compared them -- narrowing the table from four columns to three touched
+# three files, and getting two of them would have looked exactly like getting all three.
+#
+# The columns are declared on a marker line so the check reads data rather than parsing prose, the same
+# shape as dotagents:dmi-gate and dotagents:lens-cap. Removing a marker removes the check, so a missing
+# one is an error rather than a silent skip.
+echo
+echo "checking the change table is the same table in all three copies"
+change_tbl_files="$REPO/skills/_shared/report-format.md $REPO/skills/_shared/review-process-brief.md $REPO/skills/da-pr-describe/reference/pr-template.md"
+change_cols=""; change_bad=""
+for ctf in $change_tbl_files; do
+  [[ -f "$ctf" ]] || { change_bad="$change_bad $(basename "$ctf")(absent)"; continue; }
+  marker="$(grep -m1 -oE 'dotagents:change-table \|.*\|' "$ctf" | sed 's/dotagents:change-table //')"
+  if [[ -z "$marker" ]]; then
+    change_bad="$change_bad $(basename "$ctf")(no-marker)"; continue
+  fi
+  # The marker declares the columns; the table under it has to actually be those columns.
+  hdr="$(grep -A1 -F 'dotagents:change-table' "$ctf" | sed -n '2p' | sed 's/[[:space:]]*$//')"
+  [[ "$hdr" == "$marker" ]] || change_bad="$change_bad $(basename "$ctf")(header≠marker)"
+  change_cols="$change_cols$marker"$'\n'
+done
+uniq_cols="$(printf '%s' "$change_cols" | grep -c . )"
+distinct="$(printf '%s' "$change_cols" | sort -u | grep -c .)"
+if [[ -n "$change_bad" ]]; then
+  err "change-table" "the change table is not comparable across its three copies:$change_bad -- decision 15 aligned them so a reader never reconciles two vocabularies for one change"
+elif (( uniq_cols != 3 )); then
+  err "change-table" "expected 3 declared change tables, found $uniq_cols -- a copy lost its marker, and an unmarked copy drifts without failing"
+elif (( distinct != 1 )); then
+  err "change-table" "the three change tables declare different columns:$(printf ' %s' $(printf '%s' "$change_cols" | sort -u | tr ' ' '_')) -- narrowing the table in one place and not the others is the drift decision 15 exists to prevent"
+else
+  printf '%s✓%s the change table is %s in all three copies\n' "$c_green" "$c_off" "$(printf '%s' "$change_cols" | head -1)"
+fi
+
 # --- skill bodies must not instruct reading credentials or piping to a shell ---
 # The frontmatter has been gated since the beginning; the body never was. And the body is not data --
 # it is the instructions an agent follows, in the user's own repositories, with the user's own

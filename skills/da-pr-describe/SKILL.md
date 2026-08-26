@@ -81,8 +81,9 @@ Without it the change reads as a solution to an unstated problem.
 
 **Then ask whether an obvious alternative was rejected.** If one was, name it and the evidence that
 ruled it out (a slower flag, a narrower exclude that would hide real errors, a deploy-time failure CI
-never saw) **in the same cell** — otherwise the reviewer opens the diff to ask 「なぜこの形？」. If no
-real alternative existed, say nothing; **do not restate the problem in different words to fill space.**
+never saw) — otherwise the reviewer opens the diff to ask 「なぜこの形？」. It goes in **検討した代案**,
+a section, so it can carry a number and a link. If no real alternative existed, **delete that section**;
+do not restate the problem in different words to fill it.
 
 Also pin down, for each change:
 
@@ -92,7 +93,10 @@ Also pin down, for each change:
   a pure addition. **If a change cannot be written as a before/after pair, that is the signal it is
   internal churn** and does not belong in the table.
 
-Those four are the table's columns.
+**Those three are the table's columns, and all three are short values.** The problem and the rejected
+alternative are prose, not a fourth column: a cell can hold only inline formatting, so a column of
+sentences sets the row width and squeezes the three that were doing the scanning. Collect the ticket,
+issue, design-doc and benchmark links here too — they belong in 概要.
 
 Separately, collect candidates for **manual verification**: things automated tests cannot cover and
 that must be checked by hand or in a real environment before merge. Real external API behaviour,
@@ -153,14 +157,16 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
 ## Done when
 
 - [ ] The reviewer can tell what changes from the description alone
-- [ ] Every 変わること row names the **problem** in なぜ, not a benefit — and where an alternative was
-      rejected, the evidence that ruled it out sits in the same cell
+- [ ] **概要 carries the problem**, not a benefit and not a restatement of the change — and the ticket,
+      issue, design doc or benchmark numbers are linked there rather than left out
+- [ ] **検討した代案 exists only if one was actually rejected**, with the evidence that ruled it out —
+      otherwise the section is deleted, not filled
 - [ ] No 領域 cell names a class, function, or flag
-- [ ] No なぜ cell restates the 変更前 → 変更後 pair in different words
+- [ ] **No table cell contains a sentence** — every cell is a value or a short phrase
 - [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
       internal churn and was dropped
 - [ ] A visual is at the top, or the change genuinely has no shape and that was stated
-- [ ] Every cell is one or two sentences; anything longer moved its detail to 補足
+- [ ] The title is a standalone sentence written as an order, in the repository's language
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
 - [ ] No internal-only churn made it into the body
 - [ ] Everything requiring manual verification is listed, unchecked, with a reason

@@ -43,18 +43,25 @@ flowchart LR
 
 ## 概要
 
-<!-- 2〜3文。何が変わり、なぜやるのか。ここだけで趣旨が伝わること。 -->
+<!-- 何が変わり、なぜやるのか。2〜4文。ここだけで趣旨が伝わること。
+     「なぜ」は解こうとしている問題 —— 障害・要望・目標。実装の説明ではない。
+     チケット・issue・設計ドキュメント・ベンチマークの数字はここにリンクで置く。 -->
 
 ## 変わること
 
 <!-- 観測できる変化を1行1件。「領域」は読み手の語彙で（画面名・API・CSV出力・運用手順など）、
      クラス名や関数名を主語にしない。変更前・変更後は短く、値や挙動そのもの。新規追加なら変更前は「—」。
-     「なぜ」は解こうとしている問題。対案を却下した場合だけ、同じセルにその根拠も書く。
-     収まらないときは1行だけ補足へ。 -->
+     3列とも短い値であること。文を書きたくなったら、それは概要か補足の内容。 -->
 
-| 領域 | 変更前 | 変更後 | なぜ |
-|---|---|---|---|
-| | | | |
+<!-- dotagents:change-table | 領域 | 変更前 | 変更後 | -->
+| 領域 | 変更前 | 変更後 |
+|---|---|---|
+| | | |
+
+## 検討した代案
+
+<!-- 実際に却下した対案がある時だけ。無ければ節ごと消す。
+     1行1件で「対案 —— 却下した根拠（測った数字・壊れる条件）」。無理に埋めない。 -->
 
 ## テスト
 
@@ -72,27 +79,53 @@ flowchart LR
 <!-- レビュアが引っかかるであろう意図的な設計判断と、次フェーズに送った既知の欠落だけ。最小限に。 -->
 ````
 
-**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `概要`=Overview / `変わること`=What changes / `変更前 → 変更後`=Before → After / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と列は言語によらず同じです。**
+**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
 
 
 ---
 
 ## Writing rules
 
-**Title.** Concise, around 50 characters. No `feat:`-style prefix (follow the repository's own
+**Title.** A **complete sentence written as an order** — "Fix the CSV export dropping the last row",
+not "CSV export fix". Google's own rule, and the reason is that the first line has to stand alone in a
+list of a hundred others. Around 50 characters. No `feat:`-style prefix (follow the repository's own
 ticket-tag convention). Match the language the repository's other PR titles use.
 
-**概要 (Overview).** Two or three sentences: what changes, and why. The point must land from
-this alone, because it is the only part some reviewers read.
+**概要 (Overview).** Two to four sentences carrying **both what changes and why**, and it is the part
+that must land alone, because some reviewers read nothing else. **The why is the problem** — the
+incident, the request, the goal — not a restatement of the change and not a benefit. **Links go here**:
+the ticket, the issue, the design document, the benchmark numbers. Google's guidance names exactly those
+as body content, and this template had nowhere to put them, so they ended up crammed into a table cell
+or left out.
 
-**変わること (What changes) — the table.** One row per observable change. Four columns:
+**変わること (What changes) — the table. Three columns, all of them short values.**
 
 | Column | What goes in it | The failure it prevents |
 |---|---|---|
 | **領域** | The area **in the reader's vocabulary** — a screen, an API, a CSV export, an operational procedure. **Never a class, function, or flag.** | "added `LoadOutboundUsecase`" instead of "customer-facing CSV export" |
 | **変更前** | The current behaviour or value, short. **`—` for a pure addition.** | — |
 | **変更後** | What it becomes. Short — a value, a state, an observable behaviour. | A row describing the implementation rather than the effect. A change that cannot be written as a before/after pair is usually internal churn that does not belong in the table at all. |
-| **なぜ** | **The problem being solved** — the incident, the request, the goal. **And, only when an obvious alternative was rejected, the evidence that ruled it out**, in the same cell. | A change nobody can tell was worth making, and a shape the reviewer opens the diff to question |
+
+**なぜ was the fourth column and it has been taken out of the table.** Not because the *why* matters
+less — Google's guidance makes it the more important of the two things a description must carry — but
+because it was **the only column holding sentences**, and a column of sentences is what makes the other
+three unreadable.
+
+**This is a property of the medium, not a matter of taste.** GitHub's own table documentation offers
+only *inline* formatting inside a cell — links, inline code, text styling. No list, no fenced block, no
+paragraph break; a literal `|` has to be escaped. So a cell that must carry "the problem, plus the
+alternative that was rejected, plus the number that ruled it out" has exactly one shape available to it:
+one long run-on sentence. Meanwhile the table has no column widths, so that sentence sets the width of
+the row and squeezes 領域/変更前/変更後 — the three columns that were doing the scannable work.
+
+**Where it went**: the problem into 概要, the rejected alternative into 検討した代案 — which is a
+section, so it can hold a list, a number, a link. And it is **omitted entirely when nothing was
+rejected**, which is the outcome this file already learned to want the hard way (see below).
+
+**検討した代案 (Alternatives considered).** Only when a real alternative was rejected. One line each:
+the alternative, then the evidence that ruled it out — a measured number, the condition it breaks
+under, the case it would hide. **Delete the whole section when there is none.** Do not restate the
+problem here to fill it.
 
 **変更前 / 変更後 was a separate "Before → After" section once.** It was merged because a change to
 existing behaviour appeared twice — one row describing it in prose, another contrasting the two values —
@@ -101,7 +134,8 @@ replace, and they enforce the observable-change rule for free: **`LoadOutboundUs
 written as a before/after pair**, which is the signal that it was never a reader-facing change.
 
 **なぜ was two columns once — 変更目的 and この形にした理由 — and it was merged after the split failed
-on its own first use.** The concepts are genuinely different (*why do this* versus *why like this*), but
+on its own first use. Read this as the reason 検討した代案 is a section that gets deleted, rather than
+a column that sits there empty.** The concepts are genuinely different (*why do this* versus *why like this*), but
 the second only has content when a real alternative was rejected with evidence, which is the minority of
 rows. Where no alternative existed the writer had nothing to put there, so the purpose got restated in
 different words — in the PR that introduced the split, two of five rows kept the columns distinct and
@@ -109,15 +143,21 @@ three did not, and one of those three had quietly become a *what I did* column. 
 is usually empty trains restatement, which is the failure it was added to prevent.** Keep both facts; do
 not give the second one a column it cannot fill.
 
-**Keep 変更前 / 変更後 to a value or a short phrase, and なぜ to one or two sentences.** When a reason
-genuinely needs more, put the short version in the cell and one line in 補足.
+**Every cell is a value or a short phrase — never a sentence.** If a cell wants to be a sentence, its
+content belongs in 概要, 検討した代案, or 補足. That rule used to be "one or two sentences", which was a
+rule fighting the medium: the table cannot hold a sentence well, so the fix was to stop putting them
+there rather than to keep asking for shorter ones.
 
-Bad row: | typecheck | 遅い | 速い | 高速化 |
-Good row: | CI の typecheck | `--checkers 2` | `--singleThreaded` に固定 | CI 待ちがレビューの律速になっていた。`--checkers 2` はこのコードベースでは約2.4倍遅くメモリも約40%多かった |
+Bad row: `| typecheck | 遅い | 速い |`
+Good row: `| CI の typecheck | `--checkers 2` | `--singleThreaded` に固定 |`
 
-The bad row fails three ways: 領域 is a flag rather than something a reader experiences, 変更前/変更後
-give no values so nothing is verifiable, and なぜ names a benefit rather than the problem — so nothing
-rules out the alternative.
+The bad row fails twice: 領域 is a flag rather than something a reader experiences, and 変更前/変更後
+give no values, so nothing in the row is verifiable.
+
+The good row's *why* is not in it, and that is the point. It reads, in 概要: 「CI 待ちがレビューの律速に
+なっていた」。And in 検討した代案: 「`--checkers 2` —— このコードベースでは約2.4倍遅く、メモリも約40%多い（実測）」。
+**Both are longer and more precise than the cell they came from**, because a section can hold a number
+and a link and a cell cannot.
 
 **Nothing from the "leave out" list goes in the table.** When an internal change *is* the crux of the
 review, it gets one line under 補足, not a row.
