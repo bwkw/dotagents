@@ -46,7 +46,7 @@ draft body to a temporary file outside the repo.
 
 | File | Trigger condition |
 |---|---|
-| the `artifact-design` skill | Only when the visual is an Artifact rather than the default Mermaid block — which is the exception, not the norm |
+| the `artifact-design` skill | Before publishing the visual as an Artifact — the route wherever the Artifact tool exists |
 
 ---
 
@@ -115,15 +115,19 @@ same way — one fewer rule than the unheaded block it replaced.
 
 When it does have a shape, take the route the environment supports:
 
-**Mermaid is the default, in every environment** — a ` ```mermaid ` fence, which GitHub renders inline
-for every reader with no account and no sharing step.
+| Environment | Route |
+|---|---|
+| **Artifact tool available (Claude)** | Read `artifact-design`, publish one page, **get it shared**, link the URL |
+| **No Artifact tool (Cursor, or anywhere else)** | A ` ```mermaid ` fence inline — GitHub renders it for every reader, no account, no hosting |
 
-**Reach for an Artifact only when the shape exceeds a diagram** (grouped before/after tables, several
-views on one page). It is **private by default**, so a link in a PR body is dead for every reviewer until
-you share it: share it before posting, or do not link it. Read `artifact-design` first.
+**Sharing is a step of this skill, not a caveat.** An Artifact is private by default and **the tool has no
+share action** — making it visible to teammates is something the human does in the artifact view. So an
+unshared link is a 404 for every reviewer while opening fine for the author: **it fails quietly, in the
+direction nobody checks.**
 
-**The route used to be picked by which tool the author had.** That optimises for the author's capability
-and against the reader, which is the one trade a PR description must never make.
+**Publish → stop and ask the user to share it, naming the URL → only then put it in the body.** If they
+would rather not share it, use a Mermaid fence instead. **A link the reviewer cannot open is worse than
+no visual**, because it reads as content that exists.
 
 Either way, **do not restate the 変わること table.** The body already carries the scannable view; a page
 or diagram that repeats it is one more thing to open and dismiss.
@@ -147,7 +151,8 @@ commands and code excerpts stay verbatim inside a sentence of either language.
 
 
 Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL or a Mermaid block, it
-goes under `## 全体像`, the first section of the body. If it produced neither, that heading is absent. **Markdown tables and Mermaid fences go
+goes under `## 全体像`, the first section of the body. If it produced neither, that heading is absent.
+**A URL goes in only after the user has confirmed the Artifact is shared.** **Markdown tables and Mermaid fences go
 inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
 
 ### Step 6. Show it, then update
@@ -173,6 +178,8 @@ Write `$TMPFILE` under a temporary directory, never inside the repository.
       internal churn and was dropped
 - [ ] `## 全体像` carries a visual, **or the section is absent** because the change has no shape — never
       a heading with nothing under it, and never a diagram drawn to fill one
+- [ ] If it is an Artifact link, **the user confirmed it is shared** — an unshared link opens for the
+      author and 404s for every reviewer, so this cannot be inferred from the link working
 - [ ] The title is a standalone sentence written as an order, in the repository's language
 - [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
 - [ ] No internal-only churn made it into the body

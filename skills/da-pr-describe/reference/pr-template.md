@@ -33,16 +33,16 @@ are the two that are usually absent, and both are deleted rather than left with 
 
 <!-- 図が描ける変更のときだけ —— 変わったフロー、順序、触れる層、状態遷移。
      描かなかったなら**節ごと消す**（`検討した代案` と同じ）。埋めるために描かない。
-     既定は Mermaid。全レビュアがそのまま見られる唯一の形です。 -->
+     Artifact が使える環境（Claude）では Artifact。1枚に収まって読みやすいので。
+     **投稿前に共有を済ませること** —— 既定で非公開で、未共有のリンクはレビュアには 404 です。 -->
+
+📋 **変更サマリ** → <artifact URL>
+
+<!-- Artifact が無い環境（Cursor など）ではこちら。GitHub が本文内で描画する。 -->
 
 ```mermaid
 flowchart LR
 ```
-
-<!-- Artifact は、図では足りないとき（領域ごとの一覧、before/after の並置、複数ビュー）だけ。
-     **既定で非公開なので、共有しない限りレビュアは開けません。** 使うなら共有まで済ませること。 -->
-
-📋 → <artifact URL>
 
 ## 概要
 
@@ -194,29 +194,33 @@ two now work the same way.
 **It stays above 概要.** A reader who opens a PR to decide whether to review it now sees the shape first;
 the argument for putting it after the prose is real, and it is written down at the end of this section.
 
-**Mermaid is the default, in every environment.** Not a fallback — the default.
+**Artifact where the environment has one; Mermaid where it does not.** An Artifact is one page — it can
+group by area, put before and after side by side, and carry a diagram at a readable size, which is more
+legible than a fence in a description. Read `artifact-design` before publishing one.
 
-**The route used to be chosen by what the author's tool could do, and that is the wrong axis for a PR
-body.** A PR description is read by other people. An Artifact is **private by default** — a page on
-claude.ai that the author can later choose to share — so a link dropped into a PR body is, until somebody
-shares it, **a link every reviewer fails to open**. Choosing it because Claude happens to offer it
-optimises for the author's capability and against the reader, which is the one trade a description must
-never make.
+| Environment | What goes in 全体像 |
+|---|---|
+| **Artifact tool available (Claude)** | Publish one page, share it, link the URL |
+| **No Artifact tool (Cursor, or anywhere else)** | A ` ```mermaid ` fence inline — GitHub renders it for every reader with no account and no hosting |
 
-A ` ```mermaid ` fence renders inline on GitHub for **every** reader: no account, no sharing step, no
-hosting, nothing to click. That is the whole argument.
+### Sharing is a step, not a footnote
 
-| | When | Cost |
-|---|---|---|
-| **Mermaid, inline** | **Default.** A flow, a sequence, the layers touched, a state machine — anything a diagram can carry | none. It is already in the body |
-| **Artifact** | Only when the shape genuinely exceeds a diagram: grouped before/after tables, several views on one page, something a Markdown table cannot hold. Read `artifact-design` first | **You must share it**, or the link is dead for the reviewer. Do that before posting, and say in the body that it is a link out |
+**An Artifact is private by default, and the tool cannot share it.** Publishing returns a URL to a page
+only the author can open; making it visible to teammates is an action the **human** takes in the artifact
+view. There is no share action in the tool, so nothing in this skill can do it for you.
 
-**This also removes the divergence this section used to record.** Being Artifact-only meant a PR written
-from Cursor silently got no visual; picking by environment fixed that but left two behaviours for one
-skill. One default that works everywhere leaves none — and `verify-skills.sh` no longer has to care which
-agent wrote the PR.
+**So a PR body with an unshared Artifact link is a PR body whose visual is a 404 for every reviewer** —
+and it fails quietly, because the author *can* open it. That is the whole reason this is a numbered step
+rather than a line of advice:
 
-**Never fabricate a URL**, and never link an Artifact you have not shared.
+1. Publish the page.
+2. **Stop and tell the user to share it**, naming the URL. Wait.
+3. Only then put the link in the body.
+
+**If the user does not want to share it, do not link it** — use a Mermaid fence instead. A link the
+reviewer cannot open is worse than no visual, because it reads as content that exists.
+
+**Never fabricate a URL**, and never link an Artifact whose sharing has not been confirmed.
 
 **Neither is mandatory, and a bad one is worse than none.** The visual earns its place only when the
 change *has a shape*: a flow that changed, a sequence, which layers are touched, a state machine. A flag
