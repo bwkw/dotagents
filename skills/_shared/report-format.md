@@ -225,6 +225,11 @@ Each item: the doubt — why it is concerning — how to settle it. May fall out
 - N refuted during verification
 - N scored below the confidence threshold
 - N folded into the aggregate note by the output budget (🟡/💡 only)
+- **N provisional severities settled by 6b, and N still open** — a finding parked below its severity
+  because reachability was never traced is not an excluded finding, it is an **unfinished** one. Report
+  the two counts separately, and never leave the "still open" number implicit: an unstated zero and an
+  unmeasured backlog look identical here, and the second one is the report that reads as settled while
+  carrying placeholders.
 (one-line summaries only if useful — do not restate them)
 
 ### 📊 集計

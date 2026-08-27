@@ -559,6 +559,46 @@ if [[ -f "$vf" ]]; then
   fi
 fi
 
+# --- a severity parked for want of a trace must have somewhere to be settled ------
+# finding-discipline.md tells the find phase not to inflate a finding it cannot show reachability for:
+# park it low, and say what would settle it. 6a is scoped to critical/irreversible and its severity lens
+# "can only lower". So a finding parked *below* its true severity for want of a trace was invisible to
+# the only pass that could revisit it, and forbidden from being raised even if seen -- the placeholder
+# shipped looking like a verdict. Observed once: a warning saying in its own body that reachability was
+# not established was resolved only because the human asked for a second adversarial pass, and the trace
+# then moved it two buckets. A pass that needs asking twice did not verify anything the first time.
+#
+# The seam is the invariant, not the wording: 6a only lowers, 6b settles in either direction. Both halves
+# carry a marker, so removing one removes the check and the linter says so. Guard both failure directions
+# -- 6b losing the settle job (hole reopens), and someone "fixing" it by letting 6a raise (which the same
+# file forbids two bullets earlier, and which would put escalation inside the refutation pass).
+echo
+echo "checking a provisional severity has a pass chartered to settle it"
+vf="$REPO/skills/_shared/verification.md"
+if [[ -f "$vf" ]]; then
+  sd_markers="$(grep -c 'dotagents:severity-direction' "$vf" || true)"
+  if ! grep -q 'dotagents:severity-direction 6a-lowers-only' "$vf" \
+    || ! grep -q 'dotagents:severity-direction 6b-settles' "$vf"; then
+    err "severity-direction" "skills/_shared/verification.md is missing a 'dotagents:severity-direction' marker (found ${sd_markers}, need 6a-lowers-only and 6b-settles) -- the marker is the check, so removing it removes the guard on which pass may raise a severity"
+  else
+    # Anchors are asserted, never used as conditions: a reworded sentence must fail loudly rather than
+    # quietly disable the test (the lesson the ordering check above was fixed for).
+    a6="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
+    b6="$(awk '/^## 6b\./{i=1} /^## Recurring/{i=0} i' "$vf")"
+    if ! grep -q 'can only lower' <<<"$a6"; then
+      err "severity-direction" "6a no longer states that its severity lens can only lower -- reword the check with the file, or it passes by not finding its anchor"
+    elif ! grep -qi 'settle the provisional severities' <<<"$b6"; then
+      err "severity-direction" "6b lost the 'settle the provisional severities' job -- a finding parked below its severity for want of a reachability trace now has no pass chartered to finish it, and the placeholder ships as a verdict"
+    elif ! grep -qiE 'raising is correct here' <<<"$b6"; then
+      err "severity-direction" "6b describes settling but no longer permits raising -- settling that can only lower leaves the false-negative half of the hole open"
+    elif grep -qiE 'lens (can|may) raise|raising is (correct|allowed|permitted) (here|in 6a)' <<<"$a6"; then
+      err "severity-direction" "6a now permits raising a severity -- escalation inside the refutation pass is what the file forbids two bullets earlier; settle provisional severities in 6b instead"
+    else
+      printf '%s✓%s 6a lowers only, and 6b is chartered to settle provisional severities\n' "$c_green" "$c_off"
+    fi
+  fi
+fi
+
 # --- a cut nothing counts is the shape the 40-file threshold had ---------------
 # The find phase used to cap warning/info at "the top 3 per cluster by severity". The report already
 # caps them and *folds the overflow into an aggregate note*, and 🔬 counts what verification refuted and

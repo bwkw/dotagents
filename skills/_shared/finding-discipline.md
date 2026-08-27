@@ -125,6 +125,21 @@ Score these below 80 by definition, however real they look:
 - "Consider adding" tests, logging, or error handling where no new failure mode was introduced
 - A failure requiring a state the code makes unreachable
 
+**One carve-out on "pre-existing", because without it a spec and its implementation drift apart in the
+very commit that wrote the spec.** A change that **newly asserts an invariant its own implementation does
+not satisfy** has introduced a defect, even when the runtime behaviour is byte-identical to the base
+branch. The artefact making the assertion is part of the diff: a spec line saying MUST or MUST NOT, an
+ADR, a docstring stating a guarantee, or a parameter newly made **required** so that every caller has to
+decide. The behaviour is old; **the claim is new, and the claim is what the next reader will trust.**
+
+Report it, and **state in the finding that behaviour is unchanged from base.** That is what lets the
+author choose between satisfying the new claim and softening it — a decision they are entitled to make,
+and one they cannot make if the finding hides which half is new. Observed: a change made a skip-decision
+parameter required *precisely* so each call site would decide, wrote the MUST NOT into its own spec, then
+passed a value at one call site covering one of the two conditions the parameter's own name enumerated.
+Scored as "pre-existing" it drops below the threshold, and the spec ships describing behaviour the code
+does not have.
+
 ## The verifier is biased too
 
 Adversarial verification is the strongest tool here and it is **not neutral**. The measured biases are in
