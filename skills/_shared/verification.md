@@ -111,7 +111,7 @@ Three lenses, not three repetitions. Repetition mostly reproduces the same blind
 
 | Lens | The only question it answers |
 |---|---|
-| **reachability** | Does real execution reach this? Which caller, which permission, which timing? |
+| **reachability** | Does real execution reach this? Which caller, which permission, which timing — and **what constructs the state**, which is usually not the caller? |
 | **existing guard** | Is this already prevented somewhere else — a constraint, a middleware guard, a type that makes the state unrepresentable? |
 | **severity** | Is ⛔/🔴 right for what the code actually does, or is this a 🟡/💡? |
 
@@ -119,10 +119,23 @@ Rules that make the diversity worth its cost:
 
 - **Each pass answers only its own lens.** Write the verdict for that lens before starting the next, and
   do not soften one in anticipation of another — the separation is the only reason three beats one.
+- **Settle reachability at the construction site, not the call site.** "Which caller" answers who invokes
+  the code; it does not answer whether the state the finding needs can exist. That answer lives in
+  whatever **produces** the value — the factory, or the `ensure`/`resolve` function that chooses between
+  reusing an existing object and making a fresh one — and in the **gate** that admits work into the path.
+  Observed: every caller of a suspect branch read correctly and the admission gate filtered on a
+  different field than the finding was about, so a caller sweep cleared it; the factory three files away
+  reused an object in exactly the state the finding needed, and its own docstring said so. **A
+  reachability verdict that names only callers has answered a different question** — name the
+  construction sites you read, or record the reachability as still open.
 - **Two of three must not refute** for the finding to survive at ⛔/🔴. One refutation with concrete
   evidence beats two shrugs; weigh the evidence, not the tally, and say when you overrode the count.
-- **The severity lens can only lower**, never raise. Raising is the find phase's job, and a verification
-  pass that escalates is no longer verifying.
+- **The severity lens can only lower**, never raise <!-- dotagents:severity-direction 6a-lowers-only -->.
+  Raising *here* is the find phase's job, and a refutation pass that escalates is no longer refuting.
+  **That rule has a hole, and 6b is where it gets closed.** A finding parked *below* its true severity
+  because reachability was never traced is a false negative, not an escalation — 6b's "settle the
+  provisional severities" job owns it. Keep the seams apart: **6a only lowers, 6b settles in either
+  direction.**
 - **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
   of the report for findings nobody was going to act on urgently.
 - **The 3 most irreversible ⛔/🔴 per layer** <!-- dotagents:lens-cap 3 -->; everything past that gets
@@ -196,7 +209,7 @@ guard, and on a destructive change it is not a refutation either.
 ## 6b. Challenging the clears, and hunting what was missed — against false negatives
 
 **A distinct pass, run after 6a rather than interleaved with it** — the two ask opposite questions, and
-running them together lets the refuting frame answer the hunting one. It does three things.
+running them together lets the refuting frame answer the hunting one. It does four things.
 
 **Challenge overconfident clears.** Find the high-risk places the find phase dismissed as "same as
 existing" or "no problem", and read the actual guard, citing `file:line`. Where you cannot confirm
@@ -207,11 +220,29 @@ money, billing, external or government submission, authorization, PII, data migr
 looking for failure modes the find phase did not raise. File anything found as a normal finding
 (it then goes through 6a).
 
+**Settle the provisional severities.** <!-- dotagents:severity-direction 6b-settles -->
+A finding whose own text says reachability is unresolved **does not have a severity yet** — it has a
+placeholder, because `finding-discipline.md` told the find phase to park it rather than inflate it. 6a
+cannot pick it up: 6a is scoped to ⛔/🔴 and may only lower. So unless this job exists, **nothing in the
+pass is chartered to finish the trace**, and the placeholder ships looking like a verdict. Take every
+finding carrying an unresolved-reachability note, and every 👤 filed for that reason, and either complete
+the trace — using the construction-site rule in 6a's reachability lens — or state that it is still open.
+**Raising is correct here and only here**, because the finding was never at its own severity to begin
+with.
+
+Why this is a separate job and not a wider 6a: the failure it fixes is a report that *reads* as settled
+while carrying placeholders. Observed — a warning-level finding said in its own body that reachability
+was not established, the report shipped that way, and it was resolved only because the human asked for a
+second adversarial pass; the trace then took three file reads and moved the finding two buckets. **A pass
+that depends on being asked twice did not verify anything the first time.** 🔎 states how many provisional
+severities were settled and how many remain open, so a reader can tell those two apart.
+
 **Re-check design and system-wide concerns.** Confirm that cluster 0's 🧭 candidates were not
 quietly dropped, and supply what is missing.
 
 ```
 { challenged: [{ id, upgraded_to, reason, evidence }],
+  settled:    [{ id, from, to, evidence, still_open: true | false }],
   missed: [ ...normal finding schema ] }
 ```
 
