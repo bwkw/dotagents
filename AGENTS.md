@@ -82,7 +82,7 @@ work. That is why they are here rather than in a document you would read once.
    The split exists because `user-invocable: false` is Claude-only and Cursor puts subagents in its
    command picker, so *hiding* by field does not work in both agents. Not sharing the `da` prefix does:
    `/da` returns the same eight entries in Claude Code and in Cursor.
-   <!-- dotagents:skill-count mine=11 typed=8 layer=3 agents=2 upstream=16 -->
+   <!-- dotagents:skill-count mine=11 typed=8 layer=3 agents=2 upstream=15 -->
 
    Renaming any of them breaks **three** places, and all three fail silently: the
    `disable-model-invocation` scope in `verify-skills.sh`, the same list in the lint hook, and **template

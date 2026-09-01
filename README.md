@@ -46,7 +46,7 @@ bash 前提なので WSL のみのはずですが、未確認です。node は C
 | 段階 | 打つもの | 何のためか |
 |---|---|---|
 | **0. 地面を調べる** | ○ `/research` | 「世の中は実際どうやっているか」。外部の一次情報を、**リポジトリ内のファイル**に書き出す。**選択肢とトレードオフはここから出てくる**し、ファイルは `/clear` を越えて残る |
-| **1. 何を作るか固める** | ○ `/grill-me` | 選んだ選択肢を、要件が本当に固まるまで質問攻めにする |
+| **1. 何を作るか固める** | ○ `/grilling` | 選んだ選択肢を、要件が本当に固まるまで質問攻めにする |
 | | ● `/da-investigate` | **この**コードベースで何に触るか。`file:line`、予算内、**確認できなかったことを名指し** |
 | **2. 書き下す** | ○ `/documentation-and-adrs` | 決定を ADR として |
 | | **● `/da-spec`** | **spec をディスクに。** リポジトリの `spec_system` を profile から解決して、openspec なら change を作る/**既存を更新する**、そうでなければ ○ `/writing-plans` に渡す。validator があれば回して出力を貼る |
@@ -76,7 +76,7 @@ landing ごとに:
 ```
 
 **上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
-[docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grill-me`・
+[docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grilling`・
 `/da-spec`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
 検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
 
@@ -85,7 +85,7 @@ landing ごとに:
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
 | **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で | 2周 | 承認1回（= 計画を commit） |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grilling` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
 
 **規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
 崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
@@ -93,7 +93,7 @@ landing ごとに:
 無人で回るものが1つも無くなる。入力が全部同じクラスに落ちる分類器は、分類していません。詳細と、
 それぞれが「厳しすぎた」ではなく**間違っていた**理由は `docs/loops.md`。
 
-**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `/grill-me` は面接で、`da-design-review` の Step 1 は
+**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `/grilling` は面接で、`da-design-review` の Step 1 は
 「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。
 そして**判定は bash の算術**です: モデルが測り、表の適用はスクリプトがやる。「規模に応じて」と
 書いてモデルに選ばせると毎回最大値になる（ファンアウト予算で実際に起きたこと）。
@@ -122,10 +122,10 @@ landing ごとに:
 | | |
 |---|---|
 | **ループが打つ**（11本） | `/da-investigate`（測る）→ `/using-git-worktrees`（隔離）→ `/da-verify`（arm）→ `/test-driven-development` または `/executing-plans` → `/da-review-all` → `/find-bugs` → `/da-fix-plan` → `/receiving-code-review` → `/da-pr-describe`、そして `gh stack submit`。ゲートが赤で戻った周は `/test-driven-development` ではなく **`/systematic-debugging`** に切り替わります |
-| **あなたが打つ** | **`/grill-me`・`/da-spec`・`/da-design-review`** —— **面接に相手が要るので、ループは打てません**（打てば「誰も居ない部屋への質問」になります）。tier **M・L** でここに来ると、駆動系は順序を印字して**止まります**（exit 0） |
+| **あなたが打つ** | **`/grilling`・`/da-spec`・`/da-design-review`** —— **面接に相手が要るので、ループは打てません**（打てば「誰も居ない部屋への質問」になります）。tier **M・L** でここに来ると、駆動系は順序を印字して**止まります**（exit 0） |
 | **あなたしか押せない** | **merge。** `gh pr merge` は権限分類器が止めます |
 
-**`/grill-me` は起点ではありません。** XS・S は `size`（`/da-investigate`）から始まり、grill-me は
+**`/grilling` は起点ではありません。** XS・S は `size`（`/da-investigate`）から始まり、grilling は
 出てきません。**出てくるのは M・L の設計フェーズだけ**で、そこは人の手番です。
 
 ### 2. 調査する
@@ -264,7 +264,7 @@ scripts/loop.sh "やりたいことを1文で"
 scripts/loop.sh "認証を OIDC に寄せる"
 #   → tier L。「あなたの手番です」と順序が出る
 
-#   あなたが打つ: /grill-me → /da-spec → /da-design-review
+#   あなたが打つ: /grilling → /da-spec → /da-design-review
 #   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
 
 scripts/loop.sh "認証を OIDC に寄せる"
@@ -277,8 +277,14 @@ scripts/loop.sh "認証を OIDC に寄せる"
 下の個別サブコマンド（`size` / `design` / `run` / `report` / `status`）は残してありますが、
 **普段打つ必要はありません。** `report` だけは自分で打ちます —— 数字は読まないと意味がないので。
 
-**`/grill-me` と `/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
+**`/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
 駆動系は*打てます*（ユーザ入力だから）が、モデルからは呼べません。
+
+**`/grilling` は違います。** `disable-model-invocation` を持たないので description が常駐し、
+「grill して」と書いただけで**自分から発火します**。つまり**面接を無人レーンに持ち込まない境界は、
+ハーネスではなく規律で守られています** —— `loop.sh` がそれを打たないように書かれているだけです。
+ここは以前から変わっていません: 包み紙だった `/grill-me` は `disable-model-invocation` でしたが、
+**実体の `grilling` は最初から常駐していた**ので、包み紙を外しても発火面は1ミリも増えていません。
 
 ```bash
 scripts/loop.sh "やりたいことを1文で"        # ← 普段打つのはこれだけ。状態を見て1歩進む
@@ -310,8 +316,8 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 
 ## 何が入っているか
 
-<!-- dotagents:skill-count mine=11 typed=8 layer=3 agents=2 upstream=16 -->
-**自作は11スキル**、残り16本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
+<!-- dotagents:skill-count mine=11 typed=8 layer=3 agents=2 upstream=15 -->
+**自作は11スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
 加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` の**両方**に入るので、どちらのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
@@ -366,14 +372,14 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 - 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
 - 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-### 上流16本はどこから来たか
+### 上流15本はどこから来たか
 
 **広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
 | 出所 | そこから入れたもの | なぜこのコレクションか |
 |---|---|---|
 | **[obra/superpowers](https://github.com/obra/superpowers)** — 6本 | `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `receiving-code-review` · `using-git-worktrees` | **方法論の背骨**: plan → implement → verify と、デバッグの規律。マルチハーネス対応で、自前の `AGENTS.md` とテストを持つ。**プロセスはここから来ています** |
-| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2本 | `grill-me` · `research` | **鋭くて単一目的**の道具。`grill-me` は選択肢を固まった要件に変える質問攻めで予算コストゼロ（`disable-model-invocation`）、`research` は設計フローの出発点となる外部調査 |
+| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2本 | `grilling` · `research` | **鋭くて単一目的**の道具。`grilling` は選択肢を固まった要件に変える質問攻め —— 決定を**設計木**にして、前提が埋まった枝（frontier）だけをラウンドごとに**まとめて**聞き、事実は自分で取りに行く。`research` は設計フローの出発点となる外部調査。**以前ここは包み紙の `grill-me` を数えていて、実体の `grilling` を数に入れていませんでした**（[判断の記録 §38](docs/decisions.md)） |
 | **[getsentry/skills](https://github.com/getsentry/skills)** — 2本 | `find-bugs` · `skill-scanner` | **本番の障害を見つけることが製品の会社**から。`find-bugs` は攻撃面を全列挙してからスイープする —— 層別レビューとは**形が違う**ので、まさに2本目のレビュアに適しています。`skill-scanner` はこのリポジトリ自身の frontmatter の実バグを見つけました |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1本 | `documentation-and-adrs` | **ADR の実践だけ。** このコレクションの他4本は「ループ外」として削除。これも一度削除して、**戻しました** —— ADR を書くことが設計フローの出発点だからです |
 
@@ -447,8 +453,12 @@ dotagents/skills/<name>/
 > **`-s` で選ぶときは、そのスキルが名指ししているスキルも入れてください。** 下のリストはその閉包に
 > なっています。**閉包になっていなかったせいで、3か月ものあいだ `/grill-me` は何も実行しませんでした**
 > —— 本文が7行で、全体が「Run a `/grilling` session.」なのに `grilling` を入れていなかった。
-> `/grill-me` は**このリポジトリのユースケース1の1行目**です。`verify-skills.sh` が参照の解決を検査する
+> `/grill-me` は**当時のユースケース1の1行目**でした。`verify-skills.sh` が参照の解決を検査する
 > ようになったので、次に同じことが起きたら赤くなります。
+>
+> **その `grill-me` 自体は、もう入れていません**（[判断の記録 §38](docs/decisions.md)）。本文の全部が
+> 実体を1行名指しするだけの包み紙で、**実体の `grilling` を直接打てば同じ面接が始まる**からです。
+> 閉包の規則は何も変わっていません —— 閉じるべき辺が1本減っただけです。
 
 ```bash
 # 方法論 — obra/superpowers
@@ -462,9 +472,9 @@ npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
   -s subagent-driven-development -s requesting-code-review
 
 # 実務 — mattpocock/skills
-#   grilling は grill-me の本文が名指しする実体。これが無いと /grill-me は何もしません。
+#   包み紙の grill-me ではなく、実体の grilling を直接入れます（判断の記録 §38）。
 npx skills@1.5.20 add mattpocock/skills -g -a claude-code -a cursor \
-  -s grill-me -s grilling -s research
+  -s grilling -s research
 
 # セキュリティ — getsentry/skills
 npx skills@1.5.20 add getsentry/skills -g -a claude-code -a cursor \

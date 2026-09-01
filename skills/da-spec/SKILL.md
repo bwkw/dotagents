@@ -33,7 +33,7 @@ Stop immediately if any row fails. Report which condition failed. Do not continu
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/research`, `/grill-me`, `/da-investigate` | `/da-spec` | **`/da-design-review`**, then `/executing-plans` |
+| `/research`, `/grilling`, `/da-investigate` | `/da-spec` | **`/da-design-review`**, then `/executing-plans` |
 
 ## Files to read
 

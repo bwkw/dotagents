@@ -38,7 +38,7 @@
 #
 # Tiers XS and S run unattended end to end -- the one landing that actually closed was XS. (This line
 # said "S is the only one" until after XS existed and had closed a landing: a tier added above a
-# sentence does not update it.) `/grill-me` is an interview and
+# sentence does not update it.) `/grilling` is an interview and
 # `da-design-review` says "Show this to the user" in its first step -- both need somebody there. The
 # tiers differ in how deep the human goes, not in whether one is present.
 #
@@ -669,7 +669,7 @@ tier_die() { # <tier> <predicate>
 # "is there a phase to print", and a future rung could answer those differently.
 tier_needs_landing_plan()      { case "$1" in XS|S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 tier_has_design_phase()        { case "$1" in XS|S) return 1 ;; M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
-# /grill-me and /research: an interview needs somebody in the room, so only the top rung prints them.
+# /grilling and /research: an interview needs somebody in the room, so only the top rung prints them.
 tier_needs_interview()         { case "$1" in XS|S|M) return 1 ;; L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 tier_synthesises_landing_row() { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 # One known layer and a small change: type the layer skill, skip the cross-layer dispatcher.
@@ -786,7 +786,7 @@ such claim here and none of them under \`unconfirmed\`; this field does not affe
     L) say "This needs the full design phase, attended. Something here is irreversible, touches a"
        say "risk surface, or was not confirmed -- and an unmeasured change is the worst thing to"
        say "hand to an unattended loop."
-       say "Next:  /grill-me   →   /da-spec   →   /da-design-review"
+       say "Next:  /grilling   →   /da-spec   →   /da-design-review"
        say "       then commit the 🧱 Landing plan, then:  scripts/loop.sh run <plan-path>" ;;
   esac
 }
@@ -920,8 +920,8 @@ cmd_design() {
   tier_needs_interview "$tier" && {
     say "  1. /research <topic>            the outside world. CANNOT BE CHECKED -- it writes a file at"
     say "                                  a path it chooses, so nothing here can look for it."
-    say "  2. /grill-me                    the interview (it delegates to /grilling, which does the work"
-    say "                                  -- install both or it does nothing). CANNOT BE CHECKED."
+    say "  2. /grilling                    the interview. CANNOT BE CHECKED -- it settles the shape"
+    say "                                  of the change in conversation and writes nothing down."
   }
   say "  3. /da-spec                     $( ((have_plan)) && printf 'FOUND: %s' "$plan_note" || printf 'not found%s' "${plan_note:+ -- $plan_note}" )"
   say "  4. /documentation-and-adrs      $( ((have_adr)) && printf 'FOUND: %s' "$adr" || printf 'no ADR (only needed if you made a decision worth recording)' )"
