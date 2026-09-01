@@ -28,7 +28,7 @@ budget** that ends the search whether or not the answer is complete.
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| a question, or the start of planning | `/da-investigate` | `/grill-me`, `/writing-plans`, `/da-design-review` |
+| a question, or the start of planning | `/da-investigate` | `/grilling`, `/writing-plans`, `/da-design-review` |
 
 ## Files to read
 

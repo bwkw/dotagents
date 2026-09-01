@@ -1330,6 +1330,14 @@ grep -qE 'あなたの手番|your turn' <<<"$OUT" \
 for want in grilling da-spec da-design-review; do
   grep -q "$want" <<<"$OUT" && ok "  names /$want" || no "  omitted /$want"
 done
+# And it must NOT name the wrapper. `/grill-me` was a seven-line skill whose entire body was
+# "Run a `/grilling` session." -- printing the wrapper sends you through a hop that adds nothing and
+# can dangle, which is exactly how it spent three months executing nothing. Asserted as an absence
+# because the positive assertion above cannot see it: "grill-me" does not contain "grilling", so both
+# names could be printed and every green tick would still be green.
+grep -q 'grill-me' <<<"$OUT" \
+  && no "  still names the removed /grill-me wrapper" \
+  || ok "  names no wrapper -- /grilling is the skill"
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "it opened a PR without a design phase" || ok "and opens nothing"
 
 # Same command again, now that a landing plan is committed -> it finds the plan itself and runs.
@@ -1387,6 +1395,9 @@ for want in grilling da-spec da-design-review; do
     && ok "design at tier L names /$want" \
     || no "design at tier L omitted /$want"
 done
+grep -q 'grill-me' <<<"$OUT" \
+  && no "design at tier L still names the removed /grill-me wrapper" \
+  || ok "design at tier L names no wrapper"
 
 # The three stages that leave nothing on disk must be reported as uncheckable rather than shown green.
 grep -qiE 'cannot be checked|検査でき' <<<"$OUT" \

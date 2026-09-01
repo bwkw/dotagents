@@ -51,7 +51,7 @@ scripts/loop.sh "やりたいことを1文で"
 loop.sh size "やりたいこと"        →     tier を決める（bash の算術）
 loop.sh design                     →     何を打つか / 何が検証済みか
    ↓ S ならこのレーンは空
-/grill-me → /grilling                    ← 要件を詰める（面接）
+/grilling                                ← 要件を詰める（面接）
 /research                                ← 外の世界（必要なとき）
 /da-spec                                 ← spec をディスクに。plans なリポジトリでは
                                             /writing-plans に渡すので成果物は同じ
@@ -103,7 +103,7 @@ loop.sh design                     →     何を打つか / 何が検証済み�
 | `/documentation-and-adrs` | `docs/decisions/ADR-*.md` ほか | ⚠️ 弱い（パスが慣習依存） |
 | 🧱 Landing plan | 人間が写した commit 済みファイル | ✅ 強い（`run` の前提条件） |
 | `/research` | エージェントが選んだパス | ❌ **無い** |
-| `/grill-me` → `/grilling` | 無し | ❌ **無い** |
+| `/grilling` | 無し | ❌ **無い** |
 | `/da-design-review` | **無し（会話のみ）** | ❌ **無い** |
 
 **`da-design-review` はファイルを1つも書きません** —— 本文に「never writes code and never edits the
@@ -119,7 +119,7 @@ plan」とあります。つまり 🧱 Landing plan は**会話の中にしか�
 
 **「自動か手動か」ではなく「人間がどれだけ深く入るか」の分岐です。** 上2段に人は必ず居ます:
 
-- `/grill-me` は質問攻めの面接。**相手が居ない面接は面接ではない。**
+- `/grilling` は質問攻めの面接。**相手が居ない面接は面接ではない。**
 - `da-design-review` の Step 1 は「Restate the plan … **Show this to the user.**」——
   読み違えた計画のレビューは、自信のある無関係な所見を生む。それを一番安く捕まえる場所がそこ。
 
@@ -128,7 +128,7 @@ plan」とあります。つまり 🧱 Landing plan は**会話の中にしか�
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
 | **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で1周 | 2周 | 承認1回。Landing plan を commit |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grill-me` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grilling` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
 
 **ファイル数を3倍にしたのは実態に合わせたためです。** 旧 ladder は5ファイルの変更と15ファイルの変更を
 同じ段に入れていました。`>30` で上を閉じているのは、「L は約50」を閾値として書くと **31〜49 が M に

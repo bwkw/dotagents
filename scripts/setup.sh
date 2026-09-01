@@ -623,9 +623,9 @@ cmd_doctor() {
   #
   # The list is declared once, here. scripts/verify-skills.sh asserts every name still appears in
   # README.md, so a rename upstream cannot leave this checking for something nobody documents.
-  # dotagents:upstream-flow-skills research grill-me documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
+  # dotagents:upstream-flow-skills research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
   echo "upstream skills the documented flows use"
-  local UPSTREAM_FLOW_SKILLS="research grill-me documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner"
+  local UPSTREAM_FLOW_SKILLS="research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner"
   local u umissing=0
   for u in $UPSTREAM_FLOW_SKILLS; do
     [[ -d "$AGENTS_SKILLS/$u" ]] || { umissing=$((umissing+1)); note "missing: /$u"; }

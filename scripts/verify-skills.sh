@@ -946,10 +946,14 @@ fi
 #   executing-plans      -> superpowers:finishing-a-development-branch   (declared REQUIRED SUB-SKILL)
 #   systematic-debugging -> superpowers:verification-before-completion
 #
-# The first one is the reason this check exists rather than being a nice idea: `/grill-me` is the FIRST
-# ENTRY in README's use-case 1, so the documented way to start a feature pointed at a skill that was
-# never installed. A recommendation that cannot run is the same shape as a guardrail that does not
+# The first one is the reason this check exists rather than being a nice idea: `/grill-me` WAS the
+# FIRST ENTRY in README's use-case 1, so the documented way to start a feature pointed at a skill that
+# was never installed. A recommendation that cannot run is the same shape as a guardrail that does not
 # guard -- worse than an absent one, because nobody goes looking.
+#
+# That wrapper is no longer part of the documented set -- use-case 1 now types `/grilling` directly
+# (decision 38). Kept here as the case that motivated the check, in the tense it happened in: a record
+# rewritten to match today's names stops explaining what broke.
 #
 # Scans the INSTALLED set, not this repository: the dangling references were all in upstream bodies,
 # which never appear under skills/ here. Skipped with a printed reason when that directory is absent,
