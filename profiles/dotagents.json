@@ -187,13 +187,13 @@
       ]
     },
     {
-      "id": "da-review-all-canvas-contract",
-      "cmd": "./scripts/test-da-review-all-canvas.sh",
+      "id": "da-review-all-overview-contract",
+      "cmd": "./scripts/test-da-review-all-overview.sh",
       "gate": true,
       "agent_may_run": true,
       "scope": "all",
       "timeout": 15,
-      "when": "da-review-all must keep creating its one-page Canvas review artifact"
+      "when": "da-review-all must keep producing its one-page overview in whichever container the host supports"
     },
     {
       "id": "gate-covers-check-sh",

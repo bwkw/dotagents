@@ -80,6 +80,17 @@ git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...
 | **400 – 1,000 lines** | Still a review, but **name which files were read in full and which were skimmed.** A reader cannot calibrate a clean result without knowing which half it came from. |
 | **> 1,000 lines** | **Not a review — a sample.** Say so **at the top, next to the map**, not buried in 🔎. State how the sample was chosen (highest-risk paths from the Step 2 trace, the irreversible surfaces, the files the change centres on) and **what was not opened at all**. |
 
+**Sampling applies to reading for semantic correctness, and to nothing else.** Whether the business
+logic is right cannot be established for 10,000 lines, and pretending otherwise is the failure this
+table exists to stop. But **Step 2b is a whole-diff pass at every size** — architecture conformance,
+dependency direction, irreversible surfaces, the tenant boundary, and new write or async entry points
+are settled with `grep` and placement checks rather than by reading files, so the diff being large
+does not make them unaffordable. **"It was a sample" is never an answer for anything in Step 2b.**
+
+Observed: a 10,729-line review declared itself a sample, worked the perspective clusters over the
+files it opened, and reached architecture conformance only when the user asked afterwards — which then
+took four tool calls. The cost was never the reason it was skipped; the ordering was.
+
 **Why the threshold is here and not higher.** A large diff does not degrade the review gently; the model
 loses coherence and **falls back to pattern-matching on style**, which is exactly the output that looks
 like a thorough review and contains none of the findings that matter. Producing plausible style comments
@@ -112,6 +123,33 @@ The layer file lists what to trace. In every layer:
 - **Enumerate every related domain, screen, or environment** the change reaches. Everything named
   here becomes required reading for the subagents in Step 5.
 - **List adjacent assets**: migrations, schemas, contracts, seeds, config, tests.
+
+## Step 2b. Conformance sweep — every changed file, every time
+
+**This is the pass that no diff size excuses.** It is mechanical: `grep`, `ls`, and comparing a path
+against a rule, over **100% of the changed files**. It costs a handful of tool calls on a 10,000-line
+diff, so the size table above never reaches it.
+
+**Load the repository's own rules first.** `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md`,
+`.cursor/rules/*` — specifically whichever of them states the layer and directory conventions. That
+file is the standard; your own sense of good architecture is not. **If no such file exists, say so** —
+then the sweep runs on the generic rows below and the architecture verdict is explicitly weaker.
+
+| Swept | The question, asked of every changed file |
+|---|---|
+| **Placement** | Does each new or moved file sit where the repository's own rules put that kind of thing? Name the rule and the line. |
+| **Dependency direction** | Does any import run against the declared direction — domain reaching into infrastructure or api, a module reaching into another module's internals instead of through its declared boundary? One `grep` over the diff's imports answers it. |
+| **Irreversible surfaces** | Every migration, schema change, contract change, permission or IAM change, logical-ID or resource-name change. **Enumerate them all**; a missed one cannot be taken back. |
+| **Tenant / authorization boundary** | Every new read or write path: is the tenant filter present, and is it applied where the repository says to apply it? |
+| **New entry points** | Every new write entry point, async consumer, job handler, or scheduled path — does it carry the guards its siblings carry? Compare against one existing sibling by `file:line`. |
+
+**Report the sweep as a table with a verdict per row**, even when every row passes — a clean
+architecture result that is *stated* is worth something, and one that is silently omitted is
+indistinguishable from one that never ran. Where a row passes because the change matches an existing
+sibling, **cite the sibling**: "matches `year-end-adjustment-csv-export-partition.chunk-handler.ts:52`"
+is a verdict; "follows the existing pattern" is not.
+
+The layer's `perspectives.md` carries the concrete shape each row takes in that stack.
 
 ## Step 3. Explain the change — goes at the top of the report
 
@@ -186,6 +224,12 @@ alone — the same trade the fan-out budget used to make, now made openly instea
 five agents. So 🔎 names **any cluster that got only a token pass**, and says which. The honest narrow
 review and the dishonest one differ by that sentence, and the uncapped fan-out never wrote it either: it
 was equally shallow at 29 subagents and reported nothing about it.
+
+**Three of the five are not eligible for a token pass, because Step 2b already answered them at full
+coverage.** Architecture and boundaries, aggregate and transaction boundaries, and security and tenancy
+each have a row in the conformance sweep, so what remains for them here is judgement on top of a
+complete inventory — not a sampled look. **"Architecture got a token pass" now means Step 2b was
+skipped**, which is a different admission, and not one this file permits.
 
 ## Step 5b. The five sweeps that apply to every layer
 

@@ -18,6 +18,12 @@ That distinction is what stops this step from becoming the thing the toolkit kee
 that hides what it cut.** Nothing is dropped here — it is all still in the report, in the same session,
 one scroll up. What Step 1 does is decide what to *say out loud*.
 
+> **When `da-review-all` is reviewing someone else's PR, the layer reports are never printed** — the
+> premise above would then be false, and the selection would be a cap that hides what it cut after all.
+> On that path **the overview page is the report**: its 🔎 / 🔬 rows carry what was excluded, one line
+> each. Check the page has them before selecting; if it does not, the selection is not auditable and
+> the page is incomplete, not the comment set.
+
 ## Step 1. Select — by rule, never by rank
 
 | Bucket | Goes on the PR as | When |
@@ -45,12 +51,20 @@ did not read the report.** They are different registers and translating between 
 
 **Read `profiles/review-voice.md`** (in this repository's checkout — personal, untracked, like every
 other profile). It carries the register: how direct, how much hedging, questions versus assertions,
-Japanese or English, whether nits are marked.
+Japanese or English, whether nits are marked. **`da-review-all` loads it back at Step 1** on the
+someone-else's-PR path; if you are arriving from there it is already in context.
 
 **If that file does not exist, stop and ask for it. Do not infer a voice.** A comment posted under
 someone's name in a register they do not use is worse than no comment: it reads as them, and they cannot
 unsay it. Ask for two or three comments they have actually written, or a description of the register, and
 offer to write the file from that.
+
+**Reconstructing the register from `gh api` instead of reading the profile loses the small things,
+which are the ones that make it sound like them.** Observed on a real run, with the profile present and
+unread: the sentence-final form the author actually uses, the lowercase `nit:` prefix, closing with a
+request rather than an assertion, and writing light findings *lightly* — every comment came out at the
+same weight. All four are in the file. **The profile outranks your reading of their past comments**,
+and where they disagree, the examples quoted inside the profile win.
 
 Whatever the register, these hold because they are about the comment's job, not its tone:
 
@@ -62,6 +76,32 @@ Whatever the register, these hold because they are about the comment's job, not 
   confident wrong one, and it is the honest form of 👤.
 - **No praise padding, no apology padding.** Neither survives translation into a different register and
   both dilute the finding.
+
+## Step 2b. Resolve the target PR, and verify every anchor — before showing anything
+
+Two failures live here. Both are silent until the POST, and the POST is all-or-nothing.
+
+**Which PR does this file belong to.** A line comment can only be placed on a PR whose diff contains
+that line. In a stacked set each PR's base is **the branch below it**, not the trunk, so a file added
+in the second PR is absent from the third's diff entirely. Map it before drafting:
+
+```bash
+# for each PR in the stack, with its own base
+git diff --name-only "$BASE_OF_THAT_PR" "$HEAD_OF_THAT_PR" | grep -E '<the files you want to comment on>'
+```
+
+**Which line.** Line numbers taken from a review that read the *top* of a stack, or from an earlier
+version of the file, are wrong for the PR you are posting to. Re-derive each anchor from the head of
+**that** PR:
+
+```bash
+git show "$HEAD_OF_THAT_PR:$path" | grep -n '<the distinctive text of the line>'
+```
+
+Observed: an anchor written as `:487` from a top-of-stack read was `:467` in the PR that owned the
+file. It was caught by chance, at post time. **`start_line`/`line` must both be lines the diff touches
+— one bad anchor rejects the whole call**, so this check is what stands between one typo and losing
+every comment in the review.
 
 ## Step 3. Show every draft, then wait
 
@@ -93,7 +133,25 @@ gh api --method POST "repos/{owner}/{repo}/pulls/<number>/reviews" --input revie
 
 `line` + `side` anchors to a single line; `start_line` + `line` spans a range. **Both must be lines the
 diff actually touches** — an anchor outside the diff is rejected for the whole call, so a bad 📍 loses
-every comment, not one.
+every comment, not one. Step 2b is what makes that safe.
+
+**Always spell the repository out in the path.** `gh` resolves a bare PR number against the *current
+working directory's* repository, and PR numbers collide across repositories — the same number is a live
+PR in one and somebody's merged PR in another. Writing `repos/{owner}/{repo}/pulls/<n>/reviews` in full
+removes the ambiguity; relying on cwd has already overwritten an unrelated merged PR once.
+
+**One review per PR.** A stacked set gets one call per PR, each with its own comment list, not one call
+carrying everything.
+
+### Then verify it landed
+
+```bash
+gh api "repos/{owner}/{repo}/pulls/<n>/comments?per_page=50" \
+  --jq '.[] | select(.user.login=="<you>") | "\(.path):\(.line) [\(if .position == null then "OUTDATED" else "ok" end)]"'
+```
+
+`position: null` means the comment posted but is **detached from the diff** — it renders collapsed under
+"outdated" and the author may never see it. A 201 is not evidence the comment is readable; this is.
 
 **`Go` authorizes this post and nothing after it.** A follow-up edit, a reply to the author's response, a
 second round after they push — each needs its own `Go`. Approval does not carry forward, and it never

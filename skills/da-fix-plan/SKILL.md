@@ -37,6 +37,12 @@ them**. A plan that accepts every finding has not triaged; it has transcribed.
 Not the same as `/receiving-code-review`, which is about how to respond to *one* piece of feedback in a
 conversation. This one takes a **whole report** and produces an ordered artifact on disk.
 
+**When a bucket's outcome gets written back to the reviewer** — a Decline that needs explaining, a
+correction to a finding that was partly wrong — the register for that is the responding half of
+`profiles/review-voice.md`, and it is a different one from the reviewing half: lead with agreement or
+with the correction, cite the commit, and **volunteer what is unfavourable to you**. `receiving-code-review`
+is upstream and cannot be taught this durably, so the pointer lives here.
+
 **This is the stopping condition for the review loop.** Reviewing until nothing is found does not
 terminate — a reviewer asked for findings produces findings. What ends the loop is not a count of
 rounds but **the Decline bucket**: deciding, on the record, which findings will not be fixed and why.

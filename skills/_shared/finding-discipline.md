@@ -140,6 +140,25 @@ passed a value at one call site covering one of the two conditions the parameter
 Scored as "pre-existing" it drops below the threshold, and the spec ships describing behaviour the code
 does not have.
 
+**A second carve-out, on "style preference" — readability and extensibility are not style.** The row
+above suppresses *taste*: brace placement, a name you would have picked differently, an ordering with no
+consequence. It does **not** suppress a finding that names **what the next change will cost**, and the
+two are told apart by one test:
+
+> **Can you name the next change, and what it has to touch?**
+
+"This is hard to read" is taste and stays suppressed. "**The rule is now expressed in three places, so
+adding a fourth status means finding all three**" is a cost with a scenario, and it belongs in 🧭 —
+where its value does not depend on being right, which is exactly the bucket a maintainability finding
+needs. The same for the other direction: "this abstraction is unnecessary" is taste; "**deleting this
+wrapper costs nothing, and it is now the layer every future call goes through**" is a cost.
+
+What this deliberately keeps out: rewriting someone's naming, restructuring a working file, and any
+suggestion whose payoff is "it would be nicer". What it deliberately lets in: a shape that makes the
+*fifth* caller wrong, a copy that will drift, a type that pushes narrowing onto every consumer, an
+invariant that lives only in a comment. **Those are cheap now and expensive at the next change**, which
+is the definition this file uses for a design doubt.
+
 ## The verifier is biased too
 
 Adversarial verification is the strongest tool here and it is **not neutral**. The measured biases are in

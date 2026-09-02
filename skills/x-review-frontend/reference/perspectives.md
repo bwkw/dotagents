@@ -30,6 +30,24 @@ Either cite the `file:line` of that check, or mark it unverified.
 
 ---
 
+## Step 2b — the conformance sweep in this layer
+
+`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. Report a
+verdict per row, citing the rule and a `file:line`.
+
+| Row | Frontend form |
+|---|---|
+| **Placement** | Route-colocated files versus shared ones — a hook two routes will need does not belong under one of them, and a component placed in `shared/` that only one screen uses is the same mistake mirrored. Check against this repository's own convention, not a general instinct. |
+| **Dependency direction** | `grep` the diff's imports: a route reaching into another route's private directory; a shared component importing feature-specific state; a presentational component importing the API client directly. |
+| **Irreversible surfaces** | **Public routes and their parameters** — a renamed path breaks bookmarks and inbound links, and no test fails. **Persisted client state** — a changed shape in `localStorage`, IndexedDB or a URL-encoded filter that existing users already hold, with no migration and no tolerant read. |
+| **Authorization boundary** | Every new screen, action and route guard. **Hidden UI is not a control**: for each, cite the server-side check by `file:line` or mark it unverified. A finding here is a backend finding — say that. |
+| **New entry points** | Every new mutation, upload, download or navigation that leaves the app: does it handle the failure path, and is the disabled/empty state reachable and explicable to the user? |
+
+**One row is specific to this layer and easy to skip: a value the API returns that the UI never
+reads.** `grep` each new response field across the route's directory. A field the backend computes,
+stores and returns with no consumer is either a missing screen or a dead column, and it is invisible
+from either side alone — observed as a count of excluded records that nothing displayed.
+
 ## Perspective clusters
 
 ### 0. Design soundness and the question one level up ★system-wide
@@ -184,3 +202,23 @@ conditional types, deep generics, a mapped type encoding the rule. Stronger is n
 better: the four conditions a type has to meet to be worth having are in `llm-authored-code.md` under
 over-abstraction. Where a named union would carry the same rule, prefer it, and say so when a diff
 chooses the computed form.
+
+### 9. Readability and extensibility — what the next change pays
+
+Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
+is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
+value does not depend on being right.
+
+- **State that is derived but stored.** A value kept in `useState` that is a function of props or of
+  server state — every future write path has to remember to update it too.
+- **A prop that only exists to be threaded.** Three components deep to reach one leaf; the fourth screen
+  that needs it will thread it again.
+- **Exhaustiveness the compiler does not check.** `as const satisfies readonly T[]` for options, labels
+  or orderings type-checks on a *subset*: the server adds a case tomorrow and this list stays silently
+  short. `Record<Union, …>` fails to compile instead.
+- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
+  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
+  appears, and its author never reads it. Ask what *forces* it instead.
+- **The thing that will be copied next.** This change is the second instance of a shape; the third is
+  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
+  third copy consistent?
