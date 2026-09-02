@@ -48,7 +48,7 @@ runs the layers that apply, then does the part none can.
 
 | File (under `${CLAUDE_SKILL_DIR}/reference/` unless noted) | When |
 |---|---|
-| `profiles/review-voice.md` — this repository's checkout | **Step 1**, the moment ownership resolves to someone else. Read late, the register gets rebuilt from scratch. |
+| `profiles/review-voice.md` — **toolkit root**, not `reference/` | **Step 1**, the moment ownership resolves to someone else. Read late, the register gets rebuilt from scratch. |
 | `cross-layer.md` | **Step 4, always** — the ten checks and the skeleton |
 | `silent-failure-patterns.md` | **Step 4, ≥2 layers** — the single-layer form, re-read across the boundary |
 | `llm-authored-code.md` | **Step 4, ≥2 layers**, agent-authored — both sides of a boundary agreeing with each other and wrong about the world |
@@ -92,7 +92,7 @@ back:
 |---|---|---|
 | Deliverable | The layer reports | **Overview page + comment drafts in the user's voice** |
 | Layer reports | Printed | **Working material, never printed.** Their 🔎 and 🔬 move onto the page; the rest is consumed by the page and the drafts |
-| Read at Step 1 | — | `profiles/review-voice.md` |
+| Read at Step 1 | — | `profiles/review-voice.md` (toolkit root) |
 | Extra step | — | Step 4b, the decisions sweep |
 
 **Ambiguous — a shared branch, a pair-written change — ask.** Guessing wrong costs a whole deliverable
