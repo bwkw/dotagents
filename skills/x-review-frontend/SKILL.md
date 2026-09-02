@@ -1,6 +1,6 @@
 ---
 name: x-review-frontend
-description: Review frontend and client-side changes as a tech lead. Use when reviewing components, routes, hooks, stores, styling, or frontend i18n. Read-only.
+description: Frontend layer of a da-review-all review — components, routes, hooks, stores, styling, frontend i18n. Runs when da-review-all dispatches it after classifying the change; for any review use da-review-all, not this directly. Read-only.
 user-invocable: false
 metadata:
   source: bwkw/dotagents
@@ -47,12 +47,14 @@ taxonomy, the return schema — is in `${CLAUDE_SKILL_DIR}/reference/finding-dis
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/da-review-all` classified the change, or a request named this layer | this skill | its findings go back to the dispatcher, or to you |
+| `/da-review-all` classified the change | this skill | its findings go back to the dispatcher |
 
-**This skill is not in the `/` menu.** It is reached two ways: `/da-review-all` dispatches to it
-by name after classifying the change, or you ask for this layer directly ("review the frontend") and the description matches. Both give the same review; only the classification step
-differs. `user-invocable: false` is what keeps it out of the menu — it must never carry
-`disable-model-invocation`, which would block both routes at once.
+**This skill is a dispatch target, not an entry point.** `/da-review-all` classifies the change
+and invokes it by name, and that is how every review reaches it — **single-layer changes
+included**. Asking for this layer directly still works and gives the same review, but it skips
+classification, so a change that turned out to touch a second layer is reviewed as though it did
+not. `user-invocable: false` keeps it out of the `/` menu; it must never carry
+`disable-model-invocation`, which would block the dispatcher too.
 
 ## Files to read
 
@@ -182,6 +184,8 @@ a fresh context (`da-investigate`, `da-design-review`), and neither is used here
 ## Done when
 
 - [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
+- [ ] **Step 2b ran over the whole file list and is reported with a verdict per row** — placement,
+      dependency direction, irreversible surfaces, tenancy, new entry points. No diff size excuses it
 - [ ] Cluster 0 ran, and the shared hook or wrapper this change depends on was opened and cited, or marked 👤
 - [ ] `silent-failure-patterns.md` was applied in both phases
 - [ ] Every authorization finding names the server-side gap, not just the hidden UI

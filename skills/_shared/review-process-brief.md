@@ -48,6 +48,21 @@ Name every consumer of anything shared the change touches, and the adjacent asse
 schemas, contracts, config, tests. At this tier the map is a few lines, but it is not optional: it is
 what decides whether 80 lines are 80 lines of risk or 80 lines of nothing.
 
+## 2b. The conformance sweep — full form, even here
+
+**This step is identical at both tiers, and it is shorter here only because the file list is.** It is
+`grep` and placement checks over **every** changed file: placement against the repository's own layer
+rules, dependency direction, every irreversible surface enumerated, the tenant boundary on every new
+read and write path, and the guards on every new entry point. `review-process.md` Step 2b has the
+table; the rows do not change.
+
+**A small diff is not a low-risk diff — it is often the opposite.** One migration, one IAM statement,
+one moved file is exactly the shape that fits under 80 lines and is exactly what this sweep exists to
+catch. **Nothing about the brief tier reduces it**; five files take five minutes.
+
+Report the verdict per row even when every row passes. A clean architecture result that is *stated* is
+worth something; one that is silently omitted cannot be told apart from one that never ran.
+
 ## 3. The five clusters — inline, in this context, in this order
 
 **No subagents — at this tier or any other.** You already hold the diff, the map and this file; a

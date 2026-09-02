@@ -1,6 +1,6 @@
 ---
 name: x-review-infra
-description: Review infrastructure and IaC changes as a tech lead. Use when reviewing Terraform, CDK, CloudFormation, SAM, Kubernetes manifests, IAM, networking, pipelines, or CI permissions. Read-only.
+description: Infrastructure layer of a da-review-all review — Terraform, CDK, CloudFormation, SAM, Kubernetes, IAM, networking, pipelines, CI permissions. Runs when da-review-all dispatches it after classifying the change; for any review use da-review-all, not this directly. Read-only.
 user-invocable: false
 metadata:
   source: bwkw/dotagents
@@ -50,12 +50,14 @@ taxonomy, the return schema — is in `${CLAUDE_SKILL_DIR}/reference/finding-dis
 
 | Upstream | This skill | Downstream |
 |---|---|---|
-| `/da-review-all` classified the change, or a request named this layer | this skill | its findings go back to the dispatcher, or to you |
+| `/da-review-all` classified the change | this skill | its findings go back to the dispatcher |
 
-**This skill is not in the `/` menu.** It is reached two ways: `/da-review-all` dispatches to it
-by name after classifying the change, or you ask for this layer directly ("review the infrastructure") and the description matches. Both give the same review; only the classification step
-differs. `user-invocable: false` is what keeps it out of the menu — it must never carry
-`disable-model-invocation`, which would block both routes at once.
+**This skill is a dispatch target, not an entry point.** `/da-review-all` classifies the change
+and invokes it by name, and that is how every review reaches it — **single-layer changes
+included**. Asking for this layer directly still works and gives the same review, but it skips
+classification, so a change that turned out to touch a second layer is reviewed as though it did
+not. `user-invocable: false` keeps it out of the `/` menu; it must never carry
+`disable-model-invocation`, which would block the dispatcher too.
 
 ## Files to read
 
@@ -186,6 +188,8 @@ a fresh context (`da-investigate`, `da-design-review`), and neither is used here
 ## Done when
 
 - [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
+- [ ] **Step 2b ran over the whole file list and is reported with a verdict per row** — placement,
+      dependency direction, irreversible surfaces, tenancy, new entry points. No diff size excuses it
 - [ ] Cluster 0 ran, and every resource whose identity-forming attributes changed is named
 - [ ] `silent-failure-patterns.md` was applied in both phases
 - [ ] Every possible replacement or state loss is listed under ⛔ with the command that would confirm it

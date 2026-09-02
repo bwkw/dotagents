@@ -117,7 +117,7 @@ step "shell syntax, and no bash 4 constructs" syntax
 step "CLAUDE.md is still a symlink to AGENTS.md" symlink_intact
 step "every shipped script is executable" executable_bits
 step "skills lint (invariants, budget, agents, override scope)" ./scripts/verify-skills.sh
-step "da-review-all Canvas output contract" ./scripts/test-da-review-all-canvas.sh
+step "da-review-all overview output contract" ./scripts/test-da-review-all-overview.sh
 # In the fast lane on purpose: it is a static cross-check, it costs milliseconds, and the thing it
 # guards is edited by docs-only changes -- which are exactly the changes that skip the behavioural
 # suites.

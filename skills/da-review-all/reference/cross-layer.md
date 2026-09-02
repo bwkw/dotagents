@@ -135,6 +135,21 @@ checks. **Check one side against something that is not the other side** — the 
 OpenAPI document, the deployed schema, the provider's documentation, a caller that predates this change.
 If both halves are new, there is no anchor inside the diff at all, and that is itself the finding. → 🔴
 
+**The deliberate copy is the cheap case — diff it mechanically.** Where a frontend keeps a local copy of
+a backend contract that has not been published yet, strip comments and whitespace from both and compare;
+five minutes settles what reading two files side by side does not:
+
+```bash
+norm(){ grep -vE '^\s*(//|\*|/\*)' | tr -d '[:space:]' ; }
+diff <(git -C "$BE" show "$BE_REF:$be_contract" | norm) \
+     <(git -C "$FE" show "$FE_REF:$fe_copy"     | norm)
+```
+
+A clean result is worth stating — it converts the loudest-looking risk in the change into a verified
+clear. **What it does not settle is the outside world**: two halves matching each other says nothing
+about whether the names came from the specification. That remains the finding above, and where the only
+anchor is a document outside every repository, **say that no layer verified it.**
+
 ---
 
 ## Reporting these
@@ -177,6 +192,9 @@ Follow each 🔗 row with **one 📍 per side**, the detailed why-this-is-wrong,
 ### 🔎 Confidence of this review
 - What each layer actually read versus assumed, in one or two lines. State plainly that a clean
   result means "not detected at this depth", not a design sign-off.
+- **Name what no layer could verify because the anchor is outside every repository** — a vendor
+  specification, a government form definition, an upstream schema. That is not an unverified clear
+  about your reading; it is a statement that the codebase contains no way to check it.
 
 ### 📊 Summary
 | Layer | ⛔ | 🔴 | 🟡 | 💡 | 🧭 | 👤 |

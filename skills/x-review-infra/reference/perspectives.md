@@ -38,6 +38,24 @@ are assigned; pattern 4 is native to this layer.
 
 ---
 
+## Step 2b — the conformance sweep in this layer
+
+`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. In this
+layer it is also the cheapest place to catch the most expensive mistakes. Report a verdict per row.
+
+| Row | Infrastructure form |
+|---|---|
+| **Placement** | Does the new construct/module sit where this repository puts that kind of resource, and is it wired into whatever list actually deploys it? **A stack that is instantiated but absent from the deploy pipeline's stack list never ships** — check the pipeline, not just the code. |
+| **Dependency direction** | Cross-stack references: an export/import where a constructed name would do, or a constructed name where the real dependency needs ordering. Which stacks now depend on this one, and in which wave. |
+| **Irreversible surfaces** | **Every logical ID and physical name in the diff.** A changed or moved one is a replace or a delete, and for a stateful resource that is data loss. Also: removal policies, deletion protection, versioning, DNS and certificate changes. Enumerate them all; name the command that would confirm each. |
+| **Boundary and exposure** | Every IAM statement, security group, bucket policy and public setting the diff touches: what widened, and is the resource scope actually a scope. |
+| **New entry points** | Every new queue, schedule, trigger or compute environment: what can invoke it, what its failure surfaces as, and whether anything alerts. |
+
+**Two traps that only this layer has.** A permission or size limit that `synth` accepts and `deploy`
+rejects — say plainly that no plan output was seen and name the command that would settle it. And a
+policy-splitting or auto-generated boundary that **moves unrelated statements between resources** when
+you add one: read the snapshot diff for statements that moved, not only for lines added.
+
 ## Perspective clusters
 
 ### 0. Design soundness and the question one level up ★system-wide
@@ -146,3 +164,22 @@ One-way deletions and irreversible migrations are filed with `irreversible=true`
 
 - Do new resources and paths get **monitoring, alarms, and dashboards**? Log aggregation. On-call
   runbook and recovery procedure. Tagging, naming, governance. Data residency and compliance.
+
+### 9. Readability and extensibility — what the next change pays
+
+Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
+is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
+value does not depend on being right.
+
+- **A value duplicated across stacks or repositories.** A queue name, an ARN fragment, a port. They
+  match today; nothing compares them, and the drift is a runtime 404 rather than a failed synth.
+- **A limit that will be hit by addition, not by load.** A policy size, an attached-policy count, a rule
+  count. Ask how many more of *this change* fit before it stops deploying.
+- **A comment carrying the deploy order.** Wave membership, "apply this before that". If the order is
+  only in prose, the next stack is added by someone who did not read it.
+- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
+  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
+  appears, and its author never reads it. Ask what *forces* it instead.
+- **The thing that will be copied next.** This change is the second instance of a shape; the third is
+  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
+  third copy consistent?

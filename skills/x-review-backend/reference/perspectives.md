@@ -29,6 +29,24 @@ Suggested specialist agents when the repository defines them: `senior-architect`
 
 ---
 
+## Step 2b — the conformance sweep in this layer
+
+`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. Here is
+what each of its rows means server-side. Report a verdict per row, citing the rule and a `file:line`.
+
+| Row | Backend form |
+|---|---|
+| **Placement** | Does each new file sit where this repository's own layer rules put it? The distinctions that actually get missed: a QueryService used only by one API versus one shared with a batch path (they have different homes); a batch/queue consumer's prescribed directory shape; where a cross-module adapter is *defined*, which is normally the module that owns the data, not the one that wants it. |
+| **Dependency direction** | `grep` the diff's imports: domain reaching into infrastructure, api or a QueryService; a write path depending on a read-only service where the repository forbids it; one module importing another module's internals rather than its declared boundary. |
+| **Irreversible surfaces** | Enumerate **every** migration, schema edit, contract change, and permission change. For each migration: is it additive, is it wrapped in a transaction if the repository requires that, and does the new constraint hold against production data — a claim that needs a query and a count, not a local database. |
+| **Tenant boundary** | Every new query, raw or generated: is the tenant column in the `where`, including inside joins and subqueries, and is it sourced the way the repository says (request context, not a parameter the caller supplies)? |
+| **New entry points** | Every new controller route, queue consumer, job handler, scheduled task: guards, idempotency on retry, and the direction the failure falls. **Compare against one existing sibling and cite it** — "matches `<sibling>.ts:52`" is a verdict; "follows the existing pattern" is not. |
+
+Two things that look like architecture findings and are not, when the sibling already does the same:
+a chunk handler depending on a QueryService, and a near-duplicate construct next to its twin. **Check
+the sibling before writing either up** — inherited shape is a 🧭 about the family, not a defect in this
+diff.
+
 ## Perspective clusters
 
 ### 0. Design soundness and the question one level up ★system-wide
@@ -334,3 +352,23 @@ header missing from a new file, which broke the build rather than being caught i
 - **Where a path has silent, irreversible side effects** (see `silent-failure-patterns.md`), is the
   *chain that goes silent when broken* pinned by one integration test — not just the happy path in
   isolation? The failure to detect is "unit tests green, chain unverified".
+
+### 11. Readability and extensibility — what the next change pays
+
+Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
+is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
+value does not depend on being right.
+
+- **One rule, several expressions.** The entity method and the `WHERE` clause; the contract enum and the
+  domain union. They agree today. Adding a state means finding all of them, and nothing says how many
+  there are.
+- **A guard the fifth call site forgets.** A precondition enforced at the call site rather than in the
+  type or the aggregate. Count the current call sites; the finding is that the count can grow.
+- **Narrowing pushed onto every consumer.** A DTO of optionals, a nullable column copied into the domain
+  type. Each consumer writes the same three lines forever.
+- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
+  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
+  appears, and its author never reads it. Ask what *forces* it instead.
+- **The thing that will be copied next.** This change is the second instance of a shape; the third is
+  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
+  third copy consistent?
