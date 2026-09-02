@@ -1160,6 +1160,39 @@ PYEOF
   printf '%s✓%s %s agent(s) defined:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
 fi
 
+# The voice profile lives at the TOOLKIT ROOT, but the skill that names it lists its files under
+# `reference/` by default. A reader who applies that default resolves `reference/profiles/review-voice.md`,
+# finds nothing, and reports the profile as missing -- which happened on a real run, and the drafts were
+# then written from a register reconstructed by hand. So the path has to be spelled root-relative
+# everywhere it appears, and no file may spell the `reference/`-relative form.
+voice_path() {
+  local bad rc=0
+  bad="$(grep -rn 'reference/profiles/review-voice' "$REPO"/skills 2>/dev/null || true)"
+  if [[ -n "$bad" ]]; then
+    err "voice-profile" "the voice profile is at the toolkit root, not under a skill's reference/:"
+    printf '%s\n' "$bad" | sed 's/^/      /'
+    rc=1
+  fi
+  # Every mention must be the root-relative `profiles/review-voice.md`. A bare `review-voice.md` with no
+  # directory is the same misread waiting to happen.
+  bad="$(grep -rn 'review-voice\.md' "$REPO"/skills 2>/dev/null \
+         | grep -v 'profiles/review-voice\.md' || true)"
+  if [[ -n "$bad" ]]; then
+    err "voice-profile" "cite the voice profile as 'profiles/review-voice.md' (root-relative):"
+    printf '%s\n' "$bad" | sed 's/^/      /'
+    rc=1
+  fi
+  # The example must stay shipped: it is what the stop-and-ask in pr-comments.md offers to copy.
+  if [[ ! -f "$REPO/profiles/_example.review-voice.md" ]]; then
+    err "voice-profile" "profiles/_example.review-voice.md is missing -- pr-comments.md tells the user to copy it"
+    rc=1
+  fi
+  return $rc
+}
+if voice_path; then
+  printf '%s✓%s voice profile cited root-relative everywhere%s\n' "$c_green" "$c_off" "${c_dim}${c_off}"
+fi
+
 echo
 if (( desc_total > MAX_DESC_TOTAL )); then
   warn "budget" "descriptions total ${desc_total} chars across ${count} skills (target <= ${MAX_DESC_TOTAL})"

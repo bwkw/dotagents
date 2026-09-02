@@ -26,6 +26,13 @@ one scroll up. What Step 1 does is decide what to *say out loud*.
 
 ## Step 1. Select — by rule, never by rank
 
+**Select from verified findings only.** The 🔬 row below is not a filter you apply while drafting — it
+is a precondition. Run `verification.md` *before* this step, or the set you select from is the find
+phase's set and the 🔬 row has nothing to act on. Measured on a real run of three findings taken into a
+refutation pass: one 🔴 was refuted outright, one held with two sub-claims corrected, and one lost a
+severity level and turned up an item nobody had raised. **Selecting first would have put the refuted one
+at the top of the review.**
+
 | Bucket | Goes on the PR as | When |
 |---|---|---|
 | ⛔ | inline comment on the line, and named in the top-level summary | **Always.** This is the one the PR exists to stop. |
@@ -49,10 +56,13 @@ response to that is the one Step 1b already gives: say the change is too large t
 The report is written to be **complete**. A review comment is written to be **acted on by a person who
 did not read the report.** They are different registers and translating between them is the work here.
 
-**Read `profiles/review-voice.md`** (in this repository's checkout — personal, untracked, like every
-other profile). It carries the register: how direct, how much hedging, questions versus assertions,
-Japanese or English, whether nits are marked. **`da-review-all` loads it back at Step 1** on the
-someone-else's-PR path; if you are arriving from there it is already in context.
+**Read `profiles/review-voice.md`** — the path is relative to **the toolkit root**, not to the calling
+skill's `reference/` directory, and the file is personal and untracked like every other profile.
+Resolving it under a skill's reference directory finds nothing, and "the profile is missing" then gets
+reported to the user as fact while the file was there all along. It carries the register: how direct,
+how much hedging, questions versus assertions, Japanese or English, whether nits are marked.
+**`da-review-all` loads it back at Step 1** on the someone-else's-PR path; if you are arriving from
+there it is already in context.
 
 **If that file does not exist, stop and ask for it. Do not infer a voice.** A comment posted under
 someone's name in a register they do not use is worse than no comment: it reads as them, and they cannot
@@ -66,12 +76,33 @@ request rather than an assertion, and writing light findings *lightly* — every
 same weight. All four are in the file. **The profile outranks your reading of their past comments**,
 and where they disagree, the examples quoted inside the profile win.
 
-Whatever the register, these hold because they are about the comment's job, not its tone:
+### The shape is not the register
 
-- **The line, the reason, the fix** — in that order, and the reason is the part that must not be short.
-  A comment that says what to change without why gets applied wrongly or argued with.
-- **Cite what you read.** `file:line`. A comment whose evidence is "this pattern is usually wrong" is a
-  comment about patterns, not about this code.
+The register is personal and lives in the profile. **The shape is neither** — it is what makes a comment
+survive being opened as a phone notification, and it holds in any register:
+
+1. **One bold line carrying the claim**, and nothing else on that line. The claim, not the topic: "この
+   コードパスを守るテストが無いです", not "テストについて".
+2. **A blank line after it.** Without one, the bold line and the mechanism render as a single paragraph
+   and the claim stops being scannable — which was the entire reason for bolding it.
+3. **At most two sentences of mechanism**, then the request that closes the comment. A mechanism that
+   needs three sentences is either two findings, or one that belongs on the overview page.
+
+**Do not append a references block.** A trailing `参考:` / `See also:` list of `file:line` from the same
+repository is citation padding — the author can open any of those paths in one click, and the list grows
+back exactly the reasoning the two-sentence limit just squeezed out. Fold the **one** load-bearing
+citation into the sentence that needs it, the one whose absence would let the author reasonably
+disagree, and drop the rest. A references block earns its own line only when it points **outside** the
+repository: a vendor specification, an RFC, a ticket the author cannot grep for.
+
+Then these, because they are about the comment's job rather than its tone:
+
+- **The line, the reason, the fix** — in that order, and the reason must be **load-bearing**, which is
+  not the same as long. It is the one sentence that still stands in front of an author who disagrees. A
+  comment that says what to change without why gets applied wrongly or argued with; one that says it in
+  six sentences gets skimmed down to the request and applied wrongly anyway.
+- **Cite what you read, in prose.** `file:line` inside the sentence. A comment whose evidence is "this
+  pattern is usually wrong" is a comment about patterns, not about this code.
 - **Say when you are unsure.** "I could not confirm X — does Y guard it?" is a better comment than a
   confident wrong one, and it is the honest form of 👤.
 - **No praise padding, no apology padding.** Neither survives translation into a different register and
@@ -130,6 +161,11 @@ this step exists to prevent. Post the review as one REST call instead:
 #                "comments": [ { "path": "src/a.ts", "line": 42, "side": "RIGHT", "body": "…" }, … ] }
 gh api --method POST "repos/{owner}/{repo}/pulls/<number>/reviews" --input review.json
 ```
+
+**Write a body even when every finding is inline.** Do not send `event: COMMENT` with an empty `body`
+(whether the API rejects it is unmeasured — see `docs/harness-facts.md`; a one-line body sidesteps the
+question). One line saying what you read is the whole job: filling it with a summary of the review
+duplicates the overview page and invites the author to read the body instead of the comments.
 
 `line` + `side` anchors to a single line; `start_line` + `line` spans a range. **Both must be lines the
 diff actually touches** — an anchor outside the diff is rejected for the whole call, so a bad 📍 loses
