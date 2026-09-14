@@ -54,6 +54,32 @@
         }
       }
     },
+    "adr_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "Where this repository keeps architecture decision records, and what its own authoring rules are. The same kind of fact spec_system carries for intent, for decisions. Upstream ADR skills infer the location from the tree and fall back to docs/adr or docs/decisions, which lands a well-formed file in a directory nobody in the repository reads -- correct, and in the wrong place, which is the quiet kind of wrong. Omit for a repository that does not keep ADRs, and then say so rather than creating a directory for it.",
+      "properties": {
+        "$comment": {},
+        "kind": {
+          "enum": ["colocated", "directory", "none"],
+          "description": "colocated: an ADR lives next to the code it governs. directory: all ADRs live under one root. none: this repository does not keep ADRs -- do not invent a location for it."
+        },
+        "roots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Directories an ADR may be written under, relative to the repo root. For colocated, the subtrees it is allowed in. Writing outside these is a precondition failure, not a judgement call."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Filename shape, with '<subject>' standing for the decision being recorded. Example: 'ADR.<subject>.md'. Match the existing files rather than introducing a second naming scheme beside them."
+        },
+        "rules": {
+          "type": "string",
+          "description": "File carrying the repository's OWN authoring rules for decisions, to be read before writing. Often the same file spec_system.rules names, because a repository that has written down how to record intent usually wrote down how to record decisions in the same place."
+        }
+      }
+    },
     "max_attempts": {
       "type": "integer",
       "minimum": 1,
