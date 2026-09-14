@@ -4,6 +4,17 @@ Two skills need this and neither owns it: `da-spec` writes the change, `da-adr` 
 Both produce a document that **outlives the conversation that produced it**, and both fail the same
 way when they forget that.
 
+## The standard
+
+**Write it as though the design had been planned this way from the start.** Not "here is where we
+ended up" — *here is the design*. Everything that is only true because of the order in which the
+understanding arrived is noise to the person reading it later, and they are the entire audience.
+
+This is a rewrite instruction, not an editing one. A document assembled by appending as the
+understanding changed cannot be repaired by deleting the offending sentences: its **ordering** still
+encodes the conversation. When a document fails the test below in more than one place, write it
+again from the current understanding rather than patching it.
+
 ## The reader
 
 **The reader is a newcomer who was not in the conversation.** They have the repository and this
