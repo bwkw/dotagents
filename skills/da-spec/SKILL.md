@@ -44,6 +44,7 @@ Stop immediately if any row fails. Report which condition failed. Do not continu
 | `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | how to resolve the convention, why not from the tree, and the validator rule. Shared with `da-design-review`, so the two cannot disagree about where the artifact lives |
 | the matching `profiles/*.json` → `spec_system` | which convention this repository uses, and where |
 | the file named by `spec_system.rules` | **the repository's own authoring rules.** Not optional: writing to a generic template when the repository has written its rules down produces an artifact that fails its own validator |
+| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | **who the document is written for.** A spec edited as the understanding changed encodes its own history by default, and the newcomer who reads it later was not in that conversation |
 
 ### Read only if
 

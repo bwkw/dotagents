@@ -50,6 +50,7 @@ one of them belongs in the change's design document or the commit message. Most 
 | the matching `profiles/*.json` → `adr_system` | where the ADR goes, and which subtrees it may go in |
 | the file named by `adr_system.rules` | the repository's own authoring rules. Writing to a generic template when the repository has written its standard down produces an artifact that fails its own review |
 | one existing ADR under `adr_system.roots` | the shape actually in use — headings, language, how alternatives are recorded. Match it |
+| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | who the ADR is written for, and the shapes that only parse for someone who was in the conversation |
 
 ### Read only if
 
@@ -87,19 +88,12 @@ reverses an earlier one supersedes it explicitly — do not leave two ADRs disag
 
 ### Step 3. Write it as the final design
 
-**The reader is a newcomer who was not in the conversation.** Write what the design *is*, and why
-that shape and not the alternative. Do not narrate how it was arrived at.
+Follow `${CLAUDE_SKILL_DIR}/reference/final-design.md`. It carries the reader, the shapes to cut, and
+the test to apply before calling the draft done — shared with `da-spec` so the two cannot drift into
+disagreeing about what a finished document reads like.
 
-Cut on sight:
-
-- the story of discovery — "we first tried", "it turned out that", "after investigating"
-- the before/after contrast — "previously X was …", "unlike the old implementation". The reader
-  never saw the old one
-- ticket numbers, PR numbers, review threads. **Dated repository history stays** when it is the
-  evidence for the decision (a measurement, an incident, a commit that established a constraint)
-
-Every alternative that was seriously considered gets its rejection reason. An ADR with no rejected
-alternative is describing, not deciding.
+One rule is this skill's own: **every alternative that was seriously considered gets its rejection
+reason.** An ADR with no rejected alternative is describing, not deciding.
 
 ### Step 4. Ground every name
 
