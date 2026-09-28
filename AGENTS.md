@@ -1,206 +1,93 @@
 # dotagents
 
-Personal AI development toolkit. Skills, hooks, and repository profiles that work in **both Claude
-Code and Cursor**, installed once globally. `CLAUDE.md` symlinks here, because Claude Code does not
-read `AGENTS.md`.
+個人用の AI 開発ツールキット。スキル・hook・リポジトリのプロファイルを、**Claude Code と Cursor の両方**で動く形でグローバルに 1 回入れる。Claude Code は `AGENTS.md` を読まないので、`CLAUDE.md` はここへのシンボリックリンク。
 
-**What a person reads is in Japanese; what only the model reads is in English.** Japanese: human docs,
-`description` / `argument-hint`, and the output templates skills hand back. English: skill bodies,
-reference prose and this file — English costs about a third of the tokens. A template heading a script
-parses (🧱 Landing plan, the fix-plan buckets) keeps its English in parentheses. There is no English README: the one that
-existed was a 57-line summary of a 385-line document, and a stale translation that contradicts the source
-is worse than no translation. This toolkit has one user, and they read Japanese.
+**文書もスキル本文もすべて日本語で書く。** 英語のまま残すのは、コード・識別子・コマンドと、スクリプトがパースする見出し（🧱 Landing plan の表見出し、修正計画のバケット名。英語を括弧で併記する）だけ。英語の README は置かない。原本と食い違う古い翻訳は、翻訳が無いより悪い。
 
-Layout, installation, and the upstream skill list are in `README.md`. Why the toolkit has this shape is
-in `docs/design.md`. Which mechanism a new thing should be — skill, hook, subagent, MCP, always-loaded
-context — is in `docs/mechanisms.md`, with sources. What was decided, and what was decided *wrongly*, is
-in `docs/decisions.md`. How to run work through the loop driver — the XS/S/M/L tiers, what stops a landing,
-and how to read the ledger — is in `docs/loops.md`. `scripts/handoff.sh` prints where a session
-left off, entirely from git, the ledger and `gh` — **there is no hand-written companion to it any more**,
-because a copy of the repository's state is the thing that goes stale. This file holds only what you
-cannot get by looking.
+配置・インストール・upstream スキルの一覧は `README.md`。なぜこの形なのかは `docs/design.md`。新しいものをスキル・hook・サブエージェント・MCP・常時ロードのどれにするかは `docs/mechanisms.md`（出典つき）。何を決め、何を**誤って**決めたかは `docs/decisions.md`。ループドライバの使い方（XS/S/M/L、着地を止めるもの、台帳の読み方）は `docs/loops.md`。セッションの続きは `scripts/handoff.sh` が git・台帳・`gh` だけから出す。手書きの引き継ぎ文書は持たない（リポジトリの状態の写しは古くなる）。**このファイルには、見ても分からないことだけを書く。**
 
-## Invariants
+## 不変条件
 
-Each of these fails **silently** when broken — nothing errors, nothing logs, and the tool appears to
-work. That is why they are here rather than in a document you would read once.
+どれも壊れたとき**黙って**壊れる。エラーもログも出ず、動いているように見える。だから一度読めば済む文書ではなく、ここに置く。
 
-1. **A skill must work with `name` and `description` alone.**
-   Cursor understands `name`, `description`, `paths`, `disable-model-invocation`. Everything else —
-   `allowed-tools`, `context: fork`, `model`, `argument-hint` — is silently dropped. State the
-   constraint in the body ("this runs in a subagent", "never modify source code") and treat
-   Claude-only frontmatter as optimization on top, never the mechanism. Cursor also runs a different
-   model family, so the prose is what carries. `verify-skills.sh` checks this.
+1. **スキルは `name` と `description` だけで動かなければならない。**
+   Cursor が解釈するのは `name`・`description`・`paths`・`disable-model-invocation` だけで、`allowed-tools`・`context: fork`・`model`・`argument-hint` は黙って捨てる。制約は本文に書き（「サブエージェントで実行する」「ソースは変更しない」）、Claude 専用の frontmatter は上乗せの最適化として扱う。仕組みにはしない。`verify-skills.sh` が検査する。
 
-2. **`disable-model-invocation` is correct for what you always type, and fatal on a dispatch target.**
-   It blocks programmatic `Skill` calls and subagent preloading too, not just model auto-invocation —
-   and it removes the description from context entirely, which is why it costs zero budget. Two places
-   it must never appear, both enforced by `verify-skills.sh` and the lint hook:
-   - **`da-verify`** — the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate never
-     arms and passes every turn: the guardrail **opens**. `scripts/loop.sh` gets its gate armed by
-     **typing `/da-verify`**, not by calling `gate.sh arm` — an earlier version called it directly and
-     this line was reworded to "the only *skill*" to permit that. **Bending the invariant to fit the
-     code is the wrong direction**, and the reword also lost the reason: arming is bundled with the
-     evidence table, the delegation of checks the repository forbids the agent from running, and the
-     refusal when no profile matches. A second caller gets the arming and none of that.
-   - **`x-review-backend` / `x-review-frontend` / `x-review-infra`** — `da-review-all` dispatches to them by
-     name, so setting it makes the dispatcher report a layer as covered while reviewing nothing.
+2. **`disable-model-invocation` は、常に自分で打つスキルには正しく、呼び出し先には致命的。**
+   モデルの自動呼び出しだけでなく、`Skill` による呼び出しとサブエージェントの事前ロードも止め、description も文脈から消える（だから予算はゼロ）。次の 2 か所には絶対に付けない。`verify-skills.sh` と lint hook の両方が止める。
+   - **`da-verify`** —— `gate.sh arm` を実行する唯一のもの。自動呼び出しが無いと Stop ゲートが arm されず、毎ターン素通りする（ガードレールが**開く**）。`scripts/loop.sh` もゲートを `gate.sh arm` の直接呼び出しではなく **`/da-verify` と打つこと**で arm する。arm には証跡の表、エージェントに禁止されたチェックの委譲、プロファイルが無い時の拒否が一緒に付いてくるので、2 つ目の呼び出し口を作るとそれらが落ちる。コードに合わせて不変条件を曲げない
+   - **`x-review-backend` / `x-review-frontend` / `x-review-infra`** —— `da-review-all` が名前で呼ぶ。付けると、ディスパッチャはその層を何もレビューせずに「済み」と報告する
 
-3. **Frontmatter that a real YAML parser rejects still loads.**
-   An unquoted `": "` in a description parses as a nested mapping. The skill appears in the menu with
-   its description shown, and is broken. Quote the value or use an em dash.
+3. **本物の YAML パーサが弾く frontmatter でも読み込まれてしまう。**
+   description に引用符なしの `": "` があるとネストしたマッピングとして解釈され、メニューには説明付きで出るのに壊れている。値を引用符で囲むか、全角の区切りを使う。
 
-4. **Hooks are copied, not symlinked.**
-   A dangling symlink makes the hook exit 127, which Claude Code treats as non-blocking — the
-   guardrail *opens* instead of closing. Copies cannot dangle. This also means editing a hook here
-   has no effect until `setup.sh install` runs again.
+4. **hook はコピーで入れる。シンボリックリンクにしない。**
+   リンクが切れると hook は 127 で終了し、Claude Code はそれをブロックしないものとして扱う。ガードレールが閉じずに開く。コピーは切れない。そのぶん、ここで hook を直しても `setup.sh install` を再実行するまで効かない。
 
-5. **Reference files are addressed via `${CLAUDE_SKILL_DIR}`.**
-   It expands to an absolute path, so a subagent resolves it whatever its cwd. A relative path
-   silently fails there.
+5. **reference のファイルは `${CLAUDE_SKILL_DIR}` で指す。**
+   絶対パスに展開されるので、サブエージェントが cwd に関係なく解決できる。相対パスはそこで黙って失敗する。
 
-6. **The gate is inert until a skill arms it**, and `gate.sh arm` is the only thing that does.
-   An armed gate with no matching profile passes every turn while reporting itself active; arming
-   warns about that. `~/.claude/.dotagents-gate/trace.log` records every invocation and why it
-   passed — read it before believing the gate did nothing. **`verdicts.log` beside it is the durable
-   one**: the trace self-trims at 200 lines, so anything recorded only there is deleted by ordinary
-   operation.
+6. **ゲートはスキルが arm するまで何もしない。arm するのは `gate.sh arm` だけ。**
+   プロファイルが合わないまま arm されたゲートは、有効だと報告しながら毎ターン素通りする（arm 時に警告を出す）。`~/.claude/.dotagents-gate/trace.log` に全呼び出しと通した理由が残るので、「ゲートが何もしなかった」と思ったら先に読む。trace は 200 行で自動で切り詰められるので、**残るべき記録は隣の `verdicts.log`**。
 
-   A gate stops being **armed** by exactly two events — `disarm`, and idle eviction after 12h with no
-   turn ending in that repository. It stops **blocking** by a third: a recorded `VERDICT`, written
-   after `max_attempts` (3) consecutive failures of the same check. **A released gate is not a green
-   one.** `status`, `verdicts.log` and the next `arm` all say it gave up and that the work is
-   unverified — if you find yourself reading "not armed" and nothing else, that is a clean session,
-   not a reclaimed one, and the difference is the whole point of keeping `ROOT`.
+   arm が外れるのは `disarm` と、そのリポジトリでターンが終わらないまま 12 時間経った時の 2 つだけ。**ブロックしなくなる**のは 3 つ目として、同じチェックが `max_attempts`（3）回続けて失敗して `VERDICT` が記録された時。**解放されたゲートは緑ではない。** `status`・`verdicts.log`・次の `arm` がすべて「諦めた、未検証」と言う。「not armed」としか出ないなら、それは回収されたのではなくきれいなセッション。
 
-   Arming a repository arms its **linked worktrees** too, matched on the shared git dir. Counters stay
-   per worktree: inheriting a gate must not mean sharing an attempt count with another piece of work.
-   The functions that decide both live in a `dotagents:gate-shared` block duplicated byte-for-byte in
-   `scripts/gate.sh` and the hook — duplicated because invariant 4 forbids a hook depending on a path
-   that can go missing, and `verify-skills.sh` asserts the copies match.
+   リポジトリを arm すると、共有 git dir で一致する **linked worktree** も arm される。試行回数は worktree ごとに数える（ゲートを引き継いでも、別の作業と回数を共有しない）。両方を決める関数は `scripts/gate.sh` と hook に `dotagents:gate-shared` ブロックとしてバイト単位で複製してある。不変条件 4 で hook は消えうるパスに依存できないため複製し、`verify-skills.sh` が一致を検査する。
 
-7. **Two prefixes, and the split is what keeps the menu honest.**
-   **`da-*` is what you type.** **`x-*` is internal** — dispatch targets and subagents, never typed.
-   The split exists because `user-invocable: false` is Claude-only and Cursor puts subagents in its
-   command picker, so *hiding* by field does not work in both agents. Not sharing the `da` prefix does:
-   `/da` returns the same nine entries in Claude Code and in Cursor.
+7. **接頭辞は 2 種類。この分け方がメニューを正直に保つ。**
+   **`da-*` は打つもの。** **`x-*` は内部用**（呼び出し先とサブエージェント。打たない）。`user-invocable: false` は Claude 専用で、Cursor はサブエージェントをコマンドピッカーに出すので、フィールドで*隠す*方法は両方では効かない。`da` 接頭辞を共有しないことは効く。`/da` で Claude Code と Cursor に同じ 9 件が出る。
    <!-- dotagents:skill-count mine=12 typed=9 layer=3 agents=2 upstream=15 -->
 
-   Renaming any of them breaks **three** places, and all three fail silently: the
-   `disable-model-invocation` scope in `verify-skills.sh`, the same list in the lint hook, and **template
-   placeholders like `` `x-review-<layer>` `` that no name-based sweep matches.** The first two broke on
-   the `da-` rename and the third broke on the `x-` rename, in the same session. `verify-skills.sh`
-   cross-checks that every protected name resolves, that the two enforcers agree, and that no placeholder
-   carries the wrong prefix.
+   どれかの名前を変えると **3 か所**が黙って壊れる。`verify-skills.sh` の `disable-model-invocation` の対象、lint hook の同じ一覧、そして名前で検索しても当たらない `` `x-review-<layer>` `` のようなテンプレのプレースホルダ。両ファイルは一覧を `dotagents:dmi-gate` / `dotagents:dmi-dispatch` 行のデータとして持ち、`verify-skills.sh` が全名前の解決・2 つの一覧の一致・プレースホルダの接頭辞を検査する。**このマーカーのコメントを消すと検査が消える**ので、どちらかが無ければ linter がエラーにする。
 
-   **This paragraph was false for a while, and the way it was false is the lesson.** The cross-check's
-   extraction patterns were hardcoded to `da-[a-z-]+` on both sides, so it compared exactly one name —
-   and then printed "both enforcers agree", naming that one name as though it were the whole set. The
-   `x-review-*` protections, added *because* the `x-` rename broke a guardrail, were never compared.
-   Both files now declare the list as data on a `dotagents:dmi-gate` / `dotagents:dmi-dispatch` line and
-   drive their behaviour from it, so the check is prefix-agnostic. **The marker comments are
-   load-bearing**: removing one removes the check, so the linter errors when either is missing.
+8. **スキルには必ず `metadata.source: bwkw/dotagents` を付ける。**
+   20 以上の他人のスキルの中に自作が並ぶ。自作は書き換えてよく、upstream のものは入れるか外すかしかできない（その場で直しても次の `npx skills update` で消える）。hook の出力に `[dotagents]` を付けるのも同じ理由。
 
-8. **Every skill carries `metadata.source: bwkw/dotagents`.**
-   Ours sit among two dozen third-party skills, and the difference decides what may be done: ours can
-   be rewritten, an upstream one can only be installed or removed, because editing it in place is
-   lost on the next `npx skills update`. Hooks prefix output with `[dotagents]` for the same reason.
+9. **ここに秘密情報を置かない。** `setup.sh` はテンプレートが宣言したキーだけをマージし、自分が書いていない値は読みも書き換えもしない。編集先のエージェント設定には他人の認証情報が入っている。
 
-9. **No secrets here.** `setup.sh` merges only the keys its templates declare and never reads or
-   rewrites a value it did not write — the agent settings it edits contain other people's
-   credentials.
+10. **エージェントはモデルを固定しない。常に `model: inherit`。**
+    固定すると**セッションで選んだモデルを黙って上書きする**。Opus を選んでも別のモデルで動き、プロンプトにも記録にも出ない。固定は実際に安い（トークン約 37% 減）ので、「追跡は機械的だから大きいモデルは要らない」と*わざと*破られやすい。一度その理屈で出して戻した。
+    問題は節約の大きさではなく**誰の判断か**。ユーザーが同意していない節約は、ツールが黙ってユーザーに逆らうことになる。
+    **これは Claude 専用のフィールドではない。** 不変条件 1 の「Cursor は `model:` を捨てる」はスキルの frontmatter の話で、サブエージェントでは Cursor も `name`・`description`・`model`・`readonly`・`is_background` を読み、既定は `inherit`。固定すると両方でユーザーを上書きする。
+    **コストはサブエージェントの*数*で削る。動かすモデルでは削らない。** レビューは今サブエージェントを 1 本も起動しない。`verify-skills.sh` は `inherit` 以外の `model:` をエラーにする。
 
-10. **No agent pins a model. `model: inherit`, always.**
-    A pin **silently overrides the model chosen for the session** — you pick Opus, a subagent runs on
-    something else, and neither the prompt nor the transcript says so. This is the invariant most likely
-    to be broken *on purpose*, because a pin genuinely is cheaper (~37% fewer tokens) and the reasoning
-    for it always sounds good: "tracing is mechanical, it doesn't need the big model." It shipped once on
-    exactly that argument and was reverted.
+## 実装の進め方
 
-    The rule is about **whose decision it is**, not about the size of the saving. A saving the user did
-    not agree to is the tool disagreeing with them quietly.
+**常にテストから。** 先に失敗するテストを書き、それを通すコードを書く。作ったものを後から説明するテストではない。機能追加でもバグ修正でも既定で、頼まれて入るモードではない。詳しい手順は `/test-driven-development`。ここに書くのは、誰も呼ばない時にも既定を守らせるため。
 
-    **This one is not a Claude-only field, and getting that backwards is easy.** Invariant 1 says
-    `model:` is dropped by Cursor — that is true of **skill** frontmatter. On a **subagent** Cursor reads
-    `name`, `description`, `model`, `readonly`, `is_background`, and `inherit` is its documented default
-    too. So a pin overrides the user in *both* agents. The reflex "it's Claude-only, so it's just an
-    optimization" is the wrong reflex here, and it was written into this file once already.
+バグ修正はバグを再現するテストから始める。そうすれば「直った」に意味が出る。**実装の後に実装から書いたテストは、コードがコードどおりに動くことしか確かめない。** テストを最後に足したなら、検証として出さずにそう書く。
 
-    **Take cost out of how *many* subagents run — never out of what they run on.** That sentence used to
-    point at the fan-out budget in `skills/_shared/review-process.md`; **the review now runs zero
-    subagents**, so the money came out of the count all the way down, and none of it out of the model.
-    The rule is unchanged and now has one fewer place to be broken. `verify-skills.sh` errors on any
-    `model:` that is not `inherit`.
+**テストは結合レベルに寄せる。** ユニット同士を、モックではなく本物の境界を通して一緒に動かす。frontend と backend にまたがる変更なら、両方を通るテストが効く。純粋関数にはユニットテストを書く。避けるのは**協力者を全部スタブにしたから緑になっているテスト群**。
 
-## How implementation is done
+この方針はドライバの実装プロンプト（`scripts/loop.sh`）にも**意図的に重複**させている。ループはプロダクトのリポジトリで動き、そこのエージェントはこのファイルを読まないため。
 
-**Test first, always.** A failing test before the code that makes it pass — not tests written afterwards
-to describe what was built. This is the default for every feature and every bugfix, not a mode to be
-asked for. `/test-driven-development` has the detailed process; this line is here because the default has
-to hold when nobody invokes it.
+## 効いてくるサイズ
 
-Two consequences worth stating: a bugfix starts with a test that reproduces the bug, so "fixed" has a
-meaning; and **a test written after the implementation, from the implementation, tests that the code does
-what it does.** If tests were added last, say so rather than presenting them as verification.
+`SKILL.md` は 12 KB 以下。スキルの本文はセッションが終わるまで文脈に残り、読み直されない。自動圧縮の後は各スキルの先頭約 5,000 トークンしか戻らず、それ以降は黙って失われる。詳細は必要な時に読む `reference/` に置く。日本語は 1 文字 3 バイトなので、バイト数の上限に早く届く。
 
-**Weight the suite toward integration level.** Exercise the units together across the seam they meet at,
-through the real boundary rather than a mock of it — for a change spanning frontend and backend, the test
-that counts is the one that goes through both. Unit tests still matter and a pure function still gets
-one; what is being ruled out is a **suite that is green because every collaborator was stubbed**, which
-is the shape that passes while the assembled system does not.
+description は全部が常に文脈に居続ける。スキルを 1 つ足すたびに、既存のスキルすべての選ばれやすさが下がる。`/da-skills-audit` が測る。
 
-This preference also lives in the driver's implement prompts (`scripts/loop.sh`), **and that duplication
-is deliberate**: the loop runs against product repositories, whose agents never read this file. A
-preference recorded only here is one the unattended rounds never hear.
+## スキルを使う時
 
-## Sizes that bite
+作業の前に、既に入っているスキルで足りないか確かめる（`/` で一覧、`README.md` に「こう言う / こういう時」の表）。**ユーザーの指示はスキルの記述より優先する。** 最初に確認の質問をすることを求めるスキルがある（`da-investigate` と `da-design-review` は目的が述べられていないと断る）。スキルの実行条件が質問を求めるなら、作業の前に聞く。
 
-`SKILL.md` at or under 12 KB. A skill's body stays in context until the session ends and is never
-re-read; after auto-compaction only the first ~5,000 tokens of each are restored, so anything past
-that is silently lost. Detail belongs in `reference/`, loaded on demand.
+## upstream のスキルを入れる時
 
-Descriptions are resident permanently, all of them, always. Every skill added costs the selection
-accuracy of every existing one. `/da-skills-audit` measures it.
+**必ず `-s` を付ける。** 付けずに `npx skills add <repo>` するとリポジトリ全体が入り、1 回で description の予算を食い潰す。厳選した一覧は `README.md`。
 
-## Working with skills
-
-Before acting, check whether an installed skill already covers the task — `/` lists them, and
-`README.md` has a "say this / when" table. **A user instruction outranks anything a skill says.** Some
-skills require a clarifying question as their first act (`da-investigate` and `da-design-review` both refuse
-an unstated goal); when a skill's preconditions ask a question, ask it before doing the work.
-
-## Adding upstream skills
-
-**Always with `-s`.** `npx skills add <repo>` without it takes the whole repository and blows the
-description budget in one command. The curated lists are in `README.md`.
-
-**Removing leaves orphans.** `npx skills remove <name> -g -a claude-code -a cursor` unlinks the agent
-directories and updates `~/.agents/.skill-lock.json`, but **leaves the real directory in
-`~/.agents/skills/`**. Cursor reads that path natively, so the skill stays live there while reporting
-as removed from Claude Code. Delete the store directory too, then confirm the two agree:
+**外すと残骸が残る。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェントのディレクトリのリンクを外して `~/.agents/.skill-lock.json` を更新するが、**`~/.agents/skills/` の実体は残す**。Cursor はそこを直接読むので、Claude Code からは消えたと報告されたまま Cursor では生きている。実体も消し、2 つが一致することを確かめる。
 
 ```bash
 diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ```
 
-## Writing a skill
+## スキルを書く時
 
-Start from `_template/`, then `./scripts/verify-skills.sh`. Required sections, in order:
+`_template/` から始め、`./scripts/verify-skills.sh` を通す。必須の節（この順）:
 
-- **Preconditions** — a table of what must hold, each row saying what to do when it does not: stop,
-  report which condition failed, do not continue. The linter checks this section exists.
-- **Files to read** — split into "always" and "read only if". A skill that reads everything up front
-  has spent the context its own work needs.
-- **Read-only declaration** for anything that investigates or reviews.
-- **Evidence discipline** — either in the body or delegated to a `reference/` file. Only what was
-  verified directly; cite `path/file.ts:L42`; say "could not confirm" rather than guessing; keep fact
-  and inference apart; attach URLs to external claims.
+- **実行条件** —— 成り立っているべきことの表。各行に、成り立たない時にどうするか（止める、どの条件で止まったか報告する、先に進まない）。linter がこの節の存在を検査する
+- **読むファイル** —— 「常に読む」と「この時だけ読む」に分ける。最初に全部読むスキルは、自分の作業に要る文脈を先に使い切る
+- 調査・レビューをするものには**読み取り専用の宣言**
+- **根拠の扱い** —— 本文か `reference/` のファイルに。直接確かめたことだけを書く。`path/file.ts:L42` で引用する。推測せず「確認できなかった」と書く。事実と推論を分ける。外部の主張には URL を付ける
 
-**Where a review lens goes.** `skills/_shared/` holds the **mechanism** — a lens that applies in every
-layer and in both the find and the verify phase. It is symlinked, so a paragraph added there is a
-paragraph every review skill reads. A layer's `reference/perspectives.md` holds the **instance**: the
-concrete shape that mechanism takes in that stack, naming the field, file type or API. When both are
-true, the mechanism goes in `_shared/` and the layer file **points at it in one line instead of
-restating it** — two copies of one lens drift, and the drift is invisible because both still read
-well. `verify-skills.sh` checks that the pointer resolves, so the one line cannot outlive the file it
-names. Decision 30 in `docs/decisions.md` has the reasoning and the boundary of that check.
+**レビュー観点の置き場所。** `skills/_shared/` には**仕組み**を置く。すべての層で、発見フェーズと検証フェーズの両方に効く観点。シンボリックリンクなので、ここに足した段落は全レビュースキルが読む。各層の `reference/perspectives.md` には**具体例**を置く。その仕組みがそのスタックでどう現れるか（フィールド名、ファイル種別、API）。両方に当たるなら仕組みを `_shared/` に書き、層のファイルは**書き直さずに 1 行で指す**。同じ観点の写しが 2 つあるとずれていき、どちらも読めてしまうのでずれが見えない。`verify-skills.sh` がその 1 行の参照先が存在することを検査する。理由と検査の範囲は `docs/decisions.md` の決定 30。
