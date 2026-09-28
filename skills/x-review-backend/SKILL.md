@@ -1,6 +1,6 @@
 ---
 name: x-review-backend
-description: Backend layer of a da-review-all review — server-side source, Prisma schema and migrations, contracts and DTOs, queues, jobs, dependencies. Runs when da-review-all dispatches it after classifying the change; for any review use da-review-all, not this directly. Read-only.
+description: da-review-all のバックエンド層レビュー。サーバー側のソース、Prisma スキーマとマイグレーション、契約と DTO、キュー、ジョブ、依存関係を見る。da-review-all が変更を分類して呼び出した時に動く。レビューは直接これではなく da-review-all から行う。読み取り専用。
 user-invocable: false
 metadata:
   source: bwkw/dotagents

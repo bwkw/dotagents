@@ -1,7 +1,7 @@
 ---
 name: da-fix-plan
-description: Turn a review report into an ordered fix plan on disk. Use after a code review or PR feedback, when there are more findings than you want to act on. Decides what NOT to fix and why, orders what remains by irreversibility and dependency, and writes the plan to a file. Read-only until the plan is agreed.
-argument-hint: "[path to the review report | 'the review above'] (default: the report in this conversation)"
+description: レビュー報告を、順序のついた修正計画のファイルにする。コードレビューや PR の指摘を受けた後、対応しきれないほど所見がある時に使う。直さないものとその理由を決め、残りを不可逆性と依存関係の順に並べ、計画をファイルに書く。計画に合意するまでは読み取り専用。
+argument-hint: "[レビュー報告のパス | '上のレビュー']（省略時はこの会話の報告）"
 allowed-tools: Read, Grep, Glob, Bash(git:*), Bash(gh:*), Write
 metadata:
   source: bwkw/dotagents
@@ -134,44 +134,47 @@ before inventing one. Follow the three properties of a useful plan: **name the f
 involved, state what is out of scope, and end with a verification step**.
 
 ```markdown
-# Fix plan — <branch or PR>
+# 修正計画 — <ブランチまたは PR>
 
-**The change was for:** <one or two sentences>
-**Source:** <which review(s), and how many findings>
+**変更の目的:** <1〜2 文>
+**出どころ:** <どのレビューか、所見は何件か>
 
-## Fix now
-| # | Finding | Location | The minimal fix | Order |
+## 今すぐ直す（Fix now）
+| # | 所見 | 場所 | 最小の修正 | 順番 |
 |---|---|---|---|---|
 
-## Fix now, but smaller than proposed
-| # | Finding | What was proposed | What is actually needed | Why the smaller version closes it |
+## 今すぐ直す、ただし提案より小さく（Fix now, but smaller than proposed）
+| # | 所見 | 提案された修正 | 実際に要るもの | 小さい方で塞がる理由 |
 
-## Follow-up
-| # | Finding | Why it can wait | What the issue needs to say |
+## 後で対応（Follow-up）
+| # | 所見 | 待てる理由 | issue に書くべきこと |
 
-## Declined
-| # | Finding | Reason |
+## 直さない（Declined）
+| # | 所見 | 理由 |
 |---|---|---|
-| | | outside the spec / speculative / style preference / over-engineering / reviewer misread intent |
+| | | spec の範囲外 / 推測 / 好みの問題 / 過剰設計 / レビュアーが意図を読み違えた |
 
-## Needs a decision
-| # | Question | Who decides | What they need to decide it |
+## 判断が要る（Needs a decision）
+| # | 問い | 誰が決めるか | 決めるのに要るもの |
 
-## Ordering and interactions
-- Irreversible first: …
-- Merged (same root cause): …
-- Needs re-verification after an earlier fix: …
-- Same-file conflicts to sequence: …
+## 順番と相互作用
+- 不可逆なものを先に: …
+- 統合した（根本原因が同じ）: …
+- 先の修正の後に再検証が要る: …
+- 同じファイルで衝突するので順番を決める: …
 
-## Out of scope for this plan
-<what this plan deliberately does not touch>
+## この計画の範囲外
+<この計画があえて触らないもの>
 
-## Verification
-<the command or check that proves the accepted set is done — this is what /da-verify runs>
+## 検証
+<採用した修正が終わったことを示すコマンドやチェック。/da-verify が実行するもの>
 
 ## 採択率
 <accepted N / total M = XX%>。前回の記録があれば併記する。
 ```
+
+The bucket headings keep their English names in parentheses: `scripts/loop.sh` and the rest of this
+file refer to the buckets by those names.
 
 ## Step 5. Report the shape, not the contents
 

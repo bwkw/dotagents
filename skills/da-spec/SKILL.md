@@ -1,7 +1,7 @@
 ---
 name: da-spec
-description: Write the change onto disk in the form this repository actually uses, or update the existing one. Use when a spec, proposal, design or plan needs recording before implementation — openspec changes, spec deltas, plan files. Resolves the repository's own convention and its authoring rules rather than picking a location. Writes only spec artifacts, never source.
-argument-hint: "[what the change is | change-id | path] (default: ask)"
+description: 変更を、このリポジトリが実際に使っている形式でディスクに書く、または既存のものを更新する。実装前に spec・proposal・design・計画を記録する必要がある時に使う（openspec の change、spec delta、計画ファイル）。置き場所を選ばず、リポジトリの規約と書き方のルールから解決する。書くのは spec の成果物だけで、ソースは触らない。
+argument-hint: "[変更の内容 | change-id | パス]（省略時は質問する）"
 allowed-tools: Read, Grep, Glob, Write, Edit, Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npm:*), Bash(npx:*), Bash(yarn:*), Bash(make:*), Bash(bundle:*)
 metadata:
   source: bwkw/dotagents
@@ -140,10 +140,10 @@ words, and leave the design judgement to `/da-design-review`.
 
 Report, in this order:
 
-1. **Which convention resolved**, and from which profile — or the gap, and the question
-2. **Created or updated**, with the path, and **for an update, what was already there**
-3. **The validator output**, pasted, or the fact that there is none
-4. **What is still open** — the assumptions you could not check, as questions rather than as spec text
+1. **規約** —— どのプロファイルから解決したか。解決できなければ欠けているものと質問
+2. **新規か更新か** —— パス。**更新なら既にあった内容**
+3. **validator の出力** —— そのまま貼る。無ければそう書く
+4. **未決のこと** —— 確かめられなかった前提を、spec の本文ではなく質問として
 
 ## Done when
 

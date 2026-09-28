@@ -1,6 +1,6 @@
 ---
 name: x-review-frontend
-description: Frontend layer of a da-review-all review — components, routes, hooks, stores, styling, frontend i18n. Runs when da-review-all dispatches it after classifying the change; for any review use da-review-all, not this directly. Read-only.
+description: da-review-all のフロントエンド層レビュー。コンポーネント、ルート、フック、ストア、スタイル、フロントエンドの i18n を見る。da-review-all が変更を分類して呼び出した時に動く。レビューは直接これではなく da-review-all から行う。読み取り専用。
 user-invocable: false
 metadata:
   source: bwkw/dotagents

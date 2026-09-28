@@ -1,6 +1,6 @@
 ---
 name: x-codebase-explorer
-description: Read-only codebase tracer. Answers where something lives, what depends on it, and what a change would touch, with file:line evidence and an explicit budget. Names what it could not confirm.
+description: 読み取り専用のコードベース追跡役。どこにあるか、何が依存しているか、変更が何に波及するかを、file:line の根拠と明示した探索予算で答える。確かめられなかったことも明示する。
 tools: Read, Grep, Glob, Bash(git:*), Bash(rg:*)
 model: inherit
 readonly: true

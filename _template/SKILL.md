@@ -1,6 +1,6 @@
 ---
 name: skill-name
-description: What it does, in a verb phrase, leading with the words a user would actually type. Then when to use it, as 4-6 trigger nouns. Then inputs and outputs in one clause. Then what it refuses to do. Target 200-350 characters.
+description: 何をするかを、ユーザーが実際に打つ言葉を先頭にした動詞句で書く（日本語）。続けて、いつ使うかを「〜の時に使う」の形で 4〜6 個のトリガーとともに。入力と出力を 1 句で。最後に、やらないこと。目安 100〜200 文字。
 metadata:
   source: bwkw/dotagents
 ---

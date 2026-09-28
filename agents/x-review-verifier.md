@@ -1,6 +1,6 @@
 ---
 name: x-review-verifier
-description: Adversarial verifier for review findings. Given a finding and the diff, tries to refute it. Returns refuted when it cannot substantiate the claim. Never participates in finding.
+description: レビュー所見の反証役。所見と差分を受け取り、それを崩そうとする。主張を裏付けられなければ refuted を返す。所見を出す側には加わらない。
 tools: Read, Grep, Glob, Bash(git:*), Bash(rg:*)
 model: inherit
 readonly: true

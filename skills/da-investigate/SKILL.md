@@ -1,7 +1,7 @@
 ---
 name: da-investigate
-description: Map what a change would touch, or trace how something actually works. Use when asked where something lives, what depends on it, or what would break. Answers with file:line evidence under a fixed exploration budget, and names what it could not confirm. Read-only.
-argument-hint: "the question to answer"
+description: 変更が何に波及するかを洗い出す、または実際の動き方を追う。どこにあるか、何が依存しているか、何が壊れるかを聞かれた時に使う。決まった探索予算の中で file:line の根拠つきで答え、確かめられなかったことも明示する。読み取り専用。
+argument-hint: "答えてほしい問い"
 allowed-tools: Task, Read, Grep, Glob, Bash(git:*), Bash(rg:*), Bash(gh:*)
 metadata:
   source: bwkw/dotagents
@@ -112,26 +112,24 @@ Raise the budget only when the user asks, and say so explicitly.
 
 ## Step 4. Report
 
-Follow `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md`. Structure:
+Follow `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md`. ```markdown
+## <問い>
 
-```markdown
-## <the question>
+### 答え
+最初に、直接。2〜5 文。探した経緯の説明ではない。
 
-### Answer
-Direct, up front. Two to five sentences. Not a narrative of the search.
-
-### Evidence
-| Claim | Where | Confirmed |
+### 根拠
+| 主張 | 場所 | 確認 |
 |---|---|---|
-| tenant filter applied in the repository layer | `src/foo/bar.repository.ts:L42` | read directly |
-| batch path goes through the same filter | `src/batch/sync.ts:L88` | read directly |
-| the admin path does too | — | **not confirmed** — hit the budget |
+| テナントの絞り込みは Repository 層で掛かっている | `src/foo/bar.repository.ts:L42` | 直接読んだ |
+| バッチの経路も同じ絞り込みを通る | `src/batch/sync.ts:L88` | 直接読んだ |
+| 管理画面の経路も同じ | — | **未確認** —— 予算に達した |
 
-### What I did not check
-- Named, not implied. "I did not look at X" is information; silence is not.
+### 確認していないこと
+- 暗に済ませず、名前を挙げる。「X は見ていない」は情報で、黙っていることは情報にならない。
 
-### Confidence
-What is fact, what is inference, and what would settle the rest.
+### 確度
+何が事実で、何が推論か。残りを確かめるには何が要るか。
 ```
 
 ## Done when
