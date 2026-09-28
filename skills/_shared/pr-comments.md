@@ -48,8 +48,20 @@ below 50% and a reviewer gets routed around). So the test for every 🟡 and �
 **"would I decline this if it came back to me in `da-fix-plan`?"** If yes, it stays in the report and off
 the PR.
 
+**Two more cuts:**
+
+- **Lead with why the defect was possible.** Before selecting, ask what let the bug this change fixes
+  happen in the first place, and whether the change removes that reason. If it only patches the one
+  path that leaked, the headline is the missing mechanism — the guard, the test, the choke point that
+  would have caught it — and it goes in the review body. That is the comment the author most needs and
+  the one a line-by-line pass never produces.
+- **A guard against some other, hypothetical omission is not a comment.** "If someone forgets X next
+  time, Y breaks" — where this change did X correctly — is a follow-up at most. The prevention
+  comment that earns its place is the one about the bug *this* change exists for.
+
 **No count cap.** Not "the top 5". A change that genuinely has nine 🔴 gets nine comments, and the right
 response to that is the one Step 1b already gives: say the change is too large to review as one unit.
+For 🟡 and 🧭 the bar is "must this go in?", and on a clean change that is usually one to three.
 
 ## Step 2. Draft — in the user's voice, not the report's
 
@@ -79,14 +91,14 @@ and where they disagree, the examples quoted inside the profile win.
 ### The shape is not the register
 
 The register is personal and lives in the profile. **The shape is neither** — it is what makes a comment
-survive being opened as a phone notification, and it holds in any register:
+readable in a phone notification, and it holds in any register:
 
-1. **One bold line carrying the claim**, and nothing else on that line. The claim, not the topic: "この
-   コードパスを守るテストが無いです", not "テストについて".
-2. **A blank line after it.** Without one, the bold line and the mechanism render as a single paragraph
-   and the claim stops being scannable — which was the entire reason for bolding it.
-3. **At most two sentences of mechanism**, then the request that closes the comment. A mechanism that
-   needs three sentences is either two findings, or one that belongs on the overview page.
+1. **The first sentence is the claim.** The claim, not the topic: "この コードパスを守るテストが無いですよね",
+   not "テストについて". No preamble, no heading.
+2. **One or two sentences in total**: the claim carrying its mechanism, then the ask. Name the fix; do
+   not explain it. A comment that needs a third sentence is either two findings, or one that belongs on
+   the overview page.
+3. **No bold line** — it reads as report formatting. Use bold only if the voice profile's examples do.
 
 **Do not append a references block.** A trailing `参考:` / `See also:` list of `file:line` from the same
 repository is citation padding — the author can open any of those paths in one click, and the list grows
@@ -136,15 +148,17 @@ every comment in the review.
 
 ## Step 3. Show every draft, then wait
 
-Print, for each comment: the **target** (`file:line`, or "top-level"), the **bucket** it came from, and
-the **body verbatim** — exactly the bytes that would be posted. Then the ones you decided *not* to post,
-one line each with the rule that excluded them, so the selection is auditable and not just asserted.
+Print, for each comment: the **target** (`file:line`, or "top-level") and the **body verbatim** —
+exactly the bytes that would be posted. Then the ones you decided *not* to post, one short line each with
+the reason, so the selection is auditable and not just asserted. **Keep this message as short as the
+comments themselves**: no restated reasoning, no per-draft commentary, no headings beyond one per draft.
 
 Then stop and say what `Go` would do: *"`Go` posts one review to PR #X — N inline comments plus a body
 carrying the 🧭 and 👤 items. Nothing else."*
 
-**Wait for the literal `Go`.** "Looks good", "sure", silence, or a reply about something else is not it.
-Anything less than the token means keep drafting.
+**Wait for the literal `Go`, or an explicit instruction to post** ("投稿して", "Approve もしておいて").
+"Looks good", "sure", silence, or a reply about something else is not it. Anything less means keep
+drafting.
 
 ## Step 4. Post — once, as one review
 
@@ -190,9 +204,12 @@ gh api "repos/{owner}/{repo}/pulls/<n>/comments?per_page=50" \
 "outdated" and the author may never see it. A 201 is not evidence the comment is readable; this is.
 
 **`Go` authorizes this post and nothing after it.** A follow-up edit, a reply to the author's response, a
-second round after they push — each needs its own `Go`. Approval does not carry forward, and it never
-carries to `--approve` or `--request-changes`: **this step only ever posts comments.** Changing a PR's
-review state is the human's call, always, and it is not what `Go` means.
+second round after they push — each needs its own `Go`. Approval does not carry forward.
+
+**The review state is the human's call.** `Go` alone posts `event: COMMENT`. Post `APPROVE` or
+`REQUEST_CHANGES` **only when the user says so in their reply** — then it is the same single call with
+that `event`, and the instruction applies to this post only. Never infer it from "looks good" or from a
+clean review.
 
 ## Step 5. Say what was posted
 
