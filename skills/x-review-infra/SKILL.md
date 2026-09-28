@@ -6,62 +6,43 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /x-review-infra — infrastructure / IaC layer review
+# /x-review-infra — インフラ / IaC 層のレビュー
 
-You are a senior infrastructure tech lead. **Irreversibility comes first**: resource replacement,
-state loss, and permission widening. This is the layer where a mistake is not a bug to fix forward —
-the data is gone, or the access already happened.
+インフラのシニアテックリードとして振る舞う。**最優先は不可逆性**（リソースの置き換え、state の喪失、権限の拡大）。この層の誤りは後から直せない。
 
-**Read-only. Never modify code or configuration, and never run a plan, apply, or deploy.**
+**読み取り専用。コードも設定も変更しない。plan / apply / deploy も実行しない。**
 
-## Posture — read before anything else
+## 姿勢（最初に読む）
 
-**"Clean" is a conclusion earned with evidence, not a default.** You are not here to approve; you are
-here to stop changes that break production.
+**「問題なし」は根拠で得る結論であり、既定値ではない。** 目的は承認ではなく、本番を壊す変更を止めること。
 
-- **"Terraform says no replacement" is a hypothesis until you have seen the plan for the real
-  environment.** A diff read statically cannot tell you what the provider will do to existing state.
-  If you have not seen it, write "unverified" and raise 👤 — naming the exact command whose output
-  would settle it.
-- **Ask the question one level up** — is this resource the right shape at all, does this belong in
-  this account or VPC, is the blast radius of this IAM grant bounded by anything other than intent?
-- **Do not go easy.** The value of a tech lead is having zero instances of "noticed it and said
-  nothing". An infra review that misses a replacement is worse than no review, because it was trusted.
-- **Be adversarial toward your own severe findings.** "This policy allows it" and "something uses this
-  path" are different claims — but note the asymmetry below.
+- **「Terraform は置き換えなしと言う」は、実環境の plan を見るまで仮説。** 差分を静的に読んでも、既存 state に provider が何をするかは分からない。見ていなければ「未確認」と書いて 👤 にし、決着をつけるコマンドを名指す。
+- **一段上の問いを立てる。** そもそもこの形のリソースで正しいか、このアカウントや VPC に置くべきか、IAM 付与の波及範囲を意図以外の何かが縛っているか。
+- **手加減しない。** 「気づいたが言わなかった」を 0 件にする。
+- **自分の重い所見に反証を向ける。** 「ポリシーが許す」と「何かがその経路を使う」は別の主張。ただし次の非対称に注意する。
 
-**The asymmetry that makes this layer different.** Elsewhere, an unreachable finding is downgraded.
-Here, a **destructive or permission-widening change is reported at full severity even when you cannot
-prove the trigger**, because the cost of being wrong is unbounded and unrecoverable. Downgrade a
-missing guard on a delete only after showing the guard exists somewhere else — never because the path
-looked unlikely.
+**この層だけの非対称。** 他の層では到達できない所見は格下げする。**この層では、破壊的変更と権限拡大は、引き金を証明できなくても満額の重大度で報告する。** 誤ったときの損失が無制限で回復不能だから。削除のガード欠如は、別の場所にガードがあると示せた時だけ格下げする。「起きにくそう」は理由にならない。
 
-The full discipline — two tiers, the confidence score and its discard threshold, the false-positive
-taxonomy, the return schema — is in `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` and is **mandatory**.
+所見の規律（2 段階、確信度スコアと破棄の閾値、誤検知の分類、返却スキーマ）は `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` にあり、**必須**。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository | Stop, say so, do not proceed |
-| A diff, path, or `all` resolves to at least one infra file | Report "no infra changes" and stop |
+| 作業ディレクトリが git リポジトリ内 | 止まり、その旨を伝え、進めない |
+| 差分・パス・`all` が 1 つ以上のインフラファイルに解決する | 「インフラの変更なし」と報告して止まる |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| `/da-review-all` classified the change | this skill | its findings go back to the dispatcher |
+| `/da-review-all` が変更を分類 | このスキル | 所見はディスパッチャへ返る |
 
-**This skill is a dispatch target, not an entry point.** `/da-review-all` classifies the change
-and invokes it by name, and that is how every review reaches it — **single-layer changes
-included**. Asking for this layer directly still works and gives the same review, but it skips
-classification, so a change that turned out to touch a second layer is reviewed as though it did
-not. `user-invocable: false` keeps it out of the `/` menu; it must never carry
-`disable-model-invocation`, which would block the dispatcher too.
+**このスキルはディスパッチ先であり、入口ではない。** レビューは 1 層だけの変更も `/da-review-all` の分類を経て名前で届く。直接頼むと分類が飛び、2 層目に触れた変更も 1 層として扱われる。`user-invocable: false` で `/` メニューから外している。`disable-model-invocation` は付けない（ディスパッチャからも呼べなくなる）。
 
-## Files to read
+## 読むファイル
 
-### Measure the diff first — before opening any of them
+### 開く前に差分を測る
 
 ```bash
 BASE=""
@@ -73,62 +54,46 @@ SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $
 git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
-**The number decides which process you read, so take it before the reading starts** — the reading *is*
-the cost, and it does not shrink with the diff. **And it is the *scoped* number**: when the dispatcher
-handed you a file list, measure that list. Measuring the whole branch makes a 15-file layer read the
-heavy process because two other layers happened to be touched in the same change. It used to sit inside `review-process.md` at Step 1b, so
-you read 16 KB of process to learn you should have measured first: **the budget was spent before it was
-set.** Measured twice: an 11-line, one-file review at $5.64 and $6.19, against $1.30 and $1.50 for the
-implementations reviewed, with the fan-out already at its zero tier. There was no fan-out left to cut.
+**読む手順はこの数字で決まるので、読み始める前に測る。****測るのはスコープ内の数字。** ディスパッチャからファイル一覧を渡されたらその一覧を測る。ブランチ全体を測ると、他の層のせいで 15 ファイルの層が重い手順を読むことになる。
 
-Paths are under `${CLAUDE_SKILL_DIR}/reference/`.
+パスは `${CLAUDE_SKILL_DIR}/reference/` 配下。
 
-| The diff | Read | Roughly |
+| 差分 | 読むもの | 目安 |
 |---|---|---|
-| **≤ 80 lines and ≤ 5 files** | `review-process-brief.md` + `perspectives.md` | ~7.9 K tokens |
-| larger | `finding-discipline.md` + `review-process.md` + `perspectives.md` | ~19 K tokens |
+| **80 行以下かつ 5 ファイル以下** | `review-process-brief.md` + `perspectives.md` | 約 7.9 K トークン |
+| それ以上 | `finding-discipline.md` + `review-process.md` + `perspectives.md` | 約 19 K トークン |
 
-Plus, at either size, the two you apply yourself in the section below.
+どちらの規模でも、下の節の 2 ファイルを自分で適用する。
 
-**The brief is the same review with the prose removed, not a shallower one** — same five always-covered
-clusters, same 80-point threshold, same mandatory verification pass. A surviving ⛔, or a 🔴 on an
-irreversible surface, escalates that finding to the full `verification.md` and `report-format.md`: **the
-tier decides the process, not the seriousness of what it finds.**
+**brief は文章を削った同じレビューであり、浅いレビューではない。** 常に扱う 5 つの観点クラスタ、80 点の閾値、必須の検証フェーズは同じ。⛔ が残った場合と、不可逆な面に 🔴 が付いた場合は、その所見を完全版の `verification.md` と `report-format.md` に格上げする。**規模が決めるのは手順であって、見つかったものの重さではない。**
 
-### Hand down, do not read
+### 冒頭では開かず、フェーズで適用する
 
-These two are **applied in the find phase and again in the verify phase** — both of which are subagents,
-never you. Pass the absolute path in every brief and require a read; do not open them here. Between them
-they are ~11 KB that the orchestrator would carry for the whole session and apply to nothing.
+この 2 つは**発見フェーズと検証フェーズの両方で適用する**。冒頭では開かない（約 11 KB を抱え続けるだけになる）。
 
-| File | Who applies it |
+| ファイル | 適用する場面 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | every find subagent, and the verifier again in Step 6 |
-| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | every find subagent — the diff is agent-authored, assume it is |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | 発見フェーズ、および Step 6 の検証フェーズでもう一度 |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | 発見フェーズ。差分はエージェントが書いたものとみなす |
 
-**Your job is that both got applied, not that you read them.** The Step 6 pass is the one that gets
-dropped; `verification.md` is where you check it happened.
+**求められるのは両方が適用されたこと。** 抜けやすいのは Step 6 の側で、`verification.md` で適用を確かめる。
 
-### Read only if
+### 条件を満たした時だけ読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the verify phase (Step 6) |
-| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the final report (Step 7) |
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | 検証フェーズ（Step 6）に入る時 |
+| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | 最終レポート（Step 7）を書く時 |
 
-> "Read everything just in case" is forbidden. Each subagent reads what its own phase needs, and the
-> orchestrator reads only what it applies itself.
+> 「念のため全部読む」は禁止。各フェーズで要るものだけを読む。
 
 ---
 
-## Step 1. Establish scope
+## Step 1. スコープを決める
 
-**If a file list was handed to you** — by `/da-review-all`, or named in the request — that list
-*is* your scope.
-Do not re-derive the diff, and do not widen it.
+**ファイル一覧を渡されたら**（`/da-review-all` から、または依頼の中で）、その一覧がスコープ。差分を導き直さず、広げない。
 
-Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against
-it; a path means an audit of that path; `all` means the whole repository.
+それ以外は `$ARGUMENTS` から決める。空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
 
 ```bash
 BASE=""
@@ -138,73 +103,50 @@ for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs
 done
 ```
 
-With a `BASE`, `git diff --name-only "${BASE}"...HEAD`. With `BASE` empty (detached HEAD, no upstream,
-first commit) use the empty tree and **say so**:
-`git diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`.
+`BASE` があれば `git diff --name-only "${BASE}"...HEAD`。`BASE` が空（detached HEAD、upstream 無し、最初のコミット）なら空ツリーを使い、**その旨を書く**。
+`git diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`
 
-**No PR is required.** For this layer it matters more than any other: review before the plan runs.
+**PR は要らない。** この層では特に、plan を走らせる前にレビューするのが最も価値がある。
 
 ## Steps 2–7
 
-`${CLAUDE_SKILL_DIR}/reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
-project context, work the perspective clusters, refute and hunt for what was missed, then report.
-**At the brief tier `review-process-brief.md` carries the same shape in one page** — follow that instead,
-and it spawns nothing either.
+`${CLAUDE_SKILL_DIR}/reference/review-process.md` が形を決める。波及範囲を追い、変更を記述し、プロジェクトの文脈を取り込み、観点クラスタを回し、反証と見落とし探しをして、報告する。**brief の規模では `review-process-brief.md` が同じ形を 1 ページで持つので、そちらに従う**（こちらも何も起動しない）。
 
-`${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
-in Step 2**, and the **perspective clusters for Step 5**.
+`${CLAUDE_SKILL_DIR}/reference/perspectives.md` がこの層固有の 2 つを持つ。**Step 2 で追うもの**と **Step 5 の観点クラスタ**。
 
-### No subagents. None.
+### サブエージェントは使わない
 
-**This review spawns nothing — not per cluster, not per layer, not for verification.** You read the diff
-and work the clusters yourself. `review-process.md` carries the evidence; the rule is repeated here in
-the body **on purpose**, because reference resolution is a Claude Code extension and a rule that only
-exists behind `${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both — and holding
-in both is now most of the reason it exists.
+**このレビューは何も起動しない。** クラスタごとにも、層ごとにも、検証にも起動しない。差分を読み、クラスタを自分で回す。この規則は本文にも書く。`${CLAUDE_SKILL_DIR}` は Claude Code の拡張で、その先にしか無い規則は Cursor では効かないから。
 
-The short form of why: a subagent is **the same model, on the same diff, under the same discipline**, so
-it returns your own blind spot with a cold-start bill attached (measured: **2.6–5.9× the tokens, and not
-faster**). Independence comes from a **differently built** reviewer — 93.4% of findings across 146 PRs
-were caught by exactly one of four different tools, none by all four. `/find-bugs` is that; a copy of
-this one never was.
+理由: サブエージェントは**同じモデル・同じ差分・同じ規律**なので、自分の盲点をそのまま返し、起動コストだけが乗る（トークン 2.6〜5.9 倍、速くもならない）。独立性は**作りの違うレビュアー**から来る（146 PR で、所見の 93.4% は 4 ツールのうち 1 つだけが拾った）。それが `/find-bugs` であり、このスキルの複製ではない。
 
-**Say "inline, no subagents" in 🔎** — never imply agents ran that did not.
+**🔎 に「inline, no subagents」と書く。** 動いていないエージェントが動いたように書かない。
 
-Two rules that are load-bearing here, and that a collapsed fan-out used to drop:
+この層で外せない規則が 2 つある。
 
-- **Cluster 0 — design soundness and the question one level up — is never dropped**, even for a
-  one-line diff. A single changed attribute can force a replacement, and the cluster asking "should this
-  resource exist in this shape at all" is what catches it. **A short review works it in fewer words; it never skips it.**
-- **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
-  verify only. Pattern 4 — config read live, against deploy ordering — is native to this layer: a
-  parameter store value or a seeded catalog takes effect the moment it is written, not when the
-  application rolls out.
+- **クラスタ 0（設計の妥当性と一段上の問い）は、1 行の差分でも落とさない。** 属性 1 つの変更が置き換えを強いることがあり、「この形でこのリソースが存在すべきか」を問うクラスタがそれを拾う。**短いレビューでは言葉を減らすだけで、飛ばさない。**
+- **`silent-failure-patterns.md` は発見フェーズで 1 回、検証フェーズで 1 回当てる。** 検証だけにしない。パターン 4（ライブ読みの設定とデプロイ順序）はこの層に固有で、パラメータストアの値やシードされたカタログは、アプリのロールアウト時ではなく書き込んだ瞬間に効く。
 
-**Tracing is a step, not a delegate.** "Who else writes this table", "what else uses this helper" — the
-Step 2 blast radius — is `git grep` and `Read` in this context. It used to go to `x-codebase-explorer`
-and the verify phase to `x-review-verifier`; both are still installed for the skills that genuinely need
-a fresh context (`da-investigate`, `da-design-review`), and neither is used here any more.
+**追跡は手順であり、委譲先ではない。** 「このテーブルに他に誰が書くか」「このヘルパーを他に何が使うか」（Step 2 の波及範囲）は、このコンテキストで `git grep` と `Read` を使って調べる。`x-codebase-explorer` と `x-review-verifier` は新しいコンテキストが本当に要るスキル（`da-investigate`、`da-design-review`）のためにあり、ここでは使わない。
 
-## Done when
+## 完了条件
 
-- [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
-- [ ] **Step 2b ran over the whole file list and is reported with a verdict per row** — placement,
-      dependency direction, irreversible surfaces, tenancy, new entry points. No diff size excuses it
-- [ ] Cluster 0 ran, and every resource whose identity-forming attributes changed is named
-- [ ] `silent-failure-patterns.md` was applied in both phases
-- [ ] Every possible replacement or state loss is listed under ⛔ with the command that would confirm it
-- [ ] **The change summary is first**, names what changed and the mechanism, and is present even with no findings
-- [ ] **Architecture, aggregate/transaction boundaries, and security were each covered** — not collapsed away, and the report says how the fan-out was shaped
-- [ ] **Every ⛔ and 🔴 carries all four parts**: exact line, a detailed why-this-is-wrong (mechanism → concrete failure → the path that reaches it → whether the shape causes it), a plain explanation, and a pasteable comment
-- [ ] **The severity legend is in the report**, so 🔴 versus 🟡 is not left to the reader to guess
-- [ ] No destructive or permission-widening finding was downgraded for being merely improbable
-- [ ] 🔎 states what was read versus assumed, and says plainly that no plan output was seen
-- [ ] 🔬 reports the refutation count; zero refutations is stated as such rather than left implicit
+- [ ] スコープ内の全ファイルが、レビュー済みか、理由付きで未レビューとして列挙されている
+- [ ] **Step 2b がファイル一覧全体に対して実行され、行ごとに判定が報告されている**（配置、依存の向き、不可逆な面、テナント、新しい入口）。差分の大きさは言い訳にならない
+- [ ] クラスタ 0 が実行され、識別を決める属性が変わったリソースがすべて名指されている
+- [ ] `silent-failure-patterns.md` が両フェーズで適用されている
+- [ ] 置き換えや state 喪失の可能性がすべて ⛔ に、確認するコマンド付きで並んでいる
+- [ ] **変更の要約が先頭にあり**、何がどの仕組みで変わったかを述べ、所見が無くても存在する
+- [ ] **アーキテクチャ、集約 / トランザクション境界、セキュリティがそれぞれ扱われている**（畳まれていない）。レポートがレビューの組み立て方を述べている
+- [ ] **⛔ と 🔴 のすべてが 4 要素を持つ**: 正確な行、詳しい「なぜ誤りか」（仕組み → 具体的な障害 → そこに至る経路 → 形が原因か）、平易な説明、貼れるコメント
+- [ ] **重大度の凡例がレポートにある**（🔴 と 🟡 の違いを読み手に推測させない）
+- [ ] 破壊的変更や権限拡大の所見を、起きにくいという理由だけで格下げしていない
+- [ ] 🔎 が読んだものと仮定したものを分け、plan の出力を見ていないことを明記している
+- [ ] 🔬 が反証の件数を報告している。0 件なら 0 件と書く
 
-## Guardrails
+## ガードレール
 
-- Read-only. Never modify code or configuration.
-- **Never run `terraform plan/apply`, `cdk diff/deploy`, or any deploy command.** Even a plan can
-  require credentials and write state. Name the command for the user to run instead.
-- Suggested comments stay suggestions. Posting via `gh pr review` happens only when asked.
-- Never present a clean result as proof of safety. State the limits under 🔎.
+- 読み取り専用。コードも設定も変更しない。
+- **`terraform plan/apply`、`cdk diff/deploy`、その他のデプロイコマンドを実行しない。** plan でも認証情報が要り、state を書くことがある。ユーザーが実行するコマンドを名指す。
+- 提案コメントは提案のまま。`gh pr review` での投稿は頼まれた時だけ。
+- 問題なしの結果を安全の証明として示さない。限界を 🔎 に書く。

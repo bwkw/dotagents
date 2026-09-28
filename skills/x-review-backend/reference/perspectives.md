@@ -1,374 +1,177 @@
-# Backend layer — what to trace, and the perspective clusters
+# バックエンド層 — 追うものと観点クラスタ
 
-The two layer-specific parts of the review: **Step 2** (what to trace) and **Step 5** (the perspective
-clusters to fan out across). Posture, the seven steps, and the finding discipline come from the skill
-that sent you here.
+レビューのうちこの層に固有の 2 つ、**Step 2**（追うもの）と **Step 5**（観点クラスタ）を定める。姿勢・7 つの手順・所見の規律は呼び出し元のスキルに従う。
 
-If you arrived here without having read `finding-discipline.md` and `review-process.md`, **read those
-first** — this file assumes both. `silent-failure-patterns.md` applies on top of whichever cluster you
-are assigned.
+`finding-discipline.md` と `review-process.md` を読まずに来たなら、**先にそちらを読む**。`silent-failure-patterns.md` はどのクラスタにも重ねて当てる。
 
-**Read-only. Never modify code.**
+**読み取り専用。コードを変更しない。**
 
 ---
 
-## Step 2 — what to trace in this layer
+## Step 2 — この層で追うもの
 
-1. **Changed units**: functions, classes, types, tables, contracts, config added, changed, or removed.
-2. **Bidirectional dependency trace** (`grep` / reference search):
-   - **Upstream (callers)**: every caller. A change to a shared utility, common foundation,
-     shared kernel, or generic function requires **naming every module and pipeline that uses it**.
-   - **Downstream (data)**: where the data this writes or emits ends up — other aggregates, other
-     contexts, projections, batch jobs, API responses, external integrations.
-3. **Related domains and bounded contexts**: enumerate **all** of them. Everything listed becomes
-   required reading for the Step 5 subagents.
-4. **Adjacent assets**: migrations, Prisma schema, DTOs, contracts, seeds, config, tests.
-
-Suggested specialist agents when the repository defines them: `senior-architect`, `ddd-expert`,
-`database-specialist`, or a domain expert. Fall back to `general-purpose` with the cluster checklist.
+1. **変更された単位**: 追加・変更・削除された関数、クラス、型、テーブル、契約、設定。
+2. **双方向の依存追跡**（`grep` / 参照検索）:
+   - **上流（呼び出し元）**: すべての呼び出し元。共有ユーティリティ、共通基盤、shared kernel、汎用関数を変えたら、**使っているモジュールとパイプラインをすべて名指しする**。
+   - **下流（データ）**: 書き込む・送出するデータの行き先。他の集約、他のコンテキスト、プロジェクション、バッチ、API レスポンス、外部連携。
+3. **関連ドメインと境界づけられたコンテキスト**: **すべて**列挙する。列挙したものは Step 5 の必読になる。
+4. **隣接資産**: マイグレーション、Prisma スキーマ、DTO、契約、seed、設定、テスト。
 
 ---
 
-## Step 2b — the conformance sweep in this layer
+## Step 2b — この層での適合スイープ
 
-`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. Here is
-what each of its rows means server-side. Report a verdict per row, citing the rule and a `file:line`.
+`review-process.md` の Step 2b は差分全体への機械的な確認で、**差分の大きさは言い訳にならない**。各行の意味をサーバー側で示す。行ごとに、規則と `file:line` を引いて判定を報告する。
 
-| Row | Backend form |
+| 行 | バックエンドでの形 |
 |---|---|
-| **Placement** | Does each new file sit where this repository's own layer rules put it? The distinctions that actually get missed: a QueryService used only by one API versus one shared with a batch path (they have different homes); a batch/queue consumer's prescribed directory shape; where a cross-module adapter is *defined*, which is normally the module that owns the data, not the one that wants it. |
-| **Dependency direction** | `grep` the diff's imports: domain reaching into infrastructure, api or a QueryService; a write path depending on a read-only service where the repository forbids it; one module importing another module's internals rather than its declared boundary. |
-| **Irreversible surfaces** | Enumerate **every** migration, schema edit, contract change, and permission change. For each migration: is it additive, is it wrapped in a transaction if the repository requires that, and does the new constraint hold against production data — a claim that needs a query and a count, not a local database. |
-| **Tenant boundary** | Every new query, raw or generated: is the tenant column in the `where`, including inside joins and subqueries, and is it sourced the way the repository says (request context, not a parameter the caller supplies)? |
-| **New entry points** | Every new controller route, queue consumer, job handler, scheduled task: guards, idempotency on retry, and the direction the failure falls. **Compare against one existing sibling and cite it** — "matches `<sibling>.ts:52`" is a verdict; "follows the existing pattern" is not. |
+| **配置** | 新しいファイルはこのリポジトリの層規則どおりの場所にあるか。見落とされやすい区別: 1 つの API だけが使う QueryService とバッチと共有するもの（置き場が違う）、バッチ／キューのコンシューマに定められたディレクトリ構成、モジュール間アダプタの定義場所（通常はデータを管轄するモジュールで、欲しい側ではない）。 |
+| **依存の向き** | 差分の import を `grep` する。ドメインがインフラ・api・QueryService に手を伸ばしていないか。リポジトリが禁じているのに書き込み経路が読み取り専用サービスに依存していないか。他モジュールの宣言された境界でなく内部を import していないか。 |
+| **不可逆な面** | マイグレーション、スキーマ編集、契約変更、権限変更を**すべて**列挙する。各マイグレーションについて: 追加のみか、リポジトリが求めるならトランザクションで括っているか、新しい制約が本番データで成り立つか（ローカル DB ではなく、クエリと件数が要る主張）。 |
+| **テナント境界** | 新しいクエリは生でも生成でも、join とサブクエリの中まで `where` にテナント列があるか。その値をリポジトリの定めどおり（呼び出し側が渡す引数ではなくリクエストコンテキスト）から取っているか。 |
+| **新しい入口** | 新しいコントローラのルート、キューのコンシューマ、ジョブハンドラ、定期タスクのすべてで、ガード、リトライ時の冪等性、失敗の倒れる向きを見る。**既存の兄弟 1 つと比べて引用する。**「`<sibling>.ts:52` と一致」は判定だが、「既存パターンに従う」は判定ではない。 |
 
-Two things that look like architecture findings and are not, when the sibling already does the same:
-a chunk handler depending on a QueryService, and a near-duplicate construct next to its twin. **Check
-the sibling before writing either up** — inherited shape is a 🧭 about the family, not a defect in this
-diff.
+兄弟が同じことをしているなら、アーキテクチャの所見に見えて所見でないものが 2 つある。QueryService に依存するチャンクハンドラと、双子の隣にあるほぼ重複の構成である。**書く前に兄弟を確かめる。** 受け継いだ形は、この差分の欠陥ではなく一族についての 🧭 である。
 
-## Perspective clusters
+## 観点クラスタ
 
-### 0. Design soundness and the question one level up ★system-wide
+### 0. 設計の妥当性と一段上の問い ★system-wide
 
-Required even for a small diff. When collapsing the fan-out, this must still land in one subagent.
+小さな差分でも必須。
 
-- Is this change, this design, **correct at all**? Is the feature needed, is the abstraction and
-  boundary right, is there a simpler alternative?
-- **Verify the foundation by reading it.** Open at least once the shared helper, base class, or
-  existing pattern this change depends on, and confirm with `file:line` that its safety premises —
-  idempotency, guards, tenant boundary, transaction boundary — actually hold. Do not skip it because
-  "it already existed". Cannot confirm → 👤. Suspicious → 🧭.
-- **Propagation risk**: is this adding the Nth instance to a known dangerous or unverified pattern
-  (external submission with unverified guards, an untested family, a path that can double-apply)? → 🧭
-- Naming, responsibility, over- and under-engineering: proliferating Service/Helper/Util layers,
-  excessive generalisation, or spreading copy-paste.
+- この変更・設計は**そもそも正しいか**。機能は必要か、抽象と境界は正しいか、もっと単純な代案はないか。
+- **土台は読んで確かめる。** 依存する共有ヘルパー、基底クラス、既存パターンを最低 1 回開き、安全の前提（冪等性、ガード、テナント境界、トランザクション境界）が成り立つことを `file:line` で確かめる。「前からあった」で飛ばさない。確かめられない → 👤。怪しい → 🧭。
+- **伝播のリスク**: 既知の危険・未検証パターン（ガード未検証の外部送信、テストのない一族、二重適用しうる経路）の N 例目を足していないか → 🧭
+- 命名、責務、過剰・過少な設計: Service/Helper/Util 層の増殖、過度な汎用化、コピペの拡散。
 
-### 1. Intent and semantic correctness ★always covered
+### 1. 意図と意味の正しさ ★always covered
 
-**The largest category of bugs that survive review, by a wide margin.** Not a style concern — the code
-does something other than what it was asked to do, and it reads as plausible while doing it.
+**レビューを生き残るバグで群を抜いて最大の区分。** スタイルの話ではない。頼まれたことと違うことを、もっともらしく見える形でしている。
 
-- **Against the stated intent.** Read the spec, plan, or PR description first. Does each changed unit do
-  what that says? A change that is internally consistent and answers a different question is the shape
-  this cluster exists to catch, and it is invisible without the intent in hand. **If there is no stated
-  intent, that is the finding** → 👤.
-- **Exception and error handling** — the single most missed sub-cause. Is every thrown error handled at
-  a level that can act on it? A `catch` that logs and continues, a swallowed error, a retry around a
-  non-idempotent call, an error path that returns success. **The happy path being right says nothing.**
-- **Missing cases.** Enumerate the inputs the change accepts: empty, zero, null, single element,
-  boundary, the value the caller never sends today. Which branch handles each?
-- **Wrong operator, comparison, or query.** `>=` for `>`, `&&` for `||`, an inverted guard, a join that
-  multiplies rows, a filter on the wrong column. Read the condition against what it is meant to mean,
-  not against whether it compiles.
-- **Incomplete change.** One call site updated and its siblings not; a field added to a type and not to
-  the mapper; a new state added to an enum and not to the switch that consumes it.
+- **述べられた意図と突き合わせる。** 先に spec・計画・PR 説明を読み、変更単位ごとにそのとおりか確かめる。内部では一貫しているが別の問いに答えている変更は、意図が手元にないと見えない。**述べられた意図が無ければ、それが所見** → 👤。
+- **例外とエラー処理**（最も見落とされる要因）。投げたエラーは、対処できる層で扱われているか。ログして続行する `catch`、握りつぶし、冪等でない呼び出しを囲むリトライ、成功を返すエラー経路。**正常系が正しいことは何も保証しない。**
+- **抜けているケース。** 受け付ける入力を列挙する。空、0、null、要素 1 つ、境界、今は呼び出し側が送らない値。それぞれをどの分岐が扱うか。
+- **演算子・比較・クエリの誤り。** `>` のところの `>=`、`||` のところの `&&`、反転したガード、行を増やす join、別の列へのフィルタ。コンパイルが通るかではなく、意図と照らして条件を読む。
+- **不完全な変更。** 1 つの呼び出し箇所だけ直して兄弟を直していない。型に足したフィールドをマッパーに足していない。enum に足した状態を、それを消費する switch に足していない。
 
-### 2. Architecture, aggregate boundaries, DDD
+### 2. アーキテクチャ、集約境界、DDD
 
-- Layer dependencies (Domain reaching back into Infra/API/QueryService); aggregate boundaries and
-  granularity; cross-aggregate invariants; transaction boundaries.
-- Module and context boundaries (going through an adapter rather than reaching into another
-  context's internals); CQRS separation (Command depending on Query).
-- Are business rules expressed in the domain layer? Is logic leaking into repositories or use cases?
-- Abstraction level; does naming reflect the domain?
-- New or updated dependencies: is there no alternative, licence, known CVEs, direct imports only as
-  direct dependencies, transitive pins via overrides, and is the lockfile diff intentional?
+- 層の依存（ドメインが Infra/API/QueryService へ逆流）。集約の境界と粒度。集約をまたぐ不変条件。トランザクション境界。
+- モジュールとコンテキストの境界（他コンテキストの内部に手を伸ばさずアダプタを通す）。CQRS の分離（Command が Query に依存しない）。
+- 業務ルールがドメイン層で表現されているか。リポジトリやユースケースにロジックが漏れていないか。
+- 抽象度。命名がドメインを映しているか。
+- 依存の追加・更新: 代替がないか、ライセンス、既知の CVE、直接 import するものは直接依存にする、推移的依存は overrides で固定、lockfile の差分が意図どおりか。
 
-The five questions below are how the third bullet is actually answered. Each has a tell in the diff, and
-none of them look like a violation line by line — which is why "the rule is in the domain layer" gets
-ticked while the rule is in three handlers.
+3 つ目の項目は下の 5 つの問いで答える。どれも差分に兆候があり、1 行ずつ見ると違反に見えない。
 
-- **Behaviour that belongs on the aggregate, sitting outside it.** The tells: a helper whose first
-  argument is the entity and which reads two of its fields to reach a verdict; a use case comparing
-  `submission.version` against the flow's own; a `*-helper.ts` or `*Service` next to the entity holding
-  what reads as a rule. **A function that opens an aggregate's fields to decide something about that
-  aggregate is that aggregate's method** — invisible in a diff, because every individual line is just a
-  field read. Cluster 8b carries the test to apply and what to do instead.
-- **A lock is a statement about where the boundary is.** An advisory lock, a `SELECT FOR UPDATE`
-  spanning two tables, or a serialisable transaction introduced to protect an invariant means **the
-  invariant crosses aggregates and no single transaction covers it.** The lock may well be the right
-  trade; the finding is the boundary, and it is worth raising as 🧭 even when the locking is correct. Ask
-  whether the invariant can be made **local** — one side holding the value it needs rather than reading
-  the other's — and, if the lock stays, what forces the *next* entry point to take it
-  (`silent-failure-patterns.md`, pattern 1).
-- **Needing compensation means the transaction boundary and the aggregate boundary disagree.** An undo
-  path spanning two aggregates is a saga, whether or not the PR calls it one. Check it is built as one —
-  a single applier, reached by every path (cluster 6) — rather than as error handling written per call
-  site. And where the effect left the system (a filing, a charge, an email), no compensation exists at
-  all: that is cluster 3's irreversibility, not a rollback.
-- **CQRS buys a second read path, never a second definition of a rule.** A QueryService, projection or
-  list SQL that re-derives what the aggregate decides is one rule modelled twice; they agree until the
-  next state is added; 8b carries the tell.
-- **Ports belong to the domain, and consumers depend on them as declared.** The abstract repository sits
-  under the domain; a use case that re-types its shape inline instead of importing it has silently forked
-  the interface (cluster 8).
+- **集約の外にある、集約に属する振る舞い。** 兆候: 第 1 引数がエンティティで 2 つのフィールドを読んで判定するヘルパー、`submission.version` をフローの版と比べるユースケース、エンティティの隣の `*-helper.ts` や `*Service` にある規則めいたもの。**集約のフィールドを開いてその集約について決める関数は、その集約のメソッドである。** 当てはめ方と代わりの形はクラスタ 8b にある。
+- **ロックは境界がどこにあるかの表明である。** 不変条件を守るために入れた advisory lock、2 テーブルにまたがる `SELECT FOR UPDATE`、serializable トランザクションは、**不変条件が集約をまたぎ、単一のトランザクションで覆えていない**ことを意味する。ロックが正しくても、境界を 🧭 として上げる。不変条件を**局所化**できないか（片側が相手を読まずに必要な値を持つ）、ロックを残すなら**次の**入口に何がそれを取らせるか（`silent-failure-patterns.md` のパターン 1）を問う。
+- **補償が要るのは、トランザクション境界と集約境界が食い違っているからである。** 2 集約にまたがる取り消し経路は、名乗っていなくてもサーガである。呼び出し箇所ごとのエラー処理ではなく、サーガとして（すべての経路が到達する単一の適用者で、クラスタ 6）作られているか。効果がシステムの外へ出た（届出、課金、メール）なら補償は存在しない。それはロールバックではなくクラスタ 3 の不可逆性である。
+- **CQRS で得るのは 2 本目の読み取り経路であって、規則の 2 つ目の定義ではない。** 集約が決めることを導き直す QueryService・プロジェクション・一覧 SQL は、1 つの規則を 2 回モデル化している。次の状態が足されるまでしか一致しない。兆候は 8b。
+- **ポートはドメインに属し、利用側は宣言どおりに依存する。** 抽象リポジトリはドメインの下にある。import せずに形をインラインで書き直すユースケースは、インターフェースを黙って分岐させている（クラスタ 8）。
 
-### 3. Data model, persistence, migrations ★irreversibility
+### 3. データモデル、永続化、マイグレーション ★irreversibility
 
-- **Migration irreversibility**: dropping or renaming a column, changing a type, adding NOT NULL,
-  changing a default, adding a constraint or FK — will it fail against existing data, and can it be
-  rolled back?
-- **Backfill soundness**: idempotent, resumable, completes at production row counts (avoiding
-  timeouts and hot-table locks), produces the same result as the online path, safe to re-run after
-  partial application.
-- Additive-only? Are destructive changes split expand → migrate → contract? Are constraints being
-  added without checking the production and staging data distribution?
-- **"The real data is fine" is a claim, and the local database is not the real data** — it is whatever
-  the last reset and seed made it. For a new constraint, a stricter read, or the removal of a data
-  assumption, require a query that can be run against **production or staging**, and the count it
-  returned. Data baked into snapshots and fixtures (task JSON, recorded payloads) counts as data.
-- **Machinery kept for values that do not exist.** Several indexes and a branch, or an inference rule
-  ("one disappeared and one appeared, so treat it as a rename") — ask **how many rows actually carry a
-  non-default value in that column**, in production. Zero means the whole apparatus is protecting
-  nothing; deleting one such mechanism removed 160 lines.
-- Index design; schema shapes that induce N+1; soundness of Temporal or event-sourcing usage; joins
-  and relations onto views; new uses of `OrThrow`.
-- Timezone and date boundaries (date-only versus datetime, storing UTC, DST and month-end edges).
-- Data retention, deletion, and anonymisation policy (PII retention periods, regulation).
+- **マイグレーションの不可逆性**: 列の削除・リネーム、型変更、NOT NULL 追加、既定値の変更、制約や FK の追加。既存データで失敗しないか、戻せるか。
+- **バックフィルの健全性**: 冪等、再開可能、本番の行数で完了する（タイムアウトとホットテーブルのロックを避ける）、オンライン経路と同じ結果、部分適用の後に再実行しても安全。
+- 追加のみか。破壊的変更を expand → migrate → contract に分けているか。本番と stg のデータ分布を確かめずに制約を足していないか。
+- **「実データは大丈夫」は主張であり、ローカル DB は実データではない。** 新しい制約、厳しくなった読み取り、データ前提の撤去には、**本番か stg** で走らせられるクエリと、返った件数を求める。スナップショットやフィクスチャに焼き込まれたデータ（タスク JSON、記録済みペイロード）もデータに数える。
+- **存在しない値のために残された仕組み。** 複数のインデックスと分岐、推論規則（「1 つ消えて 1 つ現れたらリネームとみなす」）があれば、**本番でその列に既定以外の値を持つ行が何行あるか**を問う。0 なら仕組み全体が何も守っていない。
+- インデックス設計。N+1 を誘うスキーマ形状。Temporal やイベントソーシングの使い方の妥当性。ビューへの join とリレーション。`OrThrow` の新たな使用。
+- タイムゾーンと日付の境界（日付のみか日時か、UTC 保存、DST と月末）。
+- データの保持・削除・匿名化の方針（PII の保持期間、規制）。
 
-### 4. Security, multi-tenancy, PII ★focus
+### 4. セキュリティ、マルチテナンシー、PII ★focus
 
-- Cross-tenant leakage: the tenant boundary filter, including inside joins and subqueries; whether
-  it is applied via the infra layer or the request context.
-- Authentication and authorization: guards on new endpoints, permission scope, non-human actors.
-- PII and credential storage (encryption, hashing, tokenisation) and exposure in logs or responses;
-  input validation; SSRF; token leakage.
-- Are reads and writes of sensitive data (national ID numbers and similar) captured in an audit log?
-  Can the design satisfy a data subject's deletion, disclosure, or retention request?
+- テナント越えの漏洩: join とサブクエリの中まで含むテナント境界のフィルタ。インフラ層かリクエストコンテキストで適用されているか。
+- 認証と認可: 新しいエンドポイントのガード、権限の範囲、人間でないアクター。
+- PII と認証情報の保存（暗号化、ハッシュ、トークン化）とログ・レスポンスへの露出。入力検証。SSRF。トークン漏洩。
+- 機微データ（マイナンバー等）の読み書きが監査ログに残るか。本人の削除・開示・保持の請求に設計が応えられるか。
 
-### 5. API contracts, backward compatibility, schema evolution, runtime compatibility ★irreversibility
+### 5. API 契約、後方互換、スキーマ進化、実行時の互換性 ★irreversibility
 
-- Breaking changes to public APIs (oRPC/REST/OpenAPI): removal, rename, making a field required,
-  type change, route change.
-- Breaking changes to event, message, or queue schemas — consumer compatibility.
-- Are optional DTO fields nullable? Error localisation. Versioning and staged migration.
+- 公開 API（oRPC/REST/OpenAPI）の破壊的変更: 削除、リネーム、フィールドの必須化、型変更、ルート変更。
+- イベント・メッセージ・キューのスキーマの破壊的変更。コンシューマの互換性。
+- 任意の DTO フィールドは nullable か。エラーの多言語化。バージョニングと段階移行。
 
-### 6. Reliability, idempotency, concurrency, resource lifetime, performance
+### 6. 信頼性、冪等性、並行性、リソースの寿命、性能
 
-Double-application and data corruption are irreversible — file them with `irreversible=true`.
+二重適用とデータ破損は不可逆である。`irreversible=true` で出す。
 
-**Concurrency, named explicitly because it is a measured missed category (4.3%) and reads as correct in
-isolation.** Two requests interleaving on the same row; a read-then-write with no lock, version, or
-conditional update; a "check then act" where the check can go stale; a consumer that assumes it is the
-only one; a rebalance or restart mid-batch. Ask what happens when **two of these run at the same
-instant**, not what happens when one runs.
+**並行性。** 見落とし区分として計測されていて（4.3%）、単体では正しく読める。同じ行に割り込む 2 つのリクエスト、ロック・バージョン・条件付き更新のない read-then-write、チェックが古くなりうる check-then-act、自分だけだと仮定するコンシューマ、バッチ途中のリバランスや再起動。1 つが走る時ではなく、**2 つが同時に走る時**に何が起きるかを問う。
 
-**Resource lifetime (1.6% of missed bugs, and the least-caught category).** Every acquired thing needs a
-release on **every** path including the error path: connections, file handles, streams, subscriptions,
-timers, listeners, spans. An unbounded buffer, cache, or in-memory accumulator that grows per request is
-the same defect with a slower fuse.
+**リソースの寿命**（見落とされたバグの 1.6%、最も拾われない区分）。取得したものは、エラー経路を含む**すべての**経路で解放する。接続、ファイルハンドル、ストリーム、購読、タイマー、リスナー、span。リクエストごとに伸びる無制限のバッファ・キャッシュ・メモリ内の蓄積も、導火線が遅いだけの同じ欠陥である。
 
-**Guards before the first side effect.** A validation that runs *after* the mutation it exists to prevent
-turns a rejection into an undo: the version and position check landing after the row is claimed, the
-quota check after the counter is incremented, the eligibility check after the notification is queued. Ask
-of every new guard **what has already happened by the time it fails.** Reordering it is usually free, and
-it deletes the rollback path — which is where the next item's bugs live.
+**ガードは最初の副作用の前に置く。** 防ぐはずの変更の後で走る検証は、拒否を取り消しに変える（行を確保した後のバージョン・位置チェック、カウンタを増やした後のクォータチェック、通知をキューに入れた後の適格性チェック）。新しいガードごとに**失敗した時点で何がもう起きているか**を問う。並べ替えは大抵ただで、次の項目のバグが住むロールバック経路を消せる。
 
-**Compensation handed back to the caller.** A function that returns *what should be undone* — a rollback
-descriptor, a list of side effects to reverse, a cleanup callback — has moved a side effect into a value,
-and the compiler does not force anyone to spend it. One caller applies it, the next drops it on the floor,
-and the state is left half-changed with nothing failing and nothing logged. Two questions: **is there
-exactly one applier, and does every path that produces one reach it?** Ask the same of pairs that must
-always happen together — release the claim *and* revert the status. **A two-step pair assembled by hand at
-five call sites is wrong at the fifth**, and the omission is invisible in a diff that shows only the
-site being added.
+**呼び出し側に渡された補償。** 取り消すべきもの（ロールバック記述子、戻す副作用の一覧、後片付けのコールバック）を返す関数は、副作用を値に移しており、使うことをコンパイラは強制しない。ある呼び出し側は適用し、次は捨て、何も失敗せず何も記録されずに状態が半端に残る。問いは 2 つ。**適用者はちょうど 1 つか。それを生むすべての経路がそこに届くか。** 必ず一緒に起きるべき組（確保の解放**と**状態の差し戻し）にも同じことを問う。**5 箇所で手組みされた 2 段の組は、5 箇所目で間違う。**
 
-- Idempotency: re-runs, retries, and duplicate delivery must not double-apply — double provisioning,
-  double billing, duplicate notifications. Retry and backoff behaviour.
-- **Concurrent write conflicts** — lost update, check-then-write TOCTOU, unique-constraint races —
-  protected by pessimistic locking (`SELECT FOR UPDATE`), optimistic locking (a version column), or
-  a database constraint. Does the aggregate's read-modify-write survive contention?
-- Queries in the same transaction parallelised with `Promise.all` (they must be serialised);
-  consistency under partial failure; rollback when an external call fails; runaway guards on batch
-  and pagination loops.
-- N+1, O(N²), database access inside loops, connection exhaustion, rate limits and per-tenant quotas
-  on expensive endpoints (noisy-neighbour prevention).
+- 冪等性: 再実行、リトライ、重複配信で二重適用しない（二重プロビジョニング、二重課金、重複通知）。リトライとバックオフの挙動。
+- **並行書き込みの衝突**（lost update、check-then-write の TOCTOU、一意制約の競合）を、悲観ロック（`SELECT FOR UPDATE`）、楽観ロック（バージョン列）、DB 制約のいずれかで守っているか。集約の read-modify-write は競合に耐えるか。
+- 同じトランザクション内のクエリを `Promise.all` で並列化していないか（直列にする）。部分失敗時の一貫性。外部呼び出し失敗時のロールバック。バッチとページングのループの暴走ガード。
+- N+1、O(N²)、ループ内の DB アクセス、接続の枯渇、高コストなエンドポイントのレート制限とテナント別クォータ（noisy neighbor の防止）。
 
-### 7. Observability, operability, deploy safety
+### 7. 可観測性、運用性、デプロイの安全性
 
-- Are logs, metrics, and traces sufficient to investigate an incident? Are alerts and monitoring
-  included?
-- **Schema ↔ code deploy ordering**: does reading a new column break under the deploy order? Is the
-  read backward compatible? Feature flags, staged rollout, kill switches, old-and-new coexistence
-  during migration.
-- Configuration and secret management; error-handling design (neverthrow `Result`, exhaustiveness,
-  nothing swallowed, no assertion abuse).
-- **Graceful shutdown.** On SIGTERM, does in-flight work finish or get dropped? Does the readiness check
-  start failing *before* the process stops accepting connections? A new long-running handler, consumer,
-  or background task adds a way to lose work on **every** deploy — which happens daily, silently, and
-  presents as an intermittent data problem rather than as a shutdown bug.
-- **Capacity headroom this change consumes.** Connection pool size, worker concurrency, a per-tenant
-  quota, an upstream rate limit. The question is not "is it fast enough" but "what is now closer to its
-  ceiling, and what happens when it gets there".
+- 障害調査にログ・メトリクス・トレースが足りるか。アラートと監視が含まれているか。
+- **スキーマ ↔ コードのデプロイ順**: 新しい列の読み取りがデプロイ順で壊れないか。読み取りは後方互換か。フィーチャーフラグ、段階リリース、キルスイッチ、移行中の新旧共存。
+- 設定とシークレットの管理。エラー処理の設計（neverthrow の `Result`、網羅性、握りつぶしなし、アサーションの濫用なし）。
+- **グレースフルシャットダウン。** SIGTERM で処理中の仕事は終わるか、捨てられるか。接続を受け付けなくなる**前に**レディネスチェックが失敗し始めるか。新しい長時間ハンドラ、コンシューマ、バックグラウンドタスクは、**毎回の**デプロイで仕事を失う道を足す。これは毎日黙って起き、シャットダウンのバグではなく断続的なデータの問題に見える。
+- **この変更が消費する容量の余裕。** 接続プールの大きさ、ワーカーの並行数、テナント別クォータ、上流のレート制限。「十分速いか」ではなく「何が上限に近づき、達したら何が起きるか」を問う。
 
-### 8. Type design — do the types carry the invariants?
+### 8. 型設計 — 型が不変条件を運んでいるか
 
-A separate lens from architecture. Architecture asks whether the boundaries sit in the right place;
-this asks whether the type system does any work at those boundaries, or whether every invariant
-lives in a comment and the hope of a careful reviewer.
+アーキテクチャとは別のレンズ。アーキテクチャは境界の位置を問い、こちらはその境界で型システムが働いているか、不変条件がコメントと注意深いレビュアー頼みになっていないかを問う。
 
-Report anything that fails one of these, naming the specific field or signature:
+次のどれかに引っかかるものを、フィールドやシグネチャを名指しして報告する。
 
-- **Encapsulation** — can a caller construct an invalid value? A DTO where every field is optional
-  and nullable pushes validation onto every consumer, permanently.
-- **Invariants in the type** — "non-empty", "these two fields are set together or not at all", "this
-  ID belongs to this tenant". Expressed as a type, or as a convention nothing enforces? A union of
-  valid shapes beats a record of optionals.
-- **Usefulness** — does the type make the common correct thing easy, or does every call site repeat
-  the same three lines of narrowing?
-- **Enforcement** — is there a path around it? An `as` cast, a raw query typed `any`, a `JSON.parse`
-  with no schema at the boundary.
-- **A structural subset standing in for a declared port.** Typing a dependency inline —
-  `deps: { findById(id): Promise<X> }` — rather than importing the abstract repository from where it is
-  declared compiles forever: the real class can gain a parameter, change a return type, or move, and
-  **nothing points at the mismatch**, because structural typing only asks whether *this* shape is
-  satisfied. Test doubles satisfy the hand-written shape too, so the suite stays green while the fake and
-  the real one drift apart. Ask why the declared interface is not imported — "it made the test easier to
-  write" is the reason that produces this, and it trades a compile error for a runtime one.
-- **Modelled on one side only.** The commonest half-done version: the *set* of kinds gets narrowed
-  (`z.enum(['FIXED','TODAY'])`) while **kind and value stay separate fields**, so `{kind:'TODAY',
-  value:'2020-04-01'}` is still constructible. That looks like "we typed it" and is not. Ask the
-  invariant question **per layer**: the wire contract, the domain's input type, the state the domain
-  holds, the frontend's editing state — **which of them makes this unrepresentable?** If the answer for
-  any of them is "a runtime check", say so and make the author justify why a type cannot carry it.
-  What it costs to leave: every consumer keeps defensive code for a state that should not exist, forever.
-- **Every construction site, not just the one in the diff.** When a discriminated union or a refined type
-  is introduced, the same shape usually exists in several places — ETL runtime types, snapshot Zod
-  schemas, test helpers — and the PR fixes the domain one. **List all of them** (show the `grep`), and
-  ask whether construction can be funnelled through a single point.
-- **Exhaustiveness that the compiler enforces.** `as const satisfies readonly T[]` **type-checks on a
-  subset**: add a kind on the server and the frontend list keeps compiling, silently short. A
-  `Record<Union, …>` does not. Whenever you see an array plus `satisfies` for options, orderings or
-  label maps, ask: **if the server adds one tomorrow, does this fail to compile?**
+- **カプセル化** — 呼び出し側が不正な値を作れるか。全フィールドが任意かつ nullable の DTO は、検証をすべての利用側に永久に押しつける。
+- **型の中の不変条件** —「空でない」「この 2 つは両方あるか両方ないか」「この ID はこのテナントのもの」。型で表しているか、何も強制しない慣習か。任意フィールドのレコードより、正しい形のユニオンがよい。
+- **有用性** — よくある正しいことを簡単にしているか。どの呼び出し箇所も同じ 3 行の絞り込みを繰り返していないか。
+- **強制** — 迂回路はないか。`as` キャスト、`any` で型付けした生クエリ、境界でスキーマのない `JSON.parse`。
+- **宣言されたポートの代わりの構造的部分集合。** 抽象リポジトリを宣言元から import せず、依存をインラインで `deps: { findById(id): Promise<X> }` と型付けすると、ずっとコンパイルが通る。本物のクラスが引数を増やしても、戻り値の型を変えても、移動しても、**ずれを指すものがない**。テストダブルも手書きの形を満たすので、偽物と本物が離れてもスイートは緑のままである。宣言されたインターフェースをなぜ import しないかを問う（「テストが書きやすかった」はコンパイルエラーを実行時エラーに換える理由である）。
+- **片側だけのモデル化。** 最も多い半端な形は、種類の集合を絞る（`z.enum(['FIXED','TODAY'])`）が**種類と値を別フィールドのまま**にするもので、`{kind:'TODAY', value:'2020-04-01'}` がまだ作れる。不変条件の問いを**層ごとに**立てる。ワイヤ契約、ドメインの入力型、ドメインが持つ状態、フロントエンドの編集状態のうち、**どれがこれを表現不能にしているか**。どれかの答えが「実行時チェック」なら、そう書き、型で運べない理由を作者に説明させる。放置すれば、あるべきでない状態のための防御コードを利用側が永久に持つ。
+- **差分の中だけでなく、すべての構築箇所。** 判別共用体や絞り込んだ型を入れる時、同じ形は大抵複数箇所にある（ETL の実行時型、スナップショットの Zod スキーマ、テストヘルパー）が、PR はドメインのものだけ直す。**すべて列挙し**（`grep` を示す）、構築を 1 点に集められないかを問う。
+- **コンパイラが強制する網羅性。** `as const satisfies readonly T[]` は**部分集合でも型検査が通る**。サーバーに種類を足してもフロントエンドの一覧は黙って足りないままコンパイルされる。`Record<Union, …>` はそうならない。選択肢・並び順・ラベルの対応表に配列と `satisfies` を見たら、**明日サーバーが 1 つ足したらコンパイルが失敗するか**を問う。
 
-- **Read it backwards from the defensive code as well.** Everything above starts at the type; the same
-  defect is visible from the call site, as a guard for a state no construction site produces. The
-  procedure for that direction is in `llm-authored-code.md` and is not restated here. On this layer the
-  surplus state almost always entered through a DTO of optionals or a nullable column that the domain
-  type copied unchanged, so the fix belongs at that boundary rather than at the guard.
+- **防御コードから逆にも読む。** 上はすべて型から始まるが、同じ欠陥は呼び出し箇所から、どの構築箇所も生まない状態へのガードとしても見える。その向きの手順は `llm-authored-code.md` にある。この層では、余分な状態はほぼ必ず任意フィールドの DTO か、ドメイン型がそのまま写した nullable 列から入ってくるので、直す場所はガードではなくその境界である。
 
-- **Which direction the failure was pushed.** A constraint can go forward, into the return type
-  (`Result`, an optional, a union with an error variant), or backward, into the argument type
-  (`NonEmpty`, a parsed identifier, a tenant-scoped handle). Forward costs one handler per call site;
-  backward costs one check per construction site, and there are normally far fewer of those. So when a
-  function starts returning a failure that every caller now handles, ask what stops the requirement
-  being expressed in the parameter type instead. At the outer boundary there is no choice — input from
-  outside has to be pushed forward — which is exactly why the boundary is where the parsing belongs
-  and the inside is where the narrow types do.
-- **The ceiling on all of the above.** Everything here pushes toward a stronger type, and there is a
-  point past which stronger is worse: see over-abstraction in `llm-authored-code.md` for the four
-  conditions a type has to meet to be worth having. A conditional type or a deep generic encoding the
-  same invariant is more precise and harder to act on, so when the answer to "make this
-  unrepresentable" arrives as type-level computation rather than a named union, say so.
+- **失敗をどちらの向きに押したか。** 制約は前へ（戻り値の型へ: `Result`、optional、エラー変種つきのユニオン）も、後ろへ（引数の型へ: `NonEmpty`、パース済みの識別子、テナントスコープのハンドル）も押せる。前は呼び出し箇所ごとに 1 つのハンドラ、後ろは構築箇所ごとに 1 つのチェックで、構築箇所のほうが普通ずっと少ない。関数が全呼び出し側で扱う失敗を返し始めたら、なぜ要件を引数の型で表さないのかを問う。外側の境界だけは選べない（外からの入力は前へ押すしかない）ので、パースは境界に、狭い型は内側に置く。
+- **以上すべての上限。** ここはすべて強い型へ押すが、強すぎると悪くなる点がある。型が持つ価値のある 4 条件は `llm-authored-code.md` の過剰な抽象化を参照。同じ不変条件を条件型や深いジェネリクスで表すと、正確だが扱いにくい。「表現不能にする」の答えが名前つきユニオンでなく型レベルの計算で来たら、そう書く。
 
-Worth most where money, permissions, tenancy, or irreversible operations are involved: an invariant
-the type guarantees cannot be forgotten at the eleventh call site somebody adds next quarter.
+お金、権限、テナンシー、不可逆な操作が絡むところで最も効く。型が保証する不変条件は、来期に誰かが足す 11 番目の呼び出し箇所で忘れられない。
 
-### 8b. Where the rule lives, and whether it behaves the same on both sides
+### 8b. 規則がどこに住み、両側で同じに振る舞うか
 
-- **Aggregate invariants written into Repository, QueryService or UseCase.** The test is one question:
-  **if another persistence path is added tomorrow, does this check have to be copied?** If yes, it
-  belongs in the domain. A rule enforced at the call site is a rule the next call site forgets.
-- **The same state handled two different ways.** Look for asymmetry between the read path and the write
-  path — "the query silently skips the malformed row, the aggregate rejects it". It sounds prudent
-  ("degrade the view, protect the screen; keep the aggregate strict") and to the user it reads as
-  **"it is not on the screen, yet saving 500s"**. Where an asymmetry exists, ask whether it is coherent
-  *from outside*, and whether the reason given is really a fact about the implementation (the
-  QueryService did not return a `Result`, so it could not fail) dressed up as intent.
-- **Does the error fit what happened?** An unreachable branch returning a message about a different
-  situation ("the fixed value is empty" used for "no default was supplied") is a lie the next reader
-  believes. And the status code: **corrupted stored data is not 4xx** — the caller cannot fix their
-  request.
-- **A predicate that carries only half of the invariant.** The rule is "the latest submission **and**
-  the caller's own step". Extracted as a helper answering the version half alone, it reads *complete* at
-  the call site — its name does not say what is missing — so the position half gets checked in some
-  callers and forgotten in others. Both halves of the fix matter: give the predicate the whole question
-  (**one `Result` carrying the reason**, not two booleans every caller must remember to AND), and put it
-  on the aggregate whose fields it reads. **A helper that opens two fields of one aggregate to decide
-  something about that aggregate is that aggregate's method**; the fields merely being reachable from
-  outside is not an argument for deciding it outside.
-- **Which failure wins is domain knowledge too.** When two guards can reject the same request, their
-  order decides the message the user sees. Ordered independently in each handler, the same state answers
-  differently depending on the route taken to it, and correcting one leaves the other. Ask whether the
-  precedence exists in exactly one place.
-- **The rule, and its `WHERE` clause.** A status predicate written once as `isSubmitted()` on the entity
-  and once as SQL for the list screen is two rules that agree today. The tell is an **exclusion list**:
-  `status NOT IN ('Recalled')`, or `!== 'Recalled'`, **admits every status added after it** — the next
-  state joins the set silently, and a screen starts showing rows it was never meant to. The inclusion
-  form excludes new states instead, which fails visibly and cheaply. So: which direction is safe here,
-  and can both sides be derived from one place? Where a screen genuinely needs a different set, that
-  divergence belongs in the code as a **named exception with its reason** — the returned-items tab needs
-  the status the aggregate excludes — not as two expressions that happen to differ.
+- **Repository・QueryService・UseCase に書かれた集約の不変条件。** 判定は 1 問。**明日別の永続化経路を足したら、このチェックを写す必要があるか。** あるならドメインに属する。呼び出し箇所で強制される規則は、次の呼び出し箇所が忘れる規則である。
+- **同じ状態の 2 通りの扱い。** 読み取り経路と書き込み経路の非対称を探す（「クエリは壊れた行を黙って飛ばし、集約は拒否する」）。慎重に聞こえるが、ユーザーには「**画面に無いのに保存で 500**」に見える。非対称があれば、**外から見て**一貫しているか、挙げられた理由が実は実装の事実（QueryService が `Result` を返さないので失敗できなかった）の言い換えではないかを問う。
+- **エラーは起きたことに合っているか。** 到達しない分岐が別の状況のメッセージを返す（「既定値が渡されなかった」に「固定値が空です」）のは、次の読み手が信じる嘘である。ステータスコードも見る。**保存済みデータの破損は 4xx ではない**（呼び出し側はリクエストを直せない）。
+- **不変条件の半分しか運ばない述語。** 規則が「最新の提出**かつ**呼び出し元自身のステップ」のとき、版の半分だけ答えるヘルパーは名前が欠けを言わないので呼び出し箇所で**完全に**見え、位置の半分はある呼び出し側で確かめられ、別の側で忘れられる。直し方は両方要る。述語に問い全体を持たせ（呼び出し側全員が AND を覚える 2 つの真偽値ではなく、**理由を運ぶ 1 つの `Result`**）、読むフィールドの持ち主である集約に置く。**1 つの集約の 2 フィールドを開いてその集約について決めるヘルパーは、その集約のメソッドである。** 外からフィールドに届くことは、外で決める理由にならない。
+- **どの失敗が勝つかもドメイン知識である。** 2 つのガードが同じリクエストを拒否しうるとき、その順序がユーザーの見るメッセージを決める。ハンドラごとに独立に並べると、同じ状態が経路によって違う答えを返し、片方を直しても他方が残る。優先順位がちょうど 1 箇所にあるかを問う。
+- **規則と、その `WHERE` 句。** エンティティの `isSubmitted()` と一覧画面の SQL で 1 回ずつ書かれた状態の述語は、今日だけ一致する 2 つの規則である。兆候は**除外リスト**で、`status NOT IN ('Recalled')` や `!== 'Recalled'` は**後から足された状態をすべて通す**。次の状態が黙って集合に入り、画面が見せるはずのない行を出し始める。包含の形なら新しい状態は除かれ、失敗は見えて安い。ここでどちらの向きが安全か、両側を 1 箇所から導けるかを問う。画面が本当に別の集合を要するなら、その乖離は偶然違う 2 つの式ではなく、**理由つきの名前つき例外**としてコードに置く（差し戻し品タブは集約が除く状態を要する、など）。
 
-### 9. Dependencies, licensing, and supply chain
+### 9. 依存、ライセンス、サプライチェーン
 
-Measured as part of *analysis checks* — 9.1% of missed bugs — and the paper's own example is a license
-header missing from a new file, which broke the build rather than being caught in review.
+見落とされたバグの 9.1% を占める「解析チェック」の区分。例は新しいファイルのライセンスヘッダ欠落で、レビューで拾われずビルドを壊した。
 
-- **A new or bumped dependency**: is it maintained, and does its **license** permit this use? Copyleft
-  arriving in a proprietary service, or a licence change on a version bump, is a legal problem that no
-  test fails on. Name the licence in the finding.
-- **Does the file need a licence or copyright header** by this repository's own convention? A missing one
-  is caught by a linter, if there is one — and if there is not, it is caught in production tooling.
-- **Version pinning**: does the change widen a range such that a future install differs from this one?
-- **Hallucinated or squatted packages** — cross-check that the package exists and is the one meant. See
-  `llm-authored-code.md`; roughly 20% of agent-authored samples reference packages that do not exist.
+- **新規・更新した依存**: 保守されているか、その**ライセンス**がこの用途を許すか。独自サービスへのコピーレフトの流入や、版上げでのライセンス変更は、どのテストも落ちない法的問題である。所見にライセンス名を書く。
+- **このリポジトリの慣習でライセンス・著作権ヘッダが要るファイルか。** 欠落はリンタがあればそこで拾われ、なければ本番のツールで拾われる。
+- **バージョン固定**: 範囲を広げ、将来のインストールが今回と変わるようにしていないか。
+- **幻覚・スクワッティングのパッケージ** — パッケージが存在し、意図したものかを照合する。`llm-authored-code.md` を参照（エージェントが書いたサンプルの約 20% が存在しないパッケージを参照する）。
 
-### 10. Test coverage and verifiability
+### 10. テストのカバレッジと検証可能性
 
-- Tests for new entities, commands, and handlers; boundary values; failure paths. Integration tests
-  for database writes, external integrations, and anything spanning a transaction.
-- **Is each test necessary, and is it at the right level?** The same rule asserted at contract, entity
-  and sql level is one rule paid for three times — and a rule that is a pure function should not be
-  reachable only through a sql test. The reason is not tidiness: **a rule pinned only by a slow sql or
-  end-to-end test is a rule whose test is deleted the next time the suite is too slow** — and the guard
-  deciding whether a button is enabled is a pure function of the aggregate, so pin it at that level.
-  Conversely, **an invariant the change moved into the type leaves a test behind that now either fails to
-  compile or asserts nothing.** Test names and comments describing a state the types no longer permit
-  ("sending the value alongside is normalised") are stale by construction.
-- Do the tests exercise the production read and DI paths (no shortcut assertions, no swallowed
-  `Result`s)?
-- **Where a path has silent, irreversible side effects** (see `silent-failure-patterns.md`), is the
-  *chain that goes silent when broken* pinned by one integration test — not just the happy path in
-  isolation? The failure to detect is "unit tests green, chain unverified".
+- 新しいエンティティ、コマンド、ハンドラのテスト。境界値。失敗経路。DB 書き込み、外部連携、トランザクションをまたぐものの統合テスト。
+- **各テストは必要か、正しい水準にあるか。** 同じ規則を契約・エンティティ・sql の水準で主張するのは 1 つの規則に 3 回払っている。純粋関数の規則が sql テストからしか届かないのもよくない。**遅い sql や E2E テストだけが押さえる規則は、スイートが遅すぎると感じた次の機会にテストごと消される。** ボタンを有効にするかのガードは集約の純粋関数なので、その水準で押さえる。逆に、**変更が型へ移した不変条件は、コンパイルが通らないか何も主張しないテストを残す。** 型がもう許さない状態を述べるテスト名やコメント（「値を一緒に送ると正規化される」）は構造的に古い。
+- テストは本番の読み取り経路と DI 経路を通っているか（近道のアサーションなし、`Result` の握りつぶしなし）。
+- **黙って不可逆な副作用を持つ経路**（`silent-failure-patterns.md` 参照）では、**壊れると黙る連鎖**を統合テスト 1 つで押さえているか。正常系を単独で見るだけではないか。検出すべき失敗は「単体テストは緑、連鎖は未検証」である。
 
-### 11. Readability and extensibility — what the next change pays
+### 11. 読みやすさと拡張性 — 次の変更が払うもの
 
-Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
-is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
-value does not depend on being right.
+スタイルではない。`finding-discipline.md` は好みを抑えるが、**これは明示的に抑えない。** 判定は、**次の変更とそれが触るべきものを名指しできるか**である。これらは 🧭 に置く（所見の価値が正しさに依存しない場所）。
 
-- **One rule, several expressions.** The entity method and the `WHERE` clause; the contract enum and the
-  domain union. They agree today. Adding a state means finding all of them, and nothing says how many
-  there are.
-- **A guard the fifth call site forgets.** A precondition enforced at the call site rather than in the
-  type or the aggregate. Count the current call sites; the finding is that the count can grow.
-- **Narrowing pushed onto every consumer.** A DTO of optionals, a nullable column copied into the domain
-  type. Each consumer writes the same three lines forever.
-- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
-  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
-  appears, and its author never reads it. Ask what *forces* it instead.
-- **The thing that will be copied next.** This change is the second instance of a shape; the third is
-  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
-  third copy consistent?
+- **1 つの規則、複数の表現。** エンティティのメソッドと `WHERE` 句、契約の enum とドメインのユニオン。今日は一致する。状態を足すには全部を見つける必要があり、いくつあるかを何も言わない。
+- **5 番目の呼び出し箇所が忘れるガード。** 型や集約ではなく呼び出し箇所で強制される前提条件。今の呼び出し箇所を数える。所見は、その数が増えうることである。
+- **すべての利用側に押しつけられた絞り込み。** 任意フィールドの DTO、ドメイン型に写された nullable 列。利用側が同じ 3 行を永久に書く。
+- **唯一の強制がコメント。** 呼び出し元を列挙した docstring、「必ず先に X を呼ぶ」、「これらを同期させる」。書いた日は正しく、次の入口が現れると黙って偽になり、作者は読み返さない。代わりに何が**強制する**かを問う。
+- **次に写されるもの。** この変更がある形の 2 例目なら、3 例目はこれだけを読んだ人が書く。その形は広める価値があるか、3 例目を一貫させるものはあるか。

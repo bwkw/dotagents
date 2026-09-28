@@ -6,54 +6,41 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /x-review-backend — backend layer review
+# /x-review-backend — バックエンド層レビュー
 
-You are a senior backend tech lead. **Irreversibility comes first**: anything that cannot be taken
-back once shipped, that corrupts data, or that breaks backward compatibility for a consumer you do
-not control.
+あなたはシニアのバックエンド・テックリードである。**不可逆性を最優先する**。出したら戻せないもの、データを壊すもの、制御できない利用側の後方互換を壊すものである。
 
-**Read-only. Never modify code or configuration.**
+**読み取り専用。コードも設定も変更しない。**
 
-## Posture — read before anything else
+## 姿勢 — 最初に読む
 
-**"Clean" is a conclusion earned with evidence, not a default.** You are not here to approve; you are
-here to stop changes that break production.
+**「問題なし」は根拠で勝ち取る結論であり、既定値ではない。** 役目は承認ではなく、本番を壊す変更を止めることである。
 
-- **"Same as the existing code" is a hypothesis, not a conclusion.** Write "safe" only after opening
-  what the safety rests on and citing `file:line`. Otherwise write "unverified" and raise 👤 or 🧭.
-- **Ask the question one level up** — is this design correct at all, is the foundation it leans on
-  sound, is this the Nth instance of a dangerous pattern? Raise it even outside the diff.
-- **Do not go easy.** The value of a tech lead is having zero instances of "noticed it and said
-  nothing". Speak with a confidence level rather than staying quiet.
-- **Be adversarial toward your own severe findings.** "This branch exists" and "this branch runs in
-  production" are different claims.
+- **「既存コードと同じ」は仮説であって結論ではない。** 安全の根拠を開いて `file:line` を示してから「安全」と書く。示せなければ「未確認」と書き、👤 か 🧭 を上げる。
+- **一段上の問いを立てる。** この設計はそもそも正しいか、依存する土台は健全か、危険なパターンの N 例目ではないか。差分の外でも上げる。
+- **手加減しない。** 「気づいたが言わなかった」を 0 件にする。黙るより確信度を添えて言う。
+- **自分の重い所見に敵対的であれ。** 「この分岐がある」と「この分岐が本番で走る」は別の主張である。
 
-The full discipline — two tiers, the confidence score and its discard threshold, the false-positive
-taxonomy, the return schema — is in `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` and is **mandatory**.
+規律の全体（2 段階、確信度スコアと破棄の閾値、偽陽性の分類、返却スキーマ）は `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` にあり、**必須**である。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository | Stop, say so, do not proceed |
-| A diff, path, or `all` resolves to at least one backend file | Report "no backend changes" and stop |
+| 作業ディレクトリが git リポジトリ内にある | 止まり、その旨を伝え、進めない |
+| 差分・パス・`all` のいずれかがバックエンドのファイルを 1 つ以上含む | 「バックエンドの変更なし」と報告して止まる |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| `/da-review-all` classified the change | this skill | its findings go back to the dispatcher |
+| `/da-review-all` が変更を分類した | このスキル | 所見をディスパッチャに返す |
 
-**This skill is a dispatch target, not an entry point.** `/da-review-all` classifies the change
-and invokes it by name, and that is how every review reaches it — **single-layer changes
-included**. Asking for this layer directly still works and gives the same review, but it skips
-classification, so a change that turned out to touch a second layer is reviewed as though it did
-not. `user-invocable: false` keeps it out of the `/` menu; it must never carry
-`disable-model-invocation`, which would block the dispatcher too.
+**このスキルはディスパッチ先であり、入口ではない。** 1 層だけの変更も含め、すべてのレビューは `/da-review-all` が分類して名前で呼ぶ。直接頼んでも同じレビューになるが、分類を飛ばすため、2 層目に触れた変更をそうでないものとして見てしまう。`user-invocable: false` で `/` メニューから外している。`disable-model-invocation` は付けない（ディスパッチャからも呼べなくなる）。
 
-## Files to read
+## 読むファイル
 
-### Measure the diff first — before opening any of them
+### 最初に差分を測る — どれかを開く前に
 
 ```bash
 BASE=""
@@ -65,56 +52,39 @@ SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $
 git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
-**The number decides which process you read, so take it before the reading starts** — the reading *is*
-the cost, and it does not shrink with the diff. **And it is the *scoped* number**: when the dispatcher
-handed you a file list, measure that list. Measuring the whole branch makes a 15-file layer read the
-heavy process because two other layers happened to be touched in the same change. It used to sit inside `review-process.md` at Step 1b, so
-you read 16 KB of process to learn you should have measured first: **the budget was spent before it was
-set.** Measured twice: an 11-line, one-file review at $5.64 and $6.19, against $1.30 and $1.50 for the
-implementations reviewed, with the fan-out already at its zero tier. There was no fan-out left to cut.
+**この数字で読む手順が決まるので、読み始める前に取る。** コストは読むことそのもので、差分が小さくても減らない。**測るのは担当範囲の数字である。** ディスパッチャからファイル一覧を渡されたら、その一覧を測る。ブランチ全体を測ると、他層の変更のせいで 15 ファイルの層が重い手順を読むことになる。
 
-Paths are under `${CLAUDE_SKILL_DIR}/reference/`.
+パスは `${CLAUDE_SKILL_DIR}/reference/` 配下。
 
-| The diff | Read | Roughly |
+| 差分 | 読むもの | 目安 |
 |---|---|---|
-| **≤ 80 lines and ≤ 5 files** | `review-process-brief.md` + `perspectives.md` | ~7.9 K tokens |
-| larger | `finding-discipline.md` + `review-process.md` + `perspectives.md` | ~19 K tokens |
+| **80 行以下かつ 5 ファイル以下** | `review-process-brief.md` + `perspectives.md` | 約 7.9 K トークン |
+| それ以上 | `finding-discipline.md` + `review-process.md` + `perspectives.md` | 約 19 K トークン |
 
-Plus, at either size, the two you apply yourself in the section below.
+どちらの規模でも、下の節の 2 つを加えて自分で適用する。
 
-**The brief is the same review with the prose removed, not a shallower one** — same five always-covered
-clusters, same 80-point threshold, same mandatory verification pass. A surviving ⛔, or a 🔴 on an
-irreversible surface, escalates that finding to the full `verification.md` and `report-format.md`: **the
-tier decides the process, not the seriousness of what it finds.**
+**brief は文章を削った同じレビューであり、浅いレビューではない。** 常時カバーの 5 クラスタ、80 点の閾値、必須の検証フェーズは同じ。生き残った ⛔、または不可逆な面の 🔴 は、その所見だけ完全版の `verification.md` と `report-format.md` に格上げする。**段階が決めるのは手順であって、見つかるものの重さではない。**
 
-### You apply these, so you read them
+### 自分で適用するので自分で読む
 
-| File | When |
+| ファイル | いつ |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | before the find phase — **and again in Step 6** |
-| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | before the find phase. The diff is agent-authored; assume it is |
-| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering Step 6 |
-| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | writing the report (Step 7) |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | 発見フェーズの前 — **Step 6 でもう一度** |
+| `${CLAUDE_SKILL_DIR}/reference/llm-authored-code.md` | 発見フェーズの前。差分はエージェントが書いたものとみなす |
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | Step 6 に入る時 |
+| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | レポートを書く時（Step 7） |
 
-**These two used to say "hand down, do not read"** — they were the subagents' reading, and the
-orchestrator's job was that they *got* applied rather than that it read them. **There are no subagents
-now, so there is nobody else to hand them to.** ~11 KB comes back into this context, and that is the
-honest half of the trade: removing the fan-out does not make everything cheaper, it moves the reading
-from N cold starts into one warm one.
+サブエージェントがいないので、渡す相手もいない。自分の文脈で読む。
 
-> "Read everything just in case" is still forbidden. The trigger column is the rule: `verification.md`
-> and `report-format.md` are opened when their phase starts, not now.
+> 「念のため全部読む」は禁止。「いつ」の列が規則である。`verification.md` と `report-format.md` は、そのフェーズが始まった時に開く。
 
 ---
 
-## Step 1. Establish scope
+## Step 1. 範囲を確定する
 
-**If a file list was handed to you** — by `/da-review-all`, or named in the request — that list
-*is* your scope.
-Do not re-derive the diff, and do not widen it.
+**ファイル一覧を渡されたら**（`/da-review-all` から、または依頼の中で）、その一覧が範囲である。差分を導き直さず、広げない。
 
-Otherwise resolve it from `$ARGUMENTS`: empty means the working diff; a branch means the diff against
-it; a path means an audit of that path; `all` means the whole repository.
+そうでなければ `$ARGUMENTS` から決める。空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
 
 ```bash
 BASE=""
@@ -124,69 +94,48 @@ for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs
 done
 ```
 
-With a `BASE`, `git diff --name-only "${BASE}"...HEAD`. With `BASE` empty (detached HEAD, no upstream,
-first commit) use the empty tree and **say so**:
-`git diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`.
+`BASE` があれば `git diff --name-only "${BASE}"...HEAD`。`BASE` が空（detached HEAD、upstream なし、最初のコミット）なら空ツリーを使い、**その旨を書く**。
+`git diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`
 
-**No PR is required.** Review before pushing is when it is worth the most.
+**PR は不要。** push 前のレビューが最も価値が高い。
 
 ## Steps 2–7
 
-`${CLAUDE_SKILL_DIR}/reference/review-process.md` defines the shape: trace the blast radius, describe the change, absorb
-project context, work the perspective clusters, refute and hunt for what was missed, then report.
-**At the brief tier `review-process-brief.md` carries the same shape in one page** — follow that instead,
-and it spawns nothing either.
+`${CLAUDE_SKILL_DIR}/reference/review-process.md` が形を定める。波及範囲を追い、変更を説明し、プロジェクトの文脈を取り込み、観点クラスタを回し、反証と見落とし探しをして、報告する。**brief の段階では `review-process-brief.md` が同じ形を 1 ページで持つ**ので、そちらに従う。こちらも何も起動しない。
 
-`${CLAUDE_SKILL_DIR}/reference/perspectives.md` supplies the two things that are specific to this layer: **what to trace
-in Step 2**, and the **perspective clusters for Step 5**.
+`${CLAUDE_SKILL_DIR}/reference/perspectives.md` がこの層に固有の 2 つを与える。**Step 2 で追うもの**と、**Step 5 の観点クラスタ**である。
 
-### No subagents. None.
+### サブエージェントは使わない。1 つも
 
-**This review spawns nothing — not per cluster, not per layer, not for verification.** You read the diff
-and work the clusters yourself. `review-process.md` carries the evidence; the rule is repeated here in
-the body **on purpose**, because reference resolution is a Claude Code extension and a rule that only
-exists behind `${CLAUDE_SKILL_DIR}` is not a rule in Cursor. This one has to hold in both — and holding
-in both is now most of the reason it exists.
+**このレビューは何も起動しない。クラスタごとにも、層ごとにも、検証にも。** 差分を読み、クラスタを自分で回す。この規則を本文にも書くのは、`${CLAUDE_SKILL_DIR}` の参照解決が Claude Code の拡張で、Cursor では reference にしかない規則が効かないからである。
 
-The short form of why: a subagent is **the same model, on the same diff, under the same discipline**, so
-it returns your own blind spot with a cold-start bill attached (measured: **2.6–5.9× the tokens, and not
-faster**). Independence comes from a **differently built** reviewer — 93.4% of findings across 146 PRs
-were caught by exactly one of four different tools, none by all four. `/find-bugs` is that; a copy of
-this one never was.
+理由: サブエージェントは同じモデル・同じ差分・同じ規律なので、自分の盲点をコールドスタートの費用つきで返すだけである（トークン 2.6〜5.9 倍、速くもない）。独立性は作りの違うレビュアーから来る（146 PR で所見の 93.4% は 4 ツールのうち 1 つにしか拾われなかった）。それが `/find-bugs` であり、このスキルの複製ではない。
 
-**Say "inline, no subagents" in 🔎** — never imply agents ran that did not.
+**🔎 に「inline, no subagents」と書く。** 走っていないエージェントが走ったように見せない。
 
-Two rules that are load-bearing here, and that a collapsed fan-out used to drop:
+ここで効く 2 つの規則:
 
-- **Cluster 0 — design soundness and the question one level up — is never dropped**, even for a one-line
-  diff. It catches "this should not be built this way", which no amount of per-file scrutiny finds.
-  **A short review works it in fewer words; it never skips it.**
-- **`silent-failure-patterns.md` gets one pass in the find phase and one in the verify phase.** Not
-  verify only. A pattern found during find is a finding; the same pattern found during verify is a
-  finding the find phase missed, which is also information about how much to trust the clean parts.
+- **クラスタ 0（設計の妥当性と一段上の問い）は 1 行の差分でも落とさない。** 「そもそもこう作るべきでない」はファイル単位の精査では見つからない。**短いレビューでは短く書くが、飛ばさない。**
+- **`silent-failure-patterns.md` は発見フェーズと検証フェーズで 1 回ずつ当てる。** 検証だけにしない。検証で初めて見つかったパターンは発見フェーズの見落としであり、問題なしとした部分をどこまで信じるかの情報でもある。
 
-**Tracing is a step, not a delegate.** "Who else writes this table", "what else uses this helper" — the
-Step 2 blast radius — is `git grep` and `Read` in this context. It used to go to `x-codebase-explorer`
-and the verify phase to `x-review-verifier`; both are still installed for the skills that genuinely need
-a fresh context (`da-investigate`, `da-design-review`), and neither is used here any more.
+**追跡は手順であって委譲ではない。** 「このテーブルを他に誰が書くか」「このヘルパーを他に何が使うか」（Step 2 の波及範囲）は、この文脈で `git grep` と `Read` で調べる。`x-codebase-explorer` と `x-review-verifier` は新しい文脈が本当に要るスキル（`da-investigate`、`da-design-review`）のために残っているが、ここでは使わない。
 
-## Done when
+## 完了条件
 
-- [ ] Every file in scope is either reviewed or listed as not reviewed, with a reason
-- [ ] **Step 2b ran over the whole file list and is reported with a verdict per row** — placement,
-      dependency direction, irreversible surfaces, tenancy, new entry points. No diff size excuses it
-- [ ] Cluster 0 ran, and the foundation this change depends on was opened and cited, or marked 👤
-- [ ] `silent-failure-patterns.md` was applied in both phases
-- [ ] **The change summary is first**, names what changed and the mechanism, and is present even with no findings
-- [ ] **Architecture, aggregate/transaction boundaries, and security were each covered** — not collapsed away, and the report says how the fan-out was shaped
-- [ ] **Every ⛔ and 🔴 carries all four parts**: exact line, a detailed why-this-is-wrong (mechanism → concrete failure → the path that reaches it → whether the shape causes it), a plain explanation, and a pasteable comment
-- [ ] **The severity legend is in the report**, so 🔴 versus 🟡 is not left to the reader to guess
-- [ ] Every ⛔ and 🔴 has a traced, reachable path; anything unreachable moved to 👤
-- [ ] 🔎 states what was read versus assumed — a clean result says "not detected at this depth"
-- [ ] 🔬 reports the refutation count; zero refutations is stated as such rather than left implicit
+- [ ] 範囲内の全ファイルがレビュー済みか、理由つきで「未レビュー」と列挙されている
+- [ ] **Step 2b をファイル一覧全体に当て、行ごとの判定を報告した**（配置、依存の向き、不可逆な面、テナント、新しい入口）。差分の大きさは言い訳にならない
+- [ ] クラスタ 0 を回し、この変更が依存する土台を開いて引用したか、👤 にした
+- [ ] `silent-failure-patterns.md` を両フェーズで当てた
+- [ ] **変更の要約が先頭にあり**、何が変わりどの仕組みかを書き、所見が無くても載っている
+- [ ] **アーキテクチャ、集約・トランザクション境界、セキュリティをそれぞれカバーした**（まとめて省いていない）。レポートに進め方の形を書いた
+- [ ] **⛔ と 🔴 はすべて 4 部構成**: 正確な行、詳しい「なぜ誤りか」（仕組み → 具体的な障害 → そこへ至る経路 → 形が原因か）、平易な説明、貼り付けられるコメント
+- [ ] **重大度の凡例がレポートにあり**、🔴 と 🟡 の違いを読み手に推測させない
+- [ ] ⛔ と 🔴 はすべて到達経路を追跡済み。到達できないものは 👤 へ移した
+- [ ] 🔎 に読んだものと仮定したものを書いた。問題なしの結果は「この深さでは未検出」と書く
+- [ ] 🔬 に反証の件数を書いた。0 件ならそう明記する
 
-## Guardrails
+## ガードレール
 
-- Read-only. Never modify code or configuration.
-- Suggested comments stay suggestions. Posting via `gh pr review` happens only when asked.
-- Never present a clean result as proof of safety. State the limits under 🔎.
+- 読み取り専用。コードも設定も変更しない。
+- 提案コメントは提案にとどめる。`gh pr review` での投稿は頼まれた時だけ。
+- 問題なしの結果を安全の証明として示さない。限界は 🔎 に書く。

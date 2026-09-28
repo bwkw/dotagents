@@ -1,224 +1,130 @@
-# Frontend layer — what to trace, and the perspective clusters
+# フロントエンド層 — 追うものと観点クラスタ
 
-The two layer-specific parts of the review: **Step 2** (what to trace) and **Step 5** (the perspective
-clusters to fan out across). Posture, the seven steps, and the finding discipline come from the skill
-that sent you here.
+レビューのうちこの層に固有の 2 つ、**Step 2**（追うもの）と **Step 5**（観点クラスタ）を定める。姿勢・7 つの手順・所見の規律は呼び出し元のスキルに従う。
 
-If you arrived here without having read `finding-discipline.md` and `review-process.md`, **read those
-first** — this file assumes both. `silent-failure-patterns.md` applies on top of whichever cluster you
-are assigned.
+`finding-discipline.md` と `review-process.md` を読まずに来たなら、**先にそちらを読む**。`silent-failure-patterns.md` はどのクラスタにも重ねて当てる。
 
-**Read-only. Never modify code.**
+**読み取り専用。コードを変更しない。**
 
 ---
 
-## Step 2 — what to trace in this layer
+## Step 2 — この層で追うもの
 
-1. **Changed units**: components, hooks, stores, routes, API clients and generated types, i18n
-   resources, config.
-2. **Bidirectional usage trace** (`grep`):
-   - A change to shared UI, a hook, a store, or a util requires **naming every screen and route that
-     uses it**. One component change reaches many screens.
-   - The API contract this consumes (generated types) against what the backend actually provides.
-3. **Related screens and flows**: name **every** route, screen, and user flow affected, and include
-   them in the Step 5 reading.
-4. **Adjacent assets**: route definitions, shared UI, state management, API client, i18n, forms.
+1. **変更された単位**: コンポーネント、フック、ストア、ルート、API クライアントと生成型、i18n リソース、設定。
+2. **双方向の利用追跡**（`grep`）:
+   - 共有 UI・フック・ストア・ユーティリティを変えたら、**使っている画面とルートをすべて名指しする**。1 つのコンポーネント変更が多くの画面に届く。
+   - 消費する API 契約（生成型）と、バックエンドが実際に返すものを突き合わせる。
+3. **関連する画面とフロー**: 影響するルート・画面・ユーザーフローを**すべて**名指しし、Step 5 の読む範囲に入れる。
+4. **隣接資産**: ルート定義、共有 UI、状態管理、API クライアント、i18n、フォーム。
 
-Note on the discipline: in this layer, the "unverified safety claim" that matters most is
-authorization. **Reading only the client is never enough** — the guard is the server-side check.
-Either cite the `file:line` of that check, or mark it unverified.
+この層で最も効く「未確認の安全の主張」は認可である。**クライアントだけ読んでも足りない。** ガードはサーバー側のチェックなので、その `file:line` を引くか、未確認と書く。
 
 ---
 
-## Step 2b — the conformance sweep in this layer
+## Step 2b — この層での適合スイープ
 
-`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. Report a
-verdict per row, citing the rule and a `file:line`.
+`review-process.md` の Step 2b は差分全体への機械的な確認で、**差分の大きさは言い訳にならない**。行ごとに、規則と `file:line` を引いて判定を報告する。
 
-| Row | Frontend form |
+| 行 | フロントエンドでの形 |
 |---|---|
-| **Placement** | Route-colocated files versus shared ones — a hook two routes will need does not belong under one of them, and a component placed in `shared/` that only one screen uses is the same mistake mirrored. Check against this repository's own convention, not a general instinct. |
-| **Dependency direction** | `grep` the diff's imports: a route reaching into another route's private directory; a shared component importing feature-specific state; a presentational component importing the API client directly. |
-| **Irreversible surfaces** | **Public routes and their parameters** — a renamed path breaks bookmarks and inbound links, and no test fails. **Persisted client state** — a changed shape in `localStorage`, IndexedDB or a URL-encoded filter that existing users already hold, with no migration and no tolerant read. |
-| **Authorization boundary** | Every new screen, action and route guard. **Hidden UI is not a control**: for each, cite the server-side check by `file:line` or mark it unverified. A finding here is a backend finding — say that. |
-| **New entry points** | Every new mutation, upload, download or navigation that leaves the app: does it handle the failure path, and is the disabled/empty state reachable and explicable to the user? |
+| **配置** | ルートに同居するファイルか共有か。2 つのルートが使うフックを片方の下に置かない。1 画面しか使わないコンポーネントを `shared/` に置くのも裏返しの同じ誤り。一般的な勘ではなく、このリポジトリの慣習で確かめる。 |
+| **依存の向き** | 差分の import を `grep` する。ルートが別ルートの私的なディレクトリに手を伸ばしていないか。共有コンポーネントが機能固有の状態を import していないか。表示用コンポーネントが API クライアントを直接 import していないか。 |
+| **不可逆な面** | **公開ルートとそのパラメータ**（パスのリネームはブックマークと流入リンクを壊し、どのテストも落ちない）。**永続化済みのクライアント状態**（既存ユーザーが持つ `localStorage`・IndexedDB・URL エンコードのフィルタの形を、マイグレーションも寛容な読み取りもなく変える）。 |
+| **認可の境界** | 新しい画面、操作、ルートガードのすべて。**UI を隠すことは制御ではない。** それぞれサーバー側のチェックを `file:line` で引くか、未確認と書く。ここの所見はバックエンドの所見であり、そう書く。 |
+| **新しい入口** | アプリの外へ出る新しい mutation、アップロード、ダウンロード、遷移のすべて。失敗経路を扱うか。無効・空の状態に到達でき、ユーザーに説明がつくか。 |
 
-**One row is specific to this layer and easy to skip: a value the API returns that the UI never
-reads.** `grep` each new response field across the route's directory. A field the backend computes,
-stores and returns with no consumer is either a missing screen or a dead column, and it is invisible
-from either side alone — observed as a count of excluded records that nothing displayed.
+**この層に固有で飛ばしやすい行がもう 1 つある。API が返すのに UI が読まない値である。** 新しいレスポンスフィールドごとにルートのディレクトリを `grep` する。バックエンドが計算・保存・返却するのに消費者がいないフィールドは、足りない画面か死んだ列であり、どちらか片側からは見えない。
 
-## Perspective clusters
+## 観点クラスタ
 
-### 0. Design soundness and the question one level up ★system-wide
+### 0. 設計の妥当性と一段上の問い ★system-wide
 
-Required even for a small diff. When collapsing the fan-out, this must still land in one subagent.
+小さな差分でも必須。
 
-- Is this screen, state, or flow design **correct at all**? Is it needed, is the boundary right, is
-  there a simpler alternative?
-- **Verify the foundation by reading it.** Open at least once the shared UI, hook, or store this
-  depends on, and the authorization premise — **especially the server-side check** — and confirm
-  with `file:line` that the safety premise holds. Cannot confirm → 👤. Suspicious → 🧭.
-- **Propagation risk**: is this adding the Nth instance of a dangerous pattern — authorization by
-  hiding UI, a persisted-schema change with no fallback, a form with no double-submit guard? → 🧭
-- Naming, responsibility, over- and under-engineering: component decomposition, where state lives.
+- この画面・状態・フローの設計は**そもそも正しいか**。必要か、境界は正しいか、もっと単純な代案はないか。
+- **土台は読んで確かめる。** 依存する共有 UI・フック・ストアと、認可の前提（**特にサーバー側のチェック**）を最低 1 回開き、安全の前提が成り立つことを `file:line` で確かめる。確かめられない → 👤。怪しい → 🧭。
+- **伝播のリスク**: 危険なパターン（UI を隠すことによる認可、フォールバックのない永続スキーマ変更、二重送信ガードのないフォーム）の N 例目を足していないか → 🧭
+- 命名、責務、過剰・過少な設計: コンポーネントの分割、状態の置き場所。
 
-### 1. Intent and semantic correctness ★always covered
+### 1. 意図と意味の正しさ ★always covered
 
-**The largest category of bugs that survive review, by a wide margin.** The component renders, and
-renders something other than what was asked for.
+**レビューを生き残るバグで群を抜いて最大の区分。** コンポーネントは描画されるが、頼まれたものと違うものを描画する。
 
-- **Against the stated intent.** Read the spec, ticket, or design first. Does the change produce what it
-  describes? **If there is no stated intent, that is the finding** → 👤.
-- **Error and empty states — the most missed sub-cause here too.** What renders while loading, on a
-  failed request, on an empty list, on a partial response? A swallowed fetch error that leaves the
-  previous data on screen is worse than an error message.
-- **Missing cases.** Zero items, one item, very many; the longest realistic string; a null optional
-  field; a user without the permission the component assumes.
-- **Wrong condition or wrong value displayed.** An inverted boolean, a wrong class or variant, the wrong
-  field of the right object, a stale value from a closure. Read the JSX against the intended output.
-- **Incomplete change.** One usage of a component updated and its other call sites not; a prop added and
-  a default missing; a new variant added and the styles for it not.
+- **述べられた意図と突き合わせる。** 先に spec・チケット・デザインを読み、変更がそのとおりのものを出すか確かめる。**述べられた意図が無ければ、それが所見** → 👤。
+- **エラーと空の状態**（ここでも最も見落とされる要因）。読み込み中、リクエスト失敗、空の一覧、部分的なレスポンスで何が描画されるか。取得エラーを握りつぶして前のデータを画面に残すのは、エラーメッセージより悪い。
+- **抜けているケース。** 0 件、1 件、非常に多い件数。現実的な最長の文字列。null の任意フィールド。コンポーネントが仮定する権限を持たないユーザー。
+- **条件の誤り、表示する値の誤り。** 反転した真偽値、誤った class や variant、正しいオブジェクトの誤ったフィールド、クロージャに残った古い値。意図した出力と照らして JSX を読む。
+- **不完全な変更。** コンポーネントの 1 つの利用箇所だけ直して他の呼び出し箇所を直していない。prop を足して既定値がない。variant を足してそのスタイルがない。
 
-### 2. Breaking changes and irreversibility ★highest priority
+### 2. 破壊的変更と不可逆性 ★highest priority
 
-- Changing, removing, or redirecting a **public URL or route** — broken bookmarks, inbound links,
-  shared links, SEO.
-- **Persisted schema changes** in `localStorage`, `IndexedDB`, or cookies that are incompatible with
-  what existing users already have stored — is there a migration or a fallback?
-- Consumer-side contract breakage: generated types drifting from the real API, a field made required
-  with no handling.
-- Destructive actions — deletion, irreversible updates, submissions — do they have confirmation or
-  an undo window, and a double-submit guard?
+- **公開 URL やルート**の変更・削除・リダイレクト。壊れるブックマーク、流入リンク、共有リンク、SEO。
+- 既存ユーザーが保存済みの内容と互換のない `localStorage`・`IndexedDB`・cookie の**永続スキーマ変更**。マイグレーションかフォールバックがあるか。
+- 利用側での契約の破綻: 生成型が実 API からずれる、必須にしたフィールドの扱いがない。
+- 破壊的な操作（削除、不可逆な更新、送信）に確認か取り消し猶予と、二重送信ガードがあるか。
 
-> Calibration: a route change you can put a redirect on, and a `localStorage` schema change with a
-> fallback, are **not** irreversible. Reserve `irreversible=true` for state that is genuinely
-> unrecoverable.
+> 較正: リダイレクトを置けるルート変更と、フォールバックのある `localStorage` スキーマ変更は不可逆では**ない**。`irreversible=true` は本当に回復できない状態にだけ使う。
 
-### 3. Security, authorization bypass, secret exposure ★focus
+### 3. セキュリティ、認可の迂回、秘密の露出 ★focus
 
-- XSS: `dangerouslySetInnerHTML`, `v-html`, direct DOM insertion, unsanitised input.
-- **Authorization bypass**: is access enforced only by hiding UI? Is the server-side check actually
-  there?
-- Secrets reaching the client (private keys, full tokens, PII); where tokens and sessions are
-  stored; CSRF; open redirect; `rel="noopener"` on external links; origin validation on `postMessage`
-  and iframes.
-- **CSP.** Does the change need `unsafe-inline` or `unsafe-eval` to work? That is a finding, not a
-  configuration detail — prefer a nonce or a hash. **A new frontend dependency or embedded widget means
-  the policy needs re-reading**: an added allowlisted origin is a permanent hole and nobody goes back to
-  remove it. Count the allowlisted domains before and after.
-- **Third-party scripts are client-side supply chain.** An analytics tag, a chat widget, or a tag
-  manager runs with full page privileges and **can change after your review without a deploy**. Per
-  script added: what can it reach, is it pinned by integrity hash, and does it see PII it should not?
-  The dependency checks in `llm-authored-code.md` apply to client packages too.
+- XSS: `dangerouslySetInnerHTML`、`v-html`、DOM への直接挿入、無害化していない入力。
+- **認可の迂回**: アクセスを UI を隠すことだけで守っていないか。サーバー側のチェックは実際にあるか。
+- クライアントに届く秘密（秘密鍵、トークン全体、PII）。トークンとセッションの保存場所。CSRF。オープンリダイレクト。外部リンクの `rel="noopener"`。`postMessage` と iframe のオリジン検証。
+- **CSP。** 動かすのに `unsafe-inline` や `unsafe-eval` が要る変更は、設定の細部ではなく所見である（nonce かハッシュを優先）。**新しいフロントエンドの依存や埋め込みウィジェットは、ポリシーの読み直しを要する。** 許可リストに足したオリジンは恒久の穴で、誰も消しに戻らない。許可ドメインの数を前後で数える。
+- **サードパーティスクリプトはクライアント側のサプライチェーンである。** 解析タグ、チャットウィジェット、タグマネージャはページの全権限で動き、**デプロイなしでレビュー後に変わりうる。** 足したスクリプトごとに、何に届くか、integrity ハッシュで固定しているか、見るべきでない PII を見ないかを問う。`llm-authored-code.md` の依存チェックはクライアントのパッケージにも当てる。
 
-### 4. State and data consistency
+### 4. 状態とデータの一貫性
 
-- Cache invalidation (query invalidation and key design); rollback consistency for optimistic
-  updates; guarding against discarding unsaved form input; multiple submission and race conditions;
-  how a global state change ripples to other screens.
+- キャッシュの無効化（クエリの無効化とキー設計）。楽観的更新のロールバックの一貫性。未保存のフォーム入力を捨てない防御。多重送信と競合状態。グローバル状態の変更が他画面へ波及する仕方。
 
-**Screen state held as a product of flags.** `isLoading` plus `data | null` plus `error | null` is this
-layer's most common instance of the shape in `llm-authored-code.md` — eight combinations in reach where
-four have meanings, and every render path then carries a branch for one of the surplus four. The tell in
-a diff is **two branches rendering the same empty state**: one for "loaded and empty", one for "not
-loading, no error, no data", which is not a state the screen has. Ask whether the states are a union with
-the data attached to the variant that owns it, and whether the render is exhaustive over it rather than a
-chain of early returns.
+**フラグの積で持つ画面状態。** `isLoading` と `data | null` と `error | null` は、この層で `llm-authored-code.md` の形が最もよく出る例である。届く組み合わせは 8 通りで意味があるのは 4 つ、描画経路はどれも余分な 4 つのための分岐を持つ。差分の兆候は**同じ空状態を描画する 2 つの分岐**で、一方は「読み込み済みで空」、もう一方は「読み込み中でなく、エラーもデータもない」（画面が持たない状態）である。状態が、データを持ち主の変種に付けたユニオンになっているか、描画が早期 return の連鎖ではなくそのユニオンに対して網羅的かを問う。
 
-### 5. Accessibility — against WCAG 2.2
+### 5. アクセシビリティ — WCAG 2.2 に照らす
 
-**2.2 is the current standard** and supersedes 2.1; it adds nine criteria aimed at low vision,
-cognitive and motor disability, and touch devices. Check against it rather than against a general sense
-of "accessible".
+**現行標準は 2.2**（2.1 を置き換え、弱視・認知・運動の障害とタッチ端末向けに 9 基準を追加）。「アクセシブルそう」ではなくこれに照らす。
 
-- Keyboard operation and focus management; `aria-*` and roles; label association; focus trapping in
-  modals; image alt text.
-- **Contrast (1.4.3 text, 1.4.11 non-text)** — the most commonly failed criterion anywhere. New
-  brand colours, disabled states, placeholder text, and icons on coloured backgrounds are where it
-  breaks. A hex pair is checkable in seconds; do it rather than guessing.
-- **Accessible Authentication (3.3.8)** — a cognitive function test cannot be the *only* way to
-  authenticate. Concretely: **paste must work in password and one-time-code fields**, and autofill must
-  not be blocked. Disabling paste "for security" is now a conformance failure, and it is a common
-  regression because it looks like hardening.
-- **Focus not obscured (2.4.11)** — a sticky header, cookie banner, or floating action button covering
-  the focused element. Easy to introduce with a layout change, invisible to a mouse user.
-- **Target size (2.5.8)** — interactive targets at least 24×24 CSS pixels, or adequately spaced.
-- Respect `prefers-reduced-motion` on any new animation or transition.
+- キーボード操作とフォーカス管理。`aria-*` とロール。ラベルの関連付け。モーダルのフォーカストラップ。画像の alt テキスト。
+- **コントラスト（1.4.3 テキスト、1.4.11 非テキスト）** — どこでも最も落ちる基準。新しいブランド色、無効状態、プレースホルダ、色つき背景のアイコンで崩れる。hex の組は数秒で確かめられるので、推測せず確かめる。
+- **Accessible Authentication（3.3.8）** — 認知機能テストを認証の*唯一の*手段にしない。具体的には**パスワードとワンタイムコードの欄で貼り付けが効き**、自動入力を妨げない。「セキュリティのため」の貼り付け禁止は適合違反で、堅牢化に見えるのでよく退行する。
+- **Focus not obscured（2.4.11）** — 固定ヘッダ、cookie バナー、フローティングボタンがフォーカス中の要素を覆う。レイアウト変更で入りやすく、マウス利用者には見えない。
+- **Target size（2.5.8）** — 操作対象は 24×24 CSS ピクセル以上か、十分な間隔。
+- 新しいアニメーションやトランジションでは `prefers-reduced-motion` を尊重する。
 
-### 6. Performance, bundle, UX
+### 6. 性能、バンドル、UX
 
-Measure against the current Core Web Vitals thresholds rather than "feels fast": **LCP ≤ 2.5s,
-INP ≤ 200ms, CLS ≤ 0.1**.
+「速く感じる」ではなく、現行の Core Web Vitals の閾値に照らす: **LCP ≤ 2.5s、INP ≤ 200ms、CLS ≤ 0.1**。
 
-- **INP is the one that fails.** It replaced FID, and roughly 43% of sites miss the 200ms threshold. It
-  is almost always **JavaScript occupying the main thread while the user is interacting** — a long task
-  triggered by a click, an expensive synchronous handler, a large re-render on keystroke. Look for work
-  that should be chunked, deferred, or moved off the interaction path.
-- Unnecessary re-renders; heavy synchronous work; wrong `useEffect` dependency arrays (infinite
-  loops); fetch waterfalls and N+1.
-- **CLS**: images and embeds without reserved dimensions, late-injected banners, web fonts swapping
-  metrics.
-- Bundle size from a heavy new dependency — and whether it is tree-shakeable and actually needed on the
-  critical path.
+- **落ちるのは INP である**（FID の後継で、約 43% のサイトが 200ms を超える）。原因はほぼ**ユーザー操作中にメインスレッドを占有する JavaScript** である。クリックが引き起こす長いタスク、重い同期ハンドラ、キー入力ごとの大きな再描画。分割・遅延・操作経路から外すべき処理を探す。
+- 不要な再描画。重い同期処理。誤った `useEffect` の依存配列（無限ループ）。取得のウォーターフォールと N+1。
+- **CLS**: 寸法を確保していない画像と埋め込み、遅れて差し込まれるバナー、メトリクスの違う Web フォントへの差し替え。
+- 重い新しい依存によるバンドルサイズ。tree-shake できるか、クリティカルパスで本当に要るか。
 
-### 7. Robustness, observability, platform compatibility
+### 7. 堅牢性、可観測性、プラットフォーム互換性
 
-- **Error boundaries**; complete handling of loading, error, and empty states; client error
-  reporting and analytics — **and whether PII is being put into that telemetry**; browser and device
-  compatibility; responsive and mobile behaviour; feature flags and staged release.
+- **エラーバウンダリ**。読み込み・エラー・空の状態を漏れなく扱うこと。クライアントのエラー報告と解析 — **そのテレメトリに PII を入れていないか**。ブラウザと端末の互換性。レスポンシブとモバイルの挙動。フィーチャーフラグと段階リリース。
 
-### 8. i18n and type/contract consistency
+### 8. i18n と型・契約の一貫性
 
+- ハードコードされた文字列。必要なロケールがすべてあるか。生成された API 型との一致。`any` や不要な `as` による型安全の侵食。
 
-- Hardcoded strings; whether all required locales are present; agreement with generated API types;
-  type safety eroded by `any` or unnecessary `as`.
+**バックエンドに属する知識の言い直し。** どの属性が対象か、どんな種類があるか、並び順は何か — フロントエンドが 2 回目に列挙すると、バックエンドが 1 つ足した時点で 2 つの一覧はずれる。**サーバーが送り、フロントエンドは従う。** そうした一覧を見たら、サーバーと食い違えなくする仕組みは何かを問う。
 
-**Knowledge that belongs to the backend, re-stated here.** Which attributes are eligible, which kinds
-exist, what the ordering is — if the frontend enumerates it a second time, the two lists diverge the
-first time the backend adds one. **The server should send it and the frontend should follow.** When you
-see such a list in frontend code, ask what makes it impossible for it to disagree with the server.
+言い直した規則が**論理積**なら、すべての項が写しに残っているかを確かめる。「このステップは自分のもの」を残して「これは最新版」を落とした有効化チェックは、古いデータで操作できそうなボタンを出し、欠けた項はクリックの*後*にエラーとして現れる。安全な形は、サーバーが判断して単一の答えを送り、無効の場合は理由を付けることである。
 
-When the re-stated rule is a **conjunction**, check that every term survived the copy. An enablement
-check that keeps "this step is mine" and drops "this is the latest version" renders a button that looks
-actionable on stale data, and the missing term surfaces only as an error *after* the click. The safe
-shape is the server deciding and sending the single answer, with the reason attached for the disabled
-case.
+**コンパイラが強制する網羅性。** `as const satisfies readonly T[]` は**部分集合でも型検査が通る**。バックエンドが種類を足しても一覧は足りないまま、何もコンパイルに失敗しない。`Record<Union, …>` にはその穴がない。選択肢・並び順・ラベルの対応表ごとに、**明日サーバーが 1 つ足したらこのファイルのビルドは失敗するか**を問う。
 
-**Exhaustiveness the compiler enforces.** `as const satisfies readonly T[]` **type-checks on a subset**:
-the backend adds a kind, this list stays short, and nothing fails to compile. `Record<Union, …>` does
-not have that hole. For any options list, ordering or label map, ask: **if the server adds one tomorrow,
-does this file fail to build?**
+**語彙をバックエンドに合わせ、古い形を指すものを残さない。** リネーム・削除されたフィールドにちなむ型・定数・翻訳キーは、次の読み手をもう無い形の探索に送る。差分で消えた識別子をフロントエンド全体でも検索する。
 
-**Vocabulary matching the backend's, and nothing pointing at the old shape.** Types, constants and
-translation keys named after fields that were renamed or removed send the next reader looking for a
-shape that no longer exists. Search the diff's removed identifiers across the frontend too.
+**依存の向き。** 返す型に届くためだけにフックを import する形は問う。型は単独で import できる場所に置く。
 
-**Dependency direction.** Importing a hook only to reach the type it happens to return is the shape to
-question — the type should live where it can be imported on its own.
+**締めつけの上限。** この層は型レベルの工夫（条件型、深いジェネリクス、規則を表す mapped type）が実際に現れる層である。強いほどよいわけではない。型が持つ価値のある 4 条件は `llm-authored-code.md` の過剰な抽象化にある。名前つきユニオンで同じ規則を運べるならそちらを優先し、差分が計算で表す形を選んだらそう書く。
 
-**And the ceiling on tightening.** This is the layer where type-level cleverness actually appears —
-conditional types, deep generics, a mapped type encoding the rule. Stronger is not automatically
-better: the four conditions a type has to meet to be worth having are in `llm-authored-code.md` under
-over-abstraction. Where a named union would carry the same rule, prefer it, and say so when a diff
-chooses the computed form.
+### 9. 読みやすさと拡張性 — 次の変更が払うもの
 
-### 9. Readability and extensibility — what the next change pays
+スタイルではない。`finding-discipline.md` は好みを抑えるが、**これは明示的に抑えない。** 判定は、**次の変更とそれが触るべきものを名指しできるか**である。これらは 🧭 に置く（所見の価値が正しさに依存しない場所）。
 
-Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
-is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
-value does not depend on being right.
-
-- **State that is derived but stored.** A value kept in `useState` that is a function of props or of
-  server state — every future write path has to remember to update it too.
-- **A prop that only exists to be threaded.** Three components deep to reach one leaf; the fourth screen
-  that needs it will thread it again.
-- **Exhaustiveness the compiler does not check.** `as const satisfies readonly T[]` for options, labels
-  or orderings type-checks on a *subset*: the server adds a case tomorrow and this list stays silently
-  short. `Record<Union, …>` fails to compile instead.
-- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
-  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
-  appears, and its author never reads it. Ask what *forces* it instead.
-- **The thing that will be copied next.** This change is the second instance of a shape; the third is
-  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
-  third copy consistent?
+- **導出できるのに保存している状態。** props やサーバー状態の関数である値を `useState` に持つ。将来の書き込み経路がすべて、それも更新するのを覚えておく必要がある。
+- **通すためだけの prop。** 1 つの葉に届くまで 3 コンポーネント分。それを要する 4 つ目の画面がまた通す。
+- **コンパイラが確かめない網羅性。** 選択肢・ラベル・並び順の `as const satisfies readonly T[]` は*部分集合*でも型検査が通る。明日サーバーがケースを足すと一覧は黙って足りなくなる。`Record<Union, …>` ならコンパイルに失敗する。
+- **唯一の強制がコメント。** 呼び出し元を列挙した docstring、「必ず先に X を呼ぶ」、「これらを同期させる」。書いた日は正しく、次の入口が現れると黙って偽になり、作者は読み返さない。代わりに何が**強制する**かを問う。
+- **次に写されるもの。** この変更がある形の 2 例目なら、3 例目はこれだけを読んだ人が書く。その形は広める価値があるか、3 例目を一貫させるものはあるか。

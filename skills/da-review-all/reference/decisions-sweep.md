@@ -1,18 +1,14 @@
-# The decisions sweep — what nobody has settled yet
+# 決まっていないことの洗い出し
 
-Runs at Step 4b, **on the someone-else's-PR path only**, after the layer reviews and before the
-overview page. Its output is the page's final section, and the subset needing the author's answer
-becomes review-body items.
+Step 4b で、**他人の PR の場合だけ**、層のレビューの後・概要ページの前に実行する。出力はページの最後の節になり、作者の答えが要るものはレビュー本文の項目になる。
 
-**What is undecided is often worth more to the author than what is wrong.** A finding says "fix this".
-This says "nobody has decided this yet", and those are the items that surface after release, when the
-cost of deciding has gone up.
+**作者にとって、決まっていないことは誤りより価値があることが多い。** 所見は「直せ」と言い、これは「まだ誰も決めていない」と言う。こうした項目はリリース後、決める費用が上がってから表に出る。
 
 ---
 
-## Two sources, and the second is where the surprises are
+## 情報源は 2 つ。意外なものは 2 つ目にある
 
-### 1. Mechanical — over the whole diff
+### 1. 機械的な探索 — 差分全体
 
 ```bash
 # every changed file, production and test
@@ -21,46 +17,41 @@ for f in $(git diff --name-only "$BASE" "$HEAD"); do
 done
 ```
 
-Adjust the markers to the repository's own vocabulary — that list is what a Japanese codebase uses;
-another will use `XXX`, `HACK`, `pending spec`. **Read the surrounding lines, not just the hit**: a
-`TODO` inside a test fixture and a `TODO` on a constant that ships in the output are different items.
+マーカーはリポジトリ自身の語彙に合わせる（上は日本語のコードベースの例。他では `XXX`、`HACK`、`pending spec`）。**ヒットした行だけでなく前後を読む。** テストフィクスチャの中の `TODO` と、出力に載る定数の `TODO` は別の項目。
 
-This finds what the author already knows about. It is cheap and it is not the point.
+これは作者が既に知っていることを拾う。安いが、本題ではない。
 
-### 2. From the review itself — the ones with no marker
+### 2. レビュー自体から — マーカーの無いもの
 
-These have no TODO because nobody realised they were decisions. Each shape below was found this way in
-a real review, and **none of them appeared in the PR description**:
+誰も判断だと気づかなかったので TODO が無い。下の形はどれも実際のレビューで見つかり、**どれも PR の説明に無かった**。
 
-| Shape | Question it hides |
+| 形 | 隠れている問い |
 |---|---|
-| **A constant with a citation-shaped comment and no citation** | Its sibling in the same file carries a "verify against the source" TODO and this one does not. Why is one checked and the other not? |
-| **A field the backend computes, stores and returns that no consumer reads** | Is it meant to be shown and the UI is missing, or is it not meant to be shown and the column is dead? Both are decisions; the code answers neither. |
-| **A supported-range that expires** | A table valid for two fiscal years, a certificate, a schema version. **When it lapses, what happens, and who is holding the date?** |
-| **A retention that nothing enforces** | Code comments claiming a lifecycle policy cleans up, where the infrastructure has none. The artefact people download, as separate from the intermediates. |
-| **A naming or format convention the receiving system may own** | Filenames inside an archive, a header row, an encoding. Cheap now, a full regeneration later. |
-| **A value that does not reach what was already produced** | A provisional constant "fixed later by changing one line" — true for new output, false for everything already shipped with the provisional value. |
+| **出典らしいコメントがあり出典の無い定数** | 同じファイルの兄弟には「原典と照合」の TODO があり、これには無い。なぜ一方は確認済みで他方は違うのか |
+| **backend が計算・保存・返却し、どの利用側も読まないフィールド** | 表示するはずで UI が欠けているのか、表示しないはずで列が死んでいるのか。どちらも判断で、コードはどちらにも答えない |
+| **期限の切れる対応範囲** | 2 年度分だけ有効な表、証明書、スキーマのバージョン。**切れた時に何が起き、誰がその日付を持っているか** |
+| **何も強制していない保持期間** | ライフサイクルポリシーが片付けるとコメントにあるが、インフラには無い。中間生成物とは別に、人がダウンロードする成果物 |
+| **受け取る側のシステムが決めるかもしれない命名や形式の規約** | アーカイブ内のファイル名、ヘッダー行、エンコーディング。今は安く、後では全部の再生成になる |
+| **既に出したものに届かない値** | 「後で 1 行直せば直る」暫定の定数。新しい出力には正しく、暫定値で既に出したものには誤り |
 
-## Write the consequence, not the marker
+## マーカーではなく帰結を書く
 
-The TODO restated is worth nothing; the author wrote it. What they do not have is **what changes
-depending on the answer**.
+TODO を言い直しても価値は無い。作者が書いたもの。作者に無いのは**答えによって何が変わるか**。
 
 > ✗ 「`ver` 属性が暫定値です」
 > ✓ 「`ver` を後から直しても、それまでに出した ZIP には遡及しません。年調ソフトが `ver` を見て弾く仕様なら、確定前に本番で出した分は全部出し直しになります。」
 
-The second is the same fact with the decision attached, and it is what makes someone act this week
-rather than next quarter.
+2 つ目は同じ事実に判断を付けたもので、人を来四半期ではなく今週動かす。
 
-## Grouping
+## まとめ方
 
-Group by **what the answer changes**, not by file:
+ファイルではなく**答えが何を変えるか**でまとめる。
 
-- **出力そのものが変わる** — highest cost to defer; anything already produced becomes wrong
-- **誰が使えて誰が使えないか** — a tenant or user class silently excluded
-- **失敗したときの扱い** — all-or-nothing versus partial, and what the operator does next
-- **画面に出す情報** — computed but never surfaced
-- **データの保持** — what is kept, for how long, and whether anything enforces it
-- **リリース運用** — order, follow-up work, what expires
+- **出力そのものが変わる** — 先送りの費用が最も高い。既に出したものがすべて誤りになる
+- **誰が使えて誰が使えないか** — あるテナントや利用者の種類が黙って外れる
+- **失敗したときの扱い** — 全部か無しか、部分的か。運用者が次に何をするか
+- **画面に出す情報** — 計算されるが表に出ない
+- **データの保持** — 何を・どれだけ残し、何かがそれを強制するか
+- **リリース運用** — 順序、後続作業、期限が切れるもの
 
-Then say which to settle first, and why — usually the group whose answer invalidates work already done.
+最後に、どれを先に決めるべきかと理由を書く。たいてい、答えが既に済んだ作業を無効にするグループ。
