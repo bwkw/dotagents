@@ -9,12 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  # The README asks for node 18 or newer. That floor was claimed, never run: CI tested 22 only, so
-  # "18 以上" was an unverified requirement being handed to people installing this. A floor nobody
-  # exercises is a floor that has already moved.
+  # README は node 18 以上を求めているので、その下限で実際に全チェックを回す。
   #
-  # A separate job rather than a matrix dimension on `shell`, so the job names stay stable -- they are
-  # the contexts the branch ruleset requires, and renaming them silently un-requires them.
+  # `shell` の matrix に足さず別ジョブにするのは、ジョブ名を安定させるため。ジョブ名はブランチルールの
+  # 必須チェックになっており、変えると黙って必須から外れる。
   node-floor:
     runs-on: ubuntu-latest
     steps:
@@ -24,19 +22,18 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Report the versions actually in use
+      - name: 実際に使っているバージョンを表示
         run: |
           node -v
           bash --version | head -1
 
-      - name: All checks, on the oldest node we claim to support
+      - name: 対応を謳う最古の node で全チェック
         run: |
           node --check scripts/lib/merge-settings.mjs
           ./scripts/check.sh
 
-  # Behaviour of the shell scripts, on both operating systems. Breakage has gone in both
-  # directions: bash 4 constructs that pass on Linux and fail on macOS (which ships bash 3.2), and
-  # `mktemp -t` spellings that work on BSD and fail on GNU coreutils. One OS catches neither.
+  # シェルスクリプトの振る舞いを両 OS で確かめる。Linux で通って macOS（bash 3.2）で落ちる bash 4 構文と、
+  # BSD で動いて GNU coreutils で落ちる `mktemp -t` の書き方は、片方の OS だけでは捕まらない。
   shell:
     strategy:
       fail-fast: false
@@ -50,38 +47,36 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Report the shell actually in use
+      - name: 実際に使っている shell を表示
         run: bash --version | head -1
 
-      # Syntax, the bash-3.2 sweep, the skills lint and every behavioural suite, through the one
-      # script you run locally -- so this job cannot drift from `./scripts/check.sh`.
+      # 構文・bash 3.2 の走査・スキルの lint・振る舞いのスイートを、手元と同じ `./scripts/check.sh` で回す。
+      # これでこのジョブは手元とずれない。
       #
-      # The `content` job below is CI-only, and saying so matters: it holds the authoritative YAML
-      # parse and the profile schema validation, both of which need Python packages. Those are NOT
-      # available offline and gate nothing locally. The claim used to be that local and CI could not
-      # drift apart at all, which was false in seven steps' worth of ways.
-      - name: All checks
+      # 下の `content` ジョブは CI 専用。正式な YAML パースとプロファイルのスキーマ検証は Python パッケージが
+      # 要り、手元では何もゲートしない。
+      - name: 全チェック
         run: |
           node --check scripts/lib/merge-settings.mjs
           ./scripts/check.sh
 
-      # printf, not echo: some shells expand the \n inside the JSON string literal and hand the
-      # hook invalid JSON, which it correctly ignores -- making the test pass for the wrong reason.
-      - name: Hooks answer in both dialects
+      # echo ではなく printf。shell によっては JSON 文字列の \n を展開して hook に壊れた JSON を渡し、
+      # hook が正しく無視する結果、間違った理由でテストが通ってしまう。
+      - name: hook が両方の形式で応答する
         run: |
           set -e
           body='{"file_path":"/x/SKILL.md","content":"---\nname: no-description-here\n---\n"}'
           printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":%s}' "$body" \
             | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -q permissionDecision \
-            || { echo "::error::Claude dialect not emitted"; exit 1; }
+            || { echo "::error::Claude 形式の応答が出ていない"; exit 1; }
           printf '{"tool_name":"Write","tool_use_id":"a","tool_input":%s}' "$body" \
             | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -q '"permission"' \
-            || { echo "::error::Cursor dialect not emitted"; exit 1; }
-          # Unparseable input must fall through open -- this hook only inspects.
+            || { echo "::error::Cursor 形式の応答が出ていない"; exit 1; }
+          # 読めない入力は素通りさせる（この hook は検査するだけ）。
           printf 'not json' | ./hooks/dotagents-lint-skill-frontmatter.sh | grep -qx '{}' \
-            || { echo "::error::lint hook did not fail open on garbage"; exit 1; }
+            || { echo "::error::壊れた入力で lint hook が素通りしなかった"; exit 1; }
 
-  # Content checks. Independent of the operating system, so they run once.
+  # 内容の検査。OS に依らないので 1 回だけ回す。
   content:
     runs-on: ubuntu-latest
     steps:
@@ -91,26 +86,25 @@ jobs:
         with:
           node-version: '22'
 
-      # CLAUDE.md must stay a symlink to AGENTS.md -- Claude Code does not read AGENTS.md, so if the
-      # two become separate files the always-loaded layer drifts and nothing reports it. This broke
-      # once: `perl -pi` on a symlink replaces it with a regular file, silently.
-      - name: CLAUDE.md is still a symlink to AGENTS.md
+      # CLAUDE.md は AGENTS.md へのシンボリックリンクのまま保つ。Claude Code は AGENTS.md を読まないので、
+      # 別ファイルになると常時ロードの層が黙ってずれる。シンボリックリンクに `perl -pi` を掛けると黙って
+      # 通常ファイルに置き換わる。
+      - name: CLAUDE.md が AGENTS.md へのシンボリックリンクのまま
         run: |
           mode="$(git ls-files -s CLAUDE.md | awk '{print $1}')"
           if [ "$mode" != "120000" ]; then
-            echo "::error file=CLAUDE.md::CLAUDE.md is mode $mode, not a symlink (120000). Restore it: rm CLAUDE.md && ln -s AGENTS.md CLAUDE.md"
+            echo "::error file=CLAUDE.md::CLAUDE.md のモードが $mode でシンボリックリンク（120000）ではない。戻す: rm CLAUDE.md && ln -s AGENTS.md CLAUDE.md"
             exit 1
           fi
           target="$(readlink CLAUDE.md)"
           if [ "$target" != "AGENTS.md" ]; then
-            echo "::error file=CLAUDE.md::CLAUDE.md points at '$target', expected AGENTS.md"
+            echo "::error file=CLAUDE.md::CLAUDE.md の指す先が '$target'。AGENTS.md であるべき"
             exit 1
           fi
 
-      # verify-skills.sh validates frontmatter with targeted rules rather than a parser, which is
-      # fast but not authoritative. An unquoted ": " in a description once shipped a skill whose
-      # frontmatter did not parse while every local check passed.
-      - name: Frontmatter parses as YAML
+      # verify-skills.sh は frontmatter をパーサではなく個別の規則で検査するので、速いが正式ではない。
+      # description の引用符なしの ": " は、手元の検査を全部通したまま壊れた frontmatter を出荷しうる。
+      - name: frontmatter が YAML としてパースできる
         run: |
           pip install --quiet pyyaml
           python3 - <<'PY'
@@ -119,21 +113,20 @@ jobs:
           for p in sorted(pathlib.Path("skills").glob("*/SKILL.md")):
               text = p.read_text()
               if not text.startswith("---"):
-                  print(f"::error file={p}::no frontmatter"); bad = 1; continue
+                  print(f"::error file={p}::frontmatter が無い"); bad = 1; continue
               try:
                   fm = yaml.safe_load(text.split("---", 2)[1]) or {}
               except yaml.YAMLError as e:
-                  print(f"::error file={p}::frontmatter does not parse: {str(e).splitlines()[0]}")
+                  print(f"::error file={p}::frontmatter をパースできない: {str(e).splitlines()[0]}")
                   bad = 1; continue
               for field in ("name", "description"):
                   if not fm.get(field):
-                      print(f"::error file={p}::missing '{field}'"); bad = 1
+                      print(f"::error file={p}::'{field}' が無い"); bad = 1
           sys.exit(bad)
           PY
 
-      # The schema expresses delegate_reason and scope/{files} structurally now, which only helps if
-      # something actually validates against it.
-      - name: Profiles satisfy the schema
+      # スキーマは delegate_reason と scope/{files} を構造で表している。実際にそれで検証して初めて効く。
+      - name: プロファイルがスキーマを満たす
         run: |
           pip install --quiet jsonschema
           python3 - <<'PY'
@@ -151,7 +144,7 @@ jobs:
           sys.exit(bad)
           PY
 
-      - name: Profiles are valid and complete
+      - name: プロファイルが正しく揃っている
         run: |
           node -e '
             const fs = require("fs");
@@ -160,15 +153,15 @@ jobs:
               if (!f.endsWith(".json")) continue;
               let p;
               try { p = JSON.parse(fs.readFileSync("profiles/" + f, "utf8")); }
-              catch (e) { console.error(`${f}: invalid JSON -- ${e.message}`); bad = 1; continue; }
-              if (f.startsWith("_")) continue;   // the schema is not a profile
-              if (!p.match?.remote) { console.error(`${f}: missing match.remote`); bad = 1; }
+              catch (e) { console.error(`${f}: JSON として不正 -- ${e.message}`); bad = 1; continue; }
+              if (f.startsWith("_")) continue;   // スキーマはプロファイルではない
+              if (!p.match?.remote) { console.error(`${f}: match.remote が無い`); bad = 1; }
               for (const c of p.checks ?? []) {
                 for (const k of ["id", "cmd", "gate", "agent_may_run"])
-                  if (!(k in c)) { console.error(`${f}: check ${c.id ?? "?"} missing ${k}`); bad = 1; }
-                // An unexplained request to run something by hand reads as arbitrary, and gets ignored.
+                  if (!(k in c)) { console.error(`${f}: チェック ${c.id ?? "?"} に ${k} が無い`); bad = 1; }
+                // 理由の無い「手で実行して」は恣意的に見えて無視される。
                 if (c.agent_may_run === false && !c.delegate_reason) {
-                  console.error(`${f}: check ${c.id} is delegated but has no delegate_reason`);
+                  console.error(`${f}: チェック ${c.id} は委譲されているのに delegate_reason が無い`);
                   bad = 1;
                 }
               }
@@ -176,59 +169,57 @@ jobs:
             process.exit(bad);
           '
 
-      # A dangling reference link makes a skill load but lose half its instructions, silently.
-      # A link leaving the tree is worse: reference/ is read on instruction, so it turns
-      # "read my notes" into "read whatever this points at".
-      - name: Symlinks resolve and stay in-tree
+      # 切れた reference のリンクは、スキルを読み込ませたまま指示の半分を黙って失わせる。ツリーの外を指す
+      # リンクはさらに悪い。reference/ は指示に従って読まれるので、「メモを読め」が「指す先を何でも読め」になる。
+      - name: シンボリックリンクが解決でき、ツリーの中に留まる
         run: |
           bad=0
           root="$PWD"
           while IFS= read -r l; do
             if [ ! -e "$l" ]; then
-              echo "::error file=$l::dangling symlink -> $(readlink "$l")"; bad=1; continue
+              echo "::error file=$l::切れたシンボリックリンク -> $(readlink "$l")"; bad=1; continue
             fi
             real="$(cd "$(dirname "$l")" && cd "$(dirname "$(readlink "$l")")" && pwd)"
             case "$real" in
               "$root"|"$root"/*) ;;
-              *) echo "::error file=$l::symlink escapes the repository -> $real"; bad=1 ;;
+              *) echo "::error file=$l::リポジトリの外を指すシンボリックリンク -> $real"; bad=1 ;;
             esac
           done < <(find skills -type l)
           exit $bad
 
-      # Profiles name real repositories and environments and are gitignored. This repository's own
-      # profile is the one exception -- public repo, public commands -- so it is allowlisted here
-      # rather than by loosening the pattern.
-      - name: No third-party profiles committed
+      # プロファイルは実在のリポジトリや環境の名前を含むので gitignore している。このリポジトリ自身の
+      # プロファイルだけは公開してよい（公開リポジトリの公開コマンド）ので、パターンを緩めずここで許可する。
+      - name: 他人のプロファイルがコミットされていない
         run: |
           leaked="$(git ls-files 'profiles/*.json' \
             | grep -v '^profiles/_' \
             | grep -v '^profiles/dotagents\.json$' || true)"
           if [ -n "$leaked" ]; then
-            echo "::error::tracked profile(s) that should be local: $leaked"
+            echo "::error::手元に置くべきプロファイルが追跡されている: $leaked"
             exit 1
           fi
 
-      # This profile gates the repository's own turns, so a break in it is felt only on a machine
-      # that has the gate armed. CI checks it independently -- including that every check the agent
-      # may run passes on a clean checkout, because a profile that always fails gets switched off.
-      - name: This repository's own profile holds up
+      # このプロファイルはこのリポジトリのターンをゲートするので、壊れてもゲートを arm したマシンでしか気付けない。
+      # CI で独立に確かめる。常に落ちるプロファイルは切られるので、エージェントが実行してよいチェックが
+      # クリーンなチェックアウトで通ることも確かめる。
+      - name: このリポジトリ自身のプロファイルが成り立つ
         run: |
           node -e '
             const { execSync } = require("child_process");
             const p = JSON.parse(require("fs").readFileSync("profiles/dotagents.json", "utf8"));
             if (!p.match || !String(p.match.remote).includes("dotagents")) {
-              console.error("::error::match.remote does not point at this repository"); process.exit(1);
+              console.error("::error::match.remote がこのリポジトリを指していない"); process.exit(1);
             }
             const gating = (p.checks || []).filter((c) => c.gate);
-            if (!gating.length) { console.error("::error::no gating checks"); process.exit(1); }
+            if (!gating.length) { console.error("::error::ゲートになるチェックが無い"); process.exit(1); }
             let bad = 0;
             for (const c of gating) {
               if (!c.agent_may_run) {
-                if (!c.delegate_reason) { console.error(`::error::${c.id}: delegated without a reason`); bad = 1; }
+                if (!c.delegate_reason) { console.error(`::error::${c.id}: 理由なしで委譲されている`); bad = 1; }
                 continue;
               }
               try { execSync(c.cmd, { stdio: "pipe" }); console.log("pass " + c.id); }
-              catch (e) { console.error(`::error::profile check "${c.id}" fails on a clean checkout`); bad = 1; }
+              catch (e) { console.error(`::error::プロファイルのチェック "${c.id}" がクリーンなチェックアウトで落ちる`); bad = 1; }
             }
             process.exit(bad);
           '
@@ -238,7 +229,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # gitleaks scans history
+          fetch-depth: 0   # gitleaks は履歴を走査する
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

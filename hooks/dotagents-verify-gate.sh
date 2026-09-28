@@ -1,63 +1,58 @@
 #!/usr/bin/env bash
-# Stop hook. Refuses to let a turn end while the repository's own verification is failing.
+# Stop hook。リポジトリ自身の検証が失敗している間、ターンを終わらせない。
 #
-# The problem it solves: an agent stops when the work *looks* done. Without a check it can run,
-# "looks done" is the only signal, and the human becomes the verification loop.
+# エージェントは作業が「終わったように見えた」時点で止まる。実行できるチェックが無ければそれが唯一の
+# 合図になり、人間が検証ループの役を負う。
 #
-# Sentinel-gated. It does nothing unless a skill armed it by creating
+# 番兵で有効になる。スキルが次を作って掛けない限り何もしない。
 #   ~/.claude/.dotagents-gate/<slug>/ACTIVE
-# An always-on Stop hook would run the test suite at the end of every question-answering session,
-# which is unusable, so it would get disabled, which is worse than not having it.
+# 常時有効な Stop hook は、質問に答えるだけのセッションでも毎回テストを回して使い物にならず、
+# 結局外される。それは無いより悪い。
 #
-# Runs on both agents, with different enforcement strength:
+# 両方のエージェントで動くが、強制力は違う。
 #
-#   Claude Code  Stop hook.   exit 2 BLOCKS the turn; stderr goes to the agent. Nothing else blocks --
-#                             exit 1 is a non-blocking error and the turn ends. See docs/harness-facts.md.
-#   Cursor       stop hook.   Cannot block. Printing {"followup_message": "..."} auto-submits a
-#                             message so the agent keeps working. Bounded by Cursor's loop_limit
-#                             (default 5), so it cannot spin forever.
+#   Claude Code  Stop hook。  exit 2 でターンを止め、stderr がエージェントに渡る。他の終了コードでは
+#                             止まらない（exit 1 は非ブロックのエラーでターンが終わる）。docs/harness-facts.md 参照。
+#   Cursor       stop hook。  止められない。{"followup_message": "..."} を出すとメッセージが自動送信され、
+#                             エージェントが作業を続ける。Cursor の loop_limit（既定 5）で頭打ちになる。
 #
-# The Cursor path is genuinely weaker — an agent can still be stopped by the user with checks red.
-# It is not presented as parity anywhere.
+# Cursor 側は実際に弱い。チェックが赤のままでもユーザーは止められる。同等だとはどこにも書かない。
 
 set -uo pipefail
 
-# Every decision below goes through node. If it is absent -- a GUI-launched agent whose PATH lacks
-# a version-manager shim, most commonly -- the gate must say so rather than wave the turn through.
-# Checked before anything else so the message is about the real cause.
+# 以下の判断はすべて node を通す。node が無い時（GUI から起動したエージェントの PATH にバージョン
+# マネージャーの shim が無い、が多い）は、ターンを通さずそう言わなければならない。
+# 本当の原因についてのメッセージになるよう、何より先に確かめる。
 GATE_NODE_MISSING=0
 command -v node >/dev/null 2>&1 || GATE_NODE_MISSING=1
 
-# Set by `gate.sh verify`, never by an agent harness. In dry mode the hook resolves the profile and
-# runs the checks exactly as it would at a turn end, and then touches nothing: no attempt counted, no
-# verdict, no heartbeat, no arming required. That is what makes self-checking free -- a check that
-# spent the budget would make the budget depend on how often you looked at your own work.
+# `gate.sh verify` が設定し、エージェントのハーネスは設定しない。dry モードではターン終了時と同じく
+# プロファイルを解決してチェックを実行し、その後は何も変えない。試行回数も verdict も heartbeat も
+# 触らず、掛ける必要も無い。確認で予算を減らすと、予算が確認の頻度に左右されてしまうため。
 GATE_DRY="${DOTAGENTS_GATE_DRY:-0}"
 [[ "$GATE_DRY" == "1" ]] || GATE_DRY=0
 
 GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 TRACE="$GATE_DIR/trace.log"
 
-# Defined in the shared block below, so gate.sh records arm / disarm / record in the same log.
+# 実体は下の共有ブロックにある。gate.sh も arm / disarm / record を同じログに書く。
 trace() { gate_trace "$@"; }
 
 # >>> dotagents:gate-shared -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
-# Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
-# can go missing, and a lib under the repo can. scripts/verify-skills.sh asserts the copies match.
+# lib から source せず複製している。不変条件 4（hook は消えうるパスに依存しない）のため。
+# 2 つのコピーの一致は scripts/verify-skills.sh が検査する。
 #
-# --- identity ---------------------------------------------------------------
-# Two levels, because they answer different questions.
-#   Whether a repository is gated is a property of the *repository*, so it keys on the shared git
-#   directory -- which is what makes a linked worktree inherit its main checkout's gate.
-#   Attempts and delegated records are properties of a *working tree*, so they key per worktree.
-#   Inheriting a gate must not mean sharing its counters.
-gate_abs() { # <dir> <rev-parse-flag> -> absolute path, or empty when it cannot be determined
+# --- 識別 -------------------------------------------------------------------
+# 問いが違うので 2 段に分ける。
+#   ゲートが掛かっているかはリポジトリの性質なので、共有の git ディレクトリで引く。
+#   これでリンクされた worktree がメインのチェックアウトのゲートを継ぐ。
+#   試行回数と委任の記録は作業ツリーの性質なので worktree ごとに持つ。継いでもカウンタは共有しない。
+gate_abs() { # <dir> <rev-parse-flag> -> 絶対パス。決められなければ空
   local d="$1" f="$2" p
   p="$(git -C "$d" rev-parse --path-format=absolute "$f" 2>/dev/null || true)"
   case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
-  # git < 2.31 has no --path-format, and a bare --git-common-dir answers relative to the directory it
-  # was asked from. Resolve by hand, refusing to guess when anything is empty: `cd ""` succeeds and
-  # would silently answer with $HOME.
+  # git < 2.31 には --path-format が無く、素の --git-common-dir は問い合わせ元からの相対で返る。
+  # 手で解決し、どれかが空なら推測しない。`cd ""` は成功して黙って $HOME を返す。
   p="$(git -C "$d" rev-parse "$f" 2>/dev/null || true)"
   [[ -n "$p" ]] || return 0
   case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
@@ -66,36 +61,34 @@ gate_abs() { # <dir> <rev-parse-flag> -> absolute path, or empty when it cannot 
 
 gate_common_dir() { gate_abs "$1" --git-common-dir; }
 
-# git already maintains a unique name per linked worktree, at <common>/worktrees/<name>. Reusing it
-# beats hashing the path: no crypto, no node, and the directory stays readable by a human.
-gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tree
+# git はリンクされた worktree ごとに一意の名前を <common>/worktrees/<name> に持っている。
+# パスをハッシュするより再利用がよい。暗号も node も要らず、人が読めるディレクトリ名になる。
+gate_worktree_key() { # <dir> -> この作業ツリーに一意な、ファイル名に使える ID
   local g c
   g="$(gate_abs "$1" --git-dir)"
   c="$(gate_abs "$1" --git-common-dir)"
   if [[ -n "$g" && -n "$c" && "$g" != "$c" ]]; then basename "$g"; else printf 'main'; fi
 }
 
-# Where a working tree's own counters live. One level below the sentinel, so a gate inherited by
-# several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
+# 作業ツリー自身のカウンタの置き場。番兵の 1 段下なので、複数の worktree が継いだゲートでも
+# 試行回数はツリーごとに 1 組になる。
 state_dir_for() { # <armed-dir> <dir>
   printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
 }
 
-# --- the trace --------------------------------------------------------------
-# One line per event, so "nothing happened" can be told apart from "never ran". Capped, because an
-# unbounded log under $HOME is the same failure as the unbounded backups.
+# --- トレース ---------------------------------------------------------------
+# 1 イベント 1 行。「何も起きなかった」と「動かなかった」を見分けるため。$HOME の下で際限なく
+# 育たないよう上限を設ける。
 #
-# Shared so that `gate.sh` writes here too, not only the hook. Without it, arm / disarm / record left
-# no trace at all -- and the whole reason this file exists is to explain a gate nobody remembers
-# arming, which is precisely an arm nobody recorded.
+# hook だけでなく `gate.sh` もここへ書く。誰も覚えていないゲートを説明するのがこのファイルの役目で、
+# arm / disarm / record が残らなければその役目を果たせない。
 gate_trace() { # <who> <where> <what>
   [[ -d "$GATE_DIR" ]] || return 0
   local trace="$GATE_DIR/trace.log" tmp
   printf '%s\t%s\t%s\t%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-?}" "${3:-}" >> "$trace" 2>/dev/null || true
-  # Trimmed through a temp file and renamed. `tail > f.trim && mv f.trim f` is two steps with a window
-  # between them, so two turns ending at once could lose lines -- in the one file that exists to say
-  # what happened.
+  # 一時ファイルに切り詰めて rename する。`tail > f.trim && mv f.trim f` は 2 手の間に隙があり、
+  # 同時に終わった 2 ターンが行を失いうる。
   if [[ "$(wc -l < "$trace" 2>/dev/null || echo 0)" -gt 200 ]]; then
     tmp="$trace.trim.$$"
     tail -100 "$trace" > "$tmp" 2>/dev/null && mv -f "$tmp" "$trace" 2>/dev/null || rm -f "$tmp" 2>/dev/null
@@ -103,26 +96,26 @@ gate_trace() { # <who> <where> <what>
   return 0
 }
 
-# --- the clock --------------------------------------------------------------
-# Epochs are stored as file *contents*, not as mtimes: `touch -t` arithmetic differs between BSD and
-# GNU, and the tests have to move time deterministically. `date +%s` is identical on both.
-# DOTAGENTS_GATE_NOW exists for those tests. Nothing else sets it.
+# --- 時計 -------------------------------------------------------------------
+# エポックは mtime ではなくファイルの中身に持つ。`touch -t` の計算は BSD と GNU で違い、テストは
+# 時刻を決定的に動かす必要がある。`date +%s` は両方で同じ。
+# DOTAGENTS_GATE_NOW はそのテスト用。他では設定しない。
 gate_now() {
   local n="${DOTAGENTS_GATE_NOW:-}"
   case "$n" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$n" ;; esac
 }
 
-# 12 hours is chosen, not measured. It has to outlast a long unattended run without outlasting a night.
+# 12 時間は計測ではなく選んだ値。長い無人実行より長く、一晩よりは短く。
 gate_ttl_seconds() {
   local h="${DOTAGENTS_GATE_TTL_HOURS:-12}"
   case "$h" in ''|*[!0-9]*) h=12 ;; esac
   printf '%s' $(( h * 3600 ))
 }
 
-# Seconds since this gate last saw a turn end -- idle time, not age. A TTL counted from arming would
-# kill the case this exists for: a six-hour unattended run would expire mid-flight and the gate would
-# open in silence. Empty when there is no heartbeat to compare against, which callers must NOT read as
-# "infinitely idle": that would evict a gate somebody armed a minute ago with an older gate.sh.
+# このゲートで最後にターンが終わってからの秒数。経過時間ではなくアイドル時間。掛けた時点から
+# 数えると、6 時間の無人実行が途中で期限切れになり、ゲートが黙って開く。
+# heartbeat が無ければ空を返す。呼び出し側はこれを「無限にアイドル」と読んではいけない。
+# 古い gate.sh で 1 分前に掛けたゲートを追い出してしまう。
 gate_idle_seconds() { # <armed-dir>
   local hb now
   hb="$(cat "$1/HEARTBEAT" 2>/dev/null || true)"
@@ -137,28 +130,26 @@ gate_touch_heartbeat() { # <armed-dir>
   return 0
 }
 
-# --- verdicts ---------------------------------------------------------------
-# A verdict is a file that is *present*, not a state that is absent. If ending a gate only removed
-# ACTIVE, the next session's `status` would say "not armed" -- indistinguishable from a session that
-# never armed anything, which is the exact lie this is here to prevent.
+# --- verdict ----------------------------------------------------------------
+# verdict は「無い状態」ではなく「在るファイル」で表す。ACTIVE を消すだけだと、次のセッションの
+# `status` は「not armed」と答え、一度も掛けなかったセッションと区別できない。
 #
-# One field per line, read with `sed -n Np`, the same idiom the hook already uses for its work file.
-#   1 timestamp   2 reason   3 check id   4 attempts   5 exit code   6 agent   7 command   8+ output
+# 1 行 1 フィールド。hook が作業ファイルに使うのと同じ `sed -n Np` で読む。
+#   1 時刻   2 理由   3 チェック ID   4 試行回数   5 終了コード   6 エージェント   7 コマンド   8 以降 出力
 gate_write_verdict() { # <dir> <reason> <check> <attempts> <exit> <agent> <command> [output]
   local d="$1" tmp="$1/VERDICT.tmp.$$"
   {
     date -u +%Y-%m-%dT%H:%M:%SZ
     printf '%s\n%s\n%s\n%s\n%s\n' "${2:--}" "${3:--}" "${4:-0}" "${5:--}" "${6:--}"
-    # Flattened to one line: every field above is addressed by line number, so a command containing a
-    # newline would push the output tail into the middle of the record.
+    # 1 行に潰す。各フィールドは行番号で引くので、改行を含むコマンドが出力の末尾を記録の途中へ押し込む。
     printf '%s' "${7:--}" | tr '\n' ' '
     printf '\n%s\n' "${8:-}"
   } > "$tmp" 2>/dev/null && mv -f "$tmp" "$d/VERDICT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
   return 0
 }
 
-# Beside trace.log, but never trimmed. The trace self-trims at 200 lines by design, so a verdict
-# recorded only there would be deleted by ordinary operation.
+# trace.log の隣に置くが、切り詰めない。trace は 200 行で自動的に切り詰めるので、そこにしか無い
+# verdict は通常運用で消える。
 gate_log_verdict() { # <root> <reason> <detail>
   printf '%s\t%s\t%s\t%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:--}" "${2:--}" "${3:-}" \
@@ -166,8 +157,8 @@ gate_log_verdict() { # <root> <reason> <detail>
   return 0
 }
 
-# Reclaim an idle sentinel. ACTIVE goes, so the gate correctly becomes inert. ROOT and VERDICT stay,
-# so `status` can still answer whose gate it was and why it ended. Prints the root it reclaimed.
+# アイドルの番兵を回収する。ACTIVE は消してゲートを無効にする。ROOT と VERDICT は残し、`status` が
+# 誰のゲートで、なぜ終わったかを答えられるようにする。回収したルートを出力する。
 gate_expire() { # <armed-dir> <idle-seconds>
   local d="$1" idle="${2:-0}" root ttl
   root="$(cat "$d/ROOT" 2>/dev/null || true)"
@@ -175,16 +166,16 @@ gate_expire() { # <armed-dir> <idle-seconds>
   ttl="$(gate_ttl_seconds)"
   [[ -n "$root" ]] && printf '%s' "$root" > "$d/ROOT" 2>/dev/null
   gate_write_verdict "$d" expired - 0 - - - \
-"Reclaimed after $(( idle / 3600 ))h idle (ttl $(( ttl / 3600 ))h). The session that armed this gate
-ended without disarming it. Nothing was checked by this verdict -- it records only that the gate
-stopped holding, not that the work was verified."
+"アイドル $(( idle / 3600 ))h のため回収（ttl $(( ttl / 3600 ))h）。ゲートを掛けたセッションが、
+解除せずに終わった。この verdict は何も検査していない。ゲートが止めるのをやめたことだけを
+記録しており、作業が検証済みだとは言っていない。"
   rm -f "$d/ACTIVE"
   printf '%s' "$root"
 }
 # <<< dotagents:gate-shared
 
-# Installed copies live in ~/.claude/hooks, away from the repo, so the manifest records where the
-# repo is. DOTAGENTS_PROFILES overrides both, which is how the test suite stays hermetic.
+# インストール先は ~/.claude/hooks でリポジトリから離れているので、マニフェストにリポジトリの場所を
+# 記録してある。DOTAGENTS_PROFILES はどちらより優先し、テストを外部から切り離すのに使う。
 PROFILES="${DOTAGENTS_PROFILES:-}"
 if [[ -z "$PROFILES" ]]; then
   PROFILES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../profiles"
@@ -195,66 +186,57 @@ if [[ -z "$PROFILES" ]]; then
   fi
 fi
 
-# ---------------------------------------------------------------- no gate armed, nothing to do
+# ---------------------------------------------------------------- ゲート無し。何もしない
 
 shopt -s nullglob
 active=("$GATE_DIR"/*/ACTIVE)
 if (( ${#active[@]} == 0 )) && (( GATE_DRY )); then
-  # Nothing armed, but a dry run is not asking whether the gate holds -- it is asking whether the
-  # checks pass. Carry on with an empty sentinel list.
+  # 何も掛かっていないが、dry 実行が問うのはゲートが止めるかではなくチェックが通るか。
+  # 番兵のリストを空にして続ける。
   :
 elif (( ${#active[@]} == 0 )); then
-  trace "?" "$PWD" "invoked; nothing armed; passed"
+  trace "?" "$PWD" "呼ばれたが何も掛かっていない。通した"
   exit 0
 fi
 
-# Something is armed. From here on the gate owes an answer, and every step that could produce one
-# goes through node -- including working out which repository the payload refers to. Checked here
-# rather than later because without node the hook cannot tell whether the armed sentinel belongs to
-# this repository, so "armed, but not ours, carry on" is not a conclusion it is entitled to draw.
+# 何かが掛かっている。ここから先ゲートは答えを出す責任があり、答えを出す手順はすべて node を通る
+# （ペイロードがどのリポジトリを指すかの判定も含む）。node が無いと掛かっている番兵がこのリポジトリの
+# ものか判定できず、「掛かっているが他所のもの、続行」とは結論できないので、ここで確かめる。
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
   {
-    echo "[dotagents] The verification gate needs node and cannot find it on PATH, so it cannot"
-    echo "check anything."
+    echo "[dotagents] 検証ゲートには node が要るが、PATH に見つからない。何も検査できない。"
     echo
-    echo "A gate is armed, but without node this hook cannot even determine which repository it"
-    echo "belongs to. This is a fault in the gate's environment, not in your work: fix PATH for the"
-    echo "agent, or disarm the gate. Do not treat this as a pass."
+    echo "ゲートは掛かっているが、node が無いとこの hook はどのリポジトリのゲートかさえ判定できない。"
+    echo "作業ではなくゲートの環境の不具合。エージェントの PATH を直すか、ゲートを外すこと。"
+    echo "通過とみなさないこと。"
   } >&2
   exit 2
 fi
 
-# Read the payload through an explicit descriptor, never bare stdin.
+# ペイロードは素の stdin ではなく、明示したディスクリプタから読む。
 #
-# With fd 0 *closed* -- not empty, closed, which is what a caller that has already exited leaves
-# behind -- bash assigns the lowest free descriptor when it builds the pipe for a command
-# substitution. That is fd 0. So `payload="$(cat)"` had `cat` reading the read end of its own output
-# pipe, and it blocked forever. The harness then killed the hook on its timeout, and a killed hook
-# exits with neither 0 nor 2: non-blocking. The gate failed open because stdin was missing.
+# fd 0 が（空ではなく）閉じている時、bash はコマンド置換のパイプに最小の空き番号、つまり fd 0 を
+# 割り当てる。すると `payload="$(cat)"` の `cat` は自分の出力パイプを読んで永遠に止まり、ハーネスが
+# タイムアウトで殺す。殺された hook は 0 でも 2 でもなく非ブロックで終わり、ゲートが開く。
 #
-# Duplicating fd 0 to fd 3 first fixes it two ways: the duplication fails loudly when there is no
-# stdin, and nothing afterwards can be handed fd 0 by accident.
-# The probe runs in a subshell. `exec` with a redirection and no command applies that redirection to
-# the shell permanently -- so `exec 3<&0 2>/dev/null` silently sent every later stderr write to
-# /dev/null, and the block message stopped reaching the model at all. A worse fail-open than the one
-# being fixed, and the suite caught it on the next run.
+# 先に fd 0 を fd 3 へ複製すると、stdin が無ければ複製がはっきり失敗し、以後 fd 0 を誤って渡される
+# こともない。確かめはサブシェルで行う。コマンド無しの `exec` にリダイレクトを付けるとシェル全体に
+# 恒久的に効き、`exec 3<&0 2>/dev/null` だと以後の stderr がすべて捨てられ block のメッセージが
+# モデルに届かなくなる。
 if ( exec 3<&0 ) 2>/dev/null; then
   exec 3<&0
 else
-  trace "?" "$PWD" "no readable stdin; treating the payload as empty"
+  trace "?" "$PWD" "読める stdin が無い。ペイロードを空として扱う"
   exec 3</dev/null
 fi
-# Something is armed, so from here an unexpected failure must not read as permission to stop.
+# 何かが掛かっているので、ここから先の想定外の失敗を「止まってよい」と読ませてはならない。
 #
-# Only exit 2 blocks. The documentation is explicit that exit 1 is a *non-blocking* error and Claude
-# Code proceeds, so a crash here would end the turn with nothing checked and nothing said. This script
-# runs under `set -u`, which makes one unbound variable enough -- and that class already bit this repo
-# once, when a cwd containing a space made an arithmetic comparison exit 127. A trap makes it structural
-# instead of a bug fixed one occurrence at a time.
+# 止められるのは exit 2 だけで、exit 1 は非ブロックのエラーとして Claude Code が先へ進む。この
+# スクリプトは `set -u` で動くので未定義変数ひとつで落ちる（空白を含む cwd で算術比較が 127 で
+# 落ちたことがある）。trap で構造的に防ぎ、一件ずつ直すのをやめる。
 #
-# Installed before the payload is even parsed, because "armed, but perhaps not for this repository" is
-# not a conclusion the hook is entitled to draw while it is malfunctioning -- the same reasoning the
-# node-missing block above already uses.
+# ペイロードの解析より前に入れる。誤動作している間は「掛かっているが、このリポジトリのものでは
+# ないかもしれない」とは結論できない。上の node 欠如のブロックと同じ理屈。
 agent="claude"
 cwd="$PWD"
 slug_dir=""
@@ -262,17 +244,15 @@ _gate_work=""
 gate_on_exit() {
   local code=$?
   [[ -n "$_gate_work" ]] && rm -f "$_gate_work" "$_gate_work.fail" "$_gate_work.out" "$_gate_work.timeout"
-  # Cursor cannot be blocked, so converting there would buy nothing and would put noise on a stream it
-  # does not read.
+  # Cursor は止められないので、変換しても得るものが無く、読まれないストリームを汚すだけ。
   if [[ "$code" != "0" && "$code" != "2" && "$agent" != "cursor" ]]; then
-    trace "$agent" "$cwd" "CRASHED with status $code; converted to a block"
+    trace "$agent" "$cwd" "CRASHED（status ${code}）。block に変換した"
     {
-      echo "[dotagents] The verification gate exited unexpectedly (status $code), so it does not know"
-      echo "whether this repository's checks pass."
+      echo "[dotagents] 検証ゲートが想定外に終了した（status ${code}）。このリポジトリのチェックが"
+      echo "通るかは分からない。"
       echo
-      echo "This is a fault in the gate, not in your work -- but only exit 2 blocks, and any other"
-      echo "status would have ended the turn with nothing checked. Report that the gate failed rather"
-      echo "than treating it as a pass${slug_dir:+, or disarm the gate at $slug_dir}."
+      echo "作業ではなくゲートの不具合。ただし止められるのは exit 2 だけで、他の status なら何も"
+      echo "検査しないままターンが終わっていた。通過とみなさず、ゲートが壊れたと報告すること${slug_dir:+。または $slug_dir のゲートを外すこと}。"
     } >&2
     exit 2
   fi
@@ -282,20 +262,19 @@ trap gate_on_exit EXIT
 payload="$(cat <&3)"
 exec 3<&-
 
-# Tell the two agents apart by their payload. Cursor's stop hook sends {status, loop_count} and no
-# cwd; Claude Code's sends cwd and hook_event_name.
-# One field per line, not space-separated: a cwd containing a space would otherwise land in
-# loop_count, and `[[ "project 0" -ge 3 ]]` exits 127 under set -u -- a non-blocking exit, so the
-# gate would open on a path like ~/my project.
+# 2 つのエージェントはペイロードで見分ける。Cursor の stop hook は {status, loop_count} を送り cwd が
+# 無い。Claude Code は cwd と hook_event_name を送る。
+# 空白区切りではなく 1 行 1 フィールド。空白を含む cwd が loop_count に入り込み、`set -u` 下の
+# `[[ "project 0" -ge 3 ]]` が 127 で落ちて（非ブロック）、~/my project のようなパスでゲートが開くため。
 _fields="$(printf '%s' "$payload" | node -e '
   let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
     let p = {}; try { p = JSON.parse(s) } catch {}
     const cursor = "loop_count" in p || ("status" in p && !("cwd" in p));
     const n = Number(p.loop_count);
-    // A subagent completing is not the end of the turn. Claude Code converts a registered Stop hook
-    // into SubagentStop for subagents, so this hook fires there too; agent_id is present in that case
-    // even when the event name is not. No apostrophes in here -- this whole script is inside a
-    // single-quoted shell argument, and one would close it and spill script text into the output.
+    // サブエージェントの完了はターンの終わりではない。Claude Code は登録された Stop hook を
+    // サブエージェントでは SubagentStop に変えるので、この hook はそこでも発火する。イベント名が
+    // 無くても agent_id はある。ここにアポストロフィを書かないこと。スクリプト全体がシェルの
+    // シングルクォート引数の中にあり、1 つで閉じてスクリプトの文面が出力に漏れる。
     const sub = p.hook_event_name === "SubagentStop" || "agent_id" in p ? "1" : "0";
     process.stdout.write([
       cursor ? "cursor" : "claude",
@@ -317,40 +296,37 @@ agent_type="$(sed -n 6p <<<"$_fields")"
 [[ "$is_subagent" == "1" ]] || is_subagent=0
 [[ -n "$agent_type" ]] || agent_type="-"
 
-# Defaults, and a numeric guarantee for loop_count so the arithmetic below cannot explode.
+# 既定値。loop_count は数値を保証し、下の算術が落ちないようにする。
 [[ -n "$agent" ]] || agent="claude"
 [[ "$loop_count" =~ ^[0-9]+$ ]] || loop_count=0
 [[ "$stop_active" == "1" ]] || stop_active=0
 
-# Cursor's stop payload carries no cwd, and this hook's process cwd there is ~/.cursor -- not the
-# workspace. Falling back to $PWD therefore compared the wrong repository and passed every turn,
-# silently. Observed in the trace: "cursor $HOME/.cursor passed: armed elsewhere".
+# Cursor の stop ペイロードには cwd が無く、この hook のプロセスの cwd は ~/.cursor でワークスペース
+# ではない。$PWD に頼ると別のリポジトリと比べ、毎ターン黙って通していた。
 cwd_known=1
 if [[ "$cwd" == "-" || -z "$cwd" ]]; then
   cwd_known=0
   cwd="$PWD"
 fi
 
-# Emit a block, in whichever dialect this agent speaks, then exit.
-# $1 = message
-# $2 = what is red, for the trace. Passed explicitly rather than read from a global because block()
-#      is reached from several places, and the earliest of them run before any check has an id.
-# Cursor cannot be blocked; a stop hook there answers with a message that is auto-submitted as the
-# next user turn. Shared by block() and the terminal give-up, so both speak the same dialect and both
-# respect Cursor's own loop budget.
-emit_cursor_followup() { # $1 = message, $2 = what is red (for the trace)
+# このエージェントの流儀で block を出し、終了する。
+# $1 = メッセージ
+# $2 = トレース用の、何が赤か。block() は複数の場所から呼ばれ、最初期のものはチェックに ID が付く
+#      前に動くので、グローバルから読まず明示的に渡す。
+# Cursor は止められず、stop hook は次のユーザーターンとして自動送信されるメッセージで答える。
+# block() と最後の諦めの両方が使い、どちらも同じ流儀で Cursor の loop 予算を守る。
+emit_cursor_followup() { # $1 = メッセージ, $2 = 何が赤か（トレース用）
   if [[ "$loop_count" -ge 3 ]]; then
-    trace "$agent" "$cwd" "gave up injecting at loop_count=$loop_count while ${2:-the gate} red"
+    trace "$agent" "$cwd" "loop_count=$loop_count で注入をやめた（${2:-ゲート} が赤のまま）"
     printf '%s' '{}'
     exit 0
   fi
-  trace "$agent" "$cwd" "injected a follow-up while ${2:-the gate} red (cannot block in Cursor)"
-  # followup_message is auto-submitted *as a user message*, so without attribution the agent
-  # cannot tell this from the human typing it -- and may then treat a hook's demand as the
-  # user's stated intent, or attribute the interruption to them. Say what it is.
+  trace "$agent" "$cwd" "フォローアップを注入した（${2:-ゲート} が赤。Cursor では止められない）"
+  # followup_message は「ユーザーのメッセージとして」自動送信される。出どころを書かないと、
+  # エージェントは人の入力と区別できず、hook の要求をユーザーの意図と取り違える。
   {
-    echo "[dotagents] Automated message from the verification gate. The user did not write this,"
-    echo "and did not ask you to stop -- a hook did, because a check is failing."
+    echo "[dotagents] 検証ゲートからの自動メッセージ。これはユーザーが書いたものではなく、"
+    echo "ユーザーが止めるよう頼んだのでもない。チェックが失敗しているため hook が止めた。"
     echo
     printf '%s\n' "$1"
   } | node -e '
@@ -362,27 +338,25 @@ emit_cursor_followup() { # $1 = message, $2 = what is red (for the trace)
 }
 
 block() {
-  local _what="${2:-the gate}"
+  local _what="${2:-ゲート}"
   if [[ "$agent" == "cursor" ]]; then
-    # Stop injecting before the loop_limit so the budget is not silently exhausted by us.
+    # loop_limit より前に注入をやめ、予算をこちらが黙って使い切らないようにする。
     emit_cursor_followup "$1" "$_what"
   fi
-  # Claude Code re-invokes this hook after a block, and the agent cannot reach the user without
-  # ending a turn. Blocking indefinitely would trap it: the instruction "ask the user" is
-  # unreachable from inside a blocked turn. So on a re-entry, hand control back once, loudly.
+  # Claude Code は block の後この hook を再度呼び、エージェントはターンを終えないとユーザーに
+  # 届かない。止め続けると閉じ込めてしまい、「ユーザーに聞け」という指示が実行できない。
+  # なので再入時は一度だけ、はっきり言って制御を返す。
   if [[ "$stop_active" == "1" ]]; then
-    # Traced, because this -- not the block -- is what decides whether a red turn ends. A trace that
-    # records only blocks is silent about the gate's most frequent and most consequential event, so
-    # "nothing happened" could not be told apart from "never ran" in the one file built to tell them
-    # apart. On Claude Code the harness's own 8-consecutive-block release is never reached: this
-    # releases at the first re-entry, so every turn cycle blocks exactly once.
-    trace "$agent" "$cwd" "RELEASED while $_what red -- handed control back with checks failing"
+    # 赤のターンが終わるかを決めるのは block ではなくここなので、トレースに残す。Claude Code の
+    # ハーネスの「8 回連続 block で解放」には届かない。最初の再入で解放するので、1 サイクルの
+    # block はちょうど 1 回になる。
+    trace "$agent" "$cwd" "RELEASED: $_what が赤のまま、チェック失敗中に制御を返した"
     {
       printf '[dotagents] %s\n' "$1"
       echo
-      echo "Releasing the gate for this turn so you can reach the user -- the checks above are"
-      echo "still failing. The sentinel stays armed; say plainly what is red and what you need."
-      echo "This is a hook speaking, not the user."
+      echo "ユーザーに届けられるよう、このターンはゲートを開ける。上のチェックはまだ失敗している。"
+      echo "番兵は掛かったまま。何が赤で、何が必要かをはっきり伝えること。"
+      echo "これは hook の発言で、ユーザーの発言ではない。"
     } >&2
     exit 0
   fi
@@ -391,21 +365,19 @@ block() {
   exit 2
 }
 
-# A machine-readable record of WHAT THE GATE DID, written only when `DOTAGENTS_GATE_REPORT` names a
-# path. Nothing about the hook's stdout, its exit codes or the non-dry path changes.
+# ゲートが何をしたかの機械向けの記録。`DOTAGENTS_GATE_REPORT` がパスを指す時だけ書く。hook の
+# stdout・終了コード・dry でない経路は何も変わらない。
 #
-# It exists because the gate could say "all gating checks green" and "nothing blocking" and the only
-# way to tell them apart was to match the sentence -- `scripts/loop.sh` calls that "the SECOND prose
-# coupling" in its own comment, and it is how a skipped check reads as a passed one. `ran` is the fact
-# nobody could ask for: how many gating checks actually executed a command.
+# 「all gating checks green」と「nothing blocking」を文面の照合でしか見分けられず、飛ばしたチェックが
+# 通ったチェックに見えていたため。`ran` は、実際にコマンドを実行したゲートのチェックの数。
 #
-# `${var:-}` throughout: `pass()` is called from four places BEFORE `profile` is assigned (:498, :508,
-# :545, :553 against :556), and this file runs under `set -u`.
+# 全体で `${var:-}` を使う。`pass()` は `profile` の代入より前に 4 か所から呼ばれ、このファイルは
+# `set -u` で動く。
 write_gate_report() {
   [[ -n "${DOTAGENTS_GATE_REPORT:-}" ]] || return 0
   node -e '
     const [out, profile, ran, skipped, changed] = process.argv.slice(1);
-    // "<id>:<reason>" pairs. Split on the LAST colon so an id containing one survives.
+    // "<id>:<reason>" の組。ID にコロンが入っても残るよう、最後のコロンで分ける。
     const skips = skipped.split(" ").filter(Boolean).map((s) => {
       const i = s.lastIndexOf(":");
       return i < 0 ? { id: s, reason: "unknown" } : { id: s.slice(0, i), reason: s.slice(i + 1) };
@@ -421,12 +393,11 @@ write_gate_report() {
     "$(printf '%s' "${changed_root:-}" | grep -c . || true)" 2>/dev/null || true
 }
 
-# Let the turn end.
+# ターンを終わらせる。
 pass() {
   trace "$agent" "$cwd" "passed${1:+: $1}"
   if (( GATE_DRY )); then
-    # Said out loud, because "green" and "there was nothing to check" are different answers and only
-    # one of them means the work is verified.
+    # 声に出して言う。「緑」と「検査するものが無かった」は別の答えで、作業が検証済みなのは前者だけ。
     write_gate_report
     printf 'gate: nothing blocking%s\n' "${1:+ -- $1}"
     exit 0
@@ -435,14 +406,12 @@ pass() {
   exit 0
 }
 
-# Each sentinel records the repository root it belongs to. Match on that, not on position:
-# with two repositories armed, active[0] would check one and report against the other.
+# 各番兵は所属するリポジトリのルートを持つ。位置ではなくそれで照合する。2 つ掛かっていると、
+# active[0] は一方を検査して他方について報告してしまう。
 #
-# The sentinel's contents are unchanged. What changed is the comparison: a linked worktree's toplevel
-# is its own path, so exact matching answered "armed elsewhere" for every worktree of an armed repo --
-# while `using-git-worktrees` is this toolkit's own recommended way to isolate parallel work. Falling
-# back to the shared git directory makes the worktree inherit the gate. Over-coverage is loud and
-# `disarm` fixes it; under-coverage was silent.
+# リンクされた worktree の toplevel はそれ自身のパスなので、完全一致だけだと掛かったリポジトリの
+# worktree すべてが「他所で掛かっている」になる。共有の git ディレクトリで照合し直して worktree に
+# ゲートを継がせる。掛かりすぎはうるさく `disarm` で直せるが、掛かり漏れは黙っている。
 gate_repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 gate_common="$(gate_common_dir "$cwd")"
 slug_dir=""
@@ -453,9 +422,8 @@ for _sentinel in ${active[@]+"${active[@]}"}; do
     slug_dir="$(dirname "$_sentinel")"
     break
   fi
-  # Only while the armed path still resolves. If the repository moved, the exact match above is the
-  # only claim this hook is entitled to make -- and claiming a gate that is not ours would report
-  # against the wrong repository, which is the failure the content-matching design removed once.
+  # 掛かったパスがまだ解決できる時だけ。リポジトリが移動していたら上の完全一致しか主張できない。
+  # 他所のゲートを自分のものとすると、別のリポジトリについて報告してしまう。
   if [[ -n "$gate_common" && -d "$_armed" ]]; then
     _armed_common="$(gate_common_dir "$_armed")"
     if [[ -n "$_armed_common" && "$_armed_common" == "$gate_common" ]]; then
@@ -465,123 +433,114 @@ for _sentinel in ${active[@]+"${active[@]}"}; do
   fi
 done
 
-# The agent gave no working directory and nothing matched. With exactly one sentinel armed there is
-# only one repository it could be about, so take that and record the inference. This is what makes
-# the gate work at all in Cursor.
+# エージェントが作業ディレクトリを渡さず、何も一致しなかった。番兵が 1 つだけなら候補はそれしか
+# ないので、それを採って推定したことを記録する。Cursor でゲートが働くのはこのため。
 if [[ -z "$slug_dir" && "$cwd_known" == "0" && ${#active[@]} -eq 1 ]]; then
   slug_dir="$(dirname "${active[0]}")"
   gate_repo_root="$(cat "${active[0]}" 2>/dev/null)"
   cwd="$gate_repo_root"
-  trace "$agent" "$cwd" "inferred the repository from the only armed sentinel"
+  trace "$agent" "$cwd" "唯一掛かっている番兵からリポジトリを推定した"
 fi
 
-# Several armed and nothing to disambiguate with. Guessing would check one repository and report
-# against another, so say what happened rather than let it look like a pass.
+# 複数掛かっていて見分ける手掛かりが無い。推測すると一方を検査して他方について報告するので、
+# 通過に見せずに起きたことを言う。
 if [[ -z "$slug_dir" && "$cwd_known" == "0" && ${#active[@]} -gt 1 ]]; then
-  block "The verification gate could not tell which repository this turn was about.
+  block "検証ゲートは、このターンがどのリポジトリについてのものか判定できなかった。
 
-This agent reports no working directory, and ${#active[@]} repositories are armed. Disarm the ones
-you are not working in with 'scripts/gate.sh disarm' so there is a single answer. Nothing was
-checked -- do not treat this as a pass."
+このエージェントは作業ディレクトリを報告せず、${#active[@]} 個のリポジトリにゲートが掛かっている。
+作業していないものを 'scripts/gate.sh disarm' で外し、答えを 1 つにすること。何も検査していない。
+通過とみなさないこと。"
 fi
 
-# ---------------------------------------------------------------- reclaim idle sentinels
-# The sweeper is the glob above, which every turn end in every repository already walks. It runs
-# several times a minute across all sessions, so it costs nothing -- and a launchd job whose purpose
-# was to un-arm guardrails would be a fail-open machine running when nobody is watching.
+# ---------------------------------------------------------------- アイドルの番兵を回収する
+# 掃除役は上の glob で、どのリポジトリのターン終了でも既に走っているので費用は無い。ガードレールを
+# 外すための launchd ジョブは、誰も見ていない時に動く「開く装置」になる。
 #
-# The rule that makes expiry structurally unable to fail open:
+# 期限切れが構造的に開く側へ倒れないための規則:
 #
-#   an invocation may evict a sentinel only if that sentinel is NOT the one it is about to enforce.
+#   呼び出しが追い出してよいのは、これから強制する番兵「以外」だけ。
 #
-# So the only invocation that can expire gate G is one that was never protecting G, and no single
-# invocation can both expire a gate and pass on the basis of that expiry. Placed after the match and
-# after the Cursor inference: if the one armed sentinel is stale and we inferred it, enforcing it is
-# the fail-closed answer, and the heartbeat refresh below keeps it.
+# だからゲート G を期限切れにできるのは G を守っていなかった呼び出しだけで、1 回の呼び出しが
+# 期限切れにしてその結果で通すことはない。照合と Cursor の推定の後に置く。推定した唯一の番兵が
+# 古くても、強制するのが閉じる側の答えで、下の heartbeat 更新がそれを保つ。
 _ttl="$(gate_ttl_seconds)"
 for _sentinel in ${active[@]+"${active[@]}"}; do
   _d="$(dirname "$_sentinel")"
   [[ -n "$slug_dir" && "$_d" == "$slug_dir" ]] && continue
   _idle="$(gate_idle_seconds "$_d")"
   if [[ -z "$_idle" ]]; then
-    # Armed by a version that kept no heartbeat. Start its clock instead of reading the absence as
-    # infinite idleness, which would evict a gate somebody armed a minute ago. The upgrade migrates
-    # itself; there is no command for anyone to remember to run.
+    # heartbeat を持たない版が掛けたもの。無いことを無限のアイドルと読むと 1 分前に掛けたゲートを
+    # 追い出すので、時計をここから動かす。移行は自動で、誰かが覚えて実行するコマンドは無い。
     gate_touch_heartbeat "$_d"
     continue
   fi
   if (( _idle > _ttl )); then
     _root="$(gate_expire "$_d" "$_idle")"
-    trace "$agent" "$cwd" "expired ${_root:-$_d} (idle $(( _idle / 3600 ))h, ttl $(( _ttl / 3600 ))h)"
-    gate_log_verdict "${_root:-$_d}" expired "idle $(( _idle / 3600 ))h, reclaimed during a turn end in $gate_repo_root"
+    trace "$agent" "$cwd" "expired ${_root:-$_d}（アイドル $(( _idle / 3600 ))h、ttl $(( _ttl / 3600 ))h）"
+    gate_log_verdict "${_root:-$_d}" expired "アイドル $(( _idle / 3600 ))h、$gate_repo_root のターン終了時に回収"
   fi
 done
 
-# Ours: refreshed, not expired. This is also what backfills a pre-upgrade sentinel of our own, and
-# what lets a long unattended run keep its gate -- idle time is measured from the last turn to end
-# here, not from when the gate was armed.
+# 自分のものは期限切れにせず更新する。更新前の自分の番兵もこれで埋まり、長い無人実行もゲートを保つ。
+# アイドル時間は掛けた時点ではなく、ここで最後にターンが終わった時点から測る。
 (( GATE_DRY )) || { [[ -n "$slug_dir" ]] && gate_touch_heartbeat "$slug_dir"; }
 
-# Armed somewhere, but not for this repository. Not our business -- unless this is a dry run, which is
-# not asking whether a gate holds. `gate.sh verify` deliberately works with nothing armed, because
-# checking your own work is what you do *while* implementing, before any gate exists.
+# 掛かっているが、このリポジトリのものではない。関係ない。ただし dry 実行はゲートが止めるかを問わない。
+# 自分の作業の確認は、ゲートを掛ける前の実装中にするものなので、`gate.sh verify` は何も掛かって
+# いなくても動く。
 if [[ -z "$slug_dir" ]] && ! (( GATE_DRY )); then
-  pass "armed elsewhere, not for $gate_repo_root"
+  pass "他所で掛かっており、$gate_repo_root 向けではない"
 fi
 
-# ---------------------------------------------------------------- a subagent is not a turn
-# Claude Code converts a registered Stop hook into SubagentStop for subagents, so this hook fires every
-# time one completes. That is the wrong question to ask here: the gate decides whether the *user's turn*
-# may end. Left alone it meant da-review-all's three layer subagents each triggered a full run of the
-# gating suite, exit 2 *prevented a review subagent from stopping* because the repository's tests were
-# red, and the attempt budget was spent three times over by work that was not the user's turn.
+# ---------------------------------------------------------------- サブエージェントはターンではない
+# Claude Code は登録された Stop hook をサブエージェントでは SubagentStop に変えるので、完了のたびに
+# この hook が発火する。ゲートが決めるのは「ユーザーのターン」が終わってよいかで、ここで問うのは
+# 筋違い。放置すると、レビューのサブエージェントがテストの赤で止まれず、試行回数も無駄に減る。
 if [[ "$is_subagent" == "1" ]]; then
-  pass "subagent completed (${agent_type}); the gate applies to the turn, not to a subagent"
+  pass "subagent が完了した（${agent_type}）。ゲートが掛かるのはターンで、subagent ではない"
 fi
 
 
-# Armed for this repo, so from here a malfunction must block rather than pass. See docs/decisions.md.
+# このリポジトリに掛かっているので、ここから先の誤動作は通さず止める。docs/decisions.md 参照。
 if [[ "$GATE_NODE_MISSING" == "1" ]]; then
-  block "The verification gate needs node and cannot find it on PATH, so it cannot check anything.
+  block "検証ゲートには node が要るが、PATH に見つからない。何も検査できない。
 
-This is a fault in the gate's environment, not in your work. Fix PATH for the agent, or disarm the
-gate at $slug_dir -- do not treat this as a pass."
+作業ではなくゲートの環境の不具合。エージェントの PATH を直すか、$slug_dir のゲートを外すこと。
+通過とみなさないこと。"
 fi
 if [[ -z "$PROFILES" || ! -d "$PROFILES" ]]; then
-  block "The verification gate cannot find its profiles directory (looked for: ${PROFILES:-<unset>}).
+  block "検証ゲートがプロファイルのディレクトリを見つけられない（探した場所: ${PROFILES:-<unset>}）。
 
-The dotagents checkout may have moved. Re-run scripts/setup.sh install, or disarm the gate at
-$slug_dir -- do not treat this as a pass."
+dotagents のチェックアウトが移動したのかもしれない。scripts/setup.sh install を再実行するか、
+$slug_dir のゲートを外すこと。通過とみなさないこと。"
 fi
-# Counters belong to a working tree, not to the repository: two worktrees are two pieces of work, and
-# carrying a count between them would escalate at a tree whose own first attempt had not happened.
+# カウンタはリポジトリではなく作業ツリーのもの。2 つの worktree は 2 つの作業で、回数を持ち越すと
+# まだ 1 回目も試していないツリーで段階が上がってしまう。
 state_dir="$slug_dir/wt/$(gate_worktree_key "$cwd")"
 mkdir -p "$state_dir" 2>/dev/null || true
 attempts_file="$state_dir/attempts.json"
 
-# The pre-worktree layout kept the records beside the sentinel. Read a delegated file from there when
-# this tree has none: losing a delegated result means re-asking a human, which is a worse default than
-# reading a file we wrote ourselves one version ago.
+# worktree 対応前の配置は記録を番兵の隣に置いていた。このツリーに委任ファイルが無ければそこから読む。
+# 委任の結果を失うと人にもう一度頼むことになり、1 版前に自分で書いたファイルを読むより悪い。
 delegated_file="$state_dir/delegated.json"
 if [[ ! -e "$delegated_file" && -e "$slug_dir/delegated.json" ]]; then
   delegated_file="$slug_dir/delegated.json"
 fi
 
-# A verdict beside the counters means this working tree's gate has already given up. It stops
-# blocking -- that is the point of bounding it -- but it must not read as green, so the trace line is
-# deliberately different from the all-clear one. Per working tree, not per repository: a dead end in
-# one worktree must not release the gate for every other piece of work in parallel.
+# カウンタの隣に verdict があれば、この作業ツリーのゲートは既に諦めている。上限を設けた意味として
+# もう止めないが、緑とは読ませないので、トレースの文面は全通過のものと意図して変える。リポジトリ
+# ではなく作業ツリー単位。1 つの worktree の行き詰まりで並行する他の作業のゲートを開けないため。
 verdict_file="$state_dir/VERDICT"
 if [[ -f "$verdict_file" ]]; then
-  pass "gave up earlier on $(sed -n 3p "$verdict_file" 2>/dev/null) after $(sed -n 4p "$verdict_file" 2>/dev/null) attempts -- the work was NOT verified"
+  pass "以前 $(sed -n 3p "$verdict_file" 2>/dev/null) を $(sed -n 4p "$verdict_file" 2>/dev/null) 回試して諦めている。作業は検証されていない"
 fi
 
-# ---------------------------------------------------------------- resolve the profile
+# ---------------------------------------------------------------- プロファイルを解決する
 
 remote="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
 if [[ -z "$remote" ]]; then
-  # Not a git repo, or no origin. We have no basis for choosing commands, so we do not guess.
-  pass "no git remote in $cwd"
+  # リポジトリでないか origin が無い。コマンドを選ぶ根拠が無いので推測しない。
+  pass "$cwd に git remote が無い"
 fi
 
 profile="$(node -e '
@@ -592,15 +551,14 @@ profile="$(node -e '
   try { names = fs.readdirSync(dir); } catch { process.stdout.write("ERR:unreadable\n"); process.exit(0); }
   for (const f of names) {
     if (!f.endsWith(".json") || f.startsWith("_")) continue;
-    // try/catch per file: with it around the loop, one malformed profile hid every profile after
-    // it in readdir order, and the gate opened for those repositories with no message.
+    // try/catch はファイルごと。ループ全体を囲むと、壊れたプロファイル 1 つが readdir 順で後ろの
+    // プロファイルをすべて隠し、それらのリポジトリでゲートが黙って開く。
     try {
       const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-      // `remote` is one substring or a list of them, any of which matches. A single string names one
-      // owner, so every fork of a gated repository matched nothing and the gate passed in silence --
-      // including forks of this repository, whose own profile exists to hold it to its own gate.
-      // Kept identical to the copy in scripts/gate.sh: a matcher that disagreed would report a
-      // profile there and find none here.
+      // `remote` は部分文字列 1 つか、そのリスト（どれか 1 つが一致すればよい）。1 つだけだと
+      // 所有者を 1 つしか書けず、ゲートの掛かったリポジトリのフォークが何にも一致せず黙って通る。
+      // scripts/gate.sh 側のコピーと同一に保つ。食い違うと、向こうはプロファイルを報告し、
+      // こちらは見つけられない。
       const pats = p?.match?.remote == null ? [] : [].concat(p.match.remote);
       if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) {
         hit = path.join(dir, f); break;
@@ -613,62 +571,58 @@ profile="$(node -e '
 
 case "$profile" in
   ERR:unreadable)
-    block "The verification gate could not read $PROFILES, so it cannot check anything.
-This is a fault in the gate, not in your work. Do not treat it as a pass." ;;
+    block "検証ゲートが $PROFILES を読めず、何も検査できない。
+作業ではなくゲートの不具合。通過とみなさないこと。" ;;
   ERR:broken:*)
-    block "These profile files are not valid JSON, so the gate cannot tell whether one of them
-applies to this repository: ${profile#ERR:broken:}
+    block "次のプロファイルが正しい JSON ではなく、どれかがこのリポジトリに当てはまるか判定できない: ${profile#ERR:broken:}
 
-Fix the JSON in $PROFILES, or disarm the gate at $slug_dir. Do not treat this as a pass." ;;
+$PROFILES の JSON を直すか、$slug_dir のゲートを外すこと。通過とみなさないこと。" ;;
 esac
 
-# No matching profile means we do not know how to verify this repository. Blocking on a guess would
-# be worse than not blocking: it would teach the user to ignore the gate.
-[[ -n "$profile" ]] || pass "no profile matches $remote"
+# 一致するプロファイルが無ければ、このリポジトリの検証方法が分からない。推測で止めるのは止めないより
+# 悪い。ユーザーがゲートを無視するようになる。
+[[ -n "$profile" ]] || pass "$remote に一致するプロファイルが無い"
 
 repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 sub="$(node -e 'try{console.log(require(process.argv[1]).cwd||"")}catch{}' "$profile")"
 run_dir="$repo_root${sub:+/$sub}"
 [[ -d "$run_dir" ]] || run_dir="$repo_root"
 
-# ---------------------------------------------------------------- run the gating checks
+# ---------------------------------------------------------------- ゲートのチェックを実行する
 
-# Only checks that gate AND that we are permitted to run. Delegated ones are handled below.
-# Written to a file and read back with `while read` rather than mapfile, because macOS ships
-# bash 3.2 and this has to run under whatever shell the agent invokes.
-# Pass a full template: BSD mktemp treats `-t x` as a prefix, GNU coreutils demands XXXXXX and
-# errors on anything else. A bare `-t dotagents-gate` works on macOS and fails on Linux.
+# ゲートであり、かつ実行を許されたチェックだけ。委任のものは下で扱う。
+# macOS の bash 3.2 でも動くよう、mapfile ではなくファイルに書いて `while read` で読み戻す。
+# テンプレートは完全な形で渡す。BSD mktemp は `-t x` を接頭辞として扱い、GNU coreutils は XXXXXX を
+# 要求して他はエラーにする。
 work="$(mktemp "${TMPDIR:-/tmp}/dotagents-gate.XXXXXX" 2>/dev/null)"
 if [[ -z "$work" || ! -f "$work" ]]; then
-  # The gate could not set itself up. It must not let the turn through on its own malfunction --
-  # a guardrail that fails open is worse than none (docs/decisions.md).
-  block "The verification gate could not create its scratch file, so it cannot check anything.
+  # ゲートが準備できなかった。自分の誤動作でターンを通してはならない。開く側に倒れる
+  # ガードレールは無いより悪い（docs/decisions.md）。
+  block "検証ゲートが作業用ファイルを作れず、何も検査できない。
 
-This is a fault in the gate itself, not in your work. Either fix it or disarm the sentinel at
-$slug_dir before continuing -- do not treat this as a pass."
+作業ではなくゲート自体の不具合。続ける前に直すか、$slug_dir の番兵を外すこと。
+通過とみなさないこと。"
 fi
-# Registered through the same handler rather than as a second trap: a bare `trap ... EXIT` here would
-# replace the crash guard installed above, and losing it is invisible until the gate crashes.
+# 2 つ目の trap にせず同じハンドラで登録する。ここで素の `trap ... EXIT` を書くと上のクラッシュ
+# ガードを置き換え、失ったことはゲートが落ちるまで見えない。
 _gate_work="$work"
 
-# Defaults, not measurements. They have to be generous enough for a real suite and finite enough that
-# a hung check cannot hold a turn open indefinitely.
+# 既定値で、計測値ではない。実際のテストに足りるだけ大きく、止まったチェックがターンを開けっ放しに
+# できない程度に有限。
 GATE_CHECK_TIMEOUT_DEFAULT=120
 GATE_TOTAL_TIMEOUT_DEFAULT=300
 
-# A command the repository forbids must not be run by the gate either. `forbidden` was declared in the
-# schema, used in three profiles, described in da-verify/SKILL.md -- and read by nothing. The gate
-# `eval`ed whatever `cmd` said, so a repository could forbid `cdk deploy` and have the gate run it at
-# every turn end. docs/mechanisms.md is explicit about this shape: a rule written in a skill is a
-# request, not a guarantee, and guardrails belong in hooks.
+# リポジトリが禁じたコマンドはゲートも実行しない。`cmd` をそのまま `eval` すると、`cdk deploy` を
+# 禁じたリポジトリでもターン終了のたびにゲートがそれを実行してしまう。スキルに書いた規則は依頼で
+# あって保証ではなく、ガードレールは hook に置く（docs/mechanisms.md）。
 #
-# One per line so a phrase containing spaces survives; `read` gives the whole line to the variable.
+# 空白を含む語句が残るよう 1 行 1 つ。`read` は行全体を変数に渡す。
 forbidden_list="$(node -e '
   try { for (const f of require(process.argv[1]).forbidden || []) if (String(f).trim()) console.log(f) }
   catch {}
 ' "$profile" 2>/dev/null)"
 
-# The first forbidden phrase contained in a command, or nothing.
+# コマンドに含まれる最初の禁止語句。無ければ何も出さない。
 forbidden_hit() { # <command>
   local phrase
   while IFS= read -r phrase; do
@@ -684,61 +638,44 @@ budget_total="$(node -e '
 ' "$profile" 2>/dev/null)"
 case "$budget_total" in ''|*[!0-9]*|0) budget_total=$GATE_TOTAL_TIMEOUT_DEFAULT ;; esac
 
-# id, timeout and the mutates flag first, command last: the command is the only field that can contain
-# a tab, and `read` gives the remainder of the line to the last variable.
+# ID・タイムアウト・mutates を先に、コマンドを最後に。タブを含みうるのはコマンドだけで、`read` は
+# 行の残りを最後の変数に渡す。
 node -e '
   const p = require(process.argv[1]);
   const dflt = Number(process.argv[2]);
   for (const c of p.checks || [])
     if (c.gate && c.agent_may_run) {
       const t = Number.isInteger(c.timeout) && c.timeout > 0 ? c.timeout : dflt;
-      // `paths` joined by space so the shell can iterate it. This projection is the reason `scope` was
-      // never read by any executing code: every field not listed here is invisible to the loop below.
+      // シェルで回せるよう `paths` は空白で連結する。ここに載せないフィールドは下のループから見えない。
       //
-      // "-" for absent, never the empty string. TAB IS A WHITESPACE CHARACTER, so `IFS=$'\t' read`
-      // COLLAPSES consecutive tabs -- an empty field in the middle shifts every column after it, and
-      // the command lands in `pathspec`. Caught by `ran` dropping from 14 to 3 on a profile that
-      // declares no paths at all: eleven checks "did not claim" files because their pattern was the
-      // command string. Without the gate-nothing-ran block that would have been a silent green.
+      // 無い時は空文字ではなく "-"。タブは空白文字なので `IFS=$\t read` は連続するタブを潰し、
+      // 途中の空フィールドで後ろの列がすべてずれ、コマンドが `pathspec` に入る。
       const paths = Array.isArray(c.paths) && c.paths.length ? c.paths.join(" ") : "-";
       console.log([c.id, t, c.mutates ? "1" : "0", paths, c.cmd].join("\t"));
     }
 ' "$profile" "$GATE_CHECK_TIMEOUT_DEFAULT" > "$work"
 
-# What the working tree looks like, cheaply, so a check that declares `mutates` can be held to it.
+# 作業ツリーの様子を安く取る。`mutates` を宣言したチェックをこれで確かめる。
 tree_fingerprint() {
   git -C "$repo_root" -c core.quotePath=false status --porcelain 2>/dev/null
 }
 
-# macOS ships no `timeout` and no `gtimeout`, so the wall clock is built here rather than depended on.
-# Real seconds, deliberately not gate_now(): this measures how long a command actually took, and a
-# clock the environment can move would be a way to defeat the budget.
-#
-# The kill reaches the subshell running `eval`, not its grandchildren, so a `pnpm test` that spawned
-# node may leave one behind. That is the right trade for now: the requirement is that the hook -- and
-# therefore the turn, and therefore the loop -- is released. A lingering child is the lesser evil, and
-# a real tree kill means moving execution into node's spawn(), which moves the {files}+eval injection
-# boundary that exactly one test stands on. Separate change, separately reviewed.
-run_check() { # <seconds> <command>  -> sets check_out and check_code; touches $work.timeout on a kill
+# macOS には `timeout` も `gtimeout` も無いので、時計はここで作る。gate_now() ではなく実時間を使う。
+# 測るのはコマンドが実際にかかった時間で、環境が動かせる時計だと予算を破る手段になる。
+run_check() { # <seconds> <command>  -> check_out と check_code を設定する。殺した時は $work.timeout を作る
   local secs="$1" c="$2"
   rm -f "$work.timeout" "$work.out"
 
-  # Executed through node's spawn in its own process group, so a timeout kills the whole tree.
+  # node の spawn で独自のプロセスグループとして実行し、タイムアウト時に木全体を殺す。
+  # `eval` を動かす bash だけを殺すと、バックグラウンドの子（`pnpm test` が起こした node、dev
+  # サーバー、コンテナ）が残ってポートと CPU を持ち続ける。
   #
-  # The previous watchdog killed the bash subshell running `eval` and nothing below it. A check that
-  # backgrounded work -- `pnpm test` spawning node, a dev server, a container -- survived the timeout
-  # and went on holding ports and CPU after the gate had already given up. There is a test that starts
-  # a background child and requires it to be dead.
+  # コマンドは `eval` と同じく `bash -c` にそのまま渡り、`{files}` は置換前にファイル名ごとに
+  # シェルクォートする。クォートの境界は変えておらず、変わったのは殺すプロセスだけ。
   #
-  # What did NOT change: the command still reaches `bash -c` verbatim, exactly as `eval` received it,
-  # and `{files}` is still shell-quoted one filename at a time before substitution. The quoting
-  # boundary is untouched -- only the process that gets killed is different. The injection suite was
-  # widened to seven adversarial filenames before this moved, because this is the boundary it guards.
-  #
-  # The gate's own control variables are stripped from the child's environment. A check is repository
-  # code, not gate internals: `gate.sh verify` sets DOTAGENTS_GATE_DRY=1, this repository's profile
-  # gates ./scripts/test-verify-gate.sh, and that suite then ran every hook invocation in dry mode --
-  # so verifying this repository reported its own gate suite as failing.
+  # ゲート自身の制御変数は子の環境から除く。チェックはリポジトリのコードでありゲートの内部ではない。
+  # 残すと `gate.sh verify` の DOTAGENTS_GATE_DRY=1 がこのリポジトリのゲートのテストに漏れ、
+  # テスト内の hook 呼び出しがすべて dry で動いて失敗する。
   node -e '
     const { spawn } = require("node:child_process");
     const fs = require("node:fs");
@@ -754,9 +691,8 @@ run_check() { # <seconds> <command>  -> sets check_out and check_code; touches $
 
     const timer = setTimeout(() => {
       timedOut = true;
-      // Written BEFORE the kill. Otherwise a non-zero status from a killed child is
-      // indistinguishable from the check having failed on its own, and "the gate ran out of time"
-      // would be reported as "your check is broken" -- a claim about different code.
+      // 殺す前に書く。でないと殺された子の非 0 がチェック自身の失敗と区別できず、「ゲートの時間
+      // 切れ」が「チェックが壊れている」と報告される。
       try { fs.writeFileSync(markPath, "") } catch {}
       try { process.kill(-child.pid, "SIGTERM") } catch {}
       hardKill = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL") } catch {} }, 2000);
@@ -780,13 +716,13 @@ failed_id=""
 failed_cmd=""
 failed_out=""
 failed_code=0
-# Which finding this is, and therefore which verdict it would become. "the human has not confirmed"
-# is not "the code is broken", and a record that conflated them would be useless to read later.
+# どの所見か、つまりどの verdict になるか。「人が確認していない」は「コードが壊れている」ではなく、
+# 混ぜた記録は後で読んでも役に立たない。
 failed_kind="red"
 
-# How many consecutive failures before this gate stops holding. Not 2: 2 is where the message already
-# escalates, and the terminal point has to be strictly later or the escalation never gets a turn to
-# work. The env var takes precedence so the tests can shorten it without editing a profile.
+# 何回連続で失敗したらゲートが止めるのをやめるか。2 ではない。2 でメッセージの段階が上がるので、
+# 終点はそれより後でないと段階を上げた効果が出る前に終わる。テストがプロファイルを編集せずに
+# 縮められるよう、環境変数を優先する。
 max_attempts="${DOTAGENTS_GATE_MAX_ATTEMPTS:-}"
 if [[ -z "$max_attempts" ]]; then
   max_attempts="$(node -e '
@@ -798,20 +734,16 @@ case "$max_attempts" in ''|*[!0-9]*|0) max_attempts=3 ;; esac
 
 gate_started="$(date +%s)"
 unrun=""
-# What the gate DID, for write_gate_report. `gate_ran` counts checks whose command actually executed;
-# `gate_skipped` collects "<id>:<reason>" for every check that did not. A skip that is not recorded is
-# the bug this pair exists to end -- see the {files} branch below.
+# write_gate_report 用に、ゲートが何をしたか。`gate_ran` はコマンドを実際に実行したチェックの数、
+# `gate_skipped` は実行しなかったチェックの "<id>:<reason>"。記録されない skip をなくすための組。
 gate_ran=0
 gate_skipped=""
 
-# THE CHANGED SET, computed once, ROOT-RELATIVE. Two consumers now -- the {files} substitution and the
-# `paths` predicate -- and two git invocations would be two answers whenever the tree moved between
-# them. `tree_fingerprint()` already gives this file a second, differently-rooted view of the same
-# tree; a third would be one too many.
+# 変更集合。ルート相対で 1 回だけ求める。使うのは {files} の置換と `paths` の判定の 2 か所で、
+# git を 2 回呼ぶと間にツリーが動いた時に答えが 2 つになる。
 #
-# The base is DOTAGENTS_GATE_DIFF_BASE when set, HEAD otherwise. `scripts/loop.sh` pins it to the
-# landing's merge-base for the duration of a landing, because it commits mid-landing and a HEAD-relative
-# diff would then hide the very work being verified. Interactive use leaves it unset and gets HEAD.
+# 基点は DOTAGENTS_GATE_DIFF_BASE があればそれ、無ければ HEAD。`scripts/loop.sh` はランディングの間
+# merge-base に固定する。途中で commit するので、HEAD 相対だと検証すべき作業そのものが隠れるため。
 gate_diff_base="${DOTAGENTS_GATE_DIFF_BASE:-HEAD}"
 git -C "$repo_root" rev-parse --verify --quiet "$gate_diff_base" >/dev/null 2>&1 || gate_diff_base=HEAD
 changed_root=""
@@ -823,16 +755,13 @@ done < <(
   git -C "$repo_root" -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null
 )
 
-# Does any changed path match one of a check's declared prefixes/globs? Root-relative on both sides.
-# A trailing `/**` is the common case and is handled as a prefix; anything else goes through bash's
-# own pattern matching, so `docs/*.md` and a bare `CLAUDE.md` both work.
-gate_paths_match() { # <newline-separated changed paths> <space-separated patterns> -> prints matches
+# 変更されたパスのどれかが、チェックの宣言した接頭辞や glob に一致するか。どちらもルート相対。
+# 末尾が `/**` のもの（よくある形）は接頭辞として扱い、他は bash のパターン照合に任せるので
+# `docs/*.md` も素の `CLAUDE.md` も効く。
+gate_paths_match() { # <改行区切りの変更パス> <空白区切りのパターン> -> 一致したものを出力する
   local paths="$1" pats="$2" f pat
-  # `read -a`, NOT `for pat in $pats`. Unquoted word splitting also does PATHNAME EXPANSION, so a
-  # pattern like `docs/**` was being replaced by the files that happened to exist under docs/ -- the
-  # pattern stopped being a pattern. It "worked" for `src/**` in a tree with no src/ (a failed glob
-  # stays literal), which is exactly how this would have shipped: correct on the paths that do not
-  # exist yet, silently wrong on the ones that do. `read` never globs.
+  # `for pat in $pats` ではなく `read -a`。クォートしない単語分割はパス名展開もするので、
+  # `docs/**` が docs/ の下の実在ファイルに置き換わり、パターンでなくなる。`read` は glob しない。
   local -a patarr
   IFS=' ' read -r -a patarr <<<"$pats"
   while IFS= read -r f; do
@@ -846,14 +775,14 @@ gate_paths_match() { # <newline-separated changed paths> <space-separated patter
   done <<<"$paths"
 }
 
-# `cmd` stays LAST: it is the only field that can contain a tab, and read's final variable absorbs the
-# remainder, so a tab in a command cannot shift the columns before it.
+# `cmd` は最後に置く。タブを含みうるのはこれだけで、read の最後の変数が残りを吸うので、コマンド中の
+# タブが前の列をずらさない。
 while IFS=$'\t' read -r id secs mutates pathspec cmd; do
   [[ -n "$id" ]] || continue
   case "$secs" in ''|*[!0-9]*|0) secs=$GATE_CHECK_TIMEOUT_DEFAULT ;; esac
 
-  # Does this check claim any of what changed? `paths` is repo-root-relative; a check with no `paths`
-  # claims everything, which is exactly today's behaviour.
+  # このチェックは変更のどれかを受け持つか。`paths` はリポジトリルート相対。`paths` の無いチェックは
+  # すべてを受け持つ。
   applicable="$changed_root"
   [[ "$pathspec" == "-" ]] && pathspec=""
   if [[ -n "$pathspec" ]]; then
@@ -864,28 +793,21 @@ while IFS=$'\t' read -r id secs mutates pathspec cmd; do
     fi
   fi
 
-  # {files} is a scope narrowing. With nothing changed there is nothing to check.
+  # {files} は範囲の絞り込み。何も変わっていなければ検査するものは無い。
   if [[ "$cmd" == *"{files}"* ]]; then
-    # NUL-separated with quotePath off, so paths with spaces or non-ASCII survive; each name is
-    # then shell-quoted before substitution because the result is handed to eval. Unquoted, a file
-    # called `a;touch pwned;b.ts` would execute -- and anything that can write to the work tree
-    # chooses that name.
+    # 空白や非 ASCII を含むパスが残るよう NUL 区切り・quotePath オフで取る。結果は eval に渡るので
+    # 置換前に名前ごとにシェルクォートする。しないと `a;touch pwned;b.ts` という名前のファイルが
+    # 実行され、作業ツリーに書ける者なら誰でもその名前を選べる。
     #
-    # Untracked files are included: a turn that only adds new files produced an empty list, which
-    # skipped the check entirely -- and a new file is what most needs checking.
+    # 未追跡ファイルも含める。新しいファイルを足すだけのターンでリストが空になりチェックを丸ごと
+    # 飛ばしていた。新しいファイルこそ検査が要る。
     #
-    # Listed from $run_dir, not from the repository root. The command runs in
-    # repo_root/<profile.cwd>, so root-relative paths were being handed to a runner that could not
-    # open them: a profile that sets "cwd": "v2" with `vitest run {files}` got a changed file as
-    # `v2/src/foo.ts` for a vitest already running inside `v2/`. Depending on passWithNoTests that
-    # is a permanent false failure or a vacuous pass. `--relative` also scopes the list to that
-    # subtree, which is the right answer too: a check that runs in v2/ is about v2/'s files.
-    # DERIVED from the single root-relative set above, not re-queried. `--relative` used to do two
-    # things at once -- strip the `<cwd>/` prefix and drop anything outside that subtree -- so both are
-    # done here. scripts/test-verify-gate.sh's `cwd: pkg` case is unchanged and is what proves it.
+    # パスは $run_dir 基準にする。コマンドは repo_root/<profile.cwd> で動くので、ルート相対だと
+    # "cwd": "v2" の `vitest run {files}` に `v2/src/foo.ts` が渡り、開けない。上のルート相対の
+    # 集合から導き、`<cwd>/` 接頭辞を外すことと、そのサブツリー外を落とすことの両方をここでする。
+    # scripts/test-verify-gate.sh の `cwd: pkg` のケースがそれを確かめる。
     #
-    # The narrowing is the INTERSECTION with `paths`: a check declaring paths: ["docs/**"] must not be
-    # handed src/a.ts.
+    # 絞り込みは `paths` との共通部分。paths: ["docs/**"] のチェックに src/a.ts を渡してはならない。
     files=""
     while IFS= read -r _f; do
       [[ -n "$_f" ]] || continue
@@ -895,10 +817,9 @@ while IFS=$'\t' read -r id secs mutates pathspec cmd; do
       fi
       files="$files $(printf '%q' "$_f")"
     done <<<"$applicable"
-    # RECORDED, not silent. This `continue` used to leave no trace, so a profile whose gating checks
-    # were all {files}-scoped reported "all gating checks green" on a clean tree -- byte-identical to a
-    # real pass, and the gap documented at docs/loops.md:546. Still non-blocking and still exit 0: on a
-    # clean tree there genuinely is nothing to check. What changes is that it now says so.
+    # 黙らず記録する。記録しないと、ゲートのチェックがすべて {files} 付きのプロファイルが、きれいな
+    # ツリーで本当の通過と同じ文面を出す。きれいなツリーでは検査するものが無いので、非ブロックで
+    # exit 0 のまま。変わるのは、そう言うようになったこと。
     if [[ -z "${files// /}" ]]; then
       gate_skipped="${gate_skipped:+$gate_skipped }$id:no_files"
       continue
@@ -906,30 +827,26 @@ while IFS=$'\t' read -r id secs mutates pathspec cmd; do
     cmd="${cmd//\{files\}/${files# }}"
   fi
 
-  # Nothing new is started once the total budget is gone. Overrunning the harness's own hook timeout
-  # is the one failure the gate cannot observe -- it exits with neither 0 nor 2, which is
-  # non-blocking, so the turn ends looking clean.
-  # Checked before starting, and deliberately not used to shorten a check that is already allowed to
-  # run. Clamping a check to the remaining budget would report it as a timeout for a reason that has
-  # nothing to do with that check -- and it would make this branch nearly unreachable, since the
-  # budget could then only ever run out by killing something. The cost is that the total can overshoot
-  # by at most one check's timeout, which is why the hook entry in templates/ allows for both.
+  # 全体の予算が尽きたら新しいものは始めない。ハーネス自身の hook タイムアウトを超えるのは、ゲートが
+  # 観測できない唯一の失敗。0 でも 2 でもなく非ブロックで終わり、ターンがきれいに見えて終わる。
+  # 始める前に確かめ、既に始めたチェックを短くするのには使わない。残りに合わせて切ると、そのチェックと
+  # 無関係な理由でタイムアウトと報告することになる。代わりに合計は最大でチェック 1 つ分のタイムアウト
+  # だけ超えうる。templates/ の hook 設定が両方を見込んでいるのはこのため。
   if (( budget_total - ( $(date +%s) - gate_started ) <= 0 )); then
     unrun="${unrun:+$unrun }$id"
     gate_skipped="${gate_skipped:+$gate_skipped }$id:budget"
     continue
   fi
 
-  # Checked after {files} substitution, so what is compared is the command that would actually run.
+  # {files} の置換後に確かめる。比べるのは実際に実行されるコマンド。
   _forbidden="$(forbidden_hit "$cmd" || true)"
   if [[ -n "$_forbidden" ]]; then
     { printf '%s\n%s\n%s\n' "$id" "$cmd" "forbidden"
-      printf '%s' "This repository forbids it: the profile lists \"$_forbidden\" under 'forbidden',
-and the '$id' check would have run a command containing that phrase.
+      printf '%s' "このリポジトリが禁じている。プロファイルの 'forbidden' に \"$_forbidden\" があり、
+'$id' チェックはその語句を含むコマンドを実行するところだった。
 
-The gate did not run it. Nothing was checked by this check -- do not read the block
-as a failing test. Either the profile contradicts itself, or the check needs a
-command that does not do the forbidden thing."
+ゲートは実行していない。このチェックは何も検査していないので、この block を失敗したテストと
+読まないこと。プロファイルが自己矛盾しているか、禁じられたことをしないコマンドがこのチェックに要る。"
     } > "$work.fail"
     break
   fi
@@ -942,24 +859,22 @@ command that does not do the forbidden thing."
   out="$check_out"
   code="$check_code"
 
-  # A check declaring `mutates` is an auto-fixer, and real profiles commonly gate on two of them
-  # (`lint:fix`, `format:fix`, scope: all). Succeeding is not enough to report green: the hook has
-  # just rewritten the tree after the agent decided it was done, and in a loop the next iteration
-  # would read files it did not write. So the change is surfaced and the turn is held once. Nothing is
-  # reverted -- the fix is wanted, the silence is not -- and the next turn passes with nothing left to
-  # fix. A gate that repairs things quietly is a gate whose green cannot be trusted.
+  # `mutates` を宣言したチェックは自動修正で、実際のプロファイルはよく 2 つ（`lint:fix`、`format:fix`）
+  # をゲートにする。成功だけでは緑と言えない。エージェントが終わったと判断した後に hook がツリーを
+  # 書き換えており、ループなら次の回が自分の書いていないファイルを読む。なので変更を示して 1 回だけ
+  # 止める。何も戻さない（修正は欲しいが、黙るのは困る）。次のターンは直すものが無く通る。
   if [[ "$mutates" == "1" && $code -eq 0 && "$(tree_fingerprint)" != "$before" ]]; then
     { printf '%s\n%s\n%s\n' "$id" "$cmd" "mutated"
-      printf '%s' "The '$id' check changed the working tree while running.
+      printf '%s' "'$id' チェックが実行中に作業ツリーを変更した。
 
-It succeeded, so nothing is broken -- but the files you were about to finish with are
-not the files you wrote. Review the changes it made, then end the turn again; with
-nothing left to fix this check passes and the gate gets out of the way.
+成功しているので壊れてはいない。ただし、終えようとしていたファイルは自分が書いたファイルではない。
+加えられた変更を確認してから、もう一度ターンを終えること。直すものが残っていなければ、この
+チェックは通り、ゲートは退く。
 
-Working tree now:
+現在の作業ツリー:
 $(tree_fingerprint)
 
-Its own output:
+このチェック自身の出力:
 $out"
     } > "$work.fail"
     break
@@ -970,10 +885,9 @@ $out"
     break
   fi
   if [[ $code -ne 0 ]]; then
-    # NOTE: this loop is fed by `done < "$work"` -- a file redirect, not a pipe -- so the body runs
-    # in this shell and `block`'s exit actually exits the script. Do not convert this to
-    # `node ... | while ...`: the body would become a subshell, `block` would exit only that
-    # subshell, and execution would fall through to the all-clear `pass` below. Silent fail-open.
+    # 注意: このループはパイプではなく `done < "$work"` のファイルリダイレクトで回しているので、本体は
+    # このシェルで動き、`block` の exit でスクリプトが終わる。`node ... | while ...` に変えると本体が
+    # サブシェルになり、`block` はそれだけを終えて下の全通過の `pass` へ落ちる。黙って開く。
     { printf '%s\n%s\n%s\n' "$id" "$cmd" "$code"; printf '%s' "$out"; } > "$work.fail"
     break
   fi
@@ -985,69 +899,63 @@ if [[ -f "$work.fail" ]]; then
   failed_code="$(sed -n 3p "$work.fail")"
   failed_out="$(tail -n +4 "$work.fail")"
   if [[ -f "$work.timeout" ]]; then
-    # A timeout is a malfunction of the gate, not a finding about the code. Recorded as its own reason
-    # so a verdict read a day later does not claim the check failed when it never finished.
+    # タイムアウトはコードについての所見ではなくゲートの誤動作。後日 verdict を読んだ時に、終わって
+    # いないチェックを失敗と言わないよう、独自の理由で記録する。
     failed_kind="timeout"
-    failed_out="The gate killed this check: it timed out after ${secs}s.
-It says nothing about whether the code is correct -- only that the gate could not
-finish checking within its budget. Raise 'timeout' for this check in the profile,
-or make the check faster.
+    failed_out="ゲートがこのチェックを止めた。${secs}s でタイムアウトした。
+コードが正しいかについては何も言っていない。ゲートが予算内に検査を終えられなかったことだけを示す。
+プロファイルでこのチェックの 'timeout' を上げるか、チェックを速くすること。
 
-Output captured before the kill:
+止める前に取れた出力:
 $failed_out"
   fi
 fi
 
-# Checks the budget never reached. Not a pass: reporting green for something that did not run is the
-# failure this whole section exists to prevent.
+# 予算が届かなかったチェック。通過ではない。実行していないものを緑と報告することを、この節は防ぐ。
 if [[ -z "$failed_id" && -n "$unrun" ]]; then
   failed_id="gate-budget"
   failed_kind="timeout"
-  failed_cmd="(the gate ran out of its total budget)"
+  failed_cmd="（ゲートが全体の予算を使い切った）"
   failed_code="-"
-  failed_out="These gating checks were not run: $unrun
+  failed_out="次のゲートのチェックは実行していない: $unrun
 
-The gate spends at most ${budget_total}s per turn end (timeout_total). It stopped starting
-checks rather than risk being killed by the agent's own hook timeout, which exits
-non-blocking and would have let this turn end looking green.
+ゲートがターン終了ごとに使うのは最大 ${budget_total}s（timeout_total）。エージェント自身の hook
+タイムアウトで殺されると非ブロックで終わり、このターンが緑に見えたまま終わるので、その前に
+チェックを始めるのをやめた。
 
-Raise 'timeout_total' in the profile, narrow the checks with scope: changed, or move
-the slow ones out of the gate."
+プロファイルの 'timeout_total' を上げるか、scope: changed でチェックを絞るか、遅いものを
+ゲートから外すこと。"
 fi
 
-# Files changed, and not one gating check claimed them. THIS IS THE BLOCK THAT MAKES `paths` SAFE.
+# ファイルが変わったのに、ゲートのチェックが 1 つも受け持たなかった。`paths` を安全にするのはこの block。
 #
-# Without it, `paths` re-creates the gap it was built alongside, one size larger. The {files}-empty skip
-# was harmless because it only happened on a CLEAN tree, where scripts/loop.sh's `round_changed_nothing`
-# catches it. `paths` produces a new situation nothing was watching: **the tree changed, the round did
-# real work, and every check that could have judged it declined.** `round_changed_nothing` does not fire
-# (the round edited something) and the gate would print "all gating checks green".
+# これが無いと `paths` は新しい穴を作る。{files} が空で飛ばすのはきれいなツリーでだけ起き、
+# scripts/loop.sh の `round_changed_nothing` が拾う。`paths` では、ツリーが変わり、回が実際に作業し、
+# 判定できたはずのチェックがすべて辞退する。`round_changed_nothing` は発火せず、ゲートは緑と言ってしまう。
 #
-# Two answers where there used to be one:
-#   changed set empty  -> pass. The Stop hook fires at the end of every turn, including turns that only
-#                         read code; blocking those is how a gate gets switched off.
-#   changed and ran 0  -> BLOCK. Here.
+#   変更集合が空   -> 通す。Stop hook はコードを読むだけのターンでも毎回発火し、それを止めると
+#                     ゲートが外される。
+#   変更ありで 0 件 -> ここで止める。
 if [[ -z "$failed_id" && "$gate_ran" == "0" && -n "${changed_root//$'\n'/}" ]]; then
   failed_id="gate-nothing-ran"
   failed_kind="not_checked"
-  failed_cmd="(no gating check claimed the files that changed)"
+  failed_cmd="（変更されたファイルを受け持つゲートのチェックが無い）"
   failed_code="-"
-  failed_out="Skipped because their declared paths did not change: ${gate_skipped:-(none)}
+  failed_out="宣言した paths が変わっていないため飛ばした: ${gate_skipped:-（なし）}
 
-These files changed: $(printf '%s' "$changed_root" | tr '\n' ' ')
+変更されたファイル: $(printf '%s' "$changed_root" | tr '\n' ' ')
 
-Nothing was checked. That is not a pass -- a check that did not run says nothing about code that
-did change. Either a check is missing a path, or a path is missing a check.
+何も検査していない。これは通過ではない。実行しなかったチェックは、変更されたコードについて何も
+言わない。チェックに path が足りないか、path にチェックが足りない。
 
-Fix the profile, do not delete this block: it is the only thing standing between 'we made the gate
-fast' and 'we made the gate quiet'."
+この block を消さず、プロファイルを直すこと。「ゲートを速くした」と「ゲートを黙らせた」を
+分けているのはこの block だけ。"
 fi
 
-# ---------------------------------------------------------------- delegated checks
+# ---------------------------------------------------------------- 委任したチェック
 
-# A check the agent may not run still has to happen. We require evidence that the user ran it,
-# recorded by the skill. Otherwise "I asked the user to run typecheck" becomes a way to finish
-# without ever seeing the result.
+# エージェントが実行できないチェックも、行われなければならない。ユーザーが実行した証拠を、スキルが
+# 記録したものとして求める。でないと「ユーザーに typecheck を頼んだ」が結果を見ずに終える手段になる。
 if [[ -z "$failed_id" ]]; then
   node -e '
     const p = require(process.argv[1]);
@@ -1058,15 +966,13 @@ if [[ -z "$failed_id" ]]; then
       }
   ' "$profile" > "$work"
 
-  # Recorded rather than blocked on the spot. Blocking here bypassed the attempt counter entirely, so
-  # a delegated check with nobody around to run it was a wall with no door: it blocked every turn
-  # cycle forever and never moved any counter. It goes through the same budget as everything else now.
+  # その場で止めず記録する。ここで止めると試行回数を通らず、実行できる人がいない委任チェックは
+  # 毎ターン永遠に止め、どのカウンタも動かさない出口の無い壁になる。今は他と同じ予算を通る。
   while IFS=$'\t' read -r id pathspec reason; do
     [[ -n "$id" ]] || continue
-    # A delegated check obeys `paths` as well: a docs-only change must not demand a human's evidence
-    # for a typecheck it cannot have affected. Recorded as skipped, and NOT counted in `ran` -- a
-    # delegated check never ran anything, so counting it would let a fully-delegated profile read as
-    # checked. `-` is the absent sentinel; see the emitter for why it is not the empty string.
+    # 委任チェックも `paths` に従う。ドキュメントだけの変更で、影響しえない typecheck の証拠を人に
+    # 求めてはならない。skip として記録し `ran` には数えない。委任チェックは何も実行していないので、
+    # 数えると全部委任のプロファイルが検査済みに見える。`-` は「無し」の印（理由は出力側を参照）。
     [[ "$pathspec" == "-" ]] && pathspec=""
     if [[ -n "$pathspec" ]] && [[ -z "$(gate_paths_match "$changed_root" "$pathspec")" ]]; then
       gate_skipped="${gate_skipped:+$gate_skipped }$id:delegated_paths"
@@ -1075,7 +981,7 @@ if [[ -z "$failed_id" ]]; then
     if ! grep -qs "\"$id\"" "$delegated_file" 2>/dev/null; then
       failed_id="$id"
       failed_kind="needs_human"
-      failed_cmd="(delegated -- the agent may not run this)"
+      failed_cmd="（委任。エージェントは実行できない）"
       failed_code="-"
       failed_out="$reason"
       break
@@ -1083,9 +989,9 @@ if [[ -z "$failed_id" ]]; then
   done < "$work"
 fi
 
-# ---------------------------------------------------------------- dry run: report, touch nothing
-# Everything below this point writes state -- the attempt counter, a verdict, the pass/block dialect.
-# A dry run has produced its answer by now, so it stops here.
+# ---------------------------------------------------------------- dry 実行: 報告だけして何も変えない
+# ここから下は状態を書く（試行回数、verdict、pass / block の流儀）。dry 実行はここまでで答えが
+# 出ているので、ここで終える。
 if (( GATE_DRY )); then
   write_gate_report
   if [[ -z "$failed_id" ]]; then
@@ -1099,24 +1005,23 @@ if (( GATE_DRY )); then
     printf '  cwd     : %s\n' "$run_dir"
     printf '  exit    : %s\n' "$failed_code"
     echo
-    echo "output:"
+    echo "出力:"
     tail -20 <<<"$failed_out" | sed 's/^/  /'
   } >&2
   exit 1
 fi
 
-# ---------------------------------------------------------------- all clear
+# ---------------------------------------------------------------- すべて通過
 
 if [[ -z "$failed_id" ]]; then
   node -e 'require("fs").writeFileSync(process.argv[1],"{}\n")' "$attempts_file" 2>/dev/null || true
-  pass "all gating checks green"
+  pass "ゲートのチェックはすべて緑"
 fi
 
-# ---------------------------------------------------------------- blocked
+# ---------------------------------------------------------------- 止める
 
-# Written through a temp file and renamed. Two concurrent writers could otherwise leave a truncated
-# attempts.json, which JSON.parse inside the catch below turns into {} -- silently resetting the count
-# so the bound is never reached. That is a fail-open wearing a parse error as a disguise.
+# 一時ファイルに書いて rename する。同時に 2 つ書くと attempts.json が途中で切れ、下の catch の中の
+# JSON.parse がそれを {} に変えて回数を黙ってリセットし、上限に届かなくなる。パースエラーに化けた開く側の失敗。
 attempts="$(node -e '
   const fs=require("fs"); const [f,id]=process.argv.slice(1);
   let a={}; try{a=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
@@ -1133,61 +1038,59 @@ failed_detail="$(
   echo "  cwd     : $run_dir"
   echo "  exit    : $failed_code"
   echo
-  echo "last 20 lines of output:"
+  echo "出力の末尾 20 行:"
   tail -20 <<<"$failed_out" | sed 's/^/  /'
 )"
 
-# The order below is the fix, not just the bound. The terminal decision has to come BEFORE the
-# re-entry release, because the release short-circuits everything -- so the verdict would never be
-# written on the turn it was due.
+# 下の順序そのものが修正で、上限だけではない。再入時の解放はすべてを飛ばすので、終点の判断はその
+# 前に置く。でないと、verdict を書くべきターンに書かれない。
 if (( attempts >= max_attempts )); then
   gate_write_verdict "$state_dir" "$failed_kind" "$failed_id" "$attempts" "$failed_code" \
     "$agent" "$failed_cmd" "$failed_out"
-  gate_log_verdict "$gate_repo_root" "$failed_kind" "gave up on $failed_id after $attempts attempts"
-  trace "$agent" "$cwd" "GAVE UP on $failed_id after $attempts attempts ($failed_kind)"
+  gate_log_verdict "$gate_repo_root" "$failed_kind" "$failed_id を $attempts 回試して諦めた"
+  trace "$agent" "$cwd" "GAVE UP: $failed_id を $attempts 回試して諦めた ($failed_kind)"
 
   terminal_msg="$(
-    printf 'The gate has given up on the %s check after %s attempts.\n' "$failed_id" "$attempts"
+    printf 'ゲートは %s チェックを %s 回試して諦めた。\n' "$failed_id" "$attempts"
     echo
     echo "$failed_detail"
     echo
-    echo "This gate is now releasing and will not block again for this check."
-    echo "The work is NOT verified. Do not describe it as done, do not commit it as passing, and"
-    echo "do not open a PR claiming green. Say plainly what is still red and what you could not fix."
+    echo "このゲートはこれから開き、このチェックではもう止めない。"
+    echo "作業は検証されていない。完了と説明しない、通過として commit しない、緑と称して PR を"
+    echo "出さないこと。何がまだ赤で、何を直せなかったかをはっきり伝えること。"
     echo
-    echo "Recorded at $state_dir/VERDICT. Re-arming the gate starts a fresh budget."
+    echo "$state_dir/VERDICT に記録した。ゲートを掛け直すと試行回数はやり直しになる。"
   )"
 
-  # Deliberately not routed through block(): block() releases on re-entry, and this message is the one
-  # that must not be swallowed. On Claude Code the crossing invocation still exits 2, because exit 2
-  # is what routes stderr to the model and a non-blocking exit does not reliably -- releasing here
-  # would let the agent stop without ever learning the gate gave up. One more blocked turn is cheap,
-  # and it puts the failure in the transcript.
+  # 意図して block() を通さない。block() は再入時に解放するが、このメッセージは飲み込まれてはならない。
+  # Claude Code では、閾値を越えた呼び出しでも exit 2 で終える。stderr をモデルに届けるのは exit 2 で、
+  # 非ブロックの終了では確実に届かない。ここで解放すると、エージェントはゲートが諦めたと知らずに止まる。
+  # 止めるターンが 1 回増えるのは安く、失敗がトランスクリプトに残る。
   if [[ "$agent" == "cursor" ]]; then
-    emit_cursor_followup "$terminal_msg" "$failed_id (gave up)"
+    emit_cursor_followup "$terminal_msg" "$failed_id (諦めた)"
   fi
   {
     printf '[dotagents] %s\n' "$terminal_msg"
     echo
-    echo "This is a hook speaking, not the user."
+    echo "これは hook の発言で、ユーザーの発言ではない。"
   } >&2
   exit 2
 fi
 
 block "$(
   if (( attempts >= 2 )); then
-    # Repeated correction piles failed approaches into the context and makes each attempt worse.
-    echo "The '$failed_id' check has now failed $attempts times in a row (attempt $attempts of $max_attempts)."
+    # 修正を繰り返すと、失敗したやり方がコンテキストに積もり、試すたびに悪くなる。
+    echo "'$failed_id' チェックが $attempts 回連続で失敗した（試行 ${attempts} / ${max_attempts}）。"
     echo
-    echo "Stop patching. Each further attempt adds a failed approach to this context and makes"
-    echo "the next one less likely to work. Write down what you tried and why it failed, then"
-    echo "run /clear and restart with that knowledge folded into the prompt."
+    echo "継ぎはぎをやめること。試すたびに失敗したやり方がこのコンテキストに積もり、次が成功しにくく"
+    echo "なる。試したことと失敗した理由を書き出し、/clear してから、その知見をプロンプトに織り込んで"
+    echo "やり直すこと。"
   else
-    echo "Cannot finish: the '$failed_id' check is failing (attempt $attempts of $max_attempts)."
+    echo "終われない: '$failed_id' チェックが失敗している（試行 ${attempts} / ${max_attempts}）。"
   fi
   echo
-  echo "After $max_attempts this gate stops blocking and records that it gave up. It will not"
-  echo "become green on its own."
+  echo "$max_attempts 回に達するとこのゲートは止めるのをやめ、諦めたことを記録する。ひとりでに緑に"
+  echo "なることはない。"
   echo
   echo "$failed_detail"
 )" "$failed_id"

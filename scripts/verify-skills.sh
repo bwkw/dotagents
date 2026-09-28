@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Lint every skill in this repository.
+# このリポジトリの全スキルを lint する。
 #
-#   verify-skills.sh [path ...]     defaults to <repo>/skills
+#   verify-skills.sh [path ...]     既定は <repo>/skills
 #
-# Exits non-zero on any error. Warnings do not fail the run.
+# エラーが 1 つでもあれば非 0 で終わる。警告では失敗しない。
 #
-# The checks encode the invariants in AGENTS.md. Each one exists because breaking it fails
-# silently: a skill that still appears in the menu but no longer does what it says.
+# 検査は AGENTS.md の不変条件を符号化したもの。どれも、破っても黙って壊れる
+# （メニューには出るが、書いてあることをもうしない）から置いてある。
 
 set -uo pipefail
 
@@ -14,12 +14,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOTS=("$@")
 [[ ${#ROOTS[@]} -eq 0 ]] && ROOTS=("$REPO/skills")
 
-# Skill bodies stay in context for the whole session and are not re-read. After auto-compaction
-# only the first ~5,000 tokens of each are restored, so anything past that is silently lost.
+# スキル本文はセッション中ずっとコンテキストに残り、読み直されない。自動圧縮の後は
+# 各本文の先頭 ~5,000 トークンしか戻らず、その先は黙って失われる。
 MAX_BYTES=12288
 MAX_LINES=500
-# Descriptions of every skill are resident at all times; the more there are, the more each gets
-# squeezed. Keep the total small enough that the ones that matter stay legible.
+# 全スキルの説明文は常駐し、数が増えるほど 1 つずつが圧縮される。大事なものが読める程度に合計を抑える。
 MAX_DESC_TOTAL=8000
 MAX_DESC_ONE=500
 
@@ -32,7 +31,7 @@ c_red=$'\033[31m'; c_yellow=$'\033[33m'; c_green=$'\033[32m'; c_dim=$'\033[2m'; 
 err()  { printf '%s✗%s %s: %s\n' "$c_red" "$c_off" "$1" "$2"; errors=$((errors+1)); }
 warn() { printf '%s!%s %s: %s\n' "$c_yellow" "$c_off" "$1" "$2"; warnings=$((warnings+1)); }
 
-# Extract a top-level `key: value` from the YAML frontmatter block.
+# YAML frontmatter から最上位の `key: value` を取り出す。
 frontmatter_value() {
   awk -v key="$2" '
     NR==1 && $0=="---" { inside=1; next }
@@ -56,12 +55,10 @@ has_frontmatter_key() {
   ' "$1"
 }
 
-# The awk helpers below read frontmatter permissively -- they take whatever follows the first
-# colon. A real YAML parser does not. That gap shipped a skill whose frontmatter failed to parse
-# while every check here passed, so validity is checked separately, first.
+# 下の awk ヘルパーは frontmatter を緩く読む（最初のコロンの後を全部取る）が、本物の YAML パーサーは違う。
+# その差で、ここの検査を全部通ったのにパースできないスキルが出荷されたので、妥当性を先に別で見る。
 #
-# This is a targeted check, not a YAML parser: it covers the ways a flat frontmatter block
-# actually breaks. The CI job runs a real parser over the same files.
+# YAML パーサーではなく、平らな frontmatter が実際に壊れる形だけを見る的を絞った検査。CI が本物のパーサーを通す。
 frontmatter_problem() {
   awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$1" | node -e '
     let raw = "";
@@ -69,21 +66,21 @@ frontmatter_problem() {
     process.stdin.on("end", () => {
       for (const [n, line] of raw.split("\n").entries()) {
         if (!line.trim() || /^\s*#/.test(line)) continue;
-        if (/^\s+/.test(line)) continue;                       // continuation or nested block
+        if (/^\s+/.test(line)) continue;                       // 継続行か入れ子のブロック
         const m = line.match(/^([A-Za-z0-9_-]+)\s*:\s?(.*)$/);
-        if (!m) { console.log(`line ${n + 1}: not a key: value pair -- ${line.trim().slice(0, 60)}`); return; }
+        if (!m) { console.log(`${n + 1} 行目: key: value の組ではない -- ${line.trim().slice(0, 60)}`); return; }
         const v = m[2];
-        if (v === "" || /^["'"'"'[{>|]/.test(v)) continue;      // quoted, flow, or block scalar
-        // A plain scalar cannot contain ": " -- YAML reads it as a nested mapping and errors.
+        if (v === "" || /^["'"'"'[{>|]/.test(v)) continue;      // 引用・フロー・ブロックスカラー
+        // プレーンスカラーは ": " を含めない。YAML が入れ子のマッピングと読んでエラーになる。
         if (/:\s/.test(v)) {
-          console.log(`line ${n + 1}: '"'"'${m[1]}'"'"' contains ": " unquoted -- YAML reads this as a nested mapping. Quote the value or use an em dash.`);
+          console.log(`${n + 1} 行目: '"'"'${m[1]}'"'"' が引用なしで ": " を含む -- YAML は入れ子のマッピングと読む。値を引用するか、em ダッシュを使う。`);
           return;
         }
         if (/^[@`*&!%]/.test(v)) {
-          console.log(`line ${n + 1}: '"'"'${m[1]}'"'"' starts with a YAML indicator character -- quote it.`);
+          console.log(`${n + 1} 行目: '"'"'${m[1]}'"'"' が YAML の指示子文字で始まる -- 引用する。`);
           return;
         }
-        if (/\t/.test(line)) { console.log(`line ${n + 1}: tab character -- YAML forbids tabs for indentation.`); return; }
+        if (/\t/.test(line)) { console.log(`${n + 1} 行目: タブ文字 -- YAML はインデントにタブを禁じている。`); return; }
       }
     });
   ' 2>/dev/null
@@ -95,263 +92,227 @@ check_skill() {
   local skill="$dir/SKILL.md"
   local id="skills/$name"
 
-  [[ -f "$skill" ]] || { err "$id" "no SKILL.md"; return; }
+  [[ -f "$skill" ]] || { err "$id" "SKILL.md が無い"; return; }
   count=$((count+1))
 
-  head -1 "$skill" | grep -qx -- '---' || { err "$id" "SKILL.md does not start with YAML frontmatter"; return; }
+  head -1 "$skill" | grep -qx -- '---' || { err "$id" "SKILL.md が YAML frontmatter で始まっていない"; return; }
 
-  # --- frontmatter must actually parse ---------------------------------------
+  # --- frontmatter が実際にパースできること ------------------------------------
   local yaml_problem; yaml_problem="$(frontmatter_problem "$skill")"
   if [[ -n "$yaml_problem" ]]; then
-    err "$id" "invalid frontmatter -- $yaml_problem"
+    err "$id" "frontmatter が不正 -- $yaml_problem"
     return
   fi
 
-  # --- required fields ------------------------------------------------------
+  # --- 必須フィールド ---------------------------------------------------------
   local fm_name desc
   fm_name="$(frontmatter_value "$skill" name)"
   desc="$(frontmatter_value "$skill" description)"
 
-  [[ -n "$fm_name" ]] || err "$id" "frontmatter is missing 'name'"
-  [[ -n "$desc"    ]] || err "$id" "frontmatter is missing 'description'"
+  [[ -n "$fm_name" ]] || err "$id" "frontmatter に 'name' が無い"
+  [[ -n "$desc"    ]] || err "$id" "frontmatter に 'description' が無い"
 
-  # Same rule as the agents loop below, and it needs stating in both places because a skill can pin a
-  # model too. A skill's `model:` switches the model for its whole run -- the user picks one at the top
-  # and silently gets another, which is the thing invariant 10 exists to stop. Unlike a subagent's, this
-  # field IS Claude-only (Cursor drops it from skill frontmatter), so a pin here also splits behaviour
-  # between the two agents. There is no legitimate use: if a skill needs a different model, that is the
-  # user's call to make at the top, not the skill's to make on their behalf.
+  # 下の agents ループと同じ規則。スキルの `model:` はその実行全体のモデルを切り替え、利用者が選んだモデルを
+  # 黙って別のものにする（不変条件 10 が防ぐもの）。スキルでは Claude 専用のフィールドなので、2 エージェント間で
+  # 振る舞いも割れる。別のモデルが要るなら、それは利用者が決めることで、スキルが代わりに決めることではない。
   if has_frontmatter_key "$skill" model; then
     smodel="$(frontmatter_value "$skill" model)"
     [[ "$smodel" == "inherit" ]] \
-      || err "$id" "frontmatter pins 'model: $smodel' -- a skill must not switch the model the user chose. Remove the field"
+      || err "$id" "frontmatter が 'model: $smodel' を固定している -- スキルは利用者が選んだモデルを切り替えてはならない。フィールドを削除する"
   fi
 
-  # The invoke name comes from the directory, so a mismatched `name` misleads the reader
-  # about what to type.
+  # 呼び出し名はディレクトリから決まるので、`name` が食い違うと何を打つかを読み手が誤る。
   if [[ -n "$fm_name" && "$fm_name" != "$name" ]]; then
-    warn "$id" "frontmatter name '$fm_name' differs from directory name '$name' (invoked as /$name)"
+    warn "$id" "frontmatter の name '$fm_name' がディレクトリ名 '$name' と違う（呼び出しは /${name}）"
   fi
 
-  # --- description budget ---------------------------------------------------
+  # --- 説明文の予算 ------------------------------------------------------------
   local dlen=${#desc}
   desc_total=$((desc_total + dlen))
   if (( dlen > MAX_DESC_ONE )); then
-    warn "$id" "description is ${dlen} chars (target <= ${MAX_DESC_ONE})"
+    warn "$id" "説明文が ${dlen} 文字（目標は ${MAX_DESC_ONE} 以下）"
   fi
-  # Auto-invocation depends on trigger words the model can match against a request.
+  # 自動呼び出しは、モデルが依頼と照合できるきっかけの語に依存する。
   # dotagents:when-clause-tokens use (this|it|when)|when |after |before |時|する場合
-  # Kept identical to the list in hooks/dotagents-lint-skill-frontmatter.sh; the check below asserts
-  # it. They disagreed once, and the hook was the stricter one -- so a Japanese description passed
-  # here and then met a permission prompt from the hook, which is a stall, not a lint failure.
+  # hooks/dotagents-lint-skill-frontmatter.sh の一覧と同一に保つ（下の検査が確かめる）。
+  # 食い違うと、ここを通った日本語の説明文がフックの権限プロンプトで止まる。lint の失敗ではなく停止になる。
   if ! grep -qiE 'use (this|it|when)|when |after |before |時|する場合' <<<"$desc"; then
-    warn "$id" "description has no 'when to use' clause -- auto-invocation will be unreliable"
+    warn "$id" "説明文にいつ使うかの句が無い -- 自動呼び出しが当てにならない"
   fi
 
-  # --- size -----------------------------------------------------------------
+  # --- サイズ --------------------------------------------------------------------
   local bytes lines
   bytes=$(wc -c <"$skill" | tr -d ' ')
   lines=$(wc -l <"$skill" | tr -d ' ')
   if (( bytes > MAX_BYTES )); then
     if [[ "$dir" == "$REPO/skills/"* ]]; then
-      err "$id" "SKILL.md is ${bytes} bytes (max ${MAX_BYTES}) -- move detail into reference/"
+      err "$id" "SKILL.md が ${bytes} バイト（上限 ${MAX_BYTES}）-- 詳細を reference/ へ移す"
     else
-      warn "$id" "SKILL.md is ${bytes} bytes (max ${MAX_BYTES}) -- invoking it parks that much in context all session; consider removing it"
+      warn "$id" "SKILL.md が ${bytes} バイト（上限 ${MAX_BYTES}）-- 呼ぶとその分がセッション中ずっとコンテキストに居座る。削除を検討する"
     fi
   fi
-  (( lines > MAX_LINES )) && warn "$id" "SKILL.md is ${lines} lines (target <= ${MAX_LINES})"
+  (( lines > MAX_LINES )) && warn "$id" "SKILL.md が ${lines} 行（目標は ${MAX_LINES} 以下）"
 
-  # --- invariant: disable-model-invocation only where nothing dispatches by name ---
-  # Officially this is the correct spelling for a user-invoked workflow, and it costs zero description
-  # budget. It is wrong only where something reaches the skill BY NAME, because it also blocks
-  # programmatic Skill calls and subagent preloading -- with no error. See docs/decisions.md.
-  # Match on $name, not $id -- $id is "skills/<name>" and a bare case pattern never matches it.
+  # --- 不変条件: disable-model-invocation は名前で呼ばれないスキルにだけ ---
+  # 人が打つワークフローには公式に正しい書き方で、説明の予算も食わない。誤りになるのは名前で呼ばれるスキルだけ。
+  # プログラムからの Skill 呼び出しとサブエージェントの事前読み込みもエラーなしで塞ぐため。docs/decisions.md を参照。
+  # 照合は $id ではなく $name で行う。$id は "skills/<name>" で、素の case パターンには当たらない。
   if has_frontmatter_key "$skill" disable-model-invocation; then
-    # Declared as data so the list has one home per file, and matched against rather than spelled out
-    # in case patterns. The cross-check below reads these two lines out of both this file and the hook.
-    # It used to extract case patterns with a regex hardcoded to `da-[a-z-]+`, so it compared exactly
-    # one name and reported "both enforcers agree" -- while the x-review-* protections, added because
-    # the `x-` rename broke a guardrail once, were not compared at all.
+    # データとして宣言し、case パターンに書き下さずに照合する。下の相互検査がこの 2 行を本ファイルとフックの両方から読む。
     DMI_GATE="da-verify"                                                  # dotagents:dmi-gate
     DMI_DISPATCH="x-review-backend x-review-frontend x-review-infra"      # dotagents:dmi-dispatch
 
-    # /da-verify is the only thing that runs `gate.sh arm`. Without auto-invocation the Stop gate
-    # never arms and passes every turn: the guardrail opens instead of closing.
+    # `gate.sh arm` を実行するのは /da-verify だけ。自動呼び出しが無いと Stop ゲートが arm されず毎ターン素通りする。
     if [[ " $DMI_GATE " == *" $name "* ]]; then
-      err "$id" "must never set 'disable-model-invocation' -- it is the only thing that runs 'gate.sh arm', so the Stop gate would never arm and would pass every turn (fails OPEN)"
-    # da-review-all dispatches to these by name via a subagent.
+      err "$id" "'disable-model-invocation' を付けてはならない -- 'gate.sh arm' を実行するのはこれだけで、付けると Stop ゲートが arm されず毎ターン素通りする（開いたまま失敗する）"
+    # da-review-all がサブエージェント経由で名前で呼ぶ。
     elif [[ " $DMI_DISPATCH " == *" $name "* ]]; then
-      err "$id" "is a by-name dispatch target of da-review-all -- 'disable-model-invocation' blocks programmatic Skill calls and subagent preload, so da-review-all would report this layer as covered while reviewing nothing"
+      err "$id" "da-review-all が名前で呼ぶ先 -- 'disable-model-invocation' はプログラムからの Skill 呼び出しとサブエージェントの事前読み込みも塞ぐので、da-review-all はこの層をレビュー済みと報告しつつ何もレビューしなくなる"
     fi
-    # Anything else is legitimate: user-invocable only, zero budget cost, nothing dispatches to it.
+    # それ以外は正当: 人が打つ専用で、予算は 0、名前で呼ぶものも無い。
   fi
 
-  # --- invariant: Cursor sees only name/description/paths -------------------
-  # Claude-only frontmatter is allowed as optimization, but the body must carry the same
-  # constraint or the skill behaves differently in Cursor with no warning.
+  # --- 不変条件: Cursor が見るのは name/description/paths だけ -------------------
+  # Claude 専用の frontmatter は最適化としては許すが、同じ制約を本文にも書かないと Cursor で黙って振る舞いが変わる。
   local body; body="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$skill")"
 
   if has_frontmatter_key "$skill" allowed-tools; then
-    # Match inflections too ("never modifies", "never writes"), or the check rejects prose that
-    # states the restriction perfectly well.
+    # 活用形（"never modifies"、"never writes"）も当てる。でないと制約をきちんと書いた文を弾く。
     if grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports|読み取り専用|変更しない|書き換えない|触らない|報告だけ' <<<"$body"; then
       :
     elif [[ "$dir" == "$REPO/skills/"* ]]; then
-      err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/decisions.md)"
+      err "$id" "'allowed-tools' を宣言しているが本文が制約を書いていない -- Cursor では強制されない（docs/decisions.md を参照）"
     else
-      warn "$id" "declares 'allowed-tools' but the body never states the restriction -- that constraint does not exist in Cursor"
+      warn "$id" "'allowed-tools' を宣言しているが本文が制約を書いていない -- その制約は Cursor には存在しない"
     fi
   fi
 
-  # A skill whose body dispatches to subagents but whose allowed-tools omits Task has been
-  # forbidden from doing the thing it exists to do -- by an optimization, which decisions.md §3 says must
-  # never be the mechanism. Silent in Cursor, and a permission prompt in Claude.
+  # 本文がサブエージェントに振るのに allowed-tools が Task を欠くスキルは、存在理由そのものを最適化で禁じられている
+  # （decisions.md §3 が仕組みにしてはならないとするもの）。Cursor では無音、Claude では権限プロンプトになる。
   if has_frontmatter_key "$skill" allowed-tools \
      && grep -qiE 'parallel subagents|dispatch (them|the)|Task tool|launch .*subagent|サブエージェントを(並列|起動|立ち上げ)' <<<"$body" \
      && ! grep -qE '^allowed-tools:.*\bTask\b' <<<"$(frontmatter_value "$skill" allowed-tools | sed 's/^/allowed-tools: /')"; then
-    err "$id" "the body dispatches to subagents but 'allowed-tools' omits Task -- the skill cannot do what it describes"
+    err "$id" "本文はサブエージェントに振るのに 'allowed-tools' に Task が無い -- 書いてあることをスキルが実行できない"
   fi
 
   if has_frontmatter_key "$skill" context; then
     grep -qiE 'subagent|sub-agent|Task tool|separate context|fresh context|サブエージェント|別のコンテキスト' <<<"$body" \
-      || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/decisions.md)"
+      || err "$id" "'context:' を宣言しているが本文がサブエージェントで実行するよう書いていない -- Cursor では無視される（docs/decisions.md を参照）"
   fi
 
-  # --- provenance ------------------------------------------------------------
-  # Installed globally, ours sit among two dozen third-party skills. Without a marker there is no
-  # way to answer "which of these am I responsible for" -- not for a person reading /skills, and
-  # not for da-skills-audit deciding what it may propose removing.
-  # Only for skills in this repository. Run over an install directory -- which da-skills-audit tells you
-  # to do -- every third-party skill would report as missing our marker, which is both wrong and
-  # 28 lines of noise in a 35-line report. A report that is mostly noise stops being read, which is
-  # the exact failure finding-discipline.md is about.
+  # --- 出どころ ------------------------------------------------------------------
+  # グローバルに入れると、自作は 20 余りのサードパーティのスキルに混ざる。印が無いと、どれが自分の責任か
+  # （人が /skills を読む時も、da-skills-audit が削除を提案してよいか決める時も）答えられない。
+  # このリポジトリのスキルだけに限る。インストール先に対して走らせると、全サードパーティが印なしと報告され、
+  # 報告の大半が雑音になって読まれなくなる（finding-discipline.md が扱う失敗そのもの）。
   if [[ "$dir" == "$REPO/skills/"* ]]; then
     local fm_block; fm_block="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill")"
     grep -q 'source: bwkw/dotagents' <<<"$fm_block" \
-      || err "$id" "frontmatter is missing 'metadata.source: bwkw/dotagents' -- ours must be distinguishable from installed third-party skills"
+      || err "$id" "frontmatter に 'metadata.source: bwkw/dotagents' が無い -- 自作はインストール済みのサードパーティのスキルと見分けられなければならない"
   fi
 
-  # --- symlinks must stay inside the repository -----------------------------
-  # A skill's reference/ is read by an agent on instruction. A symlink there pointing outside the
-  # tree turns "read my reference file" into "read whatever this points at" -- ~/.ssh/id_rsa, an
-  # .env, anything. Ours point into _shared/ and are fine; the check exists so a future one that
-  # does not is caught here rather than by a security scanner months later.
+  # --- シンボリックリンクはリポジトリの中に留まること -----------------------------
+  # reference/ はエージェントが指示に従って読む。外を指すリンクがあると「reference を読め」が
+  # 「指す先を何でも読め」（~/.ssh/id_rsa、.env など）になる。自作は _shared/ を指すので問題ない。
   local link target
   while IFS= read -r link; do
     [[ -n "$link" ]] || continue
     if [[ ! -e "$link" ]]; then
-      err "$id" "dangling symlink: ${link#"$dir"/} -> $(readlink "$link")"
+      err "$id" "リンク先の無いシンボリックリンク: ${link#"$dir"/} -> $(readlink "$link")"
       continue
     fi
     target="$(cd "$(dirname "$link")" && cd "$(dirname "$(readlink "$link")")" 2>/dev/null && pwd)"
     if [[ -n "$target" && "$target" != "$REPO"/* && "$target" != "$REPO" ]]; then
-      err "$id" "symlink escapes the repository: ${link#"$dir"/} -> $target"
+      err "$id" "シンボリックリンクがリポジトリの外を指す: ${link#"$dir"/} -> $target"
     fi
   done < <(find "$dir" -type l 2>/dev/null)
 
-  # --- reference files must be addressed absolutely -------------------------
-  # A relative path does not resolve inside a subagent, whose cwd differs.
+  # --- reference ファイルは絶対パスで指すこと -------------------------------------
+  # 相対パスは cwd の違うサブエージェントの中では解決しない。
   if [[ -d "$dir/reference" ]]; then
-    # Per path, not per file. The old form also required that CLAUDE_SKILL_DIR appear nowhere in the
-    # body -- so a skill that mentioned the right idiom once, in prose, passed while every actual path
-    # in its Files-to-read table stayed relative. All three x-review-* skills were in exactly that
-    # state: they instructed subagents to use the absolute form and then handed them relative ones.
-    # The lint passed because the file talked about the rule, which is a check on state rather than on
-    # mechanism -- the thing docs/decisions.md says not to do.
+    # ファイル単位ではなくパス単位で見る。以前は本文に CLAUDE_SKILL_DIR が一度でも出れば通り、
+    # 実際のパスは相対のままだった（x-review-* の 3 つがそうだった）。状態ではなく仕組みを検査する。
     local bare
     bare="$(grep -oE '(^|[^/${])reference/[a-z0-9_-]+\.md' <<<"$body" | sed 's/^[^r]*//' | sort -u | tr '\n' ' ')"
     if [[ -n "${bare// /}" ]]; then
-      err "$id" "addresses reference files by relative path (${bare% }) -- a subagent's cwd is not yours, so use \${CLAUDE_SKILL_DIR}/reference/..."
+      err "$id" "reference ファイルを相対パスで指している（${bare% }）-- サブエージェントの cwd はこちらと違うので、\${CLAUDE_SKILL_DIR}/reference/... を使う"
     fi
 
     local ref
     for ref in "$dir"/reference/*; do
       [[ -f "$ref" ]] || continue
       grep -qF "$(basename "$ref")" <<<"$body" \
-        || warn "$id" "reference/$(basename "$ref") is never mentioned in SKILL.md"
+        || warn "$id" "reference/$(basename "$ref") が SKILL.md のどこにも出てこない"
     done
 
-    # And the other direction. The existing check only caught a file nobody mentions; a mention with no
-    # file behind it is worse -- da-review-all told the reader to follow report-format.md, which was not
-    # in its reference/ at all, so anyone following that sentence had nothing to open.
+    # 逆向きも見る。言及されているのにファイルが無い方が悪い。その文に従った人は開くものが無い。
     local mentioned
     for mentioned in $(grep -oE 'reference/[a-z0-9_-]+\.md' <<<"$body" | sed 's|^reference/||' | sort -u); do
       [[ -e "$dir/reference/$mentioned" ]] \
-        || err "$id" "names reference/$mentioned but no such file exists -- anyone following that instruction has nothing to open"
+        || err "$id" "reference/$mentioned を名指しているが、そのファイルが無い -- この指示に従っても開くものが無い"
     done
 
-    # And one level further out: a reference file naming a sibling by bare filename. AGENTS.md says a
-    # layer's perspectives.md points at a shared lens in one line instead of restating it, which makes
-    # that one line load-bearing while nothing checked it -- delete the link and the instruction reads
-    # fine and opens nothing. Only non-symlink reference files are checked: a _shared/ file naming
-    # another _shared/ file resolves in the skills that link both and dangles in the ones that do not
-    # (7 such pairs today), which is a different problem than a layer file pointing at nothing, and
-    # closing it would mean linking 16KB of review-process.md into skills that deliberately do not
-    # read it.
+    # さらに一段外: reference ファイルが兄弟ファイルを素のファイル名で指す場合。AGENTS.md は層の perspectives.md が
+    # 共有の観点を 1 行で指すとしており、その 1 行が効いている。リンクが消えても文は自然に読めて何も開かない。
+    # シンボリックリンクでない reference ファイルだけを見る。_shared/ 同士の参照は、両方をリンクするスキルでは解決し、
+    # しないスキルでは宙に浮くが、それは別の問題で、塞ぐと読ませたくないファイルまでリンクすることになる。
     local sibling
     for ref in "$dir"/reference/*.md; do
       [[ -f "$ref" && ! -L "$ref" ]] || continue
       for sibling in $(grep -oE '`[a-z0-9_-]+\.md`' "$ref" | tr -d '`' | sort -u); do
         [[ -e "$dir/reference/$sibling" ]] \
-          || err "$id" "reference/$(basename "$ref") names $sibling, which is not in this skill's reference/ -- the one-line pointer that replaced a restatement has nothing behind it"
+          || err "$id" "reference/$(basename "$ref") が $sibling を名指しているが、このスキルの reference/ に無い -- 書き直しの代わりに置いた 1 行の参照の先が空"
       done
     done
   fi
 
-  # --- invariant: user-invocable: false only on a dispatch target ------------
-  # It removes the skill from the / menu but leaves it model-invocable. On something nothing
-  # dispatches to, that makes the skill nearly unreachable: it cannot be typed, and only a
-  # description match can find it. Combined with disable-model-invocation, unreachable outright.
+  # --- 不変条件: user-invocable: false は呼び出し先にだけ ------------------------
+  # / メニューから消すがモデルからは呼べる。何も呼ばないスキルに付けると、打てず、説明文の照合でしか見つからない。
+  # disable-model-invocation と併用すると、どこからも届かない。
   if has_frontmatter_key "$skill" user-invocable; then
     local ui
     ui="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill" \
           | sed -n 's/^user-invocable:[[:space:]]*//p' | tr -d '"'"'"' ')"
     if [[ "$ui" == "false" ]]; then
       case "$name" in
-        x-review-backend|x-review-frontend|x-review-infra) : ;;  # dispatched by da-review-all
+        x-review-backend|x-review-frontend|x-review-infra) : ;;  # da-review-all が呼ぶ
         *)
-          err "$id" "sets 'user-invocable: false' but nothing dispatches to it -- gone from the / menu and reachable only by description match. Add it to the dispatch-target list in this check, or drop the field." ;;
+          err "$id" "'user-invocable: false' を付けているが、これを呼ぶものが無い -- / メニューから消え、説明文の照合でしか届かない。この検査の呼び出し先一覧に足すか、フィールドを削除する" ;;
       esac
       has_frontmatter_key "$skill" disable-model-invocation \
-        && err "$id" "sets both 'user-invocable: false' and 'disable-model-invocation' -- the first blocks typing and the second blocks the model, leaving the skill unreachable by every route"
+        && err "$id" "'user-invocable: false' と 'disable-model-invocation' を両方付けている -- 前者は打つのを、後者はモデルを塞ぎ、スキルはどの経路からも届かない"
     fi
   fi
 
-  # --- structure ------------------------------------------------------------
+  # --- 構成 ------------------------------------------------------------------------
   grep -qiE '^##+ .*(precondition|実行条件)' <<<"$body" \
-    || warn "$id" "no Preconditions section -- the skill cannot stop cleanly on bad input"
+    || warn "$id" "実行条件の節が無い -- 不正な入力で綺麗に止まれない"
 }
 
-echo "linting skills"
+echo "スキルを lint する"
 echo
 for root in "${ROOTS[@]}"; do
-  [[ -d "$root" ]] || { err "$root" "not a directory"; continue; }
+  [[ -d "$root" ]] || { err "$root" "ディレクトリではない"; continue; }
   for dir in "$root"/*/; do
     [[ -d "$dir" ]] || continue
-    [[ "$(basename "$dir")" == _* ]] && continue   # _shared (and any other _-prefixed helper dir; _template lives at the repo root, not here)
+    [[ "$(basename "$dir")" == _* ]] && continue   # _shared ほか _ で始まる補助ディレクトリ（_template はここではなくリポジトリ直下）
     check_skill "${dir%/}"
   done
 done
 
-# --- protected names must still exist, and the two enforcers must agree ----
-# The disable-model-invocation scope is a hardcoded list of skill names in two files. Renaming a
-# skill without updating both leaves the guardrail installed and enforcing nothing -- which happened
-# for real when the `da-` prefix was introduced. So the list is cross-checked against reality here.
+# --- 保護対象の名前が実在し、2 つの強制箇所が一致すること ----
+# disable-model-invocation の範囲は 2 ファイルにハードコードしたスキル名の一覧。片方だけ直してリネームすると、
+# ガードレールは入ったまま何も強制しなくなる（`da-` 接頭辞の導入時に実際に起きた）。なので実物と突き合わせる。
 if [[ -d "$REPO/skills" ]]; then
   echo
-  echo "checking the disable-model-invocation scope"
+  echo "disable-model-invocation の範囲を検査する"
   hook_file="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
 
-  # Both files declare the list on a line carrying a marker, and both drive their behaviour from that
-  # declaration. Read here by marker rather than by parsing case patterns: the previous version's
-  # extraction regex was hardcoded to `da-[a-z-]+` on both sides, so it compared exactly one name --
-  # and then printed "both enforcers agree", naming that one name as if it were the whole set. The
-  # x-review-* protections, added because the `x-` rename broke a guardrail for real, were never
-  # compared. Prefix-agnostic now, so a future prefix is covered without anyone remembering to widen it.
-  # ${BASH_SOURCE[0]}, not $0: $0 is the caller when this file is sourced.
-  # The marker comment is stripped before names are extracted, so `dmi-gate` and `dmi-dispatch` are not
-  # themselves read as skill names. `#` and `//` both accepted: one side is bash, the other is the JS
-  # embedded in the hook.
+  # 両ファイルはマーカー付きの行で一覧を宣言し、振る舞いもその宣言で決まる。case パターンを解析せずマーカーで読む。
+  # 接頭辞に依らないので、将来の接頭辞も誰かが広げるのを覚えていなくても拾える。
+  # $0 ではなく ${BASH_SOURCE[0]} を使う。source された時の $0 は呼び出し元になる。
+  # 名前を取り出す前にマーカーコメントを剥がすので、`dmi-gate` や `dmi-dispatch` 自体はスキル名として読まれない。
+  # `#` と `//` の両方を受ける。片方は bash、もう片方はフックに埋め込んだ JS。
   marked_names() { # <file> <marker>
     grep -E "dotagents:$2([^-a-z0-9]|$)" "$1" 2>/dev/null \
       | sed 's|[#/]*[[:space:]]*dotagents:.*$||' \
@@ -362,138 +323,124 @@ if [[ -d "$REPO/skills" ]]; then
 
   scope_ok=1
   if [[ -z "$linter_names" ]]; then
-    err "scope" "no 'dotagents:dmi-gate'/'dotagents:dmi-dispatch' declaration found in verify-skills.sh -- the marker is what makes the two lists comparable, so removing it removes the check"
+    err "scope" "'dotagents:dmi-gate'/'dotagents:dmi-dispatch' の宣言が verify-skills.sh に無い -- 2 つの一覧を比べられるのはこのマーカーのおかげで、消すと検査も消える"
     scope_ok=0
   fi
   if [[ -z "$hook_names" ]]; then
-    err "scope" "no 'dotagents:dmi-gate'/'dotagents:dmi-dispatch' declaration found in the lint hook -- the marker is what makes the two lists comparable, so removing it removes the check"
+    err "scope" "'dotagents:dmi-gate'/'dotagents:dmi-dispatch' の宣言が lint フックに無い -- 2 つの一覧を比べられるのはこのマーカーのおかげで、消すと検査も消える"
     scope_ok=0
   fi
   while read -r pn; do
     [[ -n "$pn" ]] || continue
     [[ -f "$REPO/skills/$pn/SKILL.md" ]] \
-      || { err "scope" "'$pn' is protected from disable-model-invocation but skills/$pn does not exist -- it was renamed and the list was not updated, so the guardrail now protects nothing"; scope_ok=0; }
+      || { err "scope" "'$pn' は disable-model-invocation から保護されているが skills/$pn が無い -- リネームで一覧が追従しておらず、ガードレールは何も守っていない"; scope_ok=0; }
   done <<<"$linter_names"
 
   if [[ -n "$hook_names" && -n "$linter_names" ]] && [[ "$linter_names" != "$hook_names" ]]; then
-    err "scope" "verify-skills.sh and the lint hook protect different names -- both must agree or one of them silently stops enforcing"
+    err "scope" "verify-skills.sh と lint フックが保護する名前が違う -- 両方が一致しないと、片方が黙って強制をやめる"
     printf '%s  linter: %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$linter_names")" "$c_off"
     printf '%s  hook:   %s%s\n' "$c_dim" "$(tr '\n' ' ' <<<"$hook_names")" "$c_off"
     scope_ok=0
   fi
 
-  (( scope_ok )) && printf '%s✓%s protected names exist and both enforcers agree: %s\n' \
+  (( scope_ok )) && printf '%s✓%s 保護対象の名前は実在し、2 つの強制箇所が一致: %s\n' \
     "$c_green" "$c_off" "$(tr '\n' ' ' <<<"$linter_names")"
 fi
 
-# --- the shared gate block -------------------------------------------------
-# scripts/gate.sh and hooks/dotagents-verify-gate.sh both decide which repository a sentinel belongs
-# to and where a working tree's counters live. The code is duplicated rather than sourced from a lib
-# because invariant 4 says a hook must not depend on a path that can go missing -- and a lib under the
-# repository can. Duplication is only safe while the copies are identical: a hook that resolved
-# worktrees differently from gate.sh would arm one directory and enforce another, and nothing would
-# report it. Checked mechanically, so it fails at commit time rather than at 3am.
+# --- 共有のゲートブロック -------------------------------------------------------
+# scripts/gate.sh と hooks/dotagents-verify-gate.sh は、センチネルがどのリポジトリに属し、作業ツリーのカウンタが
+# どこにあるかを両方で決める。lib から source せず複製しているのは、不変条件 4（フックは消えうるパスに依存しない）のため。
+# 複製が安全なのは写しが同一の間だけ。解決の仕方がずれると片方が arm し、もう片方は別のディレクトリを強制する。
 gate_sh="$REPO/scripts/gate.sh"
 gate_hook="$REPO/hooks/dotagents-verify-gate.sh"
 if [[ -f "$gate_sh" && -f "$gate_hook" ]]; then
   echo
-  echo "checking the shared gate block"
+  echo "共有のゲートブロックを検査する"
   extract_identity() {
     sed -n '/^# >>> dotagents:gate-shared/,/^# <<< dotagents:gate-shared/p' "$1"
   }
   ident_a="$(extract_identity "$gate_sh")"
   ident_b="$(extract_identity "$gate_hook")"
   if [[ -z "$ident_a" ]]; then
-    err "gate-shared" "scripts/gate.sh has no '# >>> dotagents:gate-shared' block -- the marker is what makes the duplication checkable, so removing it removes the check"
+    err "gate-shared" "scripts/gate.sh に '# >>> dotagents:gate-shared' ブロックが無い -- 複製を検査できるのはこのマーカーのおかげで、消すと検査も消える"
   elif [[ -z "$ident_b" ]]; then
-    err "gate-shared" "hooks/dotagents-verify-gate.sh has no '# >>> dotagents:gate-shared' block -- the marker is what makes the duplication checkable, so removing it removes the check"
+    err "gate-shared" "hooks/dotagents-verify-gate.sh に '# >>> dotagents:gate-shared' ブロックが無い -- 複製を検査できるのはこのマーカーのおかげで、消すと検査も消える"
   elif [[ "$ident_a" != "$ident_b" ]]; then
-    err "gate-shared" "the two copies have drifted -- gate.sh would resolve a repository or worktree differently from the hook, so one could arm a directory the other never enforces"
-    printf '%s  first difference:%s\n' "$c_dim" "$c_off"
+    err "gate-shared" "2 つの写しがずれている -- gate.sh がリポジトリや作業ツリーをフックと違うように解決し、片方が arm したディレクトリをもう片方が強制しなくなる"
+    printf '%s  最初の差分:%s\n' "$c_dim" "$c_off"
     diff <(printf '%s\n' "$ident_a") <(printf '%s\n' "$ident_b") | head -8 | sed "s/^/$(printf '%s' "$c_dim")    /"
     printf '%s%s\n' "$c_off" ""
   else
-    printf '%s✓%s the shared gate block is byte-identical in gate.sh and the hook (%s lines)\n' \
+    printf '%s✓%s 共有のゲートブロックは gate.sh とフックでバイト単位で一致（%s 行）\n' \
       "$c_green" "$c_off" "$(printf '%s\n' "$ident_a" | wc -l | tr -d ' ')"
   fi
 fi
 
-# --- the design review has to emit a landing plan ---------------------------
-# Where a body of work divides into separate changes to ship is decided nowhere else: da-fix-plan orders
-# fixes into commits inside one change, da-review-all asks whether two layers ship together only as a
-# finding. So plans used to reach implementation with the split unmade, and it got made ad hoc by
-# whoever was typing. The section is in da-design-review's required output -- checked here, because a
-# required section that only prose asks for is a section that quietly stops being produced.
+# --- 設計レビューは着地計画を出すこと -------------------------------------------
+# 作業をどの変更に分けて出すかは、ほかのどこでも決めない（da-fix-plan は 1 変更内のコミット順、da-review-all は
+# 所見として問うだけ）。その節は da-design-review の必須出力で、文章でだけ求める必須節は黙って出なくなるのでここで見る。
 dr="$REPO/skills/da-design-review/SKILL.md"
 if [[ -f "$dr" ]]; then
   echo
-  echo "checking the design review's landing plan"
+  echo "設計レビューの着地計画を検査する"
   if ! grep -q 'Landing plan' "$dr"; then
-    err "landing-plan" "skills/da-design-review no longer emits a 'Landing plan' section -- nothing else in the toolkit decides how work divides into separate changes to ship"
+    err "landing-plan" "skills/da-design-review が 'Landing plan' 節を出さなくなった -- 作業をどの変更に分けて出すかを決めるものがツールキットにほかに無い"
   elif ! grep -q 'What gates it' "$dr"; then
-    err "landing-plan" "the landing plan table lost its 'What gates it' column -- a landing nobody can name a gate for cannot be verified, which is the column that makes the table more than a list"
+    err "landing-plan" "着地計画の表から 'What gates it' 列が消えた -- ゲートを名指せない着地は検証できず、この列が表をただの一覧以上のものにしている"
   else
-    printf '%s✓%s the design review emits a landing plan, with a gate per landing\n' "$c_green" "$c_off"
+    printf '%s✓%s 設計レビューは着地ごとのゲート付きで着地計画を出す\n' "$c_green" "$c_off"
   fi
 fi
 
-# --- the no-subagent rule has to be in the body, not only in reference/ -----
-# Cursor has no ${CLAUDE_SKILL_DIR} and no documented equivalent -- its docs say relative paths from the
-# skill root. So a rule that lives only in reference/ is a rule Claude Code follows and Cursor may not,
-# and the failure is invisible: Cursor just fans out like before, produces a normal report, and nothing
-# says the rule was never read. That is invariant 1 (state the constraint in the body; treat the
-# Claude-only path as optimization on top) applied to the rule that decides what a review COSTS.
+# --- サブエージェント禁止の規則は reference/ だけでなく本文に書くこと -----
+# Cursor には ${CLAUDE_SKILL_DIR} も同等のものも無い。reference/ にだけある規則は Claude Code は従い Cursor は
+# 従わないかもしれず、その失敗は見えない。不変条件 1（制約は本文に書き、Claude 専用の経路はその上の最適化）を、
+# レビューのコストを決める規則に当てたもの。
 #
-# This check used to demand the opposite content -- the 0/3/5 fan-out budget and its "80 lines" inline
-# threshold. The budget is gone: the review spawns nothing at all now, so a body still carrying a
-# subagent allowance would be the stale half of a half-applied change. **The check was retargeted, not
-# deleted**, because the reason for it never depended on which rule was in force: whatever bounds the
-# spend has to bind in both agents, and only the body binds in both.
+# 以前は逆の内容（0/3/5 の fan-out 予算）を求めていた。レビューはもう何も起動しないので、本文にサブエージェントの
+# 許可が残っていれば、半分だけ当たった変更の古い半分になる。**検査は消さずに向け直した**。理由は規則に依らない:
+# 支出を縛るものは両エージェントで効かなければならず、両方で効くのは本文だけ。
 echo
-echo "checking the no-subagent rule is stated in the body"
+echo "サブエージェント禁止の規則が本文に書かれているか検査する"
 budget_missing=""
 for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
   bf="$REPO/skills/$bs/SKILL.md"
   [[ -f "$bf" ]] || { budget_missing="$budget_missing $bs(absent)"; continue; }
   bbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$bf")"
-  # Both halves: the prohibition, and the phrase the report has to carry. "no subagents" alone could sit
-  # in a sentence about something else; "inline" alone is any adverb.
+  # 禁止と、報告が持つべき語の両方を見る。"no subagents" だけなら別の話の文にありうるし、"inline" だけなら何の副詞でもよい。
   grep -qiE 'no subagents' <<<"$bbody" && grep -qiE 'inline' <<<"$bbody" \
     || budget_missing="$budget_missing $bs"
 done
 if [[ -n "$budget_missing" ]]; then
-  err "no-subagent-rule" "the no-subagent rule is not in the body of:$budget_missing -- Cursor cannot resolve \${CLAUDE_SKILL_DIR}, so a rule only in reference/ does not bind there"
+  err "no-subagent-rule" "サブエージェント禁止の規則が次の本文に無い:$budget_missing -- Cursor は \${CLAUDE_SKILL_DIR} を解決できないので、reference/ にだけある規則はそこで効かない"
 else
-  printf '%s✓%s the fan-out budget and its inline tier are in all 4 review bodies\n' "$c_green" "$c_off"
+  printf '%s✓%s fan-out の予算とそのインライン段が、レビューの本文 4 つすべてにある\n' "$c_green" "$c_off"
 fi
 
-# --- the diff-size measurement has to be scoped to what is actually reviewed ---
-# Every review skill sizes the diff before it reads anything, and the number decides both which process
-# gets read and whether the report may call itself a review. But `da-review-all` hands each layer a
-# per-layer file list and says "do not re-derive the full diff" -- while the sizing snippet measured
-# `"$BASE"...HEAD` with no paths. So a 45-file change split 15/15/15 made every one of the three layers
-# measure 45 and declare itself a sample, each while holding 15 files. The failure is silent in the worst
-# direction: the report is *more* modest than the work, so nothing looks wrong.
+# --- 差分サイズの計測はレビュー対象の範囲に絞ること ---
+# レビュー系スキルはどれも読む前に差分の大きさを測り、その数でどの手順を読むかと、報告がレビューを名乗れるかが決まる。
+# da-review-all は層ごとのファイル一覧を渡して「差分全体を導き直すな」と言うのに、計測は範囲なしで測っていた。
+# すると 45 ファイルを 15/15/15 に分けた変更で、各層が 45 を測って自分を標本扱いした。報告が実際より控えめになる
+# 方向の失敗なので、何もおかしく見えない。
 #
-# The check is on the snippet, not on prose, because the snippet is what gets run. `SCOPE` must be
-# assigned in the file (so it is never unset) and every sizing `git diff` must pass it.
+# 実際に走るのはスニペットなので、文章ではなくスニペットを検査する。`SCOPE` はファイル内で代入され（未設定にならない）、
+# サイズを測る `git diff` はすべてそれを渡すこと。
 echo
-echo "checking the diff-size measurement is scoped to the reviewed paths"
-# Derived, not listed. A hardcoded set of five silently exempts the sixth review skill somebody adds;
-# `--shortstat` appears only in the sizing snippet, so the files that size a diff ARE the files to check.
+echo "差分サイズの計測がレビュー対象のパスに絞られているか検査する"
+# 一覧にせず導出する。5 つをハードコードすると、6 つ目のレビュー系スキルが黙って免除される。
+# `--shortstat` は計測スニペットにしか出ないので、それを含むファイルが検査対象そのもの。
 scope_bad=""
 scope_files="$(grep -rlF -- '--shortstat' "$REPO/skills" 2>/dev/null | sort)"
 scope_n="$(printf '%s\n' "$scope_files" | grep -c .)"
 if (( scope_n < 5 )); then
-  err "diff-size-scope" "only $scope_n file(s) under skills/ size a diff -- there were 5, so one lost its measurement step rather than having it scoped"
+  err "diff-size-scope" "skills/ 配下で差分を測るファイルが $scope_n 個しか無い -- 5 個あったので、1 つは範囲を絞られたのではなく計測手順ごと失った"
 fi
 for sp in $scope_files; do
   sf="${sp#"$REPO/skills/"}"
   grep -qE '^[[:space:]]*SCOPE=' "$sp" || { scope_bad="$scope_bad $sf(no-SCOPE)"; continue; }
-  # `--shortstat` appears only in the sizing one-liner, which also carries the `--name-only | wc -l`
-  # half -- so both halves have to take the scope, and requiring two occurrences on the line says that
-  # without matching the prose elsewhere that legitimately shows an unscoped `git diff --name-only`
-  # (establishing scope in the first place is a whole-diff operation).
+  # `--shortstat` は計測の 1 行にしか出ず、その行は `--name-only | wc -l` の半分も持つ。両方が範囲を取るよう、
+  # 行内に 2 回出ることを求める。範囲なしの `git diff --name-only` を正当に示す別の文には当てない
+  # （範囲をそもそも決めるのは差分全体に対する操作）。
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     n_scoped="$(grep -o -- '-- \$SCOPE' <<<"$line" | wc -l | tr -d ' ')"
@@ -501,153 +448,125 @@ for sp in $scope_files; do
   done < <(grep -F -- '--shortstat' "$sp")
 done
 if [[ -n "$scope_bad" ]]; then
-  err "diff-size-scope" "the diff-size measurement is not scoped to the reviewed paths in:$scope_bad -- a dispatched layer measures the whole change and reports its own work as a sample"
+  err "diff-size-scope" "次の箇所で差分サイズの計測がレビュー対象のパスに絞られていない:$scope_bad -- 振られた層が変更全体を測り、自分の作業を標本と報告する"
 else
-  printf '%s✓%s the diff-size measurement is scoped in all 5 sizing snippets\n' "$c_green" "$c_off"
+  printf '%s✓%s 差分サイズの計測は 5 つの計測スニペットすべてで範囲が絞られている\n' "$c_green" "$c_off"
 fi
 
-# --- caps on the review must not disagree with the record, or with themselves ---
-# The three-lens verify pass is the review's quality cap: how many of the most serious findings get
-# checked from three angles instead of one. Decision 16 set it at "the 3 most irreversible per layer",
-# on a cost argument that only held while each lens was a *subagent*. daa6ad9 removed every subagent
-# and, in the same commit, cut the cap to one finding -- while its message said only that the three
-# lenses survive as three passes. So the number moved 3x in the tightening direction at the exact moment
-# its cost basis disappeared, docs/decisions.md kept stating the old one, and nothing failed.
+# --- レビューの上限は、記録とも自分自身とも食い違わないこと ---
+# 3 観点の検証は、最も重い所見のうち何件を 1 つではなく 3 つの角度から見るかという、レビューの品質の上限。
+# 決定 16 は各観点がサブエージェントだった頃のコスト論で「層ごとに最も不可逆な 3 件」とした。daa6ad9 がサブエージェントを
+# 全廃した同じコミットで上限を 1 件に下げたが、docs/decisions.md は古い数のままで、何も失敗しなかった。
 #
-# A marker on each live statement, compared. History is left alone: the marker sits on what is in force,
-# never on the row recording what used to be.
+# 現に効いている記述それぞれにマーカーを置いて比べる。履歴は触らない（過去を記録する行にマーカーは置かない）。
 echo
-echo "checking the three-lens cap agrees between the rule and the record"
+echo "3 観点の上限が規則と記録で一致しているか検査する"
 lens_caps="$(grep -rhoE 'dotagents:lens-cap [0-9]+' \
   "$REPO/skills/_shared/verification.md" "$REPO/docs/decisions.md" 2>/dev/null | grep -oE '[0-9]+')"
 lens_n="$(printf '%s\n' "$lens_caps" | grep -c .)"
 lens_uniq="$(printf '%s\n' "$lens_caps" | sort -u | grep -c .)"
 if (( lens_n < 2 )); then
-  err "lens-cap" "the three-lens cap carries fewer than 2 'dotagents:lens-cap <n>' markers -- it must be stated in skills/_shared/verification.md (the rule) and docs/decisions.md (the record), or the next change to it goes unrecorded again"
+  err "lens-cap" "3 観点の上限に付いた 'dotagents:lens-cap <n>' マーカーが 2 つ未満 -- skills/_shared/verification.md（規則）と docs/decisions.md（記録）の両方に書く。でないと次の変更がまた記録されない"
 elif (( lens_uniq != 1 )); then
-  err "lens-cap" "the three-lens cap disagrees between the rule and the record ($(printf '%s ' $lens_caps)) -- docs/decisions.md would describe a review the skill does not perform"
+  err "lens-cap" "3 観点の上限が規則と記録で食い違う（$(printf '%s ' $lens_caps)）-- docs/decisions.md がスキルの実際にしないレビューを説明することになる"
 else
-  printf '%s✓%s the three-lens cap is %s in both the rule and the record\n' "$c_green" "$c_off" "$(printf '%s\n' "$lens_caps" | head -1)"
+  printf '%s✓%s 3 観点の上限は規則と記録の両方で %s\n' "$c_green" "$c_off" "$(printf '%s\n' "$lens_caps" | head -1)"
 fi
 
-# --- a phase must not order findings it does not accept -------------------------
-# 6a is scoped to critical/irreversible. daa6ad9 then added an anti-anchoring ordering rule naming the
-# two severities 6a excludes. A model resolving that either widens the scope -- tripling the cost of the
-# cheap half of the report, which the same file forbids two paragraphs later -- or drops the ordering,
-# losing the position-effect guard the file justifies with measurement. Either way it silently picks one
-# of two rules the file states as both binding.
+# --- 受け付けない所見を並べさせないこと -------------------------------------------
+# 6a の対象は critical/irreversible。daa6ad9 はそこに、6a が除外する 2 つの重大度を名指す並べ方の規則を足した。
+# モデルは範囲を広げる（同じファイルが禁じるコスト増）か並べ方を捨てる（位置効果の防御を失う）かを黙って選ぶことになる。
 echo
-echo "checking the refutation pass does not order findings it excludes"
-# Proved to fail OPEN in its first form: it was `grep -q '<the scope sentence>' && <the real test>`, so
-# rewording a sentence it does not own silently disabled it. Verified with a control -- the defect
-# present, original sentence -> error; the defect present, sentence reworded -> pass. CONTRIBUTING is
-# explicit that a guardrail which opens is worse than none, so the anchor is now asserted rather than
-# used as a condition, and the ordering test is scoped to 6a's own section rather than the whole file
-# (the phrase "severity order" also appears in the bias notes further down).
+echo "反証パスが除外した所見を並べさせていないか検査する"
+# 最初の形は `grep -q '<範囲の文>' && <本当の検査>` で、自分の持ち物でない文を言い換えるだけで黙って無効になり、
+# 開いたまま失敗した。開くガードレールは無いより悪いので、アンカーは条件にせず主張し、並べ方の検査は 6a の節に絞る
+# （「重大度の順」は後ろのバイアスの注記にも出る）。
 vf="$REPO/skills/_shared/verification.md"
 if [[ -f "$vf" ]]; then
   if ! grep -q '対象は `severity=critical` の所見だけ' "$vf"; then
-    err "verify-scope" "skills/_shared/verification.md no longer states 6a's scope in the form this check anchors on -- reword the check together with the file, or the check passes by not finding its anchor"
+    err "verify-scope" "skills/_shared/verification.md が、この検査のアンカーの形で 6a の範囲を書かなくなった -- ファイルと一緒に検査も言い換える。でないとアンカーが見つからないことで検査が通る"
   else
-    # 6a runs from its own heading to 6b's; the ordering rule must not name a severity 6a excludes.
+    # 6a は自分の見出しから 6b の見出しまで。並べ方の規則は 6a が除外する重大度を名指してはならない。
     sect="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
     if grep -A1 '重大度の順' <<<"$sect" | grep -qE '💡|🟡'; then
-      err "verify-scope" "6a accepts only critical/irreversible but its ordering rule names 💡/🟡 -- the pass is told to order findings it was told not to take"
+      err "verify-scope" "6a は critical/irreversible しか受けないのに、並べ方の規則が 💡/🟡 を名指す -- 取るなと言った所見を並べろと言っている"
     else
-      printf '%s✓%s the refutation pass orders only the severities it accepts\n' "$c_green" "$c_off"
+      printf '%s✓%s 反証パスは受け付ける重大度だけを並べる\n' "$c_green" "$c_off"
     fi
   fi
 fi
 
-# --- a severity parked for want of a trace must have somewhere to be settled ------
-# finding-discipline.md tells the find phase not to inflate a finding it cannot show reachability for:
-# park it low, and say what would settle it. 6a is scoped to critical/irreversible and its severity lens
-# "can only lower". So a finding parked *below* its true severity for want of a trace was invisible to
-# the only pass that could revisit it, and forbidden from being raised even if seen -- the placeholder
-# shipped looking like a verdict. Observed once: a warning saying in its own body that reachability was
-# not established was resolved only because the human asked for a second adversarial pass, and the trace
-# then moved it two buckets. A pass that needs asking twice did not verify anything the first time.
+# --- 経路の裏付けが無くて保留した重大度には、確定させる場所があること ------
+# finding-discipline.md は、到達性を示せない所見を膨らませず、低く置いて何で確定するかを書けと言う。6a の対象は
+# critical/irreversible で、重大度の観点は「下げることしかできない」。すると低く置いた所見は、見直せる唯一のパスから
+# 見えず、見えても引き上げられず、仮置きが判定の顔で出荷された。
 #
-# The seam is the invariant, not the wording: 6a only lowers, 6b settles in either direction. Both halves
-# carry a marker, so removing one removes the check and the linter says so. Guard both failure directions
-# -- 6b losing the settle job (hole reopens), and someone "fixing" it by letting 6a raise (which the same
-# file forbids two bullets earlier, and which would put escalation inside the refutation pass).
+# 不変条件は文面ではなく継ぎ目: 6a は下げるだけ、6b はどちらの向きにも確定させる。両半分にマーカーを置く。
+# 失敗の向きは 2 つとも守る: 6b が確定の役目を失う（穴が再び開く）、6a に引き上げを許して「直す」（同じファイルが禁じる）。
 echo
-echo "checking a provisional severity has a pass chartered to settle it"
+echo "暫定の重大度を確定させるパスがあるか検査する"
 vf="$REPO/skills/_shared/verification.md"
 if [[ -f "$vf" ]]; then
   sd_markers="$(grep -c 'dotagents:severity-direction' "$vf" || true)"
   if ! grep -q 'dotagents:severity-direction 6a-lowers-only' "$vf" \
     || ! grep -q 'dotagents:severity-direction 6b-settles' "$vf"; then
-    err "severity-direction" "skills/_shared/verification.md is missing a 'dotagents:severity-direction' marker (found ${sd_markers}, need 6a-lowers-only and 6b-settles) -- the marker is the check, so removing it removes the guard on which pass may raise a severity"
+    err "severity-direction" "skills/_shared/verification.md に 'dotagents:severity-direction' マーカーが足りない（${sd_markers} 個。6a-lowers-only と 6b-settles が要る）-- マーカーが検査そのもので、消すとどのパスが重大度を上げてよいかの守りが消える"
   else
-    # Anchors are asserted, never used as conditions: a reworded sentence must fail loudly rather than
-    # quietly disable the test (the lesson the ordering check above was fixed for).
+    # アンカーは条件に使わず主張する。言い換えた文は検査を黙って無効にせず、大きく失敗させる（上の並べ方の検査の教訓）。
     a6="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
     b6="$(awk '/^## 6b\./{i=1;print;next} /^## /{i=0} i' "$vf")"
     if ! grep -q '下げることしかできない' <<<"$a6"; then
-      err "severity-direction" "6a no longer states that its severity lens can only lower -- reword the check with the file, or it passes by not finding its anchor"
+      err "severity-direction" "6a が、重大度の観点は下げることしかできないと書かなくなった -- ファイルと一緒に検査も言い換える。でないとアンカーが見つからないことで検査が通る"
     elif ! grep -q '暫定の重大度を確定させる' <<<"$b6"; then
-      err "severity-direction" "6b lost the 'settle the provisional severities' job -- a finding parked below its severity for want of a reachability trace now has no pass chartered to finish it, and the placeholder ships as a verdict"
+      err "severity-direction" "6b が暫定の重大度を確定させる役目を失った -- 到達性の裏付けが無くて低く置いた所見を仕上げるパスが無くなり、仮置きが判定として出荷される"
     elif ! grep -q 'ここでは引き上げてよい' <<<"$b6"; then
-      err "severity-direction" "6b describes settling but no longer permits raising -- settling that can only lower leaves the false-negative half of the hole open"
+      err "severity-direction" "6b は確定を書くが引き上げを許さなくなった -- 下げるだけの確定では、偽陰性の側の穴が開いたまま"
     elif grep -qE '引き上げてよい|引き上げられる' <<<"$a6"; then
-      err "severity-direction" "6a now permits raising a severity -- escalation inside the refutation pass is what the file forbids two bullets earlier; settle provisional severities in 6b instead"
+      err "severity-direction" "6a が重大度の引き上げを許している -- 反証パスの中での引き上げは同じファイルが禁じている。暫定の重大度は 6b で確定させる"
     else
-      printf '%s✓%s 6a lowers only, and 6b is chartered to settle provisional severities\n' "$c_green" "$c_off"
+      printf '%s✓%s 6a は下げるだけで、6b が暫定の重大度を確定させる\n' "$c_green" "$c_off"
     fi
   fi
 fi
 
-# --- a cut nothing counts is the shape the 40-file threshold had ---------------
-# The find phase used to cap warning/info at "the top 3 per cluster by severity". The report already
-# caps them and *folds the overflow into an aggregate note*, and 🔬 counts what verification refuted and
-# what fell below the confidence threshold. A 4th warning in a cluster -- above 80, never refuted -- was
-# dropped before any of those, so it appeared in no count at all. Two caps in series where the outer one
-# already discloses: the inner one only removes information. Same shape as `> 40 files` -- the cap is
-# invisible in the output, so the report reads as complete.
+# --- 何にも数えられない切り捨ては、40 ファイル閾値と同じ形 ---------------
+# 発見フェーズは以前 warning/info を「クラスタごとに重大度で上位 3 件」に絞っていた。報告側がすでに上限を持ち、
+# 溢れを集計の注記に畳み、🔬 が反証・確信度不足を数える。4 件目はそのどれより前に捨てられ、どこにも数えられなかった。
+# 外側がすでに開示している上限の内側にもう 1 つ置くと、情報を消すだけ。出力に見えず、報告が完全に見える。
 echo
-echo "checking the find phase has no undisclosed rank cap"
+echo "発見フェーズに開示されない順位の上限が無いか検査する"
 fd="$REPO/skills/_shared/finding-discipline.md"
 if [[ -f "$fd" ]]; then
-  # One phrasing was one way to write the cap. These are the shapes it actually comes back as.
+  # 1 つの言い回しは上限の書き方の 1 つにすぎない。実際に戻ってきた形を並べる。
   if grep -qiE '(top|highest|first|best) [0-9]+ per cluster|cap [^.]{0,30} (at|to) [0-9]+ per cluster|[0-9]+ per cluster by severity|クラスタ(ごと|あたり)[^。]{0,20}(上位|最大|先頭) ?[0-9]+' "$fd"; then
-    err "find-rank-cap" "the find phase caps findings by rank again -- nothing counts what a rank cap drops, so use the report's output budget in report-format.md, which folds the overflow into a note the reader can see"
+    err "find-rank-cap" "発見フェーズがまた順位で所見を絞っている -- 順位の上限が捨てたものは誰も数えない。report-format.md の出力予算を使えば、溢れは読み手に見える注記に畳まれる"
   else
-    printf '%s✓%s the find phase drops nothing that no bucket counts\n' "$c_green" "$c_off"
+    printf '%s✓%s 発見フェーズは、どの枠にも数えられないものを捨てない\n' "$c_green" "$c_off"
   fi
 fi
 
-# --- routing must not live only in a file nothing loads at runtime ----------------
-# README.md carried the whole of it: "spec をディスクに（リポジトリが openspec を使うならそちら）". README.md
-# is not loaded at runtime -- AGENTS.md has no `@` import for it -- so every invocation ignored the
-# parenthetical and wrote a plan file in the upstream skill's default location. Months of that, and
-# nothing failed, because a rule written where it cannot bind produces no error, only the old behaviour.
+# --- 振り分けを、実行時に何も読まないファイルにだけ置かないこと ----------------
+# README.md だけが「spec をディスクに（リポジトリが openspec を使うならそちら）」と書いていた。README.md は実行時に
+# 読まれない（AGENTS.md から `@` で取り込んでいない）ので、毎回括弧書きが無視され、上流の既定の場所に計画が書かれた。
+# 効かない場所に書いた規則はエラーを出さず、古い振る舞いを出すだけ。
 #
-# The check is the containment: whatever the docs claim the toolkit routes on, a skill body has to say
-# too. `spec_system` is the field, and it is checked in both directions -- declared in the schema, and
-# read by a skill -- because a profile field nothing reads is the same failure wearing the other shoe.
+# 封じ込めとして、ドキュメントが振り分けの根拠とするものはスキル本文にも書かせる。フィールドは `spec_system` で、
+# スキーマでの宣言とスキルでの読み取りの両方向を見る（誰も読まないプロファイルのフィールドも同じ失敗）。
 echo
-echo "checking the spec-system routing binds where it is read"
+echo "spec システムの振り分けが読まれる場所で効いているか検査する"
 spec_bad=""
 docs_mention="$(grep -rlF 'openspec' "$REPO/README.md" "$REPO/docs" 2>/dev/null | head -1)"
-# A SKILL.md **body**, not a reference file: Cursor cannot resolve ${CLAUDE_SKILL_DIR}, so routing that
-# lives only under reference/ does not bind there -- which is the same failure as putting it in README,
-# one level in. The first version of this check accepted a reference file and passed while the three
-# bodies had it stripped out.
+# reference ファイルではなく SKILL.md の**本文**。Cursor は ${CLAUDE_SKILL_DIR} を解決できず、reference/ にだけある
+# 振り分けはそこで効かない（README に置くのと同じ失敗）。
 #
-# And it stopped at the FIRST body that matched, which is invariant 7's failure exactly: it found one,
-# reported the routing sound, and never looked at the sibling. A test mutation (spec_system renamed to a
-# placeholder) shipped in da-spec's body while da-design-review's copy still had the real name -- 14
-# occurrences of a field that does not exist, in the skill the routing is *for*, and this check was green
-# for it. So: every body that reaches for the shared file must name the field, and the ones that do are
-# counted rather than short-circuited.
+# 最初に当たった本文で止めると、兄弟を見ない（不変条件 7 の失敗）。実際に da-spec の本文でフィールド名を仮の名前に
+# 変えたのに、da-design-review 側が本物の名前を持っていて緑だった。共有ファイルを使う本文はすべてフィールドを名指すこと。
 skill_mention=""
 spec_partial=""
 for smf in "$REPO"/skills/*/SKILL.md; do
   [[ -e "$smf" ]] || continue
   sbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$smf")"
-  grep -qF 'spec-system.md' <<<"$sbody" || continue      # not a skill that routes on it
+  grep -qF 'spec-system.md' <<<"$sbody" || continue      # これで振り分けるスキルではない
   if grep -qF 'spec_system' <<<"$sbody"; then
     skill_mention="$smf"
   else
@@ -655,30 +574,26 @@ for smf in "$REPO"/skills/*/SKILL.md; do
   fi
 done
 if [[ -n "$spec_partial" ]]; then
-  spec_bad="these skills read reference/spec-system.md but never name the spec_system field:$spec_partial -- one body carrying a renamed or placeholder field name is a skill pointed at a key no profile has"
+  spec_bad="次のスキルは reference/spec-system.md を読むのに spec_system フィールドを名指さない:$spec_partial -- フィールド名を変えたり仮の名前にしたりした本文は、どのプロファイルにも無いキーを指す"
 elif [[ -n "$docs_mention" && -z "$skill_mention" ]]; then
-  spec_bad="the docs route on a spec system that no skill body reads"
+  spec_bad="ドキュメントは spec システムで振り分けるが、それを読むスキル本文が無い"
 elif [[ -n "$skill_mention" ]] && ! grep -qF '"spec_system"' "$REPO/profiles/_schema.json" 2>/dev/null; then
-  spec_bad="a skill reads spec_system but the profile schema does not declare it, so additionalProperties:false rejects every profile that sets it"
+  spec_bad="スキルは spec_system を読むがプロファイルのスキーマが宣言していないので、additionalProperties:false がそれを設定したプロファイルをすべて弾く"
 fi
 if [[ -n "$spec_bad" ]]; then
-  err "spec-system" "$spec_bad -- README.md is not loaded at runtime, so routing stated only there is not routing"
+  err "spec-system" "$spec_bad -- README.md は実行時に読まれないので、そこにだけ書いた振り分けは振り分けではない"
 else
-  printf '%s✓%s the spec-system routing is stated in a skill body and declared in the schema\n' "$c_green" "$c_off"
+  printf '%s✓%s spec システムの振り分けはスキル本文に書かれ、スキーマで宣言されている\n' "$c_green" "$c_off"
 fi
 
-# --- the tier ladder is written twice, so the two copies have to name the same skills ---
-# README.md and docs/loops.md both carry the M/L rows, and the design-phase cell of each names the
-# skills a human types. They drifted the moment one entry point was renamed: README said /da-spec while
-# loops.md still said /writing-plans, and a reader had no way to tell which was current. The prose
-# differs deliberately between the two files (one is a tour, one is the manual), so this compares the
-# only part that must not differ -- the set of skills named.
+# --- tier の段は 2 か所に書くので、2 つの写しは同じスキルを名指すこと ---
+# README.md と docs/loops.md の両方が M/L の行を持ち、設計フェーズの欄は人が打つスキルを名指す。入口を 1 つリネームした
+# 瞬間にずれた（README は /da-spec、loops.md は /writing-plans のまま）。文章は意図して違う（片方は案内、片方は手引き）ので、
+# 違ってはならない部分、つまり名指すスキルの集合だけを比べる。
 echo
-echo "checking the tier ladder names the same skills in both copies"
-# Presence and content are separate questions: the first form conflated them, so a tier whose design
-# phase legitimately became "無し" in BOTH copies -- which is already true of XS and S -- was reported as
-# a missing row. And an escaped \| inside any cell shifts every awk column silently, so that is refused
-# loudly instead of being read wrong.
+echo "tier の段が両方の写しで同じスキルを名指しているか検査する"
+# 行の有無と中身は別の問い。混ぜると、両方で正当に「無し」になった段（XS と S はすでにそう）を行の欠落と報告する。
+# 欄の中のエスケープした \| は awk の列を黙ってずらすので、誤読せず大きく拒む。
 tier_line() { grep -m1 "^| \*\*$2\*\* |" "$1" 2>/dev/null; }
 tier_cell() { awk -F'|' '{print $4}' <<<"$1" | grep -oE '/[a-z][a-z0-9-]+' | sort -u | tr '\n' ' '; }
 tier_bad=""
@@ -695,22 +610,20 @@ for tier in M L; do
   [[ "$r_readme" == "$r_loops" ]] || tier_bad="$tier_bad $tier(README:${r_readme:-none}vs loops:${r_loops:-none})"
 done
 if [[ -n "$tier_bad" ]]; then
-  err "tier-ladder" "README.md and docs/loops.md disagree about which skills a tier's design phase runs:$tier_bad -- one of them is telling somebody to type a command the other retired"
+  err "tier-ladder" "tier の設計フェーズが走らせるスキルについて README.md と docs/loops.md が食い違う:$tier_bad -- 片方が、もう片方の廃止したコマンドを打てと言っている"
 else
-  printf '%s✓%s the M and L tiers name the same skills in README and docs/loops.md\n' "$c_green" "$c_off"
+  printf '%s✓%s M と L の tier は README と docs/loops.md で同じスキルを名指す\n' "$c_green" "$c_off"
 fi
 
-# --- the change table is written three times, so the three have to be one table -------
-# Decision 15 aligned the review report's 変更内容 with da-pr-describe's 変わること on purpose: two
-# vocabularies for the same change make the reader reconcile them. That alignment is only real while the
-# copies match, and nothing compared them -- narrowing the table from four columns to three touched
-# three files, and getting two of them would have looked exactly like getting all three.
+# --- 変更表は 3 か所に書くので、3 つは 1 つの表であること -------
+# 決定 15 は、レビュー報告の「変更内容」を da-pr-describe の「変わること」に意図して揃えた。同じ変更に 2 つの語彙があると
+# 読み手が突き合わせる羽目になる。揃いは写しが一致する間だけ本物で、4 列を 3 列に絞った時、3 ファイル中 2 つだけ直しても
+# 全部直したのと同じに見えた。
 #
-# The columns are declared on a marker line so the check reads data rather than parsing prose, the same
-# shape as dotagents:dmi-gate and dotagents:lens-cap. Removing a marker removes the check, so a missing
-# one is an error rather than a silent skip.
+# 列はマーカー行で宣言し、文章を解析せずデータを読む（dotagents:dmi-gate や dotagents:lens-cap と同じ形）。
+# マーカーを消すと検査が消えるので、欠けていれば黙って飛ばさずエラーにする。
 echo
-echo "checking the change table is the same table in all three copies"
+echo "変更表が 3 つの写しすべてで同じ表か検査する"
 change_tbl_files="$REPO/skills/_shared/report-format.md $REPO/skills/_shared/review-process-brief.md $REPO/skills/da-pr-describe/reference/pr-template.md"
 change_cols=""; change_bad=""
 for ctf in $change_tbl_files; do
@@ -719,7 +632,7 @@ for ctf in $change_tbl_files; do
   if [[ -z "$marker" ]]; then
     change_bad="$change_bad $(basename "$ctf")(no-marker)"; continue
   fi
-  # The marker declares the columns; the table under it has to actually be those columns.
+  # マーカーが列を宣言し、その下の表は実際にその列でなければならない。
   hdr="$(grep -A1 -F 'dotagents:change-table' "$ctf" | sed -n '2p' | sed 's/[[:space:]]*$//')"
   [[ "$hdr" == "$marker" ]] || change_bad="$change_bad $(basename "$ctf")(header≠marker)"
   change_cols="$change_cols$marker"$'\n'
@@ -727,23 +640,22 @@ done
 uniq_cols="$(printf '%s' "$change_cols" | grep -c . )"
 distinct="$(printf '%s' "$change_cols" | sort -u | grep -c .)"
 if [[ -n "$change_bad" ]]; then
-  err "change-table" "the change table is not comparable across its three copies:$change_bad -- decision 15 aligned them so a reader never reconciles two vocabularies for one change"
+  err "change-table" "変更表の 3 つの写しを比べられない:$change_bad -- 決定 15 は、1 つの変更について読み手が 2 つの語彙を突き合わせずに済むよう揃えた"
 elif (( uniq_cols != 3 )); then
-  err "change-table" "expected 3 declared change tables, found $uniq_cols -- a copy lost its marker, and an unmarked copy drifts without failing"
+  err "change-table" "宣言された変更表は 3 つのはずが $uniq_cols 個 -- 写しの 1 つがマーカーを失い、印の無い写しは失敗せずにずれる"
 elif (( distinct != 1 )); then
-  err "change-table" "the three change tables declare different columns:$(printf ' %s' $(printf '%s' "$change_cols" | sort -u | tr ' ' '_')) -- narrowing the table in one place and not the others is the drift decision 15 exists to prevent"
+  err "change-table" "3 つの変更表が違う列を宣言している:$(printf ' %s' $(printf '%s' "$change_cols" | sort -u | tr ' ' '_')) -- 1 か所だけ表を絞るのは、決定 15 が防ぐずれそのもの"
 else
-  printf '%s✓%s the change table is %s in all three copies\n' "$c_green" "$c_off" "$(printf '%s' "$change_cols" | head -1)"
+  printf '%s✓%s 変更表は 3 つの写しすべてで %s\n' "$c_green" "$c_off" "$(printf '%s' "$change_cols" | head -1)"
 fi
 
-# --- counts written in prose must be the counts on disk ---------------------------
-# README and AGENTS.md state how many skills there are, in sentences. Adding da-spec made three of those
-# sentences wrong at once -- "自作は10スキル", "da- は打つもの（7）", "the same seven entries" -- and every
-# one of them still read perfectly. A number in prose has no way to notice the directory changed.
+# --- 文章に書いた数はディスク上の数であること ---------------------------
+# README と AGENTS.md はスキルの数を文で書いている。da-spec を足した時、そのうち 3 文が一度に誤りになり、どれも
+# 自然に読めた。文章の中の数は、ディレクトリが変わったことに気づけない。
 #
 # The counts are declared on a marker beside the sentence and computed here. dotagents:skill-count
 echo
-echo "checking the skill counts in prose match the directories"
+echo "文章中のスキル数がディレクトリと一致するか検査する"
 real_mine="$(ls -d "$REPO"/skills/*/ 2>/dev/null | grep -vE '_shared|_template' | wc -l | tr -d ' ')"
 real_typed="$(ls -d "$REPO"/skills/da-*/ 2>/dev/null | wc -l | tr -d ' ')"
 real_layer="$(ls -d "$REPO"/skills/x-review-*/ 2>/dev/null | wc -l | tr -d ' ')"
@@ -754,33 +666,30 @@ while IFS= read -r line; do
   count_seen=$((count_seen+1))
   for pair in $line; do
     case "$pair" in
-      mine=*)   [[ "${pair#mine=}"   == "$real_mine"   ]] || count_bad="$count_bad mine(says ${pair#mine=}, is $real_mine)" ;;
-      typed=*)  [[ "${pair#typed=}"  == "$real_typed"  ]] || count_bad="$count_bad typed(says ${pair#typed=}, is $real_typed)" ;;
-      layer=*)  [[ "${pair#layer=}"  == "$real_layer"  ]] || count_bad="$count_bad layer(says ${pair#layer=}, is $real_layer)" ;;
-      agents=*) [[ "${pair#agents=}" == "$real_agents" ]] || count_bad="$count_bad agents(says ${pair#agents=}, is $real_agents)" ;;
+      mine=*)   [[ "${pair#mine=}"   == "$real_mine"   ]] || count_bad="$count_bad mine(記載 ${pair#mine=}、実際 $real_mine)" ;;
+      typed=*)  [[ "${pair#typed=}"  == "$real_typed"  ]] || count_bad="$count_bad typed(記載 ${pair#typed=}、実際 $real_typed)" ;;
+      layer=*)  [[ "${pair#layer=}"  == "$real_layer"  ]] || count_bad="$count_bad layer(記載 ${pair#layer=}、実際 $real_layer)" ;;
+      agents=*) [[ "${pair#agents=}" == "$real_agents" ]] || count_bad="$count_bad agents(記載 ${pair#agents=}、実際 $real_agents)" ;;
     esac
   done
 done < <(grep -rhoE 'dotagents:skill-count [a-z0-9= ]+' "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null \
          | sed 's/dotagents:skill-count //')
 if (( count_seen < 2 )); then
-  err "skill-count" "fewer than 2 'dotagents:skill-count' markers -- README.md and AGENTS.md both state these numbers in prose, and an unmarked sentence goes stale without failing"
+  err "skill-count" "'dotagents:skill-count' マーカーが 2 つ未満 -- README.md と AGENTS.md はどちらもこの数を文章で書いており、印の無い文は失敗せずに古くなる"
 elif [[ -n "$count_bad" ]]; then
-  err "skill-count" "the counts written in prose no longer match the directories:$count_bad -- adding or removing a skill changes sentences in two files, and both still read correctly when wrong"
+  err "skill-count" "文章に書いた数がディレクトリと合わなくなった:$count_bad -- スキルの増減で 2 ファイルの文が変わり、誤っていても両方とも自然に読める"
 else
-  printf '%s✓%s the prose counts match: %s skills, %s typed, %s layer, %s agents\n' \
+  printf '%s✓%s 文章中の数は一致: スキル %s、打つもの %s、層 %s、エージェント %s\n' \
     "$c_green" "$c_off" "$real_mine" "$real_typed" "$real_layer" "$real_agents"
 fi
 
-# --- the schema's shape and the instruction that reads it must agree ---------------
-# `validate` was changed from a shell string to argv in profiles/_schema.json to remove the injection
-# surface -- and the file that TELLS the agent how to run it kept saying "a command; substitute the
-# change id", with a bare shell line under it. The schema would have rejected the string form the
-# instruction described. Reported as fixed, in two files, while living in one.
+# --- スキーマの形と、それを読む指示が一致すること ---------------
+# 注入の余地を消すため profiles/_schema.json の `validate` をシェル文字列から argv に変えたのに、実行の仕方を教える
+# ファイルは「コマンド。change id を差し込む」のまま、素のシェル行を載せていた。スキーマはその指示の形を弾く。
 #
-# Nothing caught it because a schema type and a paragraph of prose have no shared surface. This gives
-# them one: if the schema says array, the instruction has to show an array and carry the id constraint.
+# スキーマの型と文章の段落には共有面が無いので、ここで作る: スキーマが配列なら、指示も配列を示し id の制約を持つこと。
 echo
-echo "checking the validator instruction matches the schema's shape"
+echo "検証コマンドの指示がスキーマの形と一致するか検査する"
 sch="$REPO/profiles/_schema.json"
 ss="$REPO/skills/_shared/spec-system.md"
 if [[ -f "$sch" && -f "$ss" ]]; then
@@ -795,43 +704,36 @@ if [[ -f "$sch" && -f "$ss" ]]; then
       grep -qF 'a-z0-9._-' "$ss"           || vbad="$vbad no-id-constraint"
       grep -qiE 'refuse an argv whose|`sh`, `bash`' "$ss" || vbad="$vbad no-shell-refusal"
       if [[ -n "$vbad" ]]; then
-        err "validate-shape" "the schema declares spec_system.validate as argv but skills/_shared/spec-system.md does not teach it that way ($vbad) -- the instruction the agent follows would describe a form the schema rejects, and the id would go back into a shell"
+        err "validate-shape" "スキーマは spec_system.validate を argv と宣言しているのに、skills/_shared/spec-system.md がそう教えていない（${vbad}）-- エージェントが従う指示がスキーマの弾く形を説明し、id がシェルに戻る"
       else
-        printf '%s✓%s the validator instruction matches the schema: argv, id constrained, shells refused\n' "$c_green" "$c_off"
+        printf '%s✓%s 検証コマンドの指示はスキーマと一致: argv、id に制約あり、シェルは拒否\n' "$c_green" "$c_off"
       fi ;;
     no)
-      err "validate-shape" "spec_system.validate is declared as a shell string again -- it was made argv so a profile could not carry a pipeline and the change id could not escape into the command" ;;
+      err "validate-shape" "spec_system.validate がまたシェル文字列で宣言されている -- プロファイルにパイプラインを持たせず、change id がコマンドに漏れないよう argv にした" ;;
     *)
-      printf '%s—%s spec_system.validate not declared -- skipped\n' "$c_dim" "$c_off" ;;
+      printf '%s—%s spec_system.validate の宣言が無い -- 飛ばす\n' "$c_dim" "$c_off" ;;
   esac
 fi
 
-# --- skill bodies must not instruct reading credentials or piping to a shell ---
-# The frontmatter has been gated since the beginning; the body never was. And the body is not data --
-# it is the instructions an agent follows, in the user's own repositories, with the user's own
-# permissions. One sentence of prose is a behaviour change whose intent no linter, type check or test
-# can see. The lint hook says the same thing at write time and only warns; this is the half that fails
-# closed, and it runs over this repository's own skills, where we do get to decide.
+# --- スキル本文は認証情報の読み取りやシェルへのパイプを指示しないこと ---
+# frontmatter は最初から検査してきたが、本文はしていなかった。本文はデータではなく、利用者のリポジトリで利用者の権限の
+# まま従われる指示で、1 文が意図の見えない振る舞いの変更になる。lint フックは書き込み時に同じことを言うが警告だけ。
+# こちらは閉じる側の半分で、決めてよいこのリポジトリ自身のスキルに走る。
 #
-# Two shapes, chosen by measurement rather than imagination: a credential surface named on the same
-# line as a read/send verb, and the pipe-to-shell / base64 / paste-site shapes. Both were run against
-# every existing skill body and reference file first and matched ZERO lines, which is why this can be
-# an error with no baseline, no diff and no allowlist to maintain. A check keyed on a merge-base would
-# also need a full clone, and the CI jobs that run this one are shallow.
+# 形は想像ではなく計測で選んだ: 読む・送る動詞と同じ行に出る認証情報の置き場所と、シェルへのパイプ / base64 /
+# 貼り付けサイトの形。既存の本文と reference ファイルに当てて 0 行だったので、基準も差分も許可リストも無しでエラーにできる。
 #
-# The escape hatch names a reason on the line itself. "Allow this" with no reason is how an allowlist
-# becomes the rule.
+# 抜け道はその行に理由を書く。理由なしの「許可」は許可リストが規則になる入口。
 #
-# Kept identical to the list in hooks/dotagents-lint-skill-frontmatter.sh. The pattern is read out of
-# the marker comment below rather than written twice here, so the thing being compared is the thing
-# being used.
+# hooks/dotagents-lint-skill-frontmatter.sh の一覧と同一に保つ。パターンはここに 2 度書かず下のマーカーコメントから読むので、
+# 比べるものと使うものが同じになる。
 # dotagents:sensitive-body-patterns (cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin
 echo
-echo "checking skill bodies for credential surfaces and pipe-to-shell shapes"
+echo "スキル本文に認証情報の置き場所やシェルへのパイプの形が無いか検査する"
 sens_line() { grep -o 'dotagents:sensitive-body-patterns.*' "$1" | head -1 | sed 's/^dotagents:sensitive-body-patterns *//'; }
 sens_pat="$(sens_line "$0")"
 if [[ -z "$sens_pat" ]]; then
-  err "sensitive-body" "the 'dotagents:sensitive-body-patterns' marker is missing from verify-skills.sh -- the marker IS the pattern, so removing it removes the check"
+  err "sensitive-body" "'dotagents:sensitive-body-patterns' マーカーが verify-skills.sh に無い -- マーカーがパターンそのもので、消すと検査も消える"
 else
   sens_hits=0
   for sroot in "${ROOTS[@]}"; do
@@ -840,50 +742,42 @@ else
       while IFS= read -r hit; do
         [[ -n "$hit" ]] || continue
         case "$hit" in *dotagents:allow-sensitive*) continue ;; esac
-        err "${sf#"$REPO/"}:${hit%%:*}" "skill body names a credential surface or a pipe-to-shell shape -- $(printf '%s' "${hit#*:}" | sed 's/^[[:space:]]*//' | cut -c1-100)"
+        err "${sf#"$REPO/"}:${hit%%:*}" "スキル本文が認証情報の置き場所か、シェルへのパイプの形を含む -- $(printf '%s' "${hit#*:}" | sed 's/^[[:space:]]*//' | cut -c1-100)"
         sens_hits=$((sens_hits+1))
       done < <(grep -niE "$sens_pat" "$sf" 2>/dev/null)
     done < <(find "$sroot" -type f -name '*.md' 2>/dev/null | sort)
   done
   (( sens_hits == 0 )) \
-    && printf '%s✓%s no skill body instructs reading credentials or piping to a shell\n' "$c_green" "$c_off"
+    && printf '%s✓%s 認証情報の読み取りやシェルへのパイプを指示するスキル本文は無い\n' "$c_green" "$c_off"
 fi
 
-# --- the two sensitive-body enforcers must agree ----------------------------
-# Same reasoning as the when-clause lists below: two copies of a rule that can disagree is a rule that
-# will. The hook is the one users meet while writing; this file is the one that blocks a commit.
+# --- 本文の機密検査の 2 つの強制箇所が一致すること ----------------------------
+# 下の when 句の一覧と同じ理屈。食い違いうる 2 つの写しは、いずれ食い違う。
+# フックは書いている人が出会う方、こちらはコミットを止める方。
 lint_hook_sens="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
 if [[ -f "$lint_hook_sens" ]]; then
   echo
-  echo "checking the sensitive-body pattern list"
+  echo "本文の機密パターンの一覧を検査する"
   sens_b="$(sens_line "$lint_hook_sens")"
   if [[ -z "$sens_b" ]]; then
-    err "sensitive-body" "the 'dotagents:sensitive-body-patterns' marker is missing from the lint hook -- the marker is what makes the two lists comparable, so removing it removes the check"
+    err "sensitive-body" "'dotagents:sensitive-body-patterns' マーカーが lint フックに無い -- 2 つの一覧を比べられるのはこのマーカーのおかげで、消すと検査も消える"
   elif [[ "$sens_pat" != "$sens_b" ]]; then
-    err "sensitive-body" "the linter and the lint hook look for different things in a skill body, so a body can pass one and be stopped by the other"
+    err "sensitive-body" "リンターと lint フックがスキル本文で探すものが違う -- 片方を通った本文がもう片方で止まる"
     printf '%s  linter: %s%s\n' "$c_dim" "$sens_pat" "$c_off"
     printf '%s  hook:   %s%s\n' "$c_dim" "$sens_b" "$c_off"
   else
-    printf '%s✓%s both enforcers look for the same shapes in a skill body\n' "$c_green" "$c_off"
+    printf '%s✓%s 2 つの強制箇所はスキル本文で同じ形を探す\n' "$c_green" "$c_off"
   fi
 fi
 
-# --- every relative link inside a skill has to resolve ----------------------
-# reference/ files are read on instruction, so a link that does not resolve is not a 404 the user
-# sees -- it is an instruction the agent was told to follow and could not. The skill still loads,
-# still produces a normal-looking report, and the part it lost is exactly the part someone thought
-# was worth writing down separately.
+# --- スキル内の相対リンクはすべて解決すること ----------------------
+# reference/ は指示に従って読まれるので、解決しないリンクは利用者に見える 404 ではなく、従えと言われて従えなかった指示になる。
+# スキルは読み込まれ、普通に見える報告を出し、失われるのはまさに別に書き留める価値があると誰かが考えた部分。
 #
-# Found by running this: `_shared/finding-discipline.md` links to a sibling `verification.md`, and it
-# is symlinked into six skills of which only four had that sibling. da-fix-plan and da-review-all
-# followed a dead link. CI already checks that SYMLINKS resolve, which is why this went unseen for so
-# long -- the broken thing was a markdown link, and nothing read those.
-#
-# Anchors, http(s) and mailto are skipped. Everything else is resolved from the linking file's own
-# directory, because that is how both agents resolve a reference path (Cursor has no
-# ${CLAUDE_SKILL_DIR}, so relative-from-the-file is the only spelling that works in both).
+# アンカー、http(s)、mailto は飛ばす。それ以外はリンク元ファイルのディレクトリから解決する。両エージェントが reference の
+# パスをそう解決するため（Cursor には ${CLAUDE_SKILL_DIR} が無く、ファイルからの相対が両方で効く唯一の書き方）。
 echo
-echo "checking relative links inside skills resolve"
+echo "スキル内の相対リンクが解決するか検査する"
 link_bad=0
 for lroot in "${ROOTS[@]}"; do
   [[ -d "$lroot" ]] || continue
@@ -892,36 +786,30 @@ for lroot in "${ROOTS[@]}"; do
     while IFS= read -r target; do
       [[ -n "$target" ]] || continue
       case "$target" in http://*|https://*|mailto:*|"#"*) continue ;; esac
-      target="${target%%#*}"            # strip an anchor
-      target="${target%% *}"            # strip a link title
+      target="${target%%#*}"            # アンカーを剥がす
+      target="${target%% *}"            # リンクのタイトルを剥がす
       [[ -n "$target" ]] || continue
       [[ -e "$ldir/$target" ]] || {
-        err "${lf#"$REPO/"}" "link does not resolve: $target -- reference/ is read on instruction, so this is an instruction the agent cannot follow"
+        err "${lf#"$REPO/"}" "リンクが解決しない: $target -- reference/ は指示に従って読まれるので、これはエージェントが従えない指示"
         link_bad=$((link_bad+1))
       }
     done < <(grep -o ']([^)]*)' "$lf" 2>/dev/null | sed 's/^](//;s/)$//')
-    # `-type l` as well as `-type f`, and this is load-bearing: `find -type f` tests the LINK, not its
-    # target, so it skips every symlink -- which is every file under a skill's reference/. Written with
-    # `-type f` alone, this check reported a green tick while examining only `_shared/` (where the
-    # sibling does exist) and never looking at the six skills that read it through a link. The first
-    # version of the check had the exact bug it was written to catch.
+    # `-type f` に加えて `-type l` も要る。`find -type f` は指す先ではなくリンク自体を判定するので、シンボリックリンク
+    # （reference/ 配下のファイルはすべてそう）を飛ばす。`-type f` だけだと _shared/ しか見ずに緑を出していた。
   done < <(find "$lroot" \( -type f -o -type l \) -name '*.md' 2>/dev/null | sort)
 done
 (( link_bad == 0 )) \
-  && printf '%s✓%s every relative link inside a skill resolves\n' "$c_green" "$c_off"
+  && printf '%s✓%s スキル内の相対リンクはすべて解決する\n' "$c_green" "$c_off"
 
-# --- and the other direction: every doc has to be reachable ------------------
-# The check above asks whether a link finds its file. This asks whether a file has a link, which is the
-# failure the other one cannot see: a document nobody references is not broken, it is invisible. Same
-# both-directions shape already applied to reference/ files above, where mention-without-file and
-# file-without-mention are both errors.
+# --- 逆向き: どのドキュメントにも辿り着けること ------------------
+# 上はリンクがファイルを見つけるかを問い、これはファイルにリンクがあるかを問う。誰も参照しないドキュメントは
+# 壊れてはいないが見えない。
 #
-# README.md and AGENTS.md are the two entry points, and between them they are the only pair that
-# reaches both agents: Claude Code reads AGENTS.md through the CLAUDE.md symlink, Cursor reads it
-# natively, and README is where a human starts. A doc linked from neither is one that exists only for
-# whoever already knew the path.
+# README.md と AGENTS.md は 2 つの入口で、両エージェントに届く唯一の組（Claude Code は CLAUDE.md のシンボリックリンク経由で
+# AGENTS.md を、Cursor はそのまま読み、人は README から始める）。どちらからもリンクされないドキュメントは、パスを
+# 知っている人のためにしか存在しない。
 echo
-echo "checking every doc is reachable from README or AGENTS.md"
+echo "すべてのドキュメントに README か AGENTS.md から辿り着けるか検査する"
 doc_bad=0
 if [[ -d "$REPO/docs" ]]; then
   index="$(cat "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null)"
@@ -929,47 +817,38 @@ if [[ -d "$REPO/docs" ]]; then
     [[ -e "$df" ]] || continue
     rel="docs/$(basename "$df")"
     grep -qF "$rel" <<<"$index" || {
-      err "$rel" "not linked from README.md or AGENTS.md -- a doc nobody references is a doc nobody finds, and neither the link check nor CI can see it"
+      err "$rel" "README.md からも AGENTS.md からもリンクされていない -- 誰も参照しないドキュメントは誰にも見つからず、リンク検査にも CI にも見えない"
       doc_bad=$((doc_bad+1))
     }
   done
 fi
 (( doc_bad == 0 )) \
-  && printf '%s✓%s every docs/*.md is linked from README.md or AGENTS.md\n' "$c_green" "$c_off"
+  && printf '%s✓%s docs/*.md はすべて README.md か AGENTS.md からリンクされている\n' "$c_green" "$c_off"
 
-# --- a skill that names another skill must be able to reach it ---------------
-# Three of these were live on this machine at once, and all three failed the same silent way: the
-# referring skill loads, its description shows in the menu, it runs, and the instruction it was built
-# around points at nothing.
+# --- 別のスキルを名指すスキルは、そこへ届くこと ---------------
+# このマシンで 3 つ同時に起きており、どれも同じく黙って壊れた: 参照元は読み込まれ、メニューに出て、走るが、
+# 中心にした指示が何も指していない。
 #
-#   grill-me             -> /grilling                                    (body is ONLY that line)
-#   executing-plans      -> superpowers:finishing-a-development-branch   (declared REQUIRED SUB-SKILL)
+#   grill-me             -> /grilling                                    （本文はその 1 行だけ）
+#   executing-plans      -> superpowers:finishing-a-development-branch   （REQUIRED SUB-SKILL と宣言）
 #   systematic-debugging -> superpowers:verification-before-completion
 #
-# The first one is the reason this check exists rather than being a nice idea: `/grill-me` WAS the
-# FIRST ENTRY in README's use-case 1, so the documented way to start a feature pointed at a skill that
-# was never installed. A recommendation that cannot run is the same shape as a guardrail that does not
-# guard -- worse than an absent one, because nobody goes looking.
+# この検査がある理由は 1 つ目: `/grill-me` は README のユースケース 1 の最初の項目で、機能を始める公式の手順が
+# インストールされていないスキルを指していた。動かない推奨は、守らないガードレールと同じ形で、無いより悪い。
+# そのラッパーは今は文書化された集合に無い（決定 38）。動機となった事例として、起きた時の形のまま残す。
 #
-# That wrapper is no longer part of the documented set -- use-case 1 now types `/grilling` directly
-# (decision 38). Kept here as the case that motivated the check, in the tense it happened in: a record
-# rewritten to match today's names stops explaining what broke.
-#
-# Scans the INSTALLED set, not this repository: the dangling references were all in upstream bodies,
-# which never appear under skills/ here. Skipped with a printed reason when that directory is absent,
-# because CI has no installed skills and a check that silently does nothing is the thing being fixed.
+# このリポジトリではなくインストール済みの集合を見る。宙に浮いた参照はすべて上流の本文にあった。
+# そのディレクトリが無ければ理由を出して飛ばす。CI にはインストール済みのスキルが無く、黙って何もしない検査こそ直す対象。
 #
 # dotagents:builtin-slash-commands clear login logout help doctor config hooks permissions review security-review simplify code-review run init loop goal schedule skill-doctor compact resume model agents mcp memory export bug cost status context usage sandbox privacy-settings rewind todos output-style statusline feedback plugin workflows fast effort tasks add-dir ide vim terminal-setup install-github-app pr-comments upgrade release-notes migrate-installer
 #
-# That allowlist is built-in commands, which are NOT skills and never resolve to a directory. It will
-# need an entry when a new one ships, and the failure direction is deliberate: a missing entry is one
-# loud false error, not a silent hole. The list is data on a marker line for the same reason the
-# disable-model-invocation scope is -- so the behaviour is driven by something greppable.
+# この許可リストは組み込みコマンドで、スキルではなくディレクトリに解決しない。新しいものが出れば足す必要がある。
+# 失敗の向きは意図的: 足りない項目は 1 件の大きな誤検知になり、黙った穴にはならない。
 echo
-echo "checking every skill a skill names can be reached"
+echo "スキルが名指すスキルにすべて届くか検査する"
 INSTALLED="${DOTAGENTS_INSTALLED_SKILLS:-$HOME/.agents/skills}"
 if [[ ! -d "$INSTALLED" ]]; then
-  printf '%s—%s no installed skills at %s -- skipped (this runs on a machine, not in CI)\n' \
+  printf '%s—%s %s にインストール済みのスキルが無い -- 飛ばす（これはマシン上で走り、CI では走らない）\n' \
     "$c_dim" "$c_off" "$INSTALLED"
 else
   builtins="$(grep -m1 'dotagents:builtin-slash-commands' "${BASH_SOURCE[0]}" \
@@ -979,16 +858,15 @@ else
     [[ -e "$sf" ]] || continue
     from="$(basename "$(dirname "$sf")")"
     body="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$sf")"
-    # `superpowers:skill-name` and `/skill-name`. Both forms appeared in the three real cases.
-    # `anthropic-skills:` is deliberately NOT followed: that is a plugin namespace, and plugin skills
-    # are not directories under the installed set -- da-skills-audit names anthropic-skills:skill-creator,
-    # which is reachable and was reported as missing by the first version of this check.
+    # `superpowers:skill-name` と `/skill-name`。実際の 3 件に両方の形が出た。
+    # `anthropic-skills:` は意図して追わない。プラグインの名前空間で、プラグインのスキルはインストール済み集合の
+    # ディレクトリではない（da-skills-audit が名指す anthropic-skills:skill-creator は届く）。
     while read -r ref; do
       [[ -n "$ref" ]] || continue
-      [[ "$ref" == "$from" ]] && continue                      # a skill naming itself
-      printf '%s\n' $builtins | grep -qx "$ref" && continue    # a built-in command, not a skill
+      [[ "$ref" == "$from" ]] && continue                      # 自分自身を名指す
+      printf '%s\n' $builtins | grep -qx "$ref" && continue    # スキルではなく組み込みコマンド
       [[ -d "$INSTALLED/$ref" ]] && continue
-      err "$from" "names the skill '$ref', which is not installed -- the instruction built around it points at nothing. Install it: npx skills@1.5.20 add <owner>/<repo> -g -a claude-code -a cursor -s $ref"
+      err "$from" "スキル '$ref' を名指すが、インストールされていない -- それを中心にした指示が何も指していない。インストールする: npx skills@1.5.20 add <owner>/<repo> -g -a claude-code -a cursor -s $ref"
       ref_bad=$((ref_bad+1))
     done < <( {
       printf '%s\n' "$body" \
@@ -1002,106 +880,95 @@ else
     } | sort -u )
   done
   (( ref_bad == 0 )) \
-    && printf '%s✓%s every skill named by an installed skill resolves\n' "$c_green" "$c_off"
+    && printf '%s✓%s インストール済みのスキルが名指すスキルはすべて解決する\n' "$c_green" "$c_off"
 fi
 
-# --- the upstream skills status reports on must still be documented ---------
-# `setup.sh status` reports which upstream skills the documented flows need and do not have. That list
-# is only useful while it names the skills README.md actually tells you to install: an upstream rename
-# would leave status checking for a name nobody documents, reporting a missing skill that no longer
-# exists under that name and staying quiet about the one that replaced it. Same failure shape as the
-# when-clause lists -- an enforcer that has drifted from what it enforces, printing a green tick.
+# --- status が報告する上流スキルは、まだ文書化されていること ---------
+# `setup.sh status` は、文書化された流れに要るのに無い上流スキルを報告する。その一覧が役に立つのは、README.md が実際に
+# 入れろと言うスキルを名指す間だけ。上流でリネームされると、誰も文書化しない名前を探し続け、置き換えた方には黙る。
 setup_sh="$REPO/scripts/setup.sh"
 if [[ -f "$setup_sh" ]]; then
   echo
-  echo "checking the upstream flow skills are documented"
+  echo "上流の流れのスキルが文書化されているか検査する"
   up_line="$(grep -o 'dotagents:upstream-flow-skills.*' "$setup_sh" | head -1 | sed 's/^dotagents:upstream-flow-skills *//')"
   if [[ -z "$up_line" ]]; then
-    err "upstream-flow" "the 'dotagents:upstream-flow-skills' marker is missing from scripts/setup.sh -- the marker is what makes the list checkable, so removing it removes the check"
+    err "upstream-flow" "'dotagents:upstream-flow-skills' マーカーが scripts/setup.sh に無い -- 一覧を検査できるのはこのマーカーのおかげで、消すと検査も消える"
   else
     up_undocumented=""
     for up in $up_line; do
       grep -q -- "$up" "$REPO/README.md" || up_undocumented="$up_undocumented $up"
     done
     if [[ -n "$up_undocumented" ]]; then
-      err "upstream-flow" "status reports on skills README.md never mentions:$up_undocumented -- either document how to install them, or stop reporting them"
+      err "upstream-flow" "status が README.md の一度も触れないスキルを報告している:$up_undocumented -- インストール方法を書くか、報告をやめる"
     else
-      printf '%s✓%s every upstream skill status reports on is named in README.md\n' "$c_green" "$c_off"
+      printf '%s✓%s status が報告する上流スキルはすべて README.md に名前がある\n' "$c_green" "$c_off"
     fi
   fi
 fi
 
-# --- the two 'when to use' enforcers must agree -----------------------------
-# This file warns when a description has no when-clause; the lint hook says the same thing to whoever
-# is writing the file. They disagreed, and the hook was the stricter one: it did not accept a Japanese
-# clause that this file did. So a Japanese description passed the lint and then met a permission prompt
-# from the hook -- a stalled write rather than a reported problem, and worse for anything unattended.
-# One list, two languages, checked mechanically because prose asking for it is how they drifted.
+# --- いつ使うかの 2 つの強制箇所が一致すること -----------------------------
+# 本ファイルは説明文に when 句が無いと警告し、lint フックは書いている人に同じことを言う。以前はフックの方が厳しく、
+# 日本語の句を受けなかったので、lint を通った説明文がフックの権限プロンプトで止まった（無人実行では特に悪い）。
+# 1 つの一覧・2 つの言語。文章で求めたせいでずれたので、機械的に検査する。
 lint_hook="$REPO/hooks/dotagents-lint-skill-frontmatter.sh"
 if [[ -f "$lint_hook" ]]; then
   echo
-  echo "checking the 'when to use' token list"
+  echo "いつ使うかのトークン一覧を検査する"
   tok_line() { grep -o 'dotagents:when-clause-tokens.*' "$1" | head -1 | sed 's/^dotagents:when-clause-tokens *//'; }
   tok_a="$(tok_line "$0")"
   tok_b="$(tok_line "$lint_hook")"
   if [[ -z "$tok_a" || -z "$tok_b" ]]; then
-    err "when-tokens" "the 'dotagents:when-clause-tokens' marker is missing from $( [[ -z "$tok_a" ]] && echo verify-skills.sh || echo the lint hook ) -- the marker is what makes the two lists comparable"
+    err "when-tokens" "'dotagents:when-clause-tokens' マーカーが $( [[ -z "$tok_a" ]] && echo verify-skills.sh || echo lint フック ) に無い -- 2 つの一覧を比べられるのはこのマーカーのおかげ"
   elif [[ "$tok_a" != "$tok_b" ]]; then
-    err "when-tokens" "the linter and the lint hook accept different 'when to use' tokens, so a description can pass one and be stopped by the other"
+    err "when-tokens" "リンターと lint フックが受け付けるいつ使うかのトークンが違う -- 片方を通った説明文がもう片方で止まる"
     printf '%s  linter: %s%s\n' "$c_dim" "$tok_a" "$c_off"
     printf '%s  hook:   %s%s\n' "$c_dim" "$tok_b" "$c_off"
   else
-    printf '%s✓%s both enforcers accept the same trigger tokens: %s\n' "$c_green" "$c_off" "$tok_a"
+    printf '%s✓%s 2 つの強制箇所は同じきっかけのトークンを受け付ける: %s\n' "$c_green" "$c_off" "$tok_a"
   fi
 fi
 
-# --- agents ----------------------------------------------------------------
-# A skill that dispatches to an agent by name fails silently when the agent is missing: the caller
-# falls back to general-purpose and the posture the agent definition carried is simply absent.
+# --- エージェント ----------------------------------------------------------------
+# エージェントを名前で呼ぶスキルは、そのエージェントが無いと黙って壊れる。呼び出し側は general-purpose に落ち、
+# エージェント定義が持っていた姿勢がそのまま無くなる。
 if [[ -d "$REPO/agents" ]]; then
   echo
-  echo "checking agents"
+  echo "エージェントを検査する"
   agent_defs=""
   for af in "$REPO"/agents/*.md; do
     [[ -f "$af" ]] || continue
     aid="$(basename "$af" .md)"
     agent_defs="$agent_defs $aid"
     afm="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$af")"
-    grep -q '^name:' <<<"$afm" || err "agents/$aid" "frontmatter is missing 'name'"
-    grep -q '^description:' <<<"$afm" || err "agents/$aid" "frontmatter is missing 'description'"
+    grep -q '^name:' <<<"$afm" || err "agents/$aid" "frontmatter に 'name' が無い"
+    grep -q '^description:' <<<"$afm" || err "agents/$aid" "frontmatter に 'description' が無い"
     [[ "$(grep '^name:' <<<"$afm" | sed 's/^name:[[:space:]]*//')" == "$aid" ]] \
-      || err "agents/$aid" "frontmatter 'name' disagrees with the filename -- Cursor requires them to match"
-    # No agent may pin a model. A pin silently overrides the model the user chose for the session --
-    # they pick Opus, a subagent runs on something else, and nothing in the prompt or the transcript
-    # says so. It shipped once as a token optimization, was reverted, and is exactly the kind of thing
-    # that comes back the next time someone measures cost. Note this is NOT a Claude-only field the way
-    # skill `model:` is: Cursor reads name/description/model/readonly/is_background on a subagent and
-    # defaults to `inherit` too, so a pin overrides the user in both agents. Take cost out of how MANY
-    # subagents run (the fan-out budget in review-process.md), never out of what they run on.
+      || err "agents/$aid" "frontmatter の 'name' がファイル名と違う -- Cursor は一致を要求する"
+    # エージェントはモデルを固定してはならない。固定は利用者がセッションに選んだモデルを黙って上書きし、プロンプトにも
+    # 記録にも出ない。トークン最適化として一度出荷され、差し戻された。次にコストを測る人がまた持ち込みやすい。
+    # スキルの `model:` と違い Claude 専用ではない: Cursor もサブエージェントの model を読み既定は `inherit` なので、
+    # 両エージェントで利用者を上書きする。コストは何で走らせるかではなく、何個走らせるかで削る。
     amodel="$(grep '^model:' <<<"$afm" | sed 's/^model:[[:space:]]*//')"
     if [[ -n "$amodel" && "$amodel" != "inherit" ]]; then
-      err "agents/$aid" "pins 'model: $amodel' -- this overrides the model the user chose for the session, silently. Use 'model: inherit'"
+      err "agents/$aid" "'model: $amodel' を固定している -- 利用者がセッションに選んだモデルを黙って上書きする。'model: inherit' を使う"
     fi
-    # Cursor reads name/description/model/readonly only, so a tool restriction expressed solely in
-    # `tools:` is absent there. The body must state it too.
+    # Cursor は name/description/model/readonly しか読まないので、`tools:` だけで書いた制限はそこに無い。本文にも書くこと。
     if grep -q '^tools:' <<<"$afm"; then
       abody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$af")"
       grep -qiE 'read-only|never modify|do not modify|読み取り専用|変更しない' <<<"$abody" \
-        || warn "agents/$aid" "declares 'tools:' but the body never states the restriction -- Cursor ignores 'tools:'"
+        || warn "agents/$aid" "'tools:' を宣言しているが本文が制限を書いていない -- Cursor は 'tools:' を無視する"
     fi
   done
-  # Template placeholders are the rename trap: `x-review-<layer>` is a real dispatch instruction that
-  # no name-based sweep matches, and it broke twice. Assert the prefix any such placeholder uses.
+  # テンプレートのプレースホルダーはリネームの罠: `x-review-<layer>` は本物の呼び出し指示なのに、名前での一括置換に
+  # 当たらず、2 度壊れた。そうしたプレースホルダーの接頭辞を主張する。
   while read -r ph; do
     [[ -n "$ph" ]] || continue
-    err "placeholder" "'$ph' names a dispatch target with the wrong prefix -- internal skills are x-*, so a sweep over real names will never fix it"
+    err "placeholder" "'$ph' は接頭辞の誤った呼び出し先を名指す -- 内部スキルは x-* なので、実名での一括置換では直らない"
   done < <(grep -rhoE '`da-review-<[a-z]+>`' "$REPO"/skills/*/SKILL.md 2>/dev/null | sort -u)
 
-  # Anything with a counterpart in _shared/ must be a symlink to it. These were copies for a long time,
-  # and the copies drifted: the four mandatory review requirements and the verifier-bias section were
-  # written into _shared/ and reached none of the five review skills. Nothing reported it, because a
-  # stale copy is a perfectly valid file. Assert the mechanism, not the content -- copies that happen to
-  # match today drift tomorrow.
+  # _shared/ に対応物があるものは、それへのシンボリックリンクでなければならない。以前は写しで、写しがずれ、_shared/ に
+  # 書いた要件がレビュー系スキルのどれにも届かなかった。古い写しも妥当なファイルなので何も報告しない。
+  # 中身ではなく仕組みを主張する。今日一致している写しは明日ずれる。
   for shared in "$REPO"/skills/_shared/*.md; do
     [[ -f "$shared" ]] || continue
     sname="$(basename "$shared")"
@@ -1109,18 +976,16 @@ if [[ -d "$REPO/agents" ]]; then
       [[ -e "$user" || -L "$user" ]] || continue
       rel="${user#"$REPO"/skills/}"
       if [[ ! -L "$user" ]]; then
-        err "_shared" "$rel is a copy of _shared/$sname, not a symlink -- an edit to _shared/ will not reach it, and nothing reports that"
+        err "_shared" "$rel は _shared/$sname の写しで、シンボリックリンクではない -- _shared/ を直しても届かず、それを報告するものも無い"
       elif [[ "$(readlink "$user")" != "../../_shared/$sname" ]]; then
-        err "_shared" "$rel points at '$(readlink "$user")' instead of ../../_shared/$sname"
+        err "_shared" "$rel が ../../_shared/$sname ではなく '$(readlink "$user")' を指している"
       fi
     done
   done
 
-  # Invisible characters. Unicode Tag (U+E0000-E007F) renders as nothing and carries instructions the
-  # human reviewer cannot see -- the documented smuggling vector for agent skills, which Claude Code only
-  # started refusing in Feb 2026. Bidi overrides can make a line read as the opposite of what it does.
-  # This repository is public and takes pull requests, so a diff that looks empty must not be.
-  # U+FE0F (emoji variation selector) and U+200B inside a pattern-documentation file are expected.
+  # 見えない文字。Unicode Tag（U+E0000-E007F）は何も表示されず、人のレビュアーに見えない指示を運ぶ（エージェント向け
+  # スキルの密輸の手口として知られる）。Bidi の上書きは行を実際と逆の意味に読ませうる。このリポジトリは公開で PR を
+  # 受けるので、空に見える差分が空でないことを許さない。パターンを説明するファイル内の U+FE0F と U+200B は想定内。
   while read -r bad; do
     [[ -n "$bad" ]] || continue
     err "unicode" "$bad"
@@ -1147,64 +1012,61 @@ for f in sorted(root.rglob("*.md")):
         if label == "zero-width" and "injection" in f.name:
             continue
         codes = " ".join(f"U+{h:04X}" for h in hits[:4])
-        print(f"{f.relative_to(root)} contains {label} characters ({codes}) -- invisible to a reviewer, readable by the model")
+        print(f"{f.relative_to(root)} が {label} の文字を含む（{codes}）-- レビュアーには見えず、モデルには読める")
 PYEOF
 )
 
-  # Every agent named by a skill must exist, or the dispatch degrades with no error.
+  # スキルが名指すエージェントはすべて存在すること。無いと呼び出しがエラーなしで劣化する。
   while read -r ref; do
     [[ -n "$ref" ]] || continue
     [[ " $agent_defs " == *" $ref "* ]] && continue
-    err "agents" "skills dispatch to '$ref' but agents/$ref.md does not exist -- the caller silently falls back to general-purpose"
+    err "agents" "スキルは '$ref' に振るが agents/$ref.md が無い -- 呼び出し側は黙って general-purpose に落ちる"
   done < <(grep -rhoE '\b(x-review-verifier|x-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
-  printf '%s✓%s %s agent(s) defined:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
+  printf '%s✓%s 定義済みのエージェント %s 個:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
 fi
 
-# The voice profile lives at the TOOLKIT ROOT, but the skill that names it lists its files under
-# `reference/` by default. A reader who applies that default resolves `reference/profiles/review-voice.md`,
-# finds nothing, and reports the profile as missing -- which happened on a real run, and the drafts were
-# then written from a register reconstructed by hand. So the path has to be spelled root-relative
-# everywhere it appears, and no file may spell the `reference/`-relative form.
+# 口調のプロファイルはツールキットの直下にあるが、それを名指すスキルは既定でファイルを `reference/` 配下に並べる。
+# その既定を当てた読み手は `reference/profiles/review-voice.md` を探して見つけられず、プロファイルが無いと報告する
+# （実際に起き、下書きが手で再構成した口調で書かれた）。なのでパスはどこでも直下からの相対で書き、`reference/` 相対の形は禁じる。
 voice_path() {
   local bad rc=0
   bad="$(grep -rn 'reference/profiles/review-voice' "$REPO"/skills 2>/dev/null || true)"
   if [[ -n "$bad" ]]; then
-    err "voice-profile" "the voice profile is at the toolkit root, not under a skill's reference/:"
+    err "voice-profile" "口調のプロファイルはツールキットの直下にあり、スキルの reference/ 配下ではない:"
     printf '%s\n' "$bad" | sed 's/^/      /'
     rc=1
   fi
-  # Every mention must be the root-relative `profiles/review-voice.md`. A bare `review-voice.md` with no
-  # directory is the same misread waiting to happen.
+  # 言及はすべて直下からの相対の `profiles/review-voice.md` であること。ディレクトリ無しの `review-voice.md` も同じ誤読を招く。
   bad="$(grep -rn 'review-voice\.md' "$REPO"/skills 2>/dev/null \
          | grep -v 'profiles/review-voice\.md' || true)"
   if [[ -n "$bad" ]]; then
-    err "voice-profile" "cite the voice profile as 'profiles/review-voice.md' (root-relative):"
+    err "voice-profile" "口調のプロファイルは 'profiles/review-voice.md'（直下からの相対）で引用する:"
     printf '%s\n' "$bad" | sed 's/^/      /'
     rc=1
   fi
-  # The example must stay shipped: it is what the stop-and-ask in pr-comments.md offers to copy.
+  # 例は出荷し続けること。pr-comments.md の「止まって聞く」がコピーを勧めるのはこれ。
   if [[ ! -f "$REPO/profiles/_example.review-voice.md" ]]; then
-    err "voice-profile" "profiles/_example.review-voice.md is missing -- pr-comments.md tells the user to copy it"
+    err "voice-profile" "profiles/_example.review-voice.md が無い -- pr-comments.md は利用者にこれをコピーするよう言う"
     rc=1
   fi
   return $rc
 }
 if voice_path; then
-  printf '%s✓%s voice profile cited root-relative everywhere%s\n' "$c_green" "$c_off" "${c_dim}${c_off}"
+  printf '%s✓%s 口調のプロファイルはどこでも直下からの相対で引用されている%s\n' "$c_green" "$c_off" "${c_dim}${c_off}"
 fi
 
 echo
 if (( desc_total > MAX_DESC_TOTAL )); then
-  warn "budget" "descriptions total ${desc_total} chars across ${count} skills (target <= ${MAX_DESC_TOTAL})"
+  warn "budget" "説明文の合計が ${count} スキルで ${desc_total} 文字（目標は ${MAX_DESC_TOTAL} 以下）"
 else
-  printf '%s✓%s budget: %s chars of descriptions across %s skills%s\n' \
+  printf '%s✓%s 予算: 説明文 %s 文字、%s スキル%s\n' \
     "$c_green" "$c_off" "$desc_total" "$count" "${c_dim}${c_off}"
 fi
 
 echo
 if (( errors )); then
-  printf '%s%d error(s), %d warning(s)%s\n' "$c_red" "$errors" "$warnings" "$c_off"
+  printf '%sエラー %d 件、警告 %d 件%s\n' "$c_red" "$errors" "$warnings" "$c_off"
   exit 1
 fi
-printf '%s✓ %d skill(s) OK%s%s\n' "$c_green" "$count" \
-  "$( (( warnings )) && printf ', %d warning(s)' "$warnings")" "$c_off"
+printf '%s✓ %d スキル OK%s%s\n' "$c_green" "$count" \
+  "$( (( warnings )) && printf '、警告 %d 件' "$warnings")" "$c_off"

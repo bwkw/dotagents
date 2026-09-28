@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Every check this repository has, in one command.
+# このリポジトリの検査を 1 コマンドで全部回す。
 #
-#   scripts/check.sh          run everything
-#   scripts/check.sh --fast   skip the behavioural suites (syntax and lint only)
+#   scripts/check.sh          全部を実行
+#   scripts/check.sh --fast   振る舞いのスイートを飛ばす（構文と lint だけ）
 #
-# There are four checkers rather than one because they verify different things and fail for different
-# reasons. This script exists so that is one thing to remember instead of four.
+# 検査器が複数あるのは、確かめる対象も落ちる理由も違うため。覚えるものを 1 つにするためにこれがある。
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,8 +13,7 @@ cd "$REPO"
 FAST=0
 [[ "${1:-}" == "--fast" ]] && FAST=1
 
-# Colour only when someone is looking. Unconditional ANSI is noise in an unattended log and corruption
-# in anything that captures this output into a file.
+# 色は人が見ているときだけ。無人のログやファイルへの取り込みでは ANSI は雑音と破損になる。
 if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
   c_green=''; c_red=''; c_dim=''; c_off=''
 else
@@ -23,10 +21,9 @@ else
 fi
 failed=()
 
-# $TMPDIR is honoured -- the gate hook does this and documents why, and a hardcoded /tmp path ignored
-# it. A predictable name under a world-writable directory is also a symlink-follow target for `>`.
-# Full template because BSD mktemp treats `-t x` as a prefix and GNU coreutils demands XXXXXX.
-LOG="$(mktemp "${TMPDIR:-/tmp}/dotagents-check.XXXXXX")" || { echo "mktemp failed" >&2; exit 1; }
+# $TMPDIR に従う（gate hook と同じ）。誰でも書けるディレクトリ下の予測できる名前は `>` のシンボリック
+# リンク追従の標的になる。BSD mktemp は `-t x` を接頭辞と扱い GNU は XXXXXX を要求するので、完全な型で書く。
+LOG="$(mktemp "${TMPDIR:-/tmp}/dotagents-check.XXXXXX")" || { echo "mktemp に失敗した" >&2; exit 1; }
 trap 'rm -f "$LOG"' EXIT INT TERM
 
 step() { # step <label> <command...>
@@ -36,20 +33,16 @@ step() { # step <label> <command...>
     printf '%s✓%s %s\n' "$c_green" "$c_off" "$label"
   else
     printf '%s✗%s %s\n' "$c_red" "$c_off" "$label"
-    # Head and tail, not `tail -25`. The first error of a long verify-skills.sh run was being cut off,
-    # which is the one you actually need: the rest are usually consequences of it.
+    # `tail -25` ではなく先頭と末尾。長い出力の最初のエラーが本当に要るもので、残りはたいていその帰結。
     if [[ "$(wc -l < "$LOG")" -gt 40 ]]; then
       head -20 "$LOG" | sed 's/^/    /'
-      printf '    %s... (%s lines omitted) ...%s\n' "$c_dim" "$(( $(wc -l < "$LOG") - 40 ))" "$c_off"
+      printf '    %s...（%s 行省略）...%s\n' "$c_dim" "$(( $(wc -l < "$LOG") - 40 ))" "$c_off"
       tail -20 "$LOG" | sed 's/^/    /'
-      # The suites print one ✓/✗ per assertion, and with a hundred of them every failure lands in the
-      # omitted middle -- which is the only part worth reading. Twice this hid a CI-only failure that
-      # could not be reproduced locally, so the head/tail stays (it carries the first error of a long
-      # lint run) and the failures are listed as well.
+      # スイートは assertion ごとに ✓/✗ を出すので、失敗は省略した中ほどに埋もれる。先頭・末尾は残した
+      # うえで、失敗も一覧にする。
       if grep -q '✗' "$LOG"; then
-        printf '    %sfailures:%s\n' "$c_red" "$c_off"
-        # The line after a failure carries the suites' `detail` -- the actual output that explains it.
-        # Listing the ✗ lines alone still hid why, which cost another CI round trip.
+        printf '    %s失敗:%s\n' "$c_red" "$c_off"
+        # 失敗の次の行にはスイートの `detail`（理由を示す実際の出力）が来るので、それも出す。
         grep -A2 '✗' "$LOG" | sed 's/^/      /'
       fi
     else
@@ -63,85 +56,77 @@ step() { # step <label> <command...>
 syntax() {
   local f
   for f in scripts/*.sh hooks/*.sh; do bash -n "$f" || return 1; done
-  # macOS ships bash 3.2. These constructs parse on the CI runner and fail on the laptop.
-  # This file is excluded because the pattern below names them, and a sweep that matches its own
-  # pattern reports a failure that is not there -- which it did on the first run.
+  # macOS の bash は 3.2。以下の構文は CI では通り、手元で落ちる。
+  # このファイルは除外する。下のパターン自体を書いているので、自分に当たって偽の失敗になる。
   ! grep -rqE --exclude=check.sh \
     '^[^#]*\b(mapfile|readarray)\b|declare -A|\$\{[a-zA-Z_]+\^\^\}|\$\{[a-zA-Z_]+,,\}' scripts/ hooks/ || return 1
 
-  # A full-width character immediately after an unbraced variable is absorbed INTO THE VARIABLE NAME by
-  # bash 3.2 under a UTF-8 locale, so the lookup is of a name that does not exist and the run dies with
-  # `unbound variable`. macOS ships bash 3.2, so this passed on Linux, passed locally under the C locale,
-  # and failed ONLY on the macOS CI runner -- the one place nobody reads first. Braces fix it.
+  # UTF-8 ロケールの bash 3.2 は、波括弧なしの変数の直後の全角文字を変数名に取り込み、存在しない名前を
+  # 引いて `unbound variable` で落ちる。macOS の CI でだけ落ちるので、波括弧で囲む。
   #
-  # perl, not `grep -P`: BSD grep on macOS has no -P and this has to run on both runners.
-  # Comments are skipped, because the comment you are reading describes the pattern it forbids.
-  # `close ARGV if eof` resets $. per file, or the numbers are cumulative and point at nothing.
+  # `grep -P` ではなく perl: macOS の BSD grep に -P が無い。コメントはこの説明自体に当たるので飛ばす。
+  # `close ARGV if eof` でファイルごとに $. を戻す。戻さないと行番号が累積して意味をなさない。
   local mb
   mb="$(perl -ne 'close ARGV if eof; next if /^\s*#/; print "$ARGV:$.\n" if /\$[A-Za-z_]\w*[^\x00-\x7F]/' \
         scripts/*.sh hooks/*.sh 2>/dev/null)"
   if [[ -n "$mb" ]]; then
-    printf 'a variable expansion is followed directly by a multibyte character -- brace it as ${var}:\n%s\n' "$mb"
+    printf '変数展開の直後にマルチバイト文字がある。${var} と波括弧で囲むこと:\n%s\n' "$mb"
     return 1
   fi
   return 0
 }
 
-# Any repo-wide rewrite must skip symlinks. `perl -pi` on one replaces it with a regular file, which
-# has silently broken CLAUDE.md three times. Use this to build the file list instead of `git ls-files`.
+# リポジトリ全体の書き換えはシンボリックリンクを飛ばすこと。`perl -pi` はリンクを通常ファイルに置き換え、
+# CLAUDE.md を黙って壊す。`git ls-files` の代わりにこれでファイル一覧を作る。
 #
 #   for f in $(scripts/check.sh --rewritable); do perl -pi -e '...' "$f"; done
 rewritable() { git ls-files | while read -r f; do [[ -f "$f" && ! -L "$f" ]] && printf '%s\n' "$f"; done; }
 [[ "${1:-}" == "--rewritable" ]] && { rewritable; exit 0; }
 
-# Every shipped script has to be executable. The suites all invoke through `bash <file>`, so a lost
-# +x bit passes every test here and in CI -- and then `scripts/gate.sh arm`, which is how the README
-# tells you to run it, fails with permission denied. Lost for real by a rewrite that wrote to a new
-# file and renamed it over the original, which is how a new file gets 644.
+# 配るスクリプトはすべて実行可能であること。スイートは `bash <file>` で呼ぶので +x が落ちても全部通り、
+# README の手順の `scripts/gate.sh arm` だけが permission denied で落ちる。新しいファイルに書いて元へ
+# 改名する書き換えで 644 になる。
 executable_bits() {
   local bad
   bad="$(git ls-files -s scripts/*.sh hooks/*.sh | awk '$1!="100755"{print $4}')"
   [[ -z "$bad" ]] && return 0
-  printf 'not executable (mode should be 100755):\n%s\n' "$bad"
+  printf '実行可能になっていない（mode は 100755 であること）:\n%s\n' "$bad"
   return 1
 }
 
 symlink_intact() {
-  # Claude Code does not read AGENTS.md, so if CLAUDE.md stops being a symlink the always-loaded
-  # layer silently drifts. `perl -pi` on a symlink replaces it with a regular file; this caught it.
+  # Claude Code は AGENTS.md を読まないので、CLAUDE.md がリンクでなくなると常時読み込み層が黙ってずれる。
   [[ "$(git ls-files -s CLAUDE.md | awk '{print $1}')" == "120000" ]] \
     && [[ "$(readlink CLAUDE.md)" == "AGENTS.md" ]]
 }
 
-step "shell syntax, and no bash 4 constructs" syntax
-step "CLAUDE.md is still a symlink to AGENTS.md" symlink_intact
-step "every shipped script is executable" executable_bits
-step "skills lint (invariants, budget, agents, override scope)" ./scripts/verify-skills.sh
-step "da-review-all overview output contract" ./scripts/test-da-review-all-overview.sh
-# In the fast lane on purpose: it is a static cross-check, it costs milliseconds, and the thing it
-# guards is edited by docs-only changes -- which are exactly the changes that skip the behavioural
-# suites.
-step "halt reasons: loop.sh and docs/loops.md agree" ./scripts/verify-halt-docs.sh
+step "シェル構文と bash 4 構文の不使用" syntax
+step "CLAUDE.md が AGENTS.md へのリンクのまま" symlink_intact
+step "配るスクリプトがすべて実行可能" executable_bits
+step "スキルの lint（不変条件、予算、エージェント、上書き範囲）" ./scripts/verify-skills.sh
+step "da-review-all の概要出力の契約" ./scripts/test-da-review-all-overview.sh
+# 意図して高速レーンに置く。静的な突き合わせでミリ秒で済み、守る対象はドキュメントだけの変更（振る舞いの
+# スイートを飛ばす変更そのもの）で編集される。
+step "停止理由: loop.sh と docs/loops.md が一致" ./scripts/verify-halt-docs.sh
 
 if (( ! FAST )); then
-  # The installer suite has to create and delete a skill inside this repository, because pruning is
-  # what it exercises. So the tree is compared before and after: a suite that leaves something behind
-  # is a suite that gets its droppings committed by the next loop iteration.
+  # インストーラのスイートは刈り取りを試すため、このリポジトリ内でスキルを作って消す。そこで前後の
+  # ツリーを比べる。何か残すスイートは、次のループの反復でその残骸を commit させる。
   tree_before="$(git status --porcelain 2>/dev/null)"
 
-  step "verify-gate behaviour"    ./scripts/test-verify-gate.sh
-  step "lint-hook and lint scope" ./scripts/test-lint-hook.sh
-  step "installer behaviour"      ./scripts/test-setup.sh
-  step "loop driver behaviour"    ./scripts/test-loop.sh
-  step "nothing waits for a human" ./scripts/test-non-interactive.sh
+  step "verify-gate の振る舞い"    ./scripts/test-verify-gate.sh
+  step "lint-hook と lint の範囲" ./scripts/test-lint-hook.sh
+  step "インストーラの振る舞い"      ./scripts/test-setup.sh
+  step "ループ駆動の振る舞い"    ./scripts/test-loop.sh
+  step "人の入力を待たない" ./scripts/test-non-interactive.sh
 
   tree_clean() { [[ "$(git status --porcelain 2>/dev/null)" == "$tree_before" ]]; }
-  step "the suites left the working tree as they found it" tree_clean
+  step "スイートが作業ツリーを元のまま残した" tree_clean
 fi
 
 echo
 if (( ${#failed[@]} )); then
-  printf '%s%d failed:%s %s\n' "$c_red" "${#failed[@]}" "$c_off" "${failed[*]}"
+  printf '%s%d 件失敗:%s %s\n' "$c_red" "${#failed[@]}" "$c_off" "${failed[*]}"
   exit 1
 fi
-printf '%s✓ all checks passed%s%s\n' "$c_green" "$( (( FAST )) && printf ' (fast: behavioural suites skipped)')" "$c_off"
+printf '%s✓ すべての検査に合格%s%s\n' "$c_green" "$( (( FAST )) && printf '（fast: 振る舞いのスイートは省略）')" "$c_off"

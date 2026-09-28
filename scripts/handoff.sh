@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
-# What the next session needs to know, generated from the repository rather than remembered.
+# 次のセッションが知るべきことを、記憶ではなくリポジトリから生成する。
 #
-#   scripts/handoff.sh            print the handoff
+#   scripts/handoff.sh            引き継ぎを出力
 #
-# **Everything here is generated, so none of it can go stale.** There used to be a second half: a
-# hand-written `docs/handoff-notes.md` carrying "what is half-finished and why". It was removed once the
-# driver worked, because a hand-maintained copy of the repository's state is a copy that goes wrong --
-# and it did, twice in one session: it offered a settled decision as an open question, and attributed a
-# budget number to the wrong phase. Both were derivable from the tree it was meant to supplement.
-#
-# Written after a session lost its own thread twice: once when uncommitted work vanished, and once when
-# the context was 13 merged PRs behind the repository and did not know it. Both are visible below.
+# **ここは全部生成なので陳腐化しない。** 手書きの引き継ぎメモは持たない。リポジトリの状態の手書きの
+# 写しは必ずずれる（決着済みの判断を未決として出す、など）。
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +15,7 @@ say() { printf '%s\n' "$*"; }
 
 say "# 引き継ぎ — $(date '+%Y-%m-%d %H:%M')"
 say ""
-say "\`scripts/handoff.sh\` が生成。**全部 git・台帳・gh から取っているので陳腐化しません。**"
+say "\`scripts/handoff.sh\` が生成。**すべて git・台帳・gh から取るので陳腐化しない。**"
 say ""
 
 # --- 現在地 -------------------------------------------------------------------
@@ -42,9 +36,9 @@ say "ahead  : ${unpushed} 件が未 push"
 say '```'
 say ""
 
-# The two states that cost a session most. Both were paid for once.
+# セッションに最も高くつく 2 つの状態。
 if [[ "${dirty}" != "0" ]]; then
-  say "⚠️ **未 commit があります。** 検査スイートやマージを挟む前に commit すること —— 一度まるごと失っています。"
+  say "⚠️ **未 commit がある。** 検査スイートやマージを挟む前に commit すること（一度まるごと失っている）。"
   git status --short | sed 's/^/    /'
   say ""
 fi
@@ -59,15 +53,13 @@ say "## main の直近"
 say ""
 git log --oneline -8 origin/main 2>/dev/null | sed 's/^/    /'
 say ""
-say "**自分の文脈がこれより古いなら、まずここを読むこと。** 一度、13本のマージ済み PR より後ろの認識で"
-say "作業して、既に main にある修正を入れ直しています。"
+say "**自分の文脈がこれより古いなら、まずここを読むこと。** 古い認識のまま作業すると、既に main にある"
+say "修正を入れ直すことになる。"
 say ""
 
 # --- 置き去りのブランチ -------------------------------------------------------
-# The failure this exists for: the checkout moved without this session doing it -- the reflog showed a
-# `checkout` and a `pull` nobody here typed -- and a finished commit sat on a branch that was no longer
-# checked out. Looking only at HEAD would have reported it as gone. So every local branch that is not
-# in main gets listed, whatever is checked out right now.
+# このセッションの知らないうちにチェックアウトが動くと、完成した commit が HEAD から見えないブランチに
+# 残る。HEAD だけ見ると消えたように見えるので、main に入っていないローカルブランチを全部出す。
 stray=""
 for b in $(git for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
   [[ "${b}" == "main" ]] && continue
@@ -81,9 +73,9 @@ if [[ -n "${stray}" ]]; then
     [[ -n "${b}" ]] && say "    ${b}"$'\n'"        ${line}"
   done
   say ""
-  say "**チェックアウトされていないだけの完成品がここに居ることがあります。** 実際に、このセッションが"
-  say "打っていない \`checkout\` と \`pull\` でブランチが切り替わり、commit 済みの作業が HEAD から"
-  say "見えなくなりました。**HEAD だけを見ると「消えた」と読めます。**"
+  say "**チェックアウトされていないだけの完成品がここにあることがある。** このセッションが打っていない"
+  say "\`checkout\` や \`pull\` でブランチが切り替わると、commit 済みの作業が HEAD から見えなくなる。"
+  say "**HEAD だけを見ると「消えた」と読める。**"
   say ""
 fi
 
@@ -94,7 +86,7 @@ if [[ -n "${wt}" ]]; then
   say ""
   printf '%s\n' "${wt}" | sed 's/^/    /'
   say ""
-  say "実走の残りです。マージ済みか未確認のものが混ざります。"
+  say "実走の残り。マージ済みか未確認のものが混ざる。"
   say ""
 fi
 
@@ -128,7 +120,7 @@ if [[ -f "${LEDGER}" ]]; then
   ' "${LEDGER}" 2>/dev/null
   say ""
 else
-  say "    (台帳がありません —— まだ一度も回していない)"
+  say "    (台帳が無い。まだ一度も回していない)"
   say ""
 fi
 
@@ -139,17 +131,16 @@ say '```bash'
 say "bash scripts/check.sh          # 全項目。落ちたらそこが続き"
 say '```'
 say ""
-say "**緑を額面で受け取らないこと。** このリポジトリでは *検査の側が壊れていた* 事例が4件記録されて"
-say "います —— ヘルパ順序3件（bash は定義を**実行したとき**に関数にするので、使う場所の隣に置いた"
-say "ヘルパはその上のケースから未定義コマンドになり、実装が正しいのにテストが落ちる）と、偽グリーン1件"
-say "（実装を外しても緑のままだった assertion）。**疑わしい緑は、実装を外して赤くなるかで確かめる:**"
+say "**緑を額面で受け取らないこと。** このリポジトリには *検査の側が壊れていた* 事例がある。bash は"
+say "関数を定義の**実行時**に作るので、使う場所の隣に置いたヘルパはそれより上のケースで未定義になる。"
+say "実装を外しても緑のままの assertion もあった。**疑わしい緑は、実装を外して赤くなるかで確かめる:**"
 say ""
 say '```bash'
 say 'cp scripts/loop.sh /tmp/keep.sh && <実装を外す> && bash scripts/test-loop.sh; cp /tmp/keep.sh scripts/loop.sh'
 say '```'
 say ""
-say "退避→削除→実行→復元を**1コマンドに**するのは、待ち時間に触ると確認が無効になるためです。"
+say "退避→削除→実行→復元を**1 コマンドに**するのは、待ち時間に触ると確認が無効になるため。"
 say ""
 
-# 判断の側は、もう書き写しません。半端なものは PR とその CI に、決めたことは docs/decisions.md に、
-# 金と停止理由は台帳に出ます。どれも生きているので、写しを持つと写しの方が古くなります。
+# 判断の側は書き写さない。半端なものは PR と CI に、決めたことは docs/decisions.md に、金と停止理由は
+# 台帳に出る。写しを持つと写しの方が古くなる。

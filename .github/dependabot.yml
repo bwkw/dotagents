@@ -1,13 +1,11 @@
 version: 2
 
-# There is no package manifest here on purpose: this repository ships shell, markdown and JSON, and
-# it deliberately does not vendor the upstream skills it recommends (README explains why). So the only
-# dependency surface that can rot is the actions in the workflow -- and those run with the repository's
-# own token on every pull request, which makes them the one place where a stale pin actually matters.
+# ここにパッケージのマニフェストは意図的に無い。このリポジトリが配るのはシェル・Markdown・JSON で、
+# 推奨する upstream スキルも同梱しない（理由は README）。腐りうる依存はワークフローの actions だけで、
+# それは PR ごとにリポジトリのトークンで動くので、古いピンが実害になる唯一の場所である。
 #
-# `npx skills` is NOT covered by anything here. Its version is pinned by hand in README.md because it
-# is the only code from the skills ecosystem that executes on your machine, and no manifest in this
-# repository declares it. Re-read that pin when you re-read this file.
+# `npx skills` はここでは扱わない。手元で実行される skills エコシステムの唯一のコードなので、バージョンは
+# README.md で手でピンしている。このファイルを読み直す時は、そのピンも読み直す。
 updates:
   - package-ecosystem: github-actions
     directory: /
