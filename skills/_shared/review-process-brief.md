@@ -1,25 +1,16 @@
-# Review procedure — the brief form
+# レビュー手順 —— 簡略版
 
-**Read this instead of `review-process.md` + `finding-discipline.md` + `verification.md` +
-`report-format.md` when, and only when, the diff is at the inline tier: ≤ 80 changed lines and ≤ 5
-files.** It is self-contained on all four.
+**差分が inline tier（変更 80 行以下かつ 5 ファイル以下）の時に限り、`review-process.md` + `finding-discipline.md` + `verification.md` + `report-format.md` の代わりにこのファイルを読む。** 4 つすべてについてこのファイルだけで完結する。
 
-**`perspectives.md` is still read.** It carries the layer's own clusters, which is the entire reason the
-layer skill exists rather than a generic one — dropping it would be cutting questions, and this file cuts
-only prose.
+**`perspectives.md` はそれでも読む。** 層固有のクラスタがそこにあり、それを落とすと問いを削ることになる。このファイルが削るのは文章だけ。
 
-The full form is ~76 KB of process text and it is a fixed cost — it does not shrink with the diff. On a
-measured 11-line, one-file landing the review spent $5.64 and 50 turns against $1.30 for the
-implementation it was reviewing, with the fan-out already at zero. There was no fan-out left to cut. The
-cost was the reading and the report shape, so that is what this file cuts.
+完全版の手順書は差分の大きさに関係なく固定の読み込みコストがかかる（11 行 1 ファイルの変更で、レビューが実装の 4 倍以上の費用を使った）。その読み込みとレポートの形を削るのがこのファイル。
 
-**What is cut is the prose, never the questions.** The five clusters below are the same five the full
-form refuses to collapse, the confidence threshold is the same, and the verify pass is the same. If you
-find yourself wanting a rule that is not here, read the full form — do not invent one.
+**削るのは文章であって、問いではない。** 下の 5 クラスタは完全版が統合を拒む 5 つと同じで、確信度の閾値も検証パスも同じ。ここに無い規則が欲しくなったら完全版を読む。規則を作らない。
 
 ---
 
-## 0. Confirm the tier before anything else
+## 0. 最初に tier を確かめる
 
 ```bash
 BASE=""
@@ -31,131 +22,77 @@ SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $
 git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
-**Over 80 lines or over 5 files: stop reading this file and use the full form.** The tier is a fact about
-the diff you were handed — the scoped one — not a preference. `BASE` empty (detached HEAD, first commit) → diff against
-`4b825dc642cb6eb9a060e54bf8d69288fbee4904` and say so. Empty diff → report "no changes" and stop.
+**80 行超または 5 ファイル超なら、このファイルを読むのをやめて完全版を使う。** tier は好みではなく、渡された（範囲を絞った）差分についての事実。`BASE` が空（detached HEAD、最初のコミット）→ `4b825dc642cb6eb9a060e54bf8d69288fbee4904` と比較し、そう書く。差分が空 →「変更なし」と報告して止まる。
 
-## 1. Whose change is this, and what is it for
+## 1. 誰の変更で、何のためか
 
-Your own work: the intent is known. **Someone else's: reconstruct the intent before judging anything** —
-PR description, linked issue, commit messages. If none exist, say so and review against the repository's
-own conventions rather than a guessed goal. **A different approach is not a defect.** Label pre-existing
-problems as pre-existing; they do not block.
+自分の作業なら意図は分かっている。**他人の作業なら、判断の前に意図を復元する**（PR の説明、リンクされた issue、コミットメッセージ）。どれも無ければそう書き、推測した目的ではなくリポジトリ自身の規約に照らしてレビューする。**やり方の違いは欠陥ではない。** 既存の問題には既存とラベルを付け、ブロックしない。
 
-## 2. Map the blast radius, then read
+## 2. 波及範囲を洗い出してから読む
 
-Name every consumer of anything shared the change touches, and the adjacent assets — migrations,
-schemas, contracts, config, tests. At this tier the map is a few lines, but it is not optional: it is
-what decides whether 80 lines are 80 lines of risk or 80 lines of nothing.
+変更が触れる共有物のすべての利用者と、隣接する資産（マイグレーション、スキーマ、契約、設定、テスト）を名指しする。この tier では数行で済むが省けない。80 行がリスクの 80 行か何でもない 80 行かは、これで決まる。
 
-## 2b. The conformance sweep — full form, even here
+## 2b. 適合スイープ —— ここでも完全版と同じ
 
-**This step is identical at both tiers, and it is shorter here only because the file list is.** It is
-`grep` and placement checks over **every** changed file: placement against the repository's own layer
-rules, dependency direction, every irreversible surface enumerated, the tenant boundary on every new
-read and write path, and the guards on every new entry point. `review-process.md` Step 2b has the
-table; the rows do not change.
+**このステップはどちらの tier でも同じで、ここで短いのはファイル一覧が短いからにすぎない。** **すべての**変更ファイルに `grep` と配置の確認を行う: リポジトリ自身の層の規則に照らした配置、依存の向き、不可逆な面すべての列挙、新しい読み書き経路ごとのテナント境界、新しい入口ごとのガード。表は `review-process.md` の Step 2b にあり、行は変わらない。
 
-**A small diff is not a low-risk diff — it is often the opposite.** One migration, one IAM statement,
-one moved file is exactly the shape that fits under 80 lines and is exactly what this sweep exists to
-catch. **Nothing about the brief tier reduces it**; five files take five minutes.
+**小さい差分は低リスクの差分ではない。むしろ逆のことが多い。** マイグレーション 1 つ、IAM ステートメント 1 つ、移動したファイル 1 つは 80 行に収まる形であり、このスイープが拾うべきものそのもの。**簡略版であることはこのスイープを何も減らさない。**
 
-Report the verdict per row even when every row passes. A clean architecture result that is *stated* is
-worth something; one that is silently omitted cannot be told apart from one that never ran.
+全行が通っても行ごとに判定を書く。明記された綺麗な結果には価値があり、黙って省かれた結果は実行されなかったものと区別できない。
 
-## 3. The five clusters — inline, in this context, in this order
+## 3. 5 つのクラスタ —— inline で、この文脈で、この順に
 
-**No subagents — at this tier or any other.** You already hold the diff, the map and this file; a
-subagent would start cold and buy all three again, and it would be the same model returning your own
-blind spot. **Subagents were never the unit of rigour — the clusters are.**
+**サブエージェントは使わない（no subagents）。この tier でも他の tier でも。** 差分・地図・このファイルはもう手元にある。サブエージェントは冷えた状態から 3 つとも読み直し、同じモデルとして自分の盲点を返すだけ。**厳密さの単位はサブエージェントではなくクラスタ。**
 
-| Cluster | The question it exists to ask |
+| クラスタ | 問うこと |
 |---|---|
-| **0. Design soundness** | Should this be built this way at all? The only cluster that can conclude no. |
-| **1. Intent and semantic correctness** | Is the code internally consistent and answering a *different question* than the one asked? Measured as 51.3% of bugs that survive review — the largest single category. |
-| **2. Architecture and boundaries** | Layer direction, module boundaries, where responsibility sits. |
-| **3. Aggregates and transaction boundaries** | What one transaction may span; cross-aggregate invariants. **A new lock says the invariant crosses aggregates; a new undo path says the two boundaries disagree** — raise the boundary, not the mechanism. A rule read off an aggregate's fields from outside is that aggregate's method. |
-| **4. Security, authorization, tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The one category where being wrong once is already the incident. |
+| **0. 設計の健全性** | そもそもこう作るべきか。「否」と結論できる唯一のクラスタ。 |
+| **1. 意図と意味の正しさ** | 内部では一貫しているのに、問われたのと*別の問い*に答えていないか。レビューをすり抜けるバグの 51.3% を占める最大分類。 |
+| **2. アーキテクチャと境界** | 層の向き、モジュール境界、責務の置き場所。 |
+| **3. 集約とトランザクション境界** | 1 トランザクションがまたいでよい範囲、集約をまたぐ不変条件。**新しいロックは不変条件が集約をまたいでいることを、新しい取り消し経路は 2 つの境界が食い違っていることを示す** —— 仕組みではなく境界を挙げる。外から集約のフィールドを読んで判定している規則は、その集約のメソッドである。 |
+| **4. セキュリティ・認可・テナント** | テナントをまたぐ漏洩、欠けたガード、広がった権限。1 度の誤りがそのままインシデントになる唯一の分類。 |
 
-Then the layer's own clusters, as far as the diff reaches them. At this size most will not apply — say
-which did not, rather than implying all were worked.
+次に、差分が届く範囲で層固有のクラスタを回す。この大きさではほとんど当てはまらない。すべて回したように見せず、当てはまらなかったものを書く。
 
-## 4. Finding discipline — the whole of it that applies here
+## 4. 所見の規律 —— ここで当てはまるすべて
 
-- **"Same as existing" is a hypothesis, not a conclusion.** Write "safe" only after opening the guard and
-  citing `file:line`. Otherwise write "unverified" and file it as 👤. Never disguise not-knowing as verified.
-- **Score each finding 0–100** on one question: would a competent engineer who knows this codebase agree
-  this is a real problem worth acting on? **Discard `defect` below 80** — remove it, report only the count.
-  `design-doubt` (🧭) and `unverified-clear` (👤) are exempt: their value does not depend on being right.
-- **`irreversible=true` only when you can name the data or state destroyed** and no redirect, migration,
-  backfill, restore or config revert recovers it.
-- **Reachability before severity.** "This branch exists" and "this branch runs in production" are
-  different claims. Cannot show which caller, which permission, which timing? It goes to 👤, not to 🔴.
-- **Zero findings is a valid result.** Never invent findings to fill a quota. Do not report what CI
-  catches mechanically, and do not report a style preference the project has not written down.
-- **Length is not evidence.** A finding is worth what its `file:line` is worth.
+- **「既存と同じ」は仮説であって結論ではない。** ガードを開いて `file:line` を引用した後にだけ「安全」と書く。そうでなければ「未確認」と書き、👤 に入れる。知らないことを確認済みに見せない。
+- **所見ごとに 0〜100 で採点する。** 問いは 1 つ: このコードベースを知る有能なエンジニアが、手を打つべき本物の問題だと同意するか。**80 未満の `defect` は捨てる** —— レポートから除き、件数だけ報告する。`design-doubt`（🧭）と `unverified-clear`（👤）は対象外。正しいかどうかに価値が依存しない。
+- **`irreversible=true` は、壊れるデータや状態を名指しでき**、リダイレクト・マイグレーション・バックフィル・リストア・設定の差し戻しのどれでも戻せない時だけ。
+- **重大度の前に到達可能性。** 「この分岐がある」と「この分岐が本番で走る」は別の主張。どの呼び出し元、どの権限、どのタイミングかを示せないなら 🔴 ではなく 👤。
+- **所見ゼロは正当な結果。** 数合わせで所見を作らない。CI が機械的に拾うものと、プロジェクトが明文化していないスタイルの好みは報告しない。
+- **長さは根拠ではない。** 所見の価値はその `file:line` の価値。
 
-Return schema: as in `finding-discipline.md` — `{id, severity, irreversible, file, perspective, finding,
-why, recommendation, comment, kind, confidence}`.
+返却スキーマ: `finding-discipline.md` と同じ —— `{id, severity, irreversible, file, perspective, finding, why, recommendation, comment, kind, confidence}`。
 
-## 4b. The five sweeps — they do not shrink with the diff
+## 4b. 5 つのスイープ —— 差分と一緒に縮まない
 
-These belong to no cluster and a small diff does not excuse them. Half the findings of the review the
-first four came from were in tests, docs and naming.
+どのクラスタにも属さず、小さい差分でも省けない。所見の半分がテスト・ドキュメント・命名にあったレビューもある。
 
-- **Every file in the diff, one at a time** —— tests, fixtures, seeds, scenarios, specs. Say which you
-  opened and which you did not.
-- **What did this change make stale?** Search for every identifier the diff removed or renamed and judge
-  each surviving hit: *different concept* or *stale*. Counts in prose ("the 3 fields"), cross-references,
-  **mirrored docs (`.claude/` and `.cursor/`)**, JSDoc separated from what it documents.
-- **Is the diff proportional?** A thin wrapper, a one-caller utility, a class holding two functions:
-  **what would deleting it cost in lines?** Nothing → it should not be there.
-- **Verified, or sent to CI to find out?** If the repository can reproduce CI locally, say whether that
-  was run. A completion claim carries what was checked and where; **unchecked is written as unchecked.**
-- **Every finding is a query —— where is its twin?** In one review of nine findings, **four were the
-  second copy of another**. Look at: interface ↔ implementation, sibling handlers, the read path ↔ the
-  write path (SQL against a domain method), wire type ↔ domain type, mirrored docs and fixtures. Report
-  the set as **one finding with every `file:line`** —— "and similar elsewhere" leaves the search to the
-  author.
+- **差分のファイルを 1 つずつ全部** —— テスト、フィクスチャ、シード、シナリオ、spec。開いたものと開かなかったものを書く。
+- **この変更は何を古くしたか。** 差分が削除・リネームしたすべての識別子を検索し、残った箇所ごとに*別の概念*か*古い参照*かを判定する。文中の数（「3 つのフィールド」）、相互参照、**ミラーされた文書（`.claude/` と `.cursor/`）**、説明対象から離れた JSDoc。
+- **差分は見合っているか。** 薄いラッパー、呼び出し元 1 つのユーティリティ、関数 2 つを持つクラス: **消したら何行のコストか。** 何も無い → あるべきでない。
+- **検証したのか、CI に送って確かめようとしたのか。** リポジトリが CI を手元で再現できるなら、実行したかを書く。完了の主張には何をどこで確かめたかを付ける。**確かめていないものは未確認と書く。**
+- **所見は問い合わせ —— 双子はどこか。** 9 件中 **4 件が別の所見の複製**だったレビューがある。見る場所: インターフェース ↔ 実装、兄弟のハンドラ、読み取り経路 ↔ 書き込み経路（SQL とドメインメソッド）、通信の型 ↔ ドメインの型、ミラーされた文書とフィクスチャ。一式を **すべての `file:line` を持つ 1 件**として報告する —— 「他にも同様」は検索を作者に任せる。
 
-## 5. Verify — a second pass, in this context, with the question inverted
+## 5. 検証 —— この文脈で、問いを反転させた 2 回目のパス
 
-**No subagent.** A fresh one is the same model on the same diff under the same discipline: it returns
-your own disposition with an empty context, and a report saying "a verifier confirmed it" reads as
-stronger than "I checked my own work". **Real independence is `/find-bugs` — a differently built
-reviewer** (93.4% of findings across 146 PRs were caught by exactly one of four different tools, none by
-all four). Route to a stronger model where one is available (`--advisor`) and say so.
+**サブエージェントは使わない。** 新しいサブエージェントは同じ差分を同じ規律で読む同じモデルで、空の文脈で自分と同じ傾きを返す。しかも「検証役が確認した」という報告は「自分の作業を確かめた」より強く読まれてしまう。**本当の独立性は `/find-bugs` —— 別の作りのレビュアー**（146 PR で所見の 93.4% は別々の 4 ツールのうち 1 つにしか拾われず、4 つすべてが拾ったものは無かった）。より強いモデルが使えるなら（`--advisor`）そちらに回し、そう書く。
 
-What makes this a real pass rather than a re-read: **invert the question, and judge only the evidence.**
+読み直しではなく本物のパスにするのは、**問いを反転させ、根拠だけで判断する**こと。
 
-- **6a, refutation** — for every `critical` or `irreversible` finding: read the actual path and try to
-  show the claimed failure **cannot** happen. **When you cannot substantiate a finding, return
-  `refuted`, not `uncertain`.** Reserve `uncertain` for genuinely data- or runtime-dependent cases.
-  `confirmed` → keep; `refuted` → drop, report the count only; `uncertain` → demote to 👤.
-  **Take them in reverse severity order**, 💡 first and ⛔ last: whatever you judge first sets the tone,
-  and judging your own ⛔ first is the arrangement most likely to launder the list.
-- **6b, the skeptic** — a distinct pass, *after* 6a rather than mixed into it, or the refuting frame
-  answers the hunting one. Challenge the clears: the high-risk places dismissed as "same as existing",
-  read the actual guard and cite `file:line`. Then one fresh pass over the most irreversible surfaces for
-  what find missed, and confirm cluster 0's 🧭 candidates were not quietly dropped.
+- **6a、反証** —— `critical` または `irreversible` の所見ごとに、実際の経路を読み、主張された失敗が起き**得ない**ことを示そうとする。**所見を裏付けられなければ `uncertain` ではなく `refuted` を返す。** `uncertain` は本当にデータや実行時に依存する場合に限る。`confirmed` → 残す、`refuted` → 落として件数だけ報告、`uncertain` → 👤 に下げる。**重大度の逆順で、🔴 を先に、⛔ を最後に扱う。** 最初に判断したものが残りの基調を決め、自分の ⛔ を先に判断するのが最もリストを甘くする並びだから。
+- **6b、懐疑役** —— 6a に混ぜず、6a の*後に*別のパスとして行う。混ぜると反証の枠組みが探索の枠組みに答えてしまう。クリアに異議を唱える: 「既存と同じ」として退けた高リスクの箇所の実際のガードを読み、`file:line` を引用する。次に、最も不可逆な面を新たに 1 巡して発見フェーズの見落としを探し、クラスタ 0 の 🧭 候補が黙って落とされていないか確かめる。
 
-**🔎 says "self-verified inline, not independently".** A reader who thinks an independent agent signed
-off will weight the clean parts wrongly, and that misweighting is the whole cost of doing this inline.
+**🔎 に「inline で自己検証した。独立した検証ではない」と書く。** 独立したエージェントが承認したと思った読み手は綺麗な部分を誤って重く見る。その誤りが inline で行うことのコストのすべて。
 
+**インフラの例外は到達可能性に優先する**: 破壊的な変更や権限を広げる変更では、起きにくさは反証にならない。ガードの存在を示すことでだけ反証する。
 
-**The infrastructure exception overrides reachability**: for a destructive or permission-widening change,
-improbability is not a refutation. Refute only by showing the guard exists.
+**1 つのケースだけ完全版に格上げする**: 残った ⛔、または不可逆な面の 🔴 には、`verification.md` の 3 レンズのパス（到達可能性 / 既存のガード / 重大度）と `report-format.md` の四部構成を適用する。**tier が決めるのは手順であって、見つかるものの深刻さではない** —— 小さい差分にも大きな問題が 1 つ入り得る。
 
-**Escalate to the full form for one case**: a surviving ⛔ or a 🔴 on an irreversible surface gets the
-three-lens pass in `verification.md` (reachability / existing guard / severity) and the full four-part
-presentation in `report-format.md`. **The tier decides the process, not the seriousness of what it
-finds** — a small diff is allowed to contain one large problem, and that is exactly the case this
-paragraph exists for.
+## 6. レポート —— 短い形
 
-## 6. Report — short form
-
-Same buckets, less ceremony. Findings still carry `file:line` and a concrete failure scenario; what is
-dropped is the four-part expansion for everything below ⛔/🔴.
+バケットは同じで、形式を減らす。所見には引き続き `file:line` と具体的な失敗シナリオを付ける。落とすのは ⛔/🔴 未満の四部構成への展開。
 
 ```markdown
 ## <層> レビュー報告（brief — inline tier）
@@ -185,17 +122,15 @@ dropped is the four-part expansion for everything below ⛔/🔴.
 除外は件数のみ。除外ゼロなら、なぜかを書く（校正されていないレビューの徴候）。
 ```
 
-**Write the report in the language the user is writing in**; when unclear, Japanese. Leave paths,
-identifiers, commands, code excerpts and severity emoji in their original form.
+**レポートはユーザーが書いている言語で書く。** 不明なら日本語。パス、識別子、コマンド、コードの抜粋、重大度の絵文字は元の形のまま残す。
 
-**🔎 must say this is the brief form.** A reader cannot calibrate a clean result without knowing which
-process produced it, and this file's entire justification is that the reader is told.
+**🔎 には簡略版であることを必ず書く。** どの手順から出た結果か分からないと、読み手は綺麗な結果を校正できない。このファイルはそれを読み手に伝えることを前提に成り立っている。
 
 ---
 
-## Guardrails
+## ガードレール
 
-- **Never modify code or configuration. Report findings only.**
-- Every finding carries a `file:line` and a concrete failure scenario. No general advice.
-- Design soundness and system-wide risk are raised as 🧭 even outside the diff.
-- Do not run `typecheck` or `tsgo`. Leave it to CI and the developer.
+- **コードも設定も変更しない。所見を報告するだけ。**
+- すべての所見に `file:line` と具体的な失敗シナリオを付ける。一般的な助言は書かない。
+- 設計の健全性とシステム全体のリスクは、差分の外でも 🧭 として挙げる。
+- `typecheck` や `tsgo` は実行しない。CI と開発者に任せる。

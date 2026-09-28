@@ -1,99 +1,64 @@
-# Where this repository records intent, and what checks it
+# このリポジトリが意図をどこに記録し、何がそれを検査するか
 
-Two skills need this and neither owns it: `da-spec` writes the artifact, `da-design-review` reviews it.
-Both have to answer the same three questions first — **which convention, which file, and what
-mechanically checks it** — so the answer lives here once.
+`da-spec`（成果物を書く）と `da-design-review`（それをレビューする）の両方が使う。どちらも先に同じ 3 つの問い — **どの規約か、どのファイルか、何が機械的に検査するか** — に答える必要があるので、答えをここに 1 回だけ置く。
 
-## Resolve it from the profile, never from the tree
+## ツリーではなくプロファイルから解決する
 
 ```bash
 git remote get-url origin
 ```
 
-Find the profile whose `match.remote` is a substring of that URL. The dotagents checkout is recorded in
-`~/.claude/.dotagents-managed.json` under `repo`; profiles live in `<repo>/profiles/`. Read
-`spec_system`.
+`match.remote` がこの URL の部分文字列になるプロファイルを探す。dotagents のチェックアウト先は `~/.claude/.dotagents-managed.json` の `repo` に記録され、プロファイルは `<repo>/profiles/` にある。`spec_system` を読む。
 
-| `kind` | The artifact for one change |
+| `kind` | 1 つの変更の成果物 |
 |---|---|
-| `openspec` | a **directory**: `<root>/changes/<id>/` — proposal, design, tasks, plus a spec delta per capability under `changes/<id>/specs/` |
-| `plans` | one Markdown file under `<root>` |
-| `none` | nothing. The repository records intent nowhere — **say that, and do not create a convention** |
+| `openspec` | **ディレクトリ**: `<root>/changes/<id>/` — proposal、design、tasks と、capability ごとの spec delta（`changes/<id>/specs/` 配下） |
+| `plans` | `<root>` 配下の Markdown ファイル 1 つ |
+| `none` | 無し。このリポジトリは意図をどこにも記録しない — **そう書き、規約を作らない** |
 
-**No profile, or no `spec_system`: stop and ask.** Report what you observed in the tree, propose the
-block, and wait.
+**プロファイルが無い、または `spec_system` が無い時は止まって尋ねる。** ツリーで観察したものを報告し、ブロックを提案して待つ。
 
-**Observing `openspec/` is not the same as being told to use it.** A directory can survive a
-half-finished migration, or a repository can keep plans in two places while one is being retired. The
-failure is quiet in the worst way: the artifact lands in a real directory, well-formed, where nobody
-looks for it.
+**`openspec/` が見えることは、それを使えと言われたことではない。** やりかけの移行でディレクトリが残ることも、廃止途中で計画が 2 か所にあることもある。成果物が、誰も探さない実在のディレクトリに整った形で置かれ、何も失敗しない。
 
-**`README.md` is not where this can live.** It is not loaded at runtime, and the routing sat there as a
-parenthetical for months while every invocation ignored it. That is why the fact is in the profile and
-the rule is in a file a skill reads.
+**`README.md` には置けない。** 実行時に読み込まれないため。だから事実はプロファイルに、規則はスキルが読むファイルに置く。
 
-## Read the repository's own rules before writing or judging anything
+## 書く前・判定する前に、リポジトリ自身の規則を読む
 
-`spec_system.rules` names the file — for openspec, `openspec/config.yaml`, which states the required
-headings, the normative vocabulary, and that a modified requirement is restated whole. It usually
-delegates further, to `.cursor/rules/*` or `AGENTS.md`.
+`spec_system.rules` がファイルを名指しする — openspec なら `openspec/config.yaml` で、必須の見出し、規範的な語彙、変更した要件は全文で書き直すことを定めている。たいていさらに `.cursor/rules/*` や `AGENTS.md` へ委ねている。
 
-**This is not optional in either direction.** Writing to a generic template produces an artifact that
-fails the repository's own validator. **Reviewing against generic dimensions while the repository has
-written its standard down produces findings about the wrong thing** — and a clean result that means
-nothing, because the checklist it passed was not the one that applies.
+**どちらの向きでも省略しない。** 汎用テンプレートで書くと、リポジトリ自身のバリデータに落ちる成果物になる。**リポジトリが基準を書いているのに汎用の観点でレビューすると、見当違いの所見が出る** — 通ったチェックリストが適用されるものではないので、綺麗な結果も意味を持たない。
 
-## Run the validator, and paste its output
+## バリデータを実行し、出力を貼る
 
-`spec_system.validate` is **argv, not a shell string** — one element per argument, and the element that
-is exactly `<id>` is replaced by the change id:
+`spec_system.validate` は **シェル文字列ではなく argv** — 引数ごとに 1 要素で、ちょうど `<id>` である要素が change id に置き換わる。
 
 ```json
 ["pnpm", "openspec", "validate", "<id>", "--strict"]
 ```
 
-**The array is the point.** A profile cannot smuggle a pipeline, a `;`, or a `$( )` past a reader, and
-the change id cannot escape into the command because it is its own argument. **Refuse an argv whose
-first element is `sh`, `bash` or `zsh`, or that contains `-c`** — that is a command string wearing an
-array's clothes, and it puts back everything the array removed.
+**配列であることが要点。** プロファイルがパイプラインや `;`、`$( )` を読み手に気づかれずに紛れ込ませられず、change id も独立した引数なのでコマンドから抜け出せない。**最初の要素が `sh`, `bash` または `zsh` の argv、または `-c` を含む argv は拒否する** — 配列の服を着たコマンド文字列で、配列が取り除いたものをすべて戻してしまう。
 
-**The change id must match `^[a-z0-9][a-z0-9._-]*$`.** It arrives from `$ARGUMENTS` or from a directory
-listing, and both are attacker-reachable in a repository you did not write. Anything else: stop and say
-which id was rejected. Do not "clean it up" and continue.
+**change id は `^[a-z0-9][a-z0-9._-]*$` に一致しなければならない。** id は `$ARGUMENTS` かディレクトリ一覧から来て、自分が書いていないリポジトリではどちらも攻撃者が触れる。それ以外なら止まって、どの id を拒否したかを書く。「整えて」続行しない。
 
-**Check every element against the profile's `forbidden` list before running.** Be honest about what that
-is worth: the gate hook enforces `forbidden` on the checks *it* runs, and nothing enforces it on a
-command an agent types. Its own comment says why — *a rule written in a skill is a request, not a
-guarantee, and guardrails belong in hooks.* **The guarantee is the `allowed-tools` allowlist**, which the
-harness applies; this check is the request on top of it. **A validator the allowlist does not cover is
-reported as unrunnable — never rerouted through an interpreter that happens to be allowed.**
+**実行前に、すべての要素をプロファイルの `forbidden` と照らす。** この確認の価値は正直に扱う: ゲートの hook は *自分が* 実行する検査に `forbidden` を強制するが、エージェントが打つコマンドには何も強制しない（hook 自身のコメントのとおり、スキルに書いた規則は依頼であって保証ではなく、ガードレールは hook に置く）。**保証は `allowed-tools` の許可リスト** で、ハーネスが適用する。この確認はその上に乗る依頼。**許可リストが覆わないバリデータは実行不能として報告する — たまたま許可されたインタプリタ経由に迂回しない。**
 
-**Run it before judging, and show the output.** A spec whose validity is machine-checkable must not be
-assessed by reading alone — that is the rule `da-verify` applies to code, applied to intent. Describing
-the failure instead of showing it is the same substitution the toolkit refuses everywhere else.
+**判定の前に実行し、出力を見せる。** 妥当性を機械で検査できる spec を読むだけで評価しない — `da-verify` がコードに適用する規則を、意図に適用したもの。失敗を見せずに説明するのは、ツールキットが他のどこでも拒む置き換えと同じ。
 
-**Green means well-formed, and nothing more.** It does not mean the requirement is the right
-requirement, that `ADDED` should not have been `MODIFIED`, that the scenarios cover the failure paths,
-or that the change agrees with a sibling capability. **Say exactly that when reporting it** — a green
-validator read as "the design is sound" is the same misweighting a clean review causes.
+**緑は整形式であることだけを意味する。** 要件が正しい要件であること、`ADDED` が `MODIFIED` であるべきでなかったこと、シナリオが失敗経路を覆うこと、隣の capability と整合することは意味しない。**報告時にそのとおり書く** — 緑のバリデータを「設計は健全」と読むのは、綺麗なレビューが招くのと同じ重みの取り違え。
 
-No validator configured → **say so**. "Nothing checked this" is a fact the next reader needs.
+バリデータが設定されていない → **そう書く。** 「何もこれを検査していない」は次の読み手に必要な事実。
 
-## The landing plan and the repository's task list are different orderings
+## 着地計画とリポジトリのタスク一覧は別の並べ方
 
-Both exist, and confusing them collapses a distinction that costs money.
+両方が存在し、混同すると高くつく区別が潰れる。
 
-| | Decides | Granularity |
+| | 決めるもの | 粒度 |
 |---|---|---|
-| **🧱 Landing plan** (`da-design-review`) | **how the work divides into separately shippable changes** | one row per landing, each with a gate you can name |
-| the repository's task list (openspec `tasks.md`, or the plan's checklist) | **the order inside one** of those | one line per step |
+| **🧱 着地計画（Landing plan）**（`da-design-review`） | **作業を、別々に出せる変更にどう分けるか** | 着地ごとに 1 行。それぞれに名前を言えるゲート |
+| リポジトリのタスク一覧（openspec の `tasks.md`、または計画のチェックリスト） | **そのうち 1 つの中の順序** | 手順ごとに 1 行 |
 
-So the mapping is: **a landing plan with N rows means N changes** — N `changes/<id>/` directories in an
-openspec repository, N plan files otherwise. **Not one change with the landings as task groups**: the
-whole point of a landing is that it ships on its own, and tasks inside one change do not.
+対応づけは次のとおり。**N 行の着地計画は N 個の変更** — openspec のリポジトリなら N 個の `changes/<id>/` ディレクトリ、それ以外なら N 個の計画ファイル。**1 つの変更の中に着地をタスクグループとして並べるのではない**: 着地の要点は単独で出せることで、1 つの変更の中のタスクはそうではない。
 
-**When the landing plan has one row, say so as one row with a reason.** An absent table means nobody
-decided, and that is the state this distinction exists to prevent.
+**着地計画が 1 行なら、理由つきの 1 行としてそう書く。** 表が無いのは誰も決めていないということで、この区別が防ぐための状態である。
 
-Do not maintain the same ordering in both places. The landing plan is upstream of the task list, and
-when they disagree the landing plan is the one that was reasoned about.
+同じ順序を両方で保守しない。着地計画がタスク一覧の上流で、食い違えば推論されたのは着地計画の方。

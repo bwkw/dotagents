@@ -1,110 +1,74 @@
-# Silent, irreversible failure patterns
+# 静かで不可逆な失敗のパターン
 
-**Read this in both phases — finding and verifying.** These are patterns that look clean in a diff and
-become silent production incidents. They are cross-cutting: none of them belong to a single
-perspective cluster, and each one has been missed by a review that was otherwise careful.
+**発見フェーズと検証フェーズの両方で読む。** 差分では綺麗に見え、本番で静かな障害になるパターン。どれも 1 つの観点クラスタに属さない横断的なもので、それぞれ、他は丁寧だったレビューが見落としてきた。
 
-When one applies, raise it **even if the cause sits outside the diff**. The diff is where you started
-looking, not the boundary of what you may report.
+当てはまるなら、**原因が差分の外にあっても挙げる。** 差分は探し始めた場所であって、報告してよい範囲の境界ではない。
 
 ---
 
-## 1. Global default × local compensation
+## 1. グローバルなデフォルト × 局所的な補正
 
-The change adds behaviour to something **shared** — a task or job catalog, a base class, common
-config, a database default, a seed — and its correctness depends on **callers compensating**:
-embedding a context value, setting a flag, running a preprocessing step.
+変更が **共有されたもの** — タスクやジョブのカタログ、基底クラス、共通設定、DB のデフォルト、seed — に振る舞いを足し、その正しさが **呼び出し元の補正** に依存する: コンテキスト値の埋め込み、フラグの設定、前処理の実行。
 
-The failure: the PR's one path compensates correctly. The other four do not.
+失敗の形: PR の 1 経路は正しく補正している。残りの 4 経路はしていない。
 
-What to do, concretely:
+具体的にやること:
 
-1. `grep` for **every** path that can invoke or modify the same aggregate or pattern — other
-   controllers, use cases, batch jobs, event handlers, admin tooling, tests that stand in for
-   production paths.
-2. Check each one against the compensation, individually. Do not stop at the path the PR touched.
-3. Then ask what *forces* the invariant. A guard, a database constraint, or an architecture test that
-   fails when a new caller forgets? **If nothing does, that is a finding** → **🧭**, or **🔴** when you
-   can read a path to real harm.
+1. 同じ集約やパターンを呼び出し・変更できる **すべての** 経路を `grep` する — 他のコントローラ、ユースケース、バッチジョブ、イベントハンドラ、管理ツール、本番経路の代わりをするテスト。
+2. それぞれを補正と 1 つずつ照らす。PR が触った経路で止めない。
+3. 次に、何が不変条件を *強制* しているかを問う。新しい呼び出し元が忘れた時に失敗するガード、DB 制約、アーキテクチャテストはあるか。**何も無ければそれが所見** → **🧭**、実害への経路が読めるなら **🔴**。
 
-The last step is the one that gets skipped. "All current callers happen to be correct" is a snapshot,
-not an invariant; the fifth caller is written by someone who never read this PR.
+飛ばされるのは最後の手順。「今の呼び出し元はたまたま全部正しい」はスナップショットであって不変条件ではない。5 番目の呼び出し元は、この PR を読んでいない人が書く。
 
-**The tell is a comment that enumerates the callers.** "Acquired by these three paths only", "always
-called after the lock is held" — that is the invariant written in the one place nothing can check, and it
-reads as a guarantee precisely because someone was specific enough to count. The list is true the day it
-is written and silently false the day a fourth entry point appears; the author of that entry point never
-opens the comment, because nothing sends them there. Ask for the mechanism instead: a **choke point** the
-new caller cannot go around — the lock taken inside the only function through which the operation can
-start — or an architecture test that fails when a caller shows up outside the set. **A doc comment
-documents an intent; it never enforces one.**
+**呼び出し元を列挙したコメントが兆候。** 「この 3 経路からのみ取得」「必ずロック取得後に呼ばれる」— 不変条件を、何も検査できない唯一の場所に書いたもので、具体的に数えてあるせいで保証に見える。書いた日には真で、4 つ目の入口が現れた日に黙って偽になる（その入口の作者は、何にも誘導されないのでコメントを開かない）。代わりに仕組みを求める: 新しい呼び出し元が迂回できない **チョークポイント**（操作を始められる唯一の関数の中でロックを取る）か、集合の外に呼び出し元が現れたら失敗するアーキテクチャテスト。**doc コメントは意図を記録するだけで、決して強制しない。**
 
-## 2. Fail-open or fail-closed — which way does the silence fall?
+## 2. fail open か fail closed か — 沈黙はどちらに倒れるか
 
-For every default value, evaluation error, missing context, or absent key, establish the **direction
-of the fallback**.
+すべてのデフォルト値、評価エラー、コンテキストの欠落、キーの欠落について、**フォールバックの向き** を確定させる。
 
-If an irreversible, legally mandated, externally visible, or billable action falls toward **silently
-skipping, auto-completing, or no-op**, ask whether that direction is correct. Usually it is not.
+不可逆・法的義務・外部から見える・課金される操作が、**黙ってスキップ・自動完了・no-op** の側に倒れるなら、その向きが正しいかを問う。たいてい正しくない。
 
-> **Failing silently is more harmful than failing loudly** — and often more harmful than visible
-> over-execution. A loud failure gets fixed the same day. A silent skip is discovered by an auditor,
-> a customer, or a regulator.
+> **黙って失敗するのは、うるさく失敗するより害が大きい** — 目に見える過剰実行より大きいことも多い。うるさい失敗はその日のうちに直る。黙ったスキップは監査人・顧客・規制当局が見つける。
 
-Raise the direction itself as the finding, not just the missing branch. → **🧭 / 🔴**
+欠けた分岐だけでなく、向きそのものを所見として挙げる。→ **🧭 / 🔴**
 
-## 3. SSOT declared once, hardcoded twice
+## 3. 一度 SSOT と宣言し、二度ハードコードする
 
-A mapping table, constant, or correspondence declared authoritative in one place — a design document,
-a domain constant, an enum — gets **re-hardcoded elsewhere**: a seed, another layer, a different
-entry path, a test fixture, an infrastructure template.
+1 か所 — 設計文書、ドメイン定数、enum — で正と宣言された対応表・定数・対応関係が、**別の場所で再びハードコードされる**: seed、別の層、別の入口、テストフィクスチャ、インフラのテンプレート。
 
-Look for the place where the two are cross-checked against each other. **If no test compares them,
-they will drift, and the drift is silent.** Report it. → **🟡**
+2 つを突き合わせている場所を探す。**比較するテストが無ければずれ、そのずれは静か。** 報告する。→ **🟡**
 
-This one is cheap to find and almost never looked for: search for the literal values, not the
-identifier.
+見つけるのは安いのに、ほとんど探されない。識別子ではなくリテラル値で検索する。
 
-## 4. Seed and config read live, against deploy ordering
+## 4. 実行時に読む seed と設定、デプロイ順序との衝突
 
-If a seed, catalog, or config is read **fresh on each access rather than snapshotted at startup**,
-changing it opens a rollout window: the new data is live while the old code is still running on some
-instances.
+seed・カタログ・設定が **起動時にスナップショットされず、アクセスのたびに読まれる** なら、変更はロールアウトの窓を開く: 一部のインスタンスで古いコードが動いている間に、新しいデータが有効になる。
 
-Establish three things:
+次の 3 つを確定させる。
 
-- **When** the change takes effect — automatically on merge, on deploy, or by a manual step.
-- **Relative to** the application rollout — before, during, or after.
-- Whether a hard ordering gate exists, or the safe order is only a convention someone remembers.
+- **いつ** 変更が効くか — マージ時に自動、デプロイ時、手作業の手順。
+- アプリのロールアウトに **対して** — 前か、途中か、後か。
+- 厳格な順序のゲートがあるか、それとも安全な順序は誰かが覚えているだけの慣習か。
 
-If you cannot determine the execution timing from the repository, that is `👤 needs human` — not a
-clean pass. Deploy ordering is exactly the kind of thing that is obvious to whoever wrote it and
-invisible to everyone else.
+実行タイミングをリポジトリから確定できなければ、それは綺麗な通過ではなく 👤（人間の判断が必要）。デプロイ順序は、書いた人には自明で他の全員には見えないものの典型。
 
-## 5. Observability of silent success
+## 5. 静かな成功の可観測性
 
-If an irreversible action can be **conditionally skipped or auto-completed**, ask what signal exists
-afterwards. A row in a table is passive evidence: it tells you the state, but only if someone thinks
-to look. An **active signal** — a log line, a metric, an alert — is what makes the skip detectable.
+不可逆な操作が **条件付きでスキップ・自動完了されうる** なら、その後にどんなシグナルが残るかを問う。テーブルの行は受動的な証拠で、誰かが見ようと思った時にしか状態を伝えない。スキップを検出可能にするのは **能動的なシグナル** — ログ行、メトリクス、アラート。
 
-If there is none, the failure mode is undetectable, which is a finding. → **🟡**
+無ければ失敗は検出できず、それが所見。→ **🟡**
 
-> **Do not casually propose a resident sweep or a cron job as the fix.** That trades a detection gap
-> for a new always-on component with its own failure modes. Prefer one passive monitor plus a
-> documented manual recovery. Suggest the standing process only when the recovery genuinely cannot
-> wait for a human.
+> **常駐のスイープや cron ジョブを安易に修正案にしない。** 検出の穴を、独自の失敗の仕方を持つ常時稼働のコンポーネントと交換することになる。受動的な監視 1 つと、文書化された手動の復旧を優先する。常設の仕組みは、復旧が本当に人間を待てない時だけ提案する。
 
 ---
 
-## Applying these
+## 適用の仕方
 
-One pass, across the clusters, in both phases:
+クラスタを横断して 1 回、両フェーズで。
 
-| Phase | What this file is for |
+| フェーズ | このファイルの用途 |
 |---|---|
-| **find** | A checklist to run *in addition to* your assigned perspective. If your cluster is "tests", pattern 1 still applies to what you are reading. |
-| **verify** | The place to look for what the find pass missed. A clean cluster report is a claim; these five are where that claim is usually wrong. |
+| **発見** | 割り当てられた観点に *加えて* 回すチェックリスト。担当クラスタが「テスト」でも、読んでいるものにパターン 1 は当てはまる。 |
+| **検証** | 発見フェーズが見落としたものを探す場所。綺麗なクラスタ報告は主張であり、その主張がたいてい外れるのがこの 5 つ。 |
 
-Findings from here follow the same discipline as everything else — see
-[`finding-discipline.md`](finding-discipline.md). Being a known pattern does not exempt a finding
-from needing a traced path and a confidence score.
+ここからの所見も他と同じ規律に従う — [`finding-discipline.md`](finding-discipline.md) を参照。既知のパターンだからといって、追跡した経路と確信度スコアが要らなくなるわけではない。

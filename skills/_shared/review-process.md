@@ -1,43 +1,33 @@
-# Review procedure
+# レビュー手順
 
-The seven-step shape every layer review follows. The layer file supplies what is layer-specific:
-what to trace during impact mapping, and the perspective clusters. Everything else is here.
+すべての層レビューが従う 7 ステップ。層固有のもの（影響範囲の洗い出しで追う対象と観点クラスタ）は層のファイルが持ち、それ以外はここに書く。
 
-**Read `finding-discipline.md` before starting.** It carries the posture and the reporting rules,
-and it is mandatory for every subagent you launch.
+**始める前に `finding-discipline.md` を読む。** 姿勢と報告の規則はそこにある。
 
 ---
 
-## Step 1. Establish scope
+## Step 1. 範囲を確定する
 
-**First: whose change is this?** It decides what you may assume, and getting it wrong is the most common
-way a review lands badly.
+**最初に、誰の変更かを確かめる。** 何を前提にしてよいかがこれで決まり、取り違えるとレビューは的を外す。
 
-| | Your own work | **Someone else's** |
+| | 自分の作業 | **他人の作業** |
 |---|---|---|
-| The intent | Known — the spec, the plan, the conversation | **Unknown. Reconstruct it before judging anything.** |
-| A different approach than you would take | A design doubt worth raising | **Not a finding.** See below. |
-| "This is missing" | Probably missing | **Possibly elsewhere, or deliberate.** Look before saying it. |
+| 意図 | 分かっている（spec、計画、会話） | **分からない。判断の前に復元する。** |
+| 自分なら別のやり方をする | 挙げる価値のある設計への疑い | **所見ではない。** 下を参照 |
+| 「これが欠けている」 | たぶん欠けている | **別の場所にあるか、意図的かもしれない。** 探してから言う |
 
-When it is someone else's, spend the first pass on **intent, not defects**:
+他人の変更なら、最初の一巡は**欠陥ではなく意図**に使う。
 
-1. Read the PR description, the linked issue, the commit messages, and any spec or ADR the branch
-   references. State back what you believe the change is for **before** producing a single finding.
-2. If the intent is genuinely unavailable — no description, no issue, no spec — say so in the report and
-   review against the **repository's own conventions** instead. Do not invent a goal and then measure the
-   change against it; a review built on a guessed intent produces confident, wrong findings.
-3. **A difference in approach is not a defect.** "I would have done this with a value object" is a 🧭 at
-   most, and only when you can name a concrete cost. The author had context you do not; the review's job
-   is to find what is *wrong*, not what is *unfamiliar*.
-4. Separate **pre-existing** problems from **introduced** ones, and label them. A defect the diff merely
-   moved past is worth mentioning once, marked as pre-existing, and it does not block the change.
+1. PR の説明、リンクされた issue、コミットメッセージ、ブランチが参照する spec や ADR を読む。所見を 1 件でも出す**前に**、変更の目的を自分の言葉で書く。
+2. 意図がまったく得られない（説明も issue も spec も無い）なら、レポートにそう書き、**リポジトリ自身の規約**に照らしてレビューする。目的を推測して、それに照らして測らない。推測した意図の上のレビューは、自信のある誤った所見を生む。
+3. **やり方の違いは欠陥ではない。** 「自分なら値オブジェクトにする」はせいぜい 🧭 で、具体的なコストを名指しできる時に限る。作者は自分の知らない文脈を持っている。探すのは*誤り*であって*見慣れないもの*ではない。
+4. **既存の**問題と**持ち込まれた**問題を分けてラベルを付ける。差分が素通りしただけの欠陥は、既存と明記して 1 度だけ触れ、変更をブロックしない。
 
-Then the mechanics:
+次に手順。
 
-1. `$ARGUMENTS`: empty means the working diff; a branch means the diff against it; a path means an
-   audit of that path; `all` means the whole repository.
+1. `$ARGUMENTS`: 空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
 
-2. Resolve the base branch (diff mode) — take the first that exists:
+2. ベースブランチを決める（差分モード）。存在する最初のものを取る。
 
    ```bash
    BASE=""
@@ -47,266 +37,161 @@ Then the mechanics:
    done
    ```
 
-   Then `git diff --stat "${BASE}"...HEAD` and `git diff "${BASE}"...HEAD`.
+   続けて `git diff --stat "${BASE}"...HEAD` と `git diff "${BASE}"...HEAD`。
 
-3. **When explicit paths are given** — `$ARGUMENTS` is a path or file, or the dispatcher handed you a
-   per-layer file list — do **not** re-derive the full diff. Scope strictly to those paths.
+3. **パスが明示された時**（`$ARGUMENTS` がパスかファイル、またはディスパッチャが層ごとのファイル一覧を渡した時）は、差分全体を取り直**さない**。範囲はそのパスに限る。
 
-4. Edge cases:
-   - Empty diff → report "no changes", suggest a `path/` or `all` audit, and stop.
-   - `BASE` empty (detached HEAD, no upstream, first commit, missing ref) → diff against the empty
-     tree and say so: `git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`.
-   - If the default branch that `symbolic-ref` returned looks like it is not the real PR base, ask.
-   - If the change also touches other layers, say so and suggest `/da-review-all` across all of them.
+4. 端のケース:
+   - 差分が空 → 「変更なし」と報告し、`path/` か `all` の監査を提案して止まる。
+   - `BASE` が空（detached HEAD、upstream 無し、最初のコミット、ref 欠落）→ 空のツリーと比較し、そう書く: `git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`。
+   - `symbolic-ref` が返した既定ブランチが本当の PR のベースでなさそうなら、尋ねる。
+   - 変更が他の層にも触れているなら、そう書き、全層に対する `/da-review-all` を提案する。
 
 ## Step 1b. 差分の大きさを測る —— 大きければ「レビュー」と呼ばない
 
-**Before reading anything, count the diff**: changed lines and changed files. This is the one measurement
-that decides whether the output is a review or a sample, and **it has to be taken before the reading
-starts**, because afterwards it is indistinguishable from an excuse.
+**何かを読む前に差分を数える**（変更行数と変更ファイル数）。出力がレビューかサンプルかはこれで決まる。読んだ後に測ると言い訳と区別がつかないので、**必ず読む前に測る**。
 
-**Measure what you were asked to review, not what the branch contains.** Step 1.3 already forbids
-re-deriving the full diff when paths were given; this measurement is bound by the same rule, and it is
-the easier one to break because an unscoped number still comes out looking plausible.
+**測るのはブランチ全体ではなく、レビューを頼まれた範囲。** Step 1.3 の「パスが渡されたら差分全体を取り直さない」はこの計測にも掛かる。範囲を絞らない数字でももっともらしく見えるので、ここで破りやすい。
 
 ```bash
 SCOPE=""   # the per-layer file list the dispatcher handed you, or the path in $ARGUMENTS. Empty = the whole diff.
 git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...HEAD -- $SCOPE | wc -l
 ```
 
-| Size | What the report is, and what it must say |
+| 大きさ | レポートが何であり、何を書くか |
 |---|---|
-| **≲ 400 changed lines** | A review. Read every changed file in full. |
-| **400 – 1,000 lines** | Still a review, but **name which files were read in full and which were skimmed.** A reader cannot calibrate a clean result without knowing which half it came from. |
-| **> 1,000 lines** | **Not a review — a sample.** Say so **at the top, next to the map**, not buried in 🔎. State how the sample was chosen (highest-risk paths from the Step 2 trace, the irreversible surfaces, the files the change centres on) and **what was not opened at all**. |
+| **約 400 行以下** | レビュー。変更ファイルをすべて全文読む。 |
+| **400〜1,000 行** | まだレビュー。ただし**全文読んだファイルと流し読みしたファイルを名指しする。** どちらから出た結果か分からないと、綺麗な結果を読み手が校正できない。 |
+| **1,000 行超** | **レビューではなくサンプル。** 🔎 に埋めず、**冒頭の地図の横に**そう書く。サンプルの選び方（Step 2 の追跡で最も危ないパス、不可逆な面、変更の中心のファイル）と、**まったく開かなかったもの**を書く。 |
 
-**Sampling applies to reading for semantic correctness, and to nothing else.** Whether the business
-logic is right cannot be established for 10,000 lines, and pretending otherwise is the failure this
-table exists to stop. But **Step 2b is a whole-diff pass at every size** — architecture conformance,
-dependency direction, irreversible surfaces, the tenant boundary, and new write or async entry points
-are settled with `grep` and placement checks rather than by reading files, so the diff being large
-does not make them unaffordable. **"It was a sample" is never an answer for anything in Step 2b.**
+**サンプリングが許されるのは、意味の正しさを読む作業だけ。** 1 万行の業務ロジックの正しさは確かめられず、確かめたふりをしないためにこの表がある。一方 **Step 2b はどの大きさでも差分全体に対して行う**。アーキテクチャ適合、依存の向き、不可逆な面、テナント境界、新しい書き込み・非同期の入口は、ファイルを読むのではなく `grep` と配置の確認で決まるので、差分が大きくても費用は小さい。**Step 2b のどの項目にも「サンプルだった」は答えにならない。**
 
-Observed: a 10,729-line review declared itself a sample, worked the perspective clusters over the
-files it opened, and reached architecture conformance only when the user asked afterwards — which then
-took four tool calls. The cost was never the reason it was skipped; the ordering was.
+**閾値がここにある理由。** 大きな差分ではモデルは一貫性を失い、**スタイルのパターン照合に逃げる**。徹底したレビューに見えて、大事な所見を 1 つも含まない出力になる。2,000 行の差分にもっともらしいスタイルコメントを付けて「レビュー済み」と呼ぶのは、サンプルだと言うより悪い。前者は穴を隠し、後者は穴を人間に渡す。
 
-**Why the threshold is here and not higher.** A large diff does not degrade the review gently; the model
-loses coherence and **falls back to pattern-matching on style**, which is exactly the output that looks
-like a thorough review and contains none of the findings that matter. Producing plausible style comments
-on a 2,000-line diff and calling it reviewed is worse than saying it was sampled — the first hides the
-gap, the second hands it to the human.
+**閾値がファイル数ではなく行数である理由。** 広く浅い変更（リネーム、import パスの一括置換、全 DTO への 1 フィールド追加）では、リスクがすべての箇所に均等に散り、網羅そのものがレビューになるので、サンプリングの価値が最も低い。**レビューを壊すのは幅ではなく、一度に抱える量であり、それを測るのは行数。** 幅を見たいなら、変更が届く**独立したサブシステム**の数を数える。それは Step 2 の仕事。
 
-**Why the threshold counts lines and not files.** `> 40 files` used to share that last row. It had no
-mechanism behind it — only the line count did — and the only case it caught that the line count does not
-is the wide-and-shallow one: a rename, an import path sweep, one field added to every DTO. **That is
-precisely where sampling is worth least.** The risk is spread evenly across the sites and completeness
-*is* the review: open 20 of 60 call sites and you have reviewed nothing, because the finding is at one of
-the 40 you skipped. The remedy below did not apply there either — a codemod usually cannot be split into
-halves that both ship. **Breadth is not what breaks a review; the volume that has to be held together at
-once is, and lines measure that.** If you want a breadth signal, count the **independent subsystems** the
-change reaches — that is Step 2's job, not this one's.
+**閾値を超えたら、たいていは差し戻すのが正しい。** 1 単位としてレビューするには大きすぎると率直に言い、自分ならどう分割するかを名指しする。分割は `da-design-review` が設計時に決める。分割されずに届いた変更をそのままレビューすると、その手順を飛ばしたことに報いてしまう。
 
-**The right move above the threshold is usually to send it back.** Say plainly that the change is too
-large to review as one unit and name the split you would make. `da-design-review` decides that split at
-design time; a change that arrives unsplit missed that step, and reviewing it anyway rewards skipping it.
+## Step 2. 影響範囲の洗い出し —— 必須。欠陥を読む前に行う
 
-## Step 2. Impact mapping — mandatory, before reading for defects
+変更行だけで止めない。**まず波及範囲を洗い出し**、それから何を読むか決める。何を追うかは層のファイルが挙げる。どの層でも次を行う。
 
-Do not stop at the changed lines. **Map the blast radius first**, then decide what to read.
-The layer file lists what to trace. In every layer:
+- **変更された単位を列挙する。**
+- **依存を両方向に追う。** 共有されるもの（ユーティリティ、基底クラス、共通モジュール、共有コンストラクト）を変えたら、それを使う**すべての**モジュール・画面・スタック・パイプラインを名指しする。振る舞いの変更は全利用者に伝わる。
+- **変更が届く関連ドメイン・画面・環境をすべて列挙する。** ここで名指ししたものは Step 5 で読む対象になる。
+- **隣接する資産を挙げる**: マイグレーション、スキーマ、契約、シード、設定、テスト。
 
-- **Enumerate the changed units.**
-- **Trace dependencies in both directions.** A change to anything shared — a utility, a base class,
-  a common module, a shared construct — requires naming **every** module, screen, stack, or pipeline
-  that uses it. Behaviour changes propagate to all consumers.
-- **Enumerate every related domain, screen, or environment** the change reaches. Everything named
-  here becomes required reading for the subagents in Step 5.
-- **List adjacent assets**: migrations, schemas, contracts, seeds, config, tests.
+## Step 2b. 適合スイープ —— 毎回、すべての変更ファイルに
 
-## Step 2b. Conformance sweep — every changed file, every time
+**差分の大きさを理由に省けない唯一のパス。** `grep`、`ls`、パスと規則の照合による機械的な作業を、**変更ファイルの 100%** に対して行う。1 万行の差分でも数回のツール呼び出しで済むので、上の大きさの表はここに及ばない。
 
-**This is the pass that no diff size excuses.** It is mechanical: `grep`, `ls`, and comparing a path
-against a rule, over **100% of the changed files**. It costs a handful of tool calls on a 10,000-line
-diff, so the size table above never reaches it.
+**先にリポジトリ自身の規則を読む。** `CLAUDE.md`、`AGENTS.md`、`.claude/rules/*.md`、`.cursor/rules/*` のうち、層とディレクトリの規約を書いているもの。基準はそのファイルであり、自分のアーキテクチャ観ではない。**そのようなファイルが無ければそう書く。** その場合は下の汎用の行でスイープし、アーキテクチャの判定は弱いと明記する。
 
-**Load the repository's own rules first.** `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md`,
-`.cursor/rules/*` — specifically whichever of them states the layer and directory conventions. That
-file is the standard; your own sense of good architecture is not. **If no such file exists, say so** —
-then the sweep runs on the generic rows below and the architecture verdict is explicitly weaker.
-
-| Swept | The question, asked of every changed file |
+| 対象 | 変更ファイルごとに問うこと |
 |---|---|
-| **Placement** | Does each new or moved file sit where the repository's own rules put that kind of thing? Name the rule and the line. |
-| **Dependency direction** | Does any import run against the declared direction — domain reaching into infrastructure or api, a module reaching into another module's internals instead of through its declared boundary? One `grep` over the diff's imports answers it. |
-| **Irreversible surfaces** | Every migration, schema change, contract change, permission or IAM change, logical-ID or resource-name change. **Enumerate them all**; a missed one cannot be taken back. |
-| **Tenant / authorization boundary** | Every new read or write path: is the tenant filter present, and is it applied where the repository says to apply it? |
-| **New entry points** | Every new write entry point, async consumer, job handler, or scheduled path — does it carry the guards its siblings carry? Compare against one existing sibling by `file:line`. |
+| **配置** | 新規・移動ファイルは、リポジトリの規則がその種類のものを置く場所にあるか。規則とその行を名指しする。 |
+| **依存の向き** | 宣言された向きに逆らう import は無いか（domain が infrastructure や api に手を伸ばす、他モジュールの宣言された境界を通らず内部に手を伸ばす）。差分の import への `grep` 1 回で答えが出る。 |
+| **不可逆な面** | すべてのマイグレーション、スキーマ変更、契約変更、権限・IAM 変更、論理 ID・リソース名の変更。**すべて列挙する。** 見落とすと取り返せない。 |
+| **テナント・認可の境界** | 新しい読み書きの経路ごとに、テナントフィルタがあるか、リポジトリの定める場所で掛かっているか。 |
+| **新しい入口** | 新しい書き込みの入口、非同期コンシューマ、ジョブハンドラ、定期実行の経路ごとに、兄弟が持つガードを持っているか。既存の兄弟 1 つと `file:line` で比べる。 |
 
-**Report the sweep as a table with a verdict per row**, even when every row passes — a clean
-architecture result that is *stated* is worth something, and one that is silently omitted is
-indistinguishable from one that never ran. Where a row passes because the change matches an existing
-sibling, **cite the sibling**: "matches `year-end-adjustment-csv-export-partition.chunk-handler.ts:52`"
-is a verdict; "follows the existing pattern" is not.
+**スイープは行ごとの判定つきの表で報告する。** 全行が通っても書く。明記された綺麗な結果には価値があり、黙って省かれた結果は実行されなかったものと区別できない。既存の兄弟と一致するから通った行は、**その兄弟を引用する**。「`year-end-adjustment-csv-export-partition.chunk-handler.ts:52` と一致」は判定であり、「既存のパターンに従っている」は判定ではない。
 
-The layer's `perspectives.md` carries the concrete shape each row takes in that stack.
+各行がそのスタックで取る具体的な形は、層の `perspectives.md` にある。
 
-## Step 3. Explain the change — goes at the top of the report
+## Step 3. 変更を説明する —— レポートの冒頭に置く
 
-Written so someone who has never seen this change understands it:
+この変更を見たことのない人が分かるように書く。
 
-- **What this PR changes** (1–3 lines) / **why** (background, the problem) / **how it works** (the
-  main flow and data movement; before-and-after if it helps).
-- **Blast radius** — the list from Step 2.
-- Pull the intent from the PR or ticket when available (best effort; continue without it):
+- **この PR が何を変えるか**（1〜3 行）/ **なぜ**（背景、課題）/ **どう動くか**（主な流れとデータの動き。役立つなら前後比較）。
+- **波及範囲** —— Step 2 の一覧。
+- PR やチケットがあれば意図をそこから取る（できる範囲で。無くても続ける）。
   ```bash
   gh pr view --json title,body 2>/dev/null   # ignore failure
   ```
 
-## Step 4. Absorb project context
+## Step 4. プロジェクトの文脈を取り込む
 
-Read `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md`, and any relevant skills, and adopt the
-project's own conventions as the standard. Identify the framework and stack from the diff. Run the
-generic checks even when there is no project context to be found.
+`CLAUDE.md`、`AGENTS.md`、`.claude/rules/*.md` と関係するスキルを読み、プロジェクト自身の規約を基準にする。差分からフレームワークとスタックを特定する。プロジェクトの文脈が見つからなくても汎用の確認は行う。
 
-## Step 5. Work the perspective clusters — the find phase, inline
+## Step 5. 観点クラスタを回す —— 発見フェーズ、inline
 
-**This review spawns no subagents. None — not per cluster, not per layer, not for verification.** You
-read the diff and work the clusters yourself, in this context, in the order below.
+**このレビューはサブエージェントを起動しない。** クラスタごとにも層ごとにも検証にも起動しない。差分を読み、この文脈の中で、下の順にクラスタを自分で回す。
 
-That is a deliberate reversal. The previous version budgeted 0/3/5 find subagents per layer plus a
-verifier that "never goes to zero", and it was wrong in three ways at once:
+理由は 3 つ。
 
-**It bought the wrong thing.** The case for a subagent is *independence* — a reader who did not watch the
-finding get made. But every one of these is **the same model, on the same diff, under the same
-discipline**, so what comes back is a copy of your own blind spot with a cold-start bill attached. The
-toolkit's own measurement says where independence actually comes from: across 146 pull requests reviewed
-by four **differently built** tools, **93.4% of findings were caught by exactly one of the four, and none
-by all four.** Coverage came from a different *kind* of reviewer, never from another instance of the same
-one. `/find-bugs` is that different reviewer here; a subagent is not.
+- **独立性が得られない。** 同じモデルが同じ差分を同じ規律で読むので、返ってくるのは自分の盲点の複製である。独立性は*別の作りの*レビュアーから来る（別々に作られた 4 ツールで 146 PR をレビューすると、所見の 93.4% は 4 つのうち 1 つにしか拾われず、4 つすべてが拾ったものは無かった）。ここでその役は `/find-bugs` が担う。
+- **高くつく。** サブエージェントは親のキャッシュを引き継がず、規律・差分・影響範囲の地図を定価で読み直す（逐次の 2.6〜5.9 倍のトークンで、速くもならない）。
+- **両エージェントで同じ意味にならない。** サブエージェントの仕組みは Claude Code と Cursor で違う。inline なら**同じファイルが Claude Code でも Cursor でも同じレビューを生む。**
 
-**It cost what it claimed to save.** A subagent starts cold and does not inherit the parent's cached
-prefix, so it re-buys the discipline, the diff and the impact map at full uncached price. Measured
-fan-out multipliers: **2.6–5.9× the sequential token cost, and not faster in wall-clock** (five
-subagents at 4:45 against 4:15 sequential). Width is bought with tokens and does not come back as speed.
+**変わらないのは問い。** 厳密さの単位はクラスタである。5 つの必須クラスタを回し、次に層の残りのクラスタを回す。**🔎 に「inline, no subagents」と書く。** エージェントが走ったとは書かない。
 
-**It could not hold in both agents.** Subagent orchestration is the least portable thing this toolkit
-does — the `Task` tool is Claude Code's, Cursor's subagents are a different mechanism with different
-frontmatter, and a review whose rigour lives in *how many agents were dispatched* is a review that means
-something different in the two. Inline, the prose carries the whole method, and **the same file produces
-the same review in Claude Code and in Cursor.** That is the property this toolkit is built on.
+**差分が大きすぎて抱えきれない時も、答えはエージェントを増やすことではない。** Step 1b の通り、サンプルだと言い、開かなかったものを名指しし、分割のために差し戻す。
 
-**What does not change is the questions.** The clusters below are the unit of rigour — they always were;
-the subagents were only couriers. Work all five, then the layer's remaining clusters. **Say so in 🔎:
-"inline, no subagents"** — never a claim that agents ran.
+**5 つのクラスタはどんな場合も省かない。** 見落としが高くつき、後で見つかれば作り直しになるものなので、統合せず、サンプリングせず、「小さい」差分でも落とさない。
 
-**When the diff is too big to hold, the answer is not more agents.** It is the one Step 1b already gives:
-say it is a sample, name what was not opened, and send the change back to be split. Fanning out over a
-3,000-line diff produced plausible style comments and called it reviewed; that is the failure this
-paragraph replaces, not a capability being given up.
-
-**Five clusters survive every collapse.** They are the ones where a miss is expensive and a late catch is
-a rewrite, so they are never merged away, never sampled, and never dropped for a "small" diff:
-
-| Always covered | Why it cannot wait |
+| 必ず扱う | 後回しにできない理由 |
 |---|---|
-| **0. Design soundness / the question one level up** | The only cluster that can conclude "this should not be built this way". No amount of per-file scrutiny reaches it. |
-| **1. Intent and semantic correctness** | **The measured largest category of bugs that survive review — 51.3% of 187 missed bugs across 28 projects, with exception handling alone 36.5% of those.** Code that is internally consistent and answers a different question than the one asked. Reachable only with the stated intent in hand, which is why it cannot be inferred later from the diff. |
-| **Architecture and boundaries** | Layer direction, module and context boundaries, where responsibility sits. Wrong here and every later change pays for it. |
-| **Aggregates and transaction boundaries (DDD)** | Aggregate granularity, cross-aggregate invariants, what a single transaction is allowed to span. These are decided once and inherited by everything after. |
-| **Security, authorization and tenancy** | Cross-tenant leakage, a missing guard, a widened permission. The only category where being wrong once is already the incident. |
+| **0. 設計の健全性 / 一段上の問い** | 「そもそもこう作るべきでない」と結論できる唯一のクラスタ。ファイル単位の精査はここに届かない。 |
+| **1. 意図と意味の正しさ** | **レビューをすり抜けるバグの最大分類（28 プロジェクトの見逃し 187 件の 51.3%、うち例外処理だけで 36.5%）。** 内部では一貫しているのに、問われたのと別の問いに答えているコード。意図を手元に持っている時にしか届かず、後から差分だけで推測できない。 |
+| **アーキテクチャと境界** | 層の向き、モジュールとコンテキストの境界、責務の置き場所。ここを誤ると以後のすべての変更が代償を払う。 |
+| **集約とトランザクション境界（DDD）** | 集約の粒度、集約をまたぐ不変条件、1 トランザクションがまたいでよい範囲。1 度決まると以後のすべてが引き継ぐ。 |
+| **セキュリティ・認可・テナント** | テナントをまたぐ漏洩、欠けたガード、広がった権限。1 度の誤りがそのままインシデントになる唯一の分類。 |
 
-**These five come first, then the layer's remaining clusters** in the order the layer file lists them.
+**この 5 つを先に、次に層の残りのクラスタを**層のファイルに並んだ順に回す。
 
-**Depth per question still falls as the diff grows, and that is the thing a reader cannot see.** Working
-eleven clusters over a 900-line diff in one context gives each less attention than one cluster would get
-alone — the same trade the fan-out budget used to make, now made openly instead of being disguised as
-five agents. So 🔎 names **any cluster that got only a token pass**, and says which. The honest narrow
-review and the dishonest one differ by that sentence, and the uncapped fan-out never wrote it either: it
-was equally shallow at 29 subagents and reported nothing about it.
+**差分が大きくなるほど、問いごとの深さは落ちる。読み手からはそれが見えない。** 900 行の差分で 11 クラスタを 1 つの文脈で回すと、各クラスタへの注意は単独の時より少ない。だから 🔎 には**形だけの確認しかしなかったクラスタ**をどれか名指しして書く。
 
-**Three of the five are not eligible for a token pass, because Step 2b already answered them at full
-coverage.** Architecture and boundaries, aggregate and transaction boundaries, and security and tenancy
-each have a row in the conformance sweep, so what remains for them here is judgement on top of a
-complete inventory — not a sampled look. **"Architecture got a token pass" now means Step 2b was
-skipped**, which is a different admission, and not one this file permits.
+**5 つのうち 3 つは形だけの確認にできない。** アーキテクチャと境界、集約とトランザクション境界、セキュリティとテナントは Step 2b に行があり、ここで残るのは完全な一覧の上での判断だけである。**「アーキテクチャは形だけ見た」は Step 2b を飛ばしたという意味になり、それはこのファイルが許さない。**
 
-## Step 5b. The five sweeps that apply to every layer
+## Step 5b. すべての層に掛かる 5 つのスイープ
 
-The clusters above are about the code. These five are about **the diff as a whole**, they belong to no
-layer, and each one is a category of finding that a cluster-by-cluster read structurally cannot produce.
-The first four came out of a real review that landed 14 findings, **half of them in tests, documentation
-and naming** — the half a "reviewed the main changes" pass never reaches. The fifth came out of a later
-one, where **four of nine findings turned out to be the second copy of another finding.**
+上のクラスタはコードについてのもの。この 5 つは**差分全体**についてのもので、どの層にも属さず、クラスタごとの読みでは構造的に出てこない所見を拾う（ある実レビューでは 14 件の所見の半分がテスト・ドキュメント・命名にあり、別のレビューでは 9 件中 4 件が別の所見の 2 つ目の複製だった）。
 
-**1. Read every file in the diff, one at a time.** Not "the important ones". Tests, fixtures, seed
-scripts, scenario files, skill references, specs. A change is not reviewed until every file it touches
-has been opened; say which files you opened and which you did not.
+**1. 差分のファイルを 1 つずつ全部読む。** 「重要なもの」だけではない。テスト、フィクスチャ、シードスクリプト、シナリオファイル、スキルの reference、spec も読む。触れたファイルをすべて開くまでレビューは終わらない。開いたファイルと開かなかったファイルを書く。
 
-**2. Sweep for what the change made stale.** Renames and deletions leave references behind, and nothing
-fails. Search the codebase for **every identifier the diff removed or renamed** and judge each surviving
-hit as either *a different concept* or *stale*. Specifically:
+**2. 変更が古くしたものを探す。** リネームや削除は参照を置き去りにし、何も失敗しない。**差分が削除・リネームしたすべての識別子**でコードベースを検索し、残った箇所ごとに*別の概念*か*古い参照*かを判定する。特に次を見る。
 
-- references to deleted error classes, functions, types
-- prose saying "validated at runtime" where the change moved it into the type
-- **counts** — "the 8 axes", "these 3 fields" — which stop being true the moment a shape changes
-- cross-references pointing at headings that the diff renamed
-- **mirrored documents** (`.claude/` and `.cursor/`, or any doc kept in two places) — both copies
-- JSDoc separated from what it documents, by an insertion landing between them
+- 削除されたエラークラス・関数・型への参照
+- 型に移したのに「実行時に検証する」と書いたままの文
+- **数** —— 「8 つの軸」「この 3 フィールド」—— 形が変わった瞬間に真でなくなる
+- 差分がリネームした見出しを指す相互参照
+- **ミラーされた文書**（`.claude/` と `.cursor/`、または 2 か所に置かれた文書）—— 両方
+- 間に挿入が入って、説明対象から離れた JSDoc
 
-**3. Is the diff proportional to the change?** Abstraction introduced to satisfy a review comment is
-still abstraction. A thin wrapper, a utility with one caller, a class that exists to hold two functions:
-**ask what deleting it would cost in lines.** If the answer is "nothing", it should not be there. The
-same question run the other way: two places assembling the same thing with a few fields different should
-be one place.
+**3. 差分は変更の大きさに見合っているか。** レビューコメントに応えるために入れた抽象も抽象である。薄いラッパー、呼び出し元が 1 つのユーティリティ、関数 2 つを持つためだけのクラス: **消したら何行のコストがかかるかを問う。** 答えが「何も無い」なら、それはあるべきでない。逆向きにも問う。数フィールドだけ違う同じ組み立てを 2 か所でしているなら、1 か所にする。
 
-**4. Was it verified, or was it sent to CI to find out?** "CI will tell us" is not verification when the
-repository can reproduce CI locally — find the command and say whether it was run. A completion report
-must carry **what was checked and where**: "type errors 0", "unit N passed", "sql against a real
-instance N passed", "the production query returns 0 rows". **Anything unchecked is written as unchecked.**
-Fixing one annotation at a time and pushing again is a finding about the process, not just the code.
+**4. 検証したのか、CI に送って確かめようとしたのか。** リポジトリが CI を手元で再現できるなら「CI が教えてくれる」は検証ではない。コマンドを見つけ、実行したかを書く。完了報告には**何をどこで確かめたか**を書く（「型エラー 0」「単体 N 件成功」「実インスタンスへの sql N 件成功」「本番クエリが 0 行を返す」）。**確かめていないものは未確認と書く。** 注釈を 1 つ直しては push し直すのは、コードだけでなくプロセスについての所見である。
 
-**5. Every finding is a query — run it across the codebase before writing it down.** The four twins in
-that review were: the same doc comment left documenting the member below it, on the interface *and* on the
-implementation; the same guard expression pasted into a second handler; the same status rule written once
-as an entity method and once as a `WHERE` clause. Every one was found by asking **"where else does this
-exist?"** — none by reading the file the first copy was in. The places a twin hides:
+**5. 所見は 1 つの問い合わせとして扱い、書く前にコードベース全体に対して走らせる。** 「これは他のどこにあるか」と問う。最初の複製があったファイルを読んでも双子は見つからない。双子が隠れる場所:
 
-- **interface ↔ implementation** — the mechanical mistakes get made on both sides, in one sitting
-- **sibling handlers, use cases and endpoints** that were copied from each other
-- **the read path ↔ the write path** — the same rule as SQL and as a domain method
-- **the wire type ↔ the domain type ↔ the editing state** — one shape, narrowed in only one of them
-- **mirrored documents**, and a fixture or snapshot holding the shape a second time
+- **インターフェース ↔ 実装** —— 機械的な誤りは 1 度に両側で起きる
+- 互いにコピーされた**兄弟のハンドラ・ユースケース・エンドポイント**
+- **読み取り経路 ↔ 書き込み経路** —— 同じ規則が SQL とドメインメソッドの両方にある
+- **通信の型 ↔ ドメインの型 ↔ 編集中の状態** —— 1 つの形が、そのうち 1 つでだけ絞り込まれている
+- **ミラーされた文書**、および形をもう 1 度持つフィクスチャやスナップショット
 
-Report the set as **one finding carrying every `file:line`**. "And similar elsewhere" is not that: it
-leaves the search to the author, who will do it for the sites they remember.
+一式を **すべての `file:line` を持つ 1 件の所見**として報告する。「他にも同様の箇所あり」はそれにならない。検索を作者に任せ、作者は覚えている箇所しか直さない。
 
-## Step 6. Verify
+## Step 6. 検証する
 
-Follow `verification.md`. Both 6a (refutation) and 6b (challenging the clears, hunting what was
-missed) are mandatory.
+`verification.md` に従う。6a（反証）と 6b（クリアへの異議、見落としの探索）の両方が必須。
 
-## Step 7. Synthesise
+## Step 7. まとめる
 
-Follow `report-format.md`.
+`report-format.md` に従う。
 
 ---
 
-## Guardrails
+## ガードレール
 
-- **Never modify code or configuration. Report findings only.**
-- Every finding carries a `file:line` and a **concrete failure scenario**. No general advice.
-- ⛔, 🔴, and 🟡 always use the three-part presentation. Suggested comments stay suggestions;
-  posting happens only when the user explicitly asks.
-- **Never disguise not-knowing as verified.** Safety you have not read is "unverified" and goes to
-  👤 or 🧭. "Same as existing or siblings" is not grounds for a clear without a `file:line`.
-- **When you report clean, state its limits under 🔎** — what you read, what you assumed. Never
-  present "no findings" as unconditional proof of safety.
-- **Design soundness, system-wide risk, and propagation always get raised as 🧭, even outside the
-  diff.** Do not hide behind diff scope.
-- Behaviour changes to shared utilities and common foundations must be assessed for irreversibility
-  across **every consumer** enumerated in Step 2.
-- Do not report what CI catches mechanically (formatting, lint minutiae). Concentrate on design,
-  irreversibility, and security.
-- Requirement conformance is flagged best-effort only; the final call is 👤.
-- Do not run `typecheck` or `tsgo`. Leave it to CI and the developer.
+- **コードも設定も変更しない。所見を報告するだけ。**
+- すべての所見に `file:line` と**具体的な失敗シナリオ**を付ける。一般的な助言は書かない。
+- ⛔、🔴、🟡 は常に三部構成で示す。提案コメントは提案のままにし、投稿はユーザーが明示的に頼んだ時だけ行う。
+- **知らないことを確認済みに見せない。** 読んでいない安全性は「未確認」とし、👤 か 🧭 に入れる。「既存や兄弟と同じ」は `file:line` 無しではクリアの根拠にならない。
+- **綺麗な結果を報告する時は、その限界を 🔎 に書く**（何を読み、何を仮定したか）。「所見なし」を無条件の安全の証明として示さない。
+- **設計の健全性、システム全体のリスク、伝播は、差分の外でも必ず 🧭 として挙げる。** 差分の範囲を盾にしない。
+- 共有ユーティリティと共通基盤の振る舞いの変更は、Step 2 で列挙した**すべての利用者**に対して不可逆性を評価する。
+- CI が機械的に拾うもの（フォーマット、lint の細部）は報告しない。設計、不可逆性、セキュリティに集中する。
+- 要件への適合はできる範囲で指摘するだけで、最終判断は 👤。
+- `typecheck` や `tsgo` は実行しない。CI と開発者に任せる。

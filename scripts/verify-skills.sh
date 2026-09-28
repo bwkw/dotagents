@@ -194,7 +194,7 @@ check_skill() {
   if has_frontmatter_key "$skill" allowed-tools; then
     # Match inflections too ("never modifies", "never writes"), or the check rejects prose that
     # states the restriction perfectly well.
-    if grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports' <<<"$body"; then
+    if grep -qiE 'never (modif|writ|edit|chang|touch)|read-only|does not (modify|write|touch)|only reports|読み取り専用|変更しない|書き換えない|触らない|報告だけ' <<<"$body"; then
       :
     elif [[ "$dir" == "$REPO/skills/"* ]]; then
       err "$id" "declares 'allowed-tools' but the body never states the restriction -- unenforced in Cursor (see docs/decisions.md)"
@@ -207,13 +207,13 @@ check_skill() {
   # forbidden from doing the thing it exists to do -- by an optimization, which decisions.md §3 says must
   # never be the mechanism. Silent in Cursor, and a permission prompt in Claude.
   if has_frontmatter_key "$skill" allowed-tools \
-     && grep -qiE 'parallel subagents|dispatch (them|the)|Task tool|launch .*subagent' <<<"$body" \
+     && grep -qiE 'parallel subagents|dispatch (them|the)|Task tool|launch .*subagent|サブエージェントを(並列|起動|立ち上げ)' <<<"$body" \
      && ! grep -qE '^allowed-tools:.*\bTask\b' <<<"$(frontmatter_value "$skill" allowed-tools | sed 's/^/allowed-tools: /')"; then
     err "$id" "the body dispatches to subagents but 'allowed-tools' omits Task -- the skill cannot do what it describes"
   fi
 
   if has_frontmatter_key "$skill" context; then
-    grep -qiE 'subagent|sub-agent|Task tool|separate context|fresh context' <<<"$body" \
+    grep -qiE 'subagent|sub-agent|Task tool|separate context|fresh context|サブエージェント|別のコンテキスト' <<<"$body" \
       || err "$id" "declares 'context:' but the body never says to run in a subagent -- ignored in Cursor (see docs/decisions.md)"
   fi
 
@@ -546,12 +546,12 @@ echo "checking the refutation pass does not order findings it excludes"
 # (the phrase "severity order" also appears in the bias notes further down).
 vf="$REPO/skills/_shared/verification.md"
 if [[ -f "$vf" ]]; then
-  if ! grep -q 'Applies only to findings with `severity=critical`' "$vf"; then
+  if ! grep -q '対象は `severity=critical` の所見だけ' "$vf"; then
     err "verify-scope" "skills/_shared/verification.md no longer states 6a's scope in the form this check anchors on -- reword the check together with the file, or the check passes by not finding its anchor"
   else
     # 6a runs from its own heading to 6b's; the ordering rule must not name a severity 6a excludes.
     sect="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
-    if grep -A1 'severity order' <<<"$sect" | grep -qE '💡|🟡'; then
+    if grep -A1 '重大度の順' <<<"$sect" | grep -qE '💡|🟡'; then
       err "verify-scope" "6a accepts only critical/irreversible but its ordering rule names 💡/🟡 -- the pass is told to order findings it was told not to take"
     else
       printf '%s✓%s the refutation pass orders only the severities it accepts\n' "$c_green" "$c_off"
@@ -584,14 +584,14 @@ if [[ -f "$vf" ]]; then
     # Anchors are asserted, never used as conditions: a reworded sentence must fail loudly rather than
     # quietly disable the test (the lesson the ordering check above was fixed for).
     a6="$(awk '/^## 6a\./{i=1} /^## 6b\./{i=0} i' "$vf")"
-    b6="$(awk '/^## 6b\./{i=1} /^## Recurring/{i=0} i' "$vf")"
-    if ! grep -q 'can only lower' <<<"$a6"; then
+    b6="$(awk '/^## 6b\./{i=1;print;next} /^## /{i=0} i' "$vf")"
+    if ! grep -q '下げることしかできない' <<<"$a6"; then
       err "severity-direction" "6a no longer states that its severity lens can only lower -- reword the check with the file, or it passes by not finding its anchor"
-    elif ! grep -qi 'settle the provisional severities' <<<"$b6"; then
+    elif ! grep -q '暫定の重大度を確定させる' <<<"$b6"; then
       err "severity-direction" "6b lost the 'settle the provisional severities' job -- a finding parked below its severity for want of a reachability trace now has no pass chartered to finish it, and the placeholder ships as a verdict"
-    elif ! grep -qiE 'raising is correct here' <<<"$b6"; then
+    elif ! grep -q 'ここでは引き上げてよい' <<<"$b6"; then
       err "severity-direction" "6b describes settling but no longer permits raising -- settling that can only lower leaves the false-negative half of the hole open"
-    elif grep -qiE 'lens (can|may) raise|raising is (correct|allowed|permitted) (here|in 6a)' <<<"$a6"; then
+    elif grep -qE '引き上げてよい|引き上げられる' <<<"$a6"; then
       err "severity-direction" "6a now permits raising a severity -- escalation inside the refutation pass is what the file forbids two bullets earlier; settle provisional severities in 6b instead"
     else
       printf '%s✓%s 6a lowers only, and 6b is chartered to settle provisional severities\n' "$c_green" "$c_off"
@@ -611,7 +611,7 @@ echo "checking the find phase has no undisclosed rank cap"
 fd="$REPO/skills/_shared/finding-discipline.md"
 if [[ -f "$fd" ]]; then
   # One phrasing was one way to write the cap. These are the shapes it actually comes back as.
-  if grep -qiE '(top|highest|first|best) [0-9]+ per cluster|cap [^.]{0,30} (at|to) [0-9]+ per cluster|[0-9]+ per cluster by severity' "$fd"; then
+  if grep -qiE '(top|highest|first|best) [0-9]+ per cluster|cap [^.]{0,30} (at|to) [0-9]+ per cluster|[0-9]+ per cluster by severity|クラスタ(ごと|あたり)[^。]{0,20}(上位|最大|先頭) ?[0-9]+' "$fd"; then
     err "find-rank-cap" "the find phase caps findings by rank again -- nothing counts what a rank cap drops, so use the report's output budget in report-format.md, which folds the overflow into a note the reader can see"
   else
     printf '%s✓%s the find phase drops nothing that no bucket counts\n' "$c_green" "$c_off"
@@ -1086,7 +1086,7 @@ if [[ -d "$REPO/agents" ]]; then
     # `tools:` is absent there. The body must state it too.
     if grep -q '^tools:' <<<"$afm"; then
       abody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$af")"
-      grep -qiE 'read-only|never modify|do not modify' <<<"$abody" \
+      grep -qiE 'read-only|never modify|do not modify|読み取り専用|変更しない' <<<"$abody" \
         || warn "agents/$aid" "declares 'tools:' but the body never states the restriction -- Cursor ignores 'tools:'"
     fi
   done

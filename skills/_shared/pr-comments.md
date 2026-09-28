@@ -1,174 +1,101 @@
-# Posting the review to the PR
+# レビューを PR に投稿する
 
-Read this **only when a PR exists and the user wants comments on it.** The review report stands on its
-own; this file is about the smaller thing that goes on the pull request.
+**PR があり、ユーザーがコメントを望む時だけ読む。** レビューレポートはそれ単体で完結する。このファイルは PR に載せる、より小さいものを扱う。
 
-**Nothing is posted until the user types `Go`.** Not the drafts, not a "harmless" nit, not a top-level
-summary. Drafting is read-only; the only write in this whole file is Step 4, and it happens once.
+**ユーザーが `Go` と打つまで何も投稿しない。** 下書きも、「無害な」nit も、トップレベルの要約も。下書きは読み取り専用で、このファイルで唯一の書き込みは Step 4 の 1 回だけ。
 
 ---
 
-## The report and the comments are not the same set
+## レポートとコメントは同じ集合ではない
 
-**The report keeps everything.** Every bucket, every count, every 🔬 line — that is the complete record
-and it is what makes a clean result readable. **The comments are the subset worth another person's
-attention**, and the two are different sizes on purpose.
+**レポートはすべてを残す。** すべてのバケット、件数、🔬 の行。これが完全な記録。**コメントは他人の注意に値する部分集合** で、両者の大きさは意図して違う。
 
-That distinction is what stops this step from becoming the thing the toolkit keeps retracting: **a cap
-that hides what it cut.** Nothing is dropped here — it is all still in the report, in the same session,
-one scroll up. What Step 1 does is decide what to *say out loud*.
+この区別があるから、ここでの選択は「削ったものを隠す上限」にならない。何も落とさない — すべて同じセッションのレポートに残っている。Step 1 が決めるのは *口に出すもの* だけ。
 
-> **When `da-review-all` is reviewing someone else's PR, the layer reports are never printed** — the
-> premise above would then be false, and the selection would be a cap that hides what it cut after all.
-> On that path **the overview page is the report**: its 🔎 / 🔬 rows carry what was excluded, one line
-> each. Check the page has them before selecting; if it does not, the selection is not auditable and
-> the page is incomplete, not the comment set.
+> **`da-review-all` が他人の PR をレビューしている時は、層ごとのレポートを出力しない。** その場合は上の前提が崩れるので、**概要ページがレポートになる**: 除外したものはその 🔎 / 🔬 の行が 1 行ずつ運ぶ。選ぶ前にページにその行があるか確かめる。無ければ選択を監査できない。未完成なのはコメント集合ではなくページの方。
 
-## Step 1. Select — by rule, never by rank
+## Step 1. 選ぶ — 規則で選び、順位では選ばない
 
-**Select from verified findings only.** The 🔬 row below is not a filter you apply while drafting — it
-is a precondition. Run `verification.md` *before* this step, or the set you select from is the find
-phase's set and the 🔬 row has nothing to act on. Measured on a real run of three findings taken into a
-refutation pass: one 🔴 was refuted outright, one held with two sub-claims corrected, and one lost a
-severity level and turned up an item nobody had raised. **Selecting first would have put the refuted one
-at the top of the review.**
+**検証済みの所見からだけ選ぶ。** 下の 🔬 の行は下書き中にかけるフィルタではなく前提条件。この Step の *前に* `verification.md` を実行する。先に選ぶと、反証で潰れる所見（実際の実行では 3 件中 1 件の 🔴 が丸ごと反証された）がレビューの先頭に載る。
 
-| Bucket | Goes on the PR as | When |
+| バケット | PR での載せ方 | いつ |
 |---|---|---|
-| ⛔ | inline comment on the line, and named in the top-level summary | **Always.** This is the one the PR exists to stop. |
-| 🔴 | inline comment on the line | **Always.** |
-| 🟡 | inline comment on the line | **Only when all three hold**: this change originates it, it names a concrete failure scenario (input and state → result), and **you would act on it yourself.** |
-| 💡 | **one** rolled-up comment, `Nit:` prefixed, listing them as lines | Never one comment each. Five separate nits cost more trust than the five fixes are worth. |
-| 🧭 | **in the review body**, phrased as a question | It is not a defect at a line, so it does not get a line. "This shape will cost us — is that priced in?" |
-| 👤 | **in the review body**, naming what would settle it or whom to ask | Never phrased as a finding. It is a statement about what you did not read. |
-| 🔬 refuted, or below the confidence threshold | **Nothing.** | It did not survive the verify pass. Posting it is exactly the false positive that pass exists to stop. |
+| ⛔ | 行へのインラインコメント、かつトップレベルの要約で名指し | **常に。** PR が止めるべきものはこれ。 |
+| 🔴 | 行へのインラインコメント | **常に。** |
+| 🟡 | 行へのインラインコメント | **3 つすべてが成り立つ時だけ**: この変更が原因である、具体的な失敗シナリオ（入力と状態 → 結果）を示している、**自分なら対応する。** |
+| 💡 | `Nit:` を頭に付けた **1 つ** のまとめコメントに、1 行ずつ列挙 | 1 件ずつのコメントにはしない。nit を 5 つ別々に出すと、5 つの修正の価値より多くの信用を失う。 |
+| 🧭 | **レビュー本文** に、問いの形で | 行の欠陥ではないので行には付けない。「この形は後で高くつく — 織り込み済みか？」 |
+| 👤 | **レビュー本文** に、何で決着するか・誰に聞くかを書いて | 所見の形では書かない。読まなかったものについての表明である。 |
+| 🔬 反証された、または確信度の閾値未満 | **何も載せない。** | 検証フェーズを生き残っていない。載せれば、そのフェーズが止めるための誤検出そのものになる。 |
 
-**The filter, stated once:** the trust metric is the **adoption rate** of what you post (decision 14 —
-below 50% and a reviewer gets routed around). So the test for every 🟡 and 💡 is not "is it true" but
-**"would I decline this if it came back to me in `da-fix-plan`?"** If yes, it stays in the report and off
-the PR.
+**フィルタは 1 つ:** 信用の指標は投稿したものの **採用率**（判断 14 — 50% を下回るとレビュアーは迂回される）。だから 🟡 と 💡 の判定は「正しいか」ではなく **「`da-fix-plan` で自分に返ってきたら断るか？」**。断るならレポートに残し、PR には載せない。
 
-**Two more cuts:**
+**さらに 2 つ削る:**
 
-- **Lead with why the defect was possible.** Before selecting, ask what let the bug this change fixes
-  happen in the first place, and whether the change removes that reason. If it only patches the one
-  path that leaked, the headline is the missing mechanism — the guard, the test, the choke point that
-  would have caught it — and it goes in the review body. That is the comment the author most needs and
-  the one a line-by-line pass never produces.
-- **A guard against some other, hypothetical omission is not a comment.** "If someone forgets X next
-  time, Y breaks" — where this change did X correctly — is a follow-up at most. The prevention
-  comment that earns its place is the one about the bug *this* change exists for.
+- **欠陥がなぜ起こりえたかを先に書く。** 選ぶ前に、この変更が直すバグをそもそも何が許したか、変更がその理由を取り除いているかを問う。漏れた 1 経路を塞ぐだけなら、見出しは欠けている仕組み — それを捕まえたはずのガード、テスト、チョークポイント — で、レビュー本文に置く。作者に最も必要で、行ごとの読みからは決して出てこないコメントである。
+- **別の仮定上の漏れに対するガードはコメントにしない。** 「次に誰かが X を忘れたら Y が壊れる」— この変更は X を正しくやっている — は、せいぜいフォローアップ。載せる価値のある予防のコメントは、*この* 変更が存在する理由のバグについてのものだけ。
 
-**No count cap.** Not "the top 5". A change that genuinely has nine 🔴 gets nine comments, and the right
-response to that is the one Step 1b already gives: say the change is too large to review as one unit.
-For 🟡 and 🧭 the bar is "must this go in?", and on a clean change that is usually one to three.
+**件数の上限は無い。** 「上位 5 件」ではない。本当に 🔴 が 9 件ある変更には 9 件のコメントを付け、Step 1b がすでに言うとおり、1 単位でレビューするには大きすぎると伝える。🟡 と 🧭 の基準は「これは載せねばならないか？」で、綺麗な変更ならたいてい 1〜3 件。
 
-## Step 2. Draft — in the user's voice, not the report's
+## Step 2. 下書き — レポートの口調ではなくユーザーの口調で
 
-The report is written to be **complete**. A review comment is written to be **acted on by a person who
-did not read the report.** They are different registers and translating between them is the work here.
+レポートは **完全** であるために書く。レビューコメントは **レポートを読んでいない人が動ける** ように書く。口調が違い、その間の翻訳がここでの仕事。
 
-**Read `profiles/review-voice.md`** — the path is relative to **the toolkit root**, not to the calling
-skill's `reference/` directory, and the file is personal and untracked like every other profile.
-Resolving it under a skill's reference directory finds nothing, and "the profile is missing" then gets
-reported to the user as fact while the file was there all along. It carries the register: how direct,
-how much hedging, questions versus assertions, Japanese or English, whether nits are marked.
-**`da-review-all` loads it back at Step 1** on the someone-else's-PR path; if you are arriving from
-there it is already in context.
+**`profiles/review-voice.md` を読む** — パスは **ツールキットのルート** 基準で、呼び出し元スキルの `reference/` 基準ではない。他のプロファイルと同じく個人用で追跡されない。スキルの reference 配下で解決すると何も見つからず、ファイルがあるのに「プロファイルが無い」と報告してしまう。このファイルが口調を持つ: どれだけ直接か、どれだけ留保するか、問いか断定か、日本語か英語か、nit に印を付けるか。**`da-review-all` は他人の PR の経路で Step 1 にこれを読み込む。** そこから来たならすでにコンテキストにある。
 
-**If that file does not exist, stop and ask for it. Do not infer a voice.** A comment posted under
-someone's name in a register they do not use is worse than no comment: it reads as them, and they cannot
-unsay it. Ask for two or three comments they have actually written, or a description of the register, and
-offer to write the file from that.
+**ファイルが無ければ止まって頼む。口調を推測しない。** 本人が使わない口調で名前付きで投稿されたコメントは、無いより悪い（本人の発言として読まれ、取り消せない）。本人が実際に書いたコメントを 2〜3 件、または口調の説明を頼み、そこからファイルを書くと申し出る。
 
-**Reconstructing the register from `gh api` instead of reading the profile loses the small things,
-which are the ones that make it sound like them.** Observed on a real run, with the profile present and
-unread: the sentence-final form the author actually uses, the lowercase `nit:` prefix, closing with a
-request rather than an assertion, and writing light findings *lightly* — every comment came out at the
-same weight. All four are in the file. **The profile outranks your reading of their past comments**,
-and where they disagree, the examples quoted inside the profile win.
+**プロファイルを読まずに `gh api` から口調を再構成しない。** 本人らしさを作る細部 — 実際の文末の形、小文字の `nit:`、断定ではなく依頼で締めること、軽い所見を *軽く* 書くこと — が落ちる。**プロファイルは過去コメントからの自分の読みより優先し**、食い違えばプロファイル内に引用された例が勝つ。
 
-### The shape is not the register
+### 形は口調とは別
 
-The register is personal and lives in the profile. **The shape is neither** — it is what makes a comment
-readable in a phone notification, and it holds in any register:
+口調は個人のものでプロファイルにある。**形はそのどちらでもない** — スマホの通知で読めるかを決めるもので、どの口調でも守る。
 
-1. **The first sentence is the claim.** The claim, not the topic: "この コードパスを守るテストが無いですよね",
-   not "テストについて". No preamble, no heading.
-2. **One or two sentences in total**: the claim carrying its mechanism, then the ask. Name the fix; do
-   not explain it. A comment that needs a third sentence is either two findings, or one that belongs on
-   the overview page.
-3. **No bold line** — it reads as report formatting. Use bold only if the voice profile's examples do.
+1. **最初の文は主張。** 話題ではなく主張: 「テストについて」ではなく「この コードパスを守るテストが無いですよね」。前置きも見出しも付けない。
+2. **全体で 1〜2 文**: 仕組みを含んだ主張、そして依頼。修正は名指しするが説明しない。3 文目が要るなら、所見が 2 つあるか、概要ページに置くべきもの。
+3. **太字の行を置かない** — レポートの書式に見える。口調プロファイルの例が使っている時だけ使う。
 
-**Do not append a references block.** A trailing `参考:` / `See also:` list of `file:line` from the same
-repository is citation padding — the author can open any of those paths in one click, and the list grows
-back exactly the reasoning the two-sentence limit just squeezed out. Fold the **one** load-bearing
-citation into the sentence that needs it, the one whose absence would let the author reasonably
-disagree, and drop the rest. A references block earns its own line only when it points **outside** the
-repository: a vendor specification, an RFC, a ticket the author cannot grep for.
+**参照ブロックを末尾に付けない。** 同じリポジトリの `file:line` を並べた `参考:` / `See also:` は引用の水増しで、作者はワンクリックで開ける上、2 文の制限で絞った推論がそこに戻ってくる。**1 つ** の要となる引用（無ければ作者が正当に反論できるもの）だけを必要な文の中に入れ、残りは落とす。参照ブロックが独立した行に値するのは、**リポジトリの外** を指す時だけ: ベンダー仕様、RFC、作者が grep できないチケット。
 
-Then these, because they are about the comment's job rather than its tone:
+次は口調ではなくコメントの役割についての規則。
 
-- **The line, the reason, the fix** — in that order, and the reason must be **load-bearing**, which is
-  not the same as long. It is the one sentence that still stands in front of an author who disagrees. A
-  comment that says what to change without why gets applied wrongly or argued with; one that says it in
-  six sentences gets skimmed down to the request and applied wrongly anyway.
-- **Cite what you read, in prose.** `file:line` inside the sentence. A comment whose evidence is "this
-  pattern is usually wrong" is a comment about patterns, not about this code.
-- **Say when you are unsure.** "I could not confirm X — does Y guard it?" is a better comment than a
-  confident wrong one, and it is the honest form of 👤.
-- **No praise padding, no apology padding.** Neither survives translation into a different register and
-  both dilute the finding.
+- **行、理由、修正** — この順で。理由は **要となるもの** で、長さとは別。反論する作者の前でも立っている 1 文。理由の無い指示は誤って適用されるか反論され、6 文の理由は依頼だけ拾い読みされて結局誤って適用される。
+- **読んだものを文の中で引用する。** `file:line` を文中に。根拠が「このパターンはたいてい誤り」のコメントは、このコードではなくパターンについてのコメント。
+- **確信が無ければそう書く。** 「X を確認できなかった — Y がガードしている？」は自信のある誤りよりよく、👤 の正直な形。
+- **褒め言葉やお詫びで水増ししない。** どちらも口調の翻訳に耐えず、所見を薄める。
 
-## Step 2b. Resolve the target PR, and verify every anchor — before showing anything
+## Step 2b. 対象 PR を決め、すべてのアンカーを確かめる — 何かを見せる前に
 
-Two failures live here. Both are silent until the POST, and the POST is all-or-nothing.
+失敗は 2 つあり、どちらも POST まで表に出ない。POST は全部通るか全部落ちるか。
 
-**Which PR does this file belong to.** A line comment can only be placed on a PR whose diff contains
-that line. In a stacked set each PR's base is **the branch below it**, not the trunk, so a file added
-in the second PR is absent from the third's diff entirely. Map it before drafting:
+**このファイルはどの PR に属するか。** 行コメントは、その行を差分に含む PR にしか置けない。積み重ねた PR では各 PR のベースは **下のブランチ** でトランクではないので、2 つ目の PR で追加したファイルは 3 つ目の差分には一切無い。下書きの前に対応づける。
 
 ```bash
 # for each PR in the stack, with its own base
 git diff --name-only "$BASE_OF_THAT_PR" "$HEAD_OF_THAT_PR" | grep -E '<the files you want to comment on>'
 ```
 
-**Which line.** Line numbers taken from a review that read the *top* of a stack, or from an earlier
-version of the file, are wrong for the PR you are posting to. Re-derive each anchor from the head of
-**that** PR:
+**どの行か。** 積み重ねの *最上段* を読んだレビューや、ファイルの古い版から取った行番号は、投稿先の PR では間違っている。各アンカーを **その** PR の head から取り直す。
 
 ```bash
 git show "$HEAD_OF_THAT_PR:$path" | grep -n '<the distinctive text of the line>'
 ```
 
-Observed: an anchor written as `:487` from a top-of-stack read was `:467` in the PR that owned the
-file. It was caught by chance, at post time. **`start_line`/`line` must both be lines the diff touches
-— one bad anchor rejects the whole call**, so this check is what stands between one typo and losing
-every comment in the review.
+**`start_line`/`line` はどちらも差分が触れる行でなければならない — 1 つの悪いアンカーが呼び出し全体を拒否させる。** だからこの確認が、1 つの打ち間違いとレビューの全コメント喪失の間に立つ。
 
-## Step 3. Show every draft, then wait
+## Step 3. 下書きをすべて見せ、待つ
 
-Print, for each comment: the **target** (`file:line`, or "top-level") and the **body verbatim** —
-exactly the bytes that would be posted. Then the ones you decided *not* to post, one short line each with
-the reason, so the selection is auditable and not just asserted. **Keep this message as short as the
-comments themselves**: no restated reasoning, no per-draft commentary, no headings beyond one per draft.
+コメントごとに、**対象**（`file:line`、または「トップレベル」）と **本文をそのまま** — 投稿されるバイトそのもの — を出す。続けて投稿 *しない* と決めたものを、理由つきで 1 行ずつ出し、選択を主張ではなく監査できるものにする。**このメッセージはコメント自体と同じくらい短く保つ**: 推論の言い直し、下書きごとの解説、下書きごとに 1 つを超える見出しは書かない。
 
-Then stop and say what `Go` would do: *"`Go` posts one review to PR #X — N inline comments plus a body
-carrying the 🧭 and 👤 items. Nothing else."*
+止まって、`Go` が何をするかを書く: *「`Go` で PR #X に 1 つのレビューを投稿します — インラインコメント N 件と、🧭 と 👤 を載せた本文。それ以外はしません。」*
 
-**Wait for the literal `Go`, or an explicit instruction to post** ("投稿して", "Approve もしておいて").
-"Looks good", "sure", silence, or a reply about something else is not it. Anything less means keep
-drafting.
+**文字どおりの `Go`、または投稿の明示的な指示**（「投稿して」「Approve もしておいて」）**を待つ。** 「良さそう」「いいよ」、無言、別の話題への返答はそれに当たらない。それ未満なら下書きを続ける。
 
-## Step 4. Post — once, as one review
+## Step 4. 投稿する — 1 回、1 つのレビューとして
 
-**One call, all comments attached** — not N. A PR with fourteen notification emails from one review is
-the reviewer's fault, not the author's.
+**1 回の呼び出しで全コメントを付ける** — N 回ではない。1 つのレビューで 14 通の通知メールが届くのはレビュアーの責任。
 
-**`gh pr review` cannot do this.** Its flags are `--body` / `--body-file` / `--approve` / `--comment` /
-`--request-changes` and nothing else: it posts a review *body* and has no way to attach a comment to a
-line. Reaching for it and then falling back to one `gh api` call per finding is exactly the N-call shape
-this step exists to prevent. Post the review as one REST call instead:
+**`gh pr review` ではできない。** フラグは `--body` / `--body-file` / `--approve` / `--comment` / `--request-changes` だけで、レビュー *本文* を投稿するだけで行にコメントを付けられない。これに手を伸ばし、所見ごとの `gh api` 呼び出しに落ちるのが、この Step が防ぐ N 回の形そのもの。代わりに 1 回の REST 呼び出しで投稿する。
 
 ```bash
 # review.json: { "event": "COMMENT", "body": "<the top-level text>",
@@ -176,42 +103,27 @@ this step exists to prevent. Post the review as one REST call instead:
 gh api --method POST "repos/{owner}/{repo}/pulls/<number>/reviews" --input review.json
 ```
 
-**Write a body even when every finding is inline.** Do not send `event: COMMENT` with an empty `body`
-(whether the API rejects it is unmeasured — see `docs/harness-facts.md`; a one-line body sidesteps the
-question). One line saying what you read is the whole job: filling it with a summary of the review
-duplicates the overview page and invites the author to read the body instead of the comments.
+**すべての所見がインラインでも本文を書く。** `event: COMMENT` を空の `body` で送らない（API が拒否するかは未計測 — `docs/harness-facts.md` を参照。1 行の本文なら問いを避けられる）。何を読んだかを 1 行書けば足りる。レビューの要約で埋めると概要ページと重複し、作者がコメントではなく本文を読むようになる。
 
-`line` + `side` anchors to a single line; `start_line` + `line` spans a range. **Both must be lines the
-diff actually touches** — an anchor outside the diff is rejected for the whole call, so a bad 📍 loses
-every comment, not one. Step 2b is what makes that safe.
+`line` + `side` は 1 行に、`start_line` + `line` は範囲にアンカーする。**どちらも差分が実際に触れる行でなければならない** — 差分外のアンカーは呼び出し全体で拒否され、悪い 📍 1 つで全コメントを失う。それを安全にするのが Step 2b。
 
-**Always spell the repository out in the path.** `gh` resolves a bare PR number against the *current
-working directory's* repository, and PR numbers collide across repositories — the same number is a live
-PR in one and somebody's merged PR in another. Writing `repos/{owner}/{repo}/pulls/<n>/reviews` in full
-removes the ambiguity; relying on cwd has already overwritten an unrelated merged PR once.
+**パスには常にリポジトリを明記する。** `gh` は裸の PR 番号を *カレントディレクトリの* リポジトリで解決し、PR 番号はリポジトリ間で衝突する。`repos/{owner}/{repo}/pulls/<n>/reviews` をフルで書けば曖昧さが消える。cwd に頼ったせいで、無関係なマージ済み PR を上書きしたことがある。
 
-**One review per PR.** A stacked set gets one call per PR, each with its own comment list, not one call
-carrying everything.
+**1 つの PR に 1 つのレビュー。** 積み重ねた PR では PR ごとに 1 回、それぞれのコメント一覧で呼ぶ。全部を載せた 1 回にはしない。
 
-### Then verify it landed
+### 着地したか確かめる
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<n>/comments?per_page=50" \
   --jq '.[] | select(.user.login=="<you>") | "\(.path):\(.line) [\(if .position == null then "OUTDATED" else "ok" end)]"'
 ```
 
-`position: null` means the comment posted but is **detached from the diff** — it renders collapsed under
-"outdated" and the author may never see it. A 201 is not evidence the comment is readable; this is.
+`position: null` は、コメントは投稿されたが **差分から外れている** という意味 — "outdated" の下に畳まれて表示され、作者が見ないかもしれない。201 はコメントが読める証拠ではない。これが証拠。
 
-**`Go` authorizes this post and nothing after it.** A follow-up edit, a reply to the author's response, a
-second round after they push — each needs its own `Go`. Approval does not carry forward.
+**`Go` が許可するのはこの投稿だけで、その後のものは含まない。** 追加の編集、作者の返信への返答、push 後の 2 巡目は、それぞれ別の `Go` が要る。承認は持ち越さない。
 
-**The review state is the human's call.** `Go` alone posts `event: COMMENT`. Post `APPROVE` or
-`REQUEST_CHANGES` **only when the user says so in their reply** — then it is the same single call with
-that `event`, and the instruction applies to this post only. Never infer it from "looks good" or from a
-clean review.
+**レビュー状態は人間が決める。** `Go` だけなら `event: COMMENT` を投稿する。`APPROVE` や `REQUEST_CHANGES` は **ユーザーが返信でそう言った時だけ** 投稿する — その場合も同じ 1 回の呼び出しでその `event` を使い、指示はこの投稿にだけ適用する。「良さそう」や綺麗なレビュー結果から推測しない。
 
-## Step 5. Say what was posted
+## Step 5. 何を投稿したか伝える
 
-Link the review, list what went up, and state plainly that **the report is the complete set and the PR
-has the subset** — so nobody later reads the PR thread as the whole review.
+レビューへのリンクを出し、載せたものを列挙し、**レポートが完全な集合で、PR にあるのはその部分集合** だとはっきり書く — 後で誰かが PR のスレッドをレビューの全体として読まないように。
