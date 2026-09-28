@@ -105,6 +105,7 @@ step "CLAUDE.md が AGENTS.md へのリンクのまま" symlink_intact
 step "配るスクリプトがすべて実行可能" executable_bits
 step "スキルの lint（不変条件、予算、エージェント、上書き範囲）" ./scripts/verify-skills.sh
 step "da-review-all の概要出力の契約" ./scripts/test-da-review-all-overview.sh
+step "da-demo-video が壊れたシナリオを撮影前に弾く" ./scripts/test-da-demo-video.sh
 # 意図して高速レーンに置く。静的な突き合わせでミリ秒で済み、守る対象はドキュメントだけの変更（振る舞いの
 # スイートを飛ばす変更そのもの）で編集される。
 step "停止理由: loop.sh と docs/loops.md が一致" ./scripts/verify-halt-docs.sh

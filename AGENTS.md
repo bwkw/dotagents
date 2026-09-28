@@ -35,8 +35,8 @@
    リポジトリを arm すると、共有 git dir で一致する **linked worktree** も arm される。試行回数は worktree ごとに数える（ゲートを引き継いでも、別の作業と回数を共有しない）。両方を決める関数は `scripts/gate.sh` と hook に `dotagents:gate-shared` ブロックとしてバイト単位で複製してある。不変条件 4 で hook は消えうるパスに依存できないため複製し、`verify-skills.sh` が一致を検査する。
 
 7. **接頭辞は 2 種類。この分け方がメニューを正直に保つ。**
-   **`da-*` は打つもの。** **`x-*` は内部用**（呼び出し先とサブエージェント。打たない）。`user-invocable: false` は Claude 専用で、Cursor はサブエージェントをコマンドピッカーに出すので、フィールドで*隠す*方法は両方では効かない。`da` 接頭辞を共有しないことは効く。`/da` で Claude Code と Cursor に同じ 9 件が出る。
-   <!-- dotagents:skill-count mine=12 typed=9 layer=3 agents=2 upstream=15 -->
+   **`da-*` は打つもの。** **`x-*` は内部用**（呼び出し先とサブエージェント。打たない）。`user-invocable: false` は Claude 専用で、Cursor はサブエージェントをコマンドピッカーに出すので、フィールドで*隠す*方法は両方では効かない。`da` 接頭辞を共有しないことは効く。`/da` で Claude Code と Cursor に同じ 10 件が出る。
+   <!-- dotagents:skill-count mine=13 typed=10 layer=3 agents=2 upstream=15 -->
 
    どれかの名前を変えると **3 か所**が黙って壊れる。`verify-skills.sh` の `disable-model-invocation` の対象、lint hook の同じ一覧、そして名前で検索しても当たらない `` `x-review-<layer>` `` のようなテンプレのプレースホルダ。両ファイルは一覧を `dotagents:dmi-gate` / `dotagents:dmi-dispatch` 行のデータとして持ち、`verify-skills.sh` が全名前の解決・2 つの一覧の一致・プレースホルダの接頭辞を検査する。**このマーカーのコメントを消すと検査が消える**ので、どちらかが無ければ linter がエラーにする。
 

@@ -1,0 +1,10 @@
+{
+  "name": "da-demo-video",
+  "private": true,
+  "type": "module",
+  "description": "da-demo-video の撮影・書き出しに使う依存。npm i はこのディレクトリで行う",
+  "dependencies": {
+    "ffmpeg-static": "5.3.0",
+    "playwright": "1.57.0"
+  }
+}
