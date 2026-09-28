@@ -7,112 +7,93 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-investigate — answer the question, then stop
+# /da-investigate — 問いに答えて止まる
 
-Two failure modes bracket codebase investigation. One is stopping too early and answering from a
-plausible guess. The other is "look into the codebase" with no boundary, reading three hundred files
-and filling the context before any work starts.
+調査の失敗は 2 つある。もっともらしい推測で早く止まることと、境界なく読み続けて作業前にコンテキストを埋めることである。
+前者は読む前に宣言する**スコープ契約**で、後者は答えが揃わなくても探索を終わらせる**数値の予算**で防ぐ。
 
-This skill fixes both ends: a **declared scope contract** before reading anything, and a **numeric
-budget** that ends the search whether or not the answer is complete.
+**このスキルは何も変更しない**。読み取り専用で、読んで報告するだけ。
 
-**This skill never modifies anything.** It reads and reports.
+## 実行条件
 
-## Preconditions
-
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| There is a specific question to answer | **Stop.** "Investigate the auth module" is not a question. Ask what decision the answer serves — that determines when to stop. |
+| 答えるべき具体的な問いがある | **止まる**。「認証モジュールを調べて」は問いではない。答えが何の判断に使われるかを聞く（それが止めどきを決める） |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| a question, or the start of planning | `/da-investigate` | `/grilling`, `/writing-plans`, `/da-design-review` |
+| 問い、または計画の開始 | `/da-investigate` | `/grilling`, `/writing-plans`, `/da-design-review` |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md` | How to report what you found, and what you did not |
+| `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md` | 見つけたこと・見なかったことの報告の仕方 |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| `CLAUDE.md`, `AGENTS.md` | When the question concerns project convention rather than mechanism |
+| `CLAUDE.md`, `AGENTS.md` | 問いが仕組みではなくプロジェクトの規約に関わる時 |
 
 ---
 
-**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
-paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
-a person.
+レポートはユーザーが書いている言語で書く（不明なら日本語）。パス・識別子・コマンド・コード片・ログは原文のまま残す。
 
-## Step 1. Declare the scope contract — before reading anything
+## Step 1. スコープ契約を宣言する（何か読む前に）
 
-State, and show the user:
+次をユーザーに示す。
 
-- **The question**, restated precisely.
-- **The decision it serves.** This is what tells you when you have enough. "Where is tenant filtering
-  applied?" for a security review needs every site; for orientation, one representative site is fine.
-- **What you will read** to answer it, and roughly how much.
-- **What you are deliberately not reading.**
+- **問い**を正確に言い直したもの
+- **答えが使われる判断**。これが「十分」の基準になる。「テナントの絞り込みはどこで掛かるか」は、セキュリティレビューなら全箇所、概観なら代表 1 箇所でよい
+- 答えるために**読むもの**と、おおよその量
+- **意図して読まないもの**
 
-If the question turns out to be several questions, say so and ask which one matters — do not silently
-answer all of them.
+問いが実は複数なら、そう言ってどれが重要かを聞く。黙って全部に答えない。
 
-## Step 2. Search widest-first, cheapest-first
+## Step 2. 広く安いものから探す
 
-Escalate. Do not start at the most expensive rung.
+段を順に上げる。最も高い段から始めない。
 
-| Rung | Tool | Answers |
+| 段 | 道具 | 答えること |
 |---|---|---|
-| 1 | `rg` for exact strings, symbols, identifiers | where is this text |
-| 2 | `rg` with structural patterns; `ast-grep` if available | where is this *shape* of code |
-| 3 | LSP / go-to-definition, if the environment has it | who really calls this, who implements it |
-| 4 | reading whole files | how does this actually work |
+| 1 | 完全一致の文字列・シンボル・識別子を `rg` | この文字列はどこにあるか |
+| 2 | 構造パターンの `rg`、あれば `ast-grep` | この*形*のコードはどこにあるか |
+| 3 | LSP / 定義ジャンプ（環境にあれば） | 本当に誰が呼び、誰が実装しているか |
+| 4 | ファイル全体を読む | 実際どう動くか |
 
-Most questions are answered at rungs 1–2. **Reading files is the last rung, not the first.** When
-you find yourself opening a fifth file to answer a "where is X" question, the search term is wrong,
-not the budget.
+たいていの問いは 1〜2 段で答えが出る。**ファイルを読むのは最後の段**。「X はどこか」のために 5 つ目のファイルを開いているなら、悪いのは予算ではなく検索語である。
 
-For a broad question with independent parts, dispatch them to **parallel `x-codebase-explorer`
-subagents** — one per part, in a single message — and synthesise. Each gets its own share of the
-budget. Investigation is the single best use of subagents, because the reading stays in their context
-and only the conclusion comes back to yours. `x-codebase-explorer` is installed globally by this
-toolkit, and carries the read-only constraint and the confirmed / inferred / not-confirmed split in
-its own definition rather than in a prompt that can be ignored.
+独立した部分を持つ広い問いは、部分ごとに `x-codebase-explorer` サブエージェントを並列で起動し（1 メッセージで同時に）、結果を統合する。各サブエージェントに予算を割り振る。読んだ中身はサブエージェント側に残り結論だけが戻るので、調査はサブエージェントの最良の使い道である。`x-codebase-explorer` はこのツールキットがグローバルに入れており、読み取り専用の制約と「確認済み / 推論 / 未確認」の区別を自分の定義に持つ。
 
-### Before reporting a negative, try to refute it
+### 否定を報告する前に、反証を試みる
 
-"Nothing depends on this", "this is the only caller", "this value is not used anywhere" — a negative is
-the easiest answer to get wrong and the most damaging, because a change gets made on the strength of
-it. **Search again with different vocabulary before asserting one.**
+「これに依存するものは無い」「呼び出し元はここだけ」「この値はどこでも使われていない」。否定は最も間違えやすく、それを根拠に変更が入るので害も最も大きい。**断言する前に、別の語彙でもう一度探す**。
 
-- the symbol's other names — aliases, re-exports, a renamed import
-- indirect reach — dynamic dispatch, reflection, a registry, a string key, dependency injection
-- **references built from strings** — concatenation, template literals, a name assembled at runtime
-- non-code call sites — config, migrations, seeds, CI workflows, IaC templates
+- シンボルの別名 — エイリアス、再エクスポート、改名された import
+- 間接的な到達 — 動的ディスパッチ、リフレクション、レジストリ、文字列キー、DI
+- **文字列から組み立てる参照** — 連結、テンプレートリテラル、実行時に組み立てる名前
+- コード以外の呼び出し元 — 設定、マイグレーション、シード、CI ワークフロー、IaC テンプレート
 
-Then **say which vocabularies you tried.** That is what makes the negative worth anything; without it
-you have reported absence of evidence as evidence of absence. One extra search round, and the
-highest-value spend in the budget.
+そのうえで**試した語彙を書く**。書かなければ「証拠が無い」を「無いことの証拠」として報告したことになる。追加 1 ラウンドで済み、予算の中で最も価値の高い使い方である。
 
-## Step 3. Respect the budget
+## Step 3. 予算を守る
 
-**25 file reads. 3 rounds of search refinement.** Per investigation, including subagents.
+**ファイル読み 25 回、検索の絞り込み 3 ラウンド**。サブエージェントを含めた 1 調査あたり。
 
-On exhausting it: **stop and report**. Do not silently continue. The report names what remains
-unverified and what the next 25 reads should target. A partial answer with a known boundary is
-usable; an answer that quietly ran out of room is not.
+使い切ったら**止まって報告する**。黙って続けない。未検証のものと、次の 25 回で何を読むべきかを書く。境界が分かっている部分回答は使えるが、黙って途切れた回答は使えない。
 
-Raise the budget only when the user asks, and say so explicitly.
+予算を上げるのはユーザーが求めた時だけで、上げたことを明示する。
 
-## Step 4. Report
+## Step 4. 報告する
 
-Follow `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md`. ```markdown
+`${CLAUDE_SKILL_DIR}/reference/evidence-rules.md` に従う。
+
+```markdown
 ## <問い>
 
 ### 答え
@@ -132,21 +113,18 @@ Follow `${CLAUDE_SKILL_DIR}/reference/evidence-rules.md`. ```markdown
 何が事実で、何が推論か。残りを確かめるには何が要るか。
 ```
 
-## Done when
+## 完了条件
 
-- [ ] The answer comes first, and answers the question that was asked
-- [ ] Every claim has a `file:line` or is explicitly marked unconfirmed
-- [ ] Unexamined territory is named
-- [ ] Fact and inference are visibly separated
-- [ ] **Every negative claim names the vocabularies that were tried** before asserting it
+- [ ] 答えが最初にあり、聞かれた問いに答えている
+- [ ] すべての主張に `file:line` があるか、未確認と明示されている
+- [ ] 調べていない範囲が名指しされている
+- [ ] 事実と推論が見て分かる形で分かれている
+- [ ] **すべての否定の主張に、断言前に試した語彙が書かれている**
 
-## Anti-patterns
+## アンチパターン
 
-**Reading in order to feel thorough.** If you cannot say which claim a file will support, do not
-open it.
+**網羅した気になるために読む**。そのファイルがどの主張を支えるか言えないなら開かない。
 
-**Answering a bigger question than was asked.** Blast-radius mapping for a one-line change is waste.
-The scope contract exists to prevent this — write it honestly.
+**聞かれたより大きな問いに答える**。1 行の変更に波及範囲の地図は無駄。スコープ契約はこれを防ぐためにあるので、正直に書く。
 
-**Hiding a gap in hedged prose.** "It appears that the filter is probably applied" is worse than
-"not confirmed: I did not read the admin path". Hedging looks like an answer and is not.
+**穴をぼかした文で隠す**。「絞り込みはおそらく掛かっているようだ」は「未確認: 管理画面の経路は読んでいない」より悪い。ぼかしは答えに見えて答えではない。

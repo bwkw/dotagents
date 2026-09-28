@@ -1,72 +1,50 @@
-# Writing a repository profile
+# リポジトリのプロファイルを書く
 
-A profile tells `/da-verify` and the Stop gate how to check *this* repository. It lives in the dotagents
-repo, not in the product repo — that is what keeps product repositories unmodified.
+プロファイルは `/da-verify` と Stop ゲートに、*このリポジトリ*の確かめ方を教える。製品リポジトリではなく dotagents リポジトリに置き、製品リポジトリを変更しない。
 
-File: `<dotagents>/profiles/<repo-name>.json`. Schema: `_schema.json`. Start from `dotagents.json` --
-the only profile in the repository that actually runs, which is why it is the one to copy.
+ファイル: `<dotagents>/profiles/<repo-name>.json`。スキーマ: `_schema.json`。`dotagents.json` から始める（リポジトリで実際に動く唯一のプロファイルなので、写すならこれ）。
 
-**Profiles are gitignored.** They name real repositories, real environments, and sometimes an
-employer's internal rules, so they stay on the machine that wrote them. Only the schema and the
-example are tracked.
+**プロファイルは gitignore される**。実在のリポジトリ・環境・ときには勤務先の内部規則を名指すので、書いたマシンに留める。追跡するのはスキーマと例だけ。
 
-## Procedure
+## 手順
 
-**Do not guess.** Read the repository and derive each command from what is actually there:
+**推測しない**。リポジトリを読み、実際にあるものから各コマンドを導く。
 
-1. `package.json` scripts (or `Makefile`, `justfile`, `mise.toml`, `Cargo.toml`, …).
-2. The CI workflow. It shows which checks actually gate a merge — the best available definition of
-   "done" for this repository.
-3. Pre-commit hooks (`lefthook.yml`, `.pre-commit-config.yaml`) — what already runs locally.
-4. **`CLAUDE.md`, `AGENTS.md`, and any `.claude/skills/` in the repository.** This is where a
-   repository states its own rules about what an agent may run. Honour them; a profile that ignores
-   them breaks the repository's rules on the repository's behalf.
+1. `package.json` の scripts（または `Makefile`, `justfile`, `mise.toml`, `Cargo.toml`, …）。
+2. CI ワークフロー。どのチェックが実際にマージを止めるかが分かり、このリポジトリの「完了」の最良の定義になる。
+3. pre-commit フック（`lefthook.yml`, `.pre-commit-config.yaml`）。手元ですでに走るもの。
+4. **`CLAUDE.md`, `AGENTS.md`、リポジトリ内の `.claude/skills/`**。エージェントが何を実行してよいかの規則をリポジトリが書く場所で、従う。無視したプロファイルは、リポジトリの代わりにリポジトリの規則を破る。
 
-Then propose the profile to the user and confirm the commands before saving.
+そのうえでユーザーにプロファイルを提案し、保存前にコマンドを確認してもらう。
 
-## Field decisions
+## 各フィールドの決め方
 
-**`gate`** — true when failing it must block completion. Match CI: if the pipeline fails on it, it
-gates. Advisory or conditional checks are `gate: false`.
+**`gate`** — 失敗したら完了を止めるべきなら true。CI に合わせる。パイプラインが落ちるならゲートにする。助言的・条件つきのチェックは `gate: false`。
 
-**`agent_may_run`** — false in three situations:
+**`agent_may_run`** — 次の 3 つの場合は false。
 
-- **The repository forbids it.** Some repositories document that an agent must not run a particular
-  command — a typecheck needing more heap than the session has, a script with side effects. That
-  rule is the repository's to make, and a profile that overrides it is a bug.
-- **It spends credentials the session should not** — anything needing a cloud profile, a production
-  database, a paid API.
-- **It is slow enough that running it unattended is antisocial.**
+- **リポジトリが禁じている**。セッションより多くのヒープが要る typecheck、副作用のあるスクリプトなど、エージェントに実行させないと書くリポジトリがある。決めるのはリポジトリで、上書きするプロファイルはバグである。
+- **セッションが使うべきでない認証情報を使う**。クラウドのプロファイル、本番 DB、有料 API が要るもの。
+- **遅く、無人で走らせると迷惑になる**。
 
-Always pair it with `delegate_reason`. An unexplained request to run something by hand reads as
-arbitrary and gets ignored.
+必ず `delegate_reason` と組にする。理由の無い「手で実行して」は恣意的に読まれ、無視される。
 
-**`scope: "changed"`** — when the command takes file arguments and the repository discourages full
-runs. `{files}` is substituted with the changed files; with nothing changed the check is skipped
-rather than widened.
+**`scope: "changed"`** — コマンドがファイル引数を取り、リポジトリが全体実行を嫌う時。`{files}` は変更されたファイルに置換される。変更が無ければ範囲を広げずにチェックを飛ばす。
 
-**`forbidden`** — substrings that must never be executed here. Derive them from the scripts: every
-deploy, every destroy, anything touching a live environment, and anything the repository's own docs
-prohibit. Cheap to over-populate, expensive to under-populate.
+**`forbidden`** — ここで決して実行してはいけない部分文字列。scripts から導く。すべての deploy、すべての destroy、本番環境に触るもの、リポジトリ自身の文書が禁じるもの。多めに入れても安く、少ないと高くつく。
 
-**`cwd`** — relative to the repository root, for monorepos where the real project is a subdirectory.
+**`cwd`** — リポジトリルートからの相対。実体がサブディレクトリにあるモノレポ用。
 
-## Two details worth copying
+## 写すべき 2 つの細部
 
-**Pin test runners to their non-interactive form.** Many repositories define `test` as a bare
-watch-mode runner (`vitest`, `jest --watch`). An agent that runs it hangs until killed. Write
-`vitest run`, `jest --ci`, `pytest -x` — whatever exits on its own.
+**テストランナーは非対話の形に固定する**。`test` を素のウォッチモード（`vitest`, `jest --watch`）で定義するリポジトリは多く、エージェントが実行すると殺されるまで止まる。`vitest run`, `jest --ci`, `pytest -x` など、自分で終わるものを書く。
 
-**Put the wrong-but-plausible invocations in `forbidden`.** If the repository standardises on one
-package manager, the others belong there. `npx tsc` in a repository that requires `pnpm typecheck`
-appears to work and checks the wrong thing.
+**もっともらしいが誤った呼び方を `forbidden` に入れる**。パッケージマネージャを 1 つに統一しているなら、他はここに入れる。`pnpm typecheck` を求めるリポジトリで `npx tsc` は動くように見えて、別のものを検査する。
 
-## After writing one
+## 書いた後
 
 ```bash
 node -e 'JSON.parse(require("fs").readFileSync("profiles/<name>.json"))'   # valid JSON
 ```
 
-Then run every `agent_may_run: true` check by hand once and confirm each exits 0 on a clean tree.
-A profile whose commands fail on a clean checkout blocks every turn, and the fastest way out of that
-is to disable the gate — which is how a verification gate quietly dies.
+そのうえで `agent_may_run: true` のチェックを一度ずつ手で実行し、クリーンなツリーで終了コード 0 になることを確かめる。クリーンなチェックアウトで落ちるプロファイルは毎ターンを止め、最速の抜け道はゲートを切ることになる。

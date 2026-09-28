@@ -7,142 +7,118 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-adr — write the decision down where it will be found
+# /da-adr — 判断を、見つけてもらえる場所に書く
 
-**This skill writes one ADR and nothing else.** It never touches source, schema, migrations or
-config. It does not start the implementation and it does not edit the spec or plan the decision came
-from.
+**このスキルが書くのは ADR 1 本だけ**。ソース・スキーマ・マイグレーション・設定は触らない。実装を始めず、判断の出どころの spec や計画も編集しない。
 
-It exists because the upstream ADR skills **infer the location from the tree** and fall back to
-`docs/adr/` or `docs/decisions/`. That produces a well-formed file in a directory nobody in this
-repository reads. Where ADRs live is a per-repository fact, so it lives in the profile — the same
-place `spec_system` lives, for the same reason.
+ツリーから置き場所を推すと、誰も読まないディレクトリに整った ADR ができる。ADR の置き場所はリポジトリごとの事実なので、`spec_system` と同じくプロファイルに置く。
 
-## Preconditions
+## 実行条件
 
-Stop immediately if any row fails. Report which condition failed. Do not continue.
+1 行でも満たさなければ即座に止まり、どの条件かを報告する。続けない。
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository with an `origin` remote | Stop, say so, do not guess a location |
-| **The decision is stated** — what was chosen, and what it was chosen over | **Stop and ask.** An ADR written from an inferred decision reads as authoritative and is wrong in the one place it matters |
-| A profile matches this repository and carries `adr_system` | Stop. Report what you observed in the tree, propose the block, and wait. **Observing a directory of ADRs is not being told to write into it** |
-| `adr_system.kind` is `none` | Stop. Say the repository does not keep ADRs, and ask — do not create a directory |
-| The decision clears all three bars below | Stop and say which bar it misses. Record it in the spec or the commit instead |
+| 作業ディレクトリが `origin` リモートを持つ git リポジトリ内にある | 止まってそう書く。置き場所を推測しない |
+| **判断が述べられている**（何を選び、何より選んだか） | **止まって聞く**。推測した判断から書いた ADR は権威があるように読まれ、肝心の 1 点で誤る |
+| このリポジトリに合うプロファイルがあり、`adr_system` を持つ | 止まる。ツリーで見たものを報告し、ブロックを提案して待つ。**ADR のディレクトリが見えることは、そこに書けと言われたことではない** |
+| `adr_system.kind` が `none` | 止まる。このリポジトリは ADR を持たないと書き、聞く。ディレクトリを作らない |
+| 判断が下の 3 つの条件をすべて満たす | 止まり、どれを満たさないかを書く。代わりに spec かコミットに記録する |
 
-**The three bars.** An ADR is for a decision that is **hard** (a reasonable engineer could pick the
-other side), **surprising without context** (a newcomer reading the code would ask "why is it like
-this?"), and **carries a trade-off** (something was actually given up). A decision that misses any
-one of them belongs in the change's design document or the commit message. Most decisions miss one.
+**3 つの条件**。ADR に書くのは、**難しい**（妥当なエンジニアが逆を選びうる）、**文脈なしでは驚く**（コードを読んだ新規参加者が「なぜこうなのか」と聞く）、**トレードオフがある**（実際に何かを諦めた）判断である。1 つでも欠ければ change の design ドキュメントかコミットメッセージに書く。たいていの判断はどれかが欠ける。
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
 | `/grilling`, `/da-design-review`, `/da-investigate`, `/da-spec` | `/da-adr` | `/executing-plans` |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| the matching `profiles/*.json` → `adr_system` | where the ADR goes, and which subtrees it may go in |
-| the file named by `adr_system.rules` | the repository's own authoring rules. Writing to a generic template when the repository has written its standard down produces an artifact that fails its own review |
-| one existing ADR under `adr_system.roots` | the shape actually in use — headings, language, how alternatives are recorded. Match it |
-| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | who the ADR is written for, and the shapes that only parse for someone who was in the conversation |
-| `${CLAUDE_SKILL_DIR}/reference/adr-shape.md` | the shape of the ADR itself: title as conclusion, questions ↔ summary ↔ sections numbered one-to-one, premises with sources, what is lost, when to revisit. The newest existing ADR wins where they differ |
+| 合致する `profiles/*.json` → `adr_system` | ADR をどこに、どのサブツリーに置いてよいか |
+| `adr_system.rules` が指すファイル | リポジトリ自身の書き方の規則。基準が書かれているのに汎用テンプレートで書くと、自分のレビューに落ちる |
+| `adr_system.roots` 配下の既存 ADR 1 本 | 実際に使われている形（見出し、言語、却下案の書き方）。それに合わせる |
+| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | ADR が誰に向けて書かれるか。会話にいた人にしか読めない書き方 |
+| `${CLAUDE_SKILL_DIR}/reference/adr-shape.md` | ADR そのものの形。結論を題にする、問い ↔ 要約 ↔ 節を 1 対 1 で番号づける、出典つきの前提、失うもの、再考の条件。食い違えば最新の既存 ADR が勝つ |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| the change or spec the decision came from | the decision was settled in a `/da-spec` change — the ADR must not contradict it |
-| the code the decision governs | the ADR names identifiers; every backticked name must be confirmed to exist |
-| `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | the repository has them and `adr_system.rules` delegates to them |
+| 判断の出どころの change や spec | 判断が `/da-spec` の change で決まった時。ADR はそれと矛盾してはいけない |
+| 判断が支配するコード | ADR が識別子を名指す時。バッククォートの名前はすべて存在を確かめる |
+| `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | リポジトリにあり、`adr_system.rules` がそれらに委ねている時 |
 
-> Reading everything "just in case" is forbidden.
+> 「念のため」全部を読むことは禁止。
 
-## Steps
+## 手順
 
-### Step 1. Resolve the location — do not choose one
+### Step 1. 置き場所を解決する（選ばない）
 
-Read `adr_system` from the profile. **Never pick a directory because ADRs appear to be there.** A
-tree can carry a half-finished migration, and the failure is quiet in the worst way: the file lands
-somewhere real, well-formed, where nobody looks.
+プロファイルから `adr_system` を読む。**ADR がありそうに見えるからディレクトリを選ぶことはしない**。ツリーは移行途中のことがあり、そうなると整ったファイルが誰も見ない実在の場所に黙って落ちる。
 
-For `kind: colocated`, the ADR goes next to the code it governs, inside one of `roots`. Name the
-subtree you chose and why. For `kind: directory`, it goes under the single root.
+`kind: colocated` なら、ADR は支配するコードの隣、`roots` のいずれかの中に置く。選んだサブツリーと理由を書く。`kind: directory` なら唯一のルートの下に置く。
 
-### Step 2. Look for the ADR that already exists
+### Step 2. 既存の ADR を探す
 
-Search by **subject, not by title** — an ADR for the same decision under a different name splits the
-record, and neither half is wrong on its own.
+**タイトルではなく対象で探す**。同じ判断の ADR が別名であると記録が割れ、どちらの半分も単独では誤りでない。
 
 ```bash
 rg -l "<the entity, table, endpoint or rule>" --glob 'ADR.*' --glob 'docs/**'
 git log --oneline -20 -- '**/ADR.*'
 ```
 
-Found one covering this decision: **update it, and say what was already there.** A decision that
-reverses an earlier one supersedes it explicitly — do not leave two ADRs disagreeing in silence.
+この判断を扱うものがあれば、**それを更新し、既にあった内容を書く**。以前の判断を覆すなら明示的に置き換える（supersede）。食い違う 2 本の ADR を黙って並べない。
 
-### Step 3. Write it as the final design
+### Step 3. 最終形の設計として書く
 
-Follow `${CLAUDE_SKILL_DIR}/reference/final-design.md`. It carries the reader, the shapes to cut, and
-the test to apply before calling the draft done — shared with `da-spec` so the two cannot drift into
-disagreeing about what a finished document reads like.
+`${CLAUDE_SKILL_DIR}/reference/final-design.md` に従う。読み手、削る書き方、下書きを終える前の確認がある。`da-spec` と共有しているので、完成した文書の姿について両者が食い違わない。
 
-Then lay it out per `${CLAUDE_SKILL_DIR}/reference/adr-shape.md`: the sections, the sub-headings a
-decision section carries, and the writing rules (constraints stated as what cannot be answered,
-future changes stated as the number of places to touch, no unmeasured "small").
+そのうえで `${CLAUDE_SKILL_DIR}/reference/adr-shape.md` に沿って並べる。節、判断の節が持つ小見出し、書き方の規則（制約は答えられない問いとして書く、将来の変更は触る箇所の数で書く、測っていない「小さい」を書かない）。
 
-One rule is this skill's own: **every alternative that was seriously considered gets its rejection
-reason.** An ADR with no rejected alternative is describing, not deciding.
+このスキル固有の規則が 1 つある。**真剣に検討した代替案には、すべて却下の理由を付ける**。却下案の無い ADR は判断ではなく説明である。
 
-### Step 4. Ground every name
+### Step 4. すべての名前を裏付ける
 
-Each backticked identifier — a file, table, column, class, flag — is confirmed to exist before it is
-written. A renamed symbol makes the ADR read as authoritative and wrong. Cite as `path/file.ts:L42`
-where the reader would otherwise have to search.
+バッククォートの識別子（ファイル、テーブル、カラム、クラス、フラグ）は、書く前に存在を確かめる。改名されたシンボルがあると、ADR は権威があるように読まれて誤る。読み手が探す羽目になる場所は `path/file.ts:L42` で示す。
 
-### Step 5. Check the rendering, if the ADR is in Japanese
+### Step 5. 日本語の ADR なら表示を確かめる
 
-CommonMark will not close a `**` that sits directly after a Japanese full stop or comma — the
-right-flanking rule fails and the asterisks render literally. Keep the punctuation outside the bold.
+CommonMark は、日本語の句点・読点の直後の `**` を閉じない（right-flanking の規則を満たさず、アスタリスクがそのまま出る）。句読点は太字の外に出す。
 
-## Evidence discipline
+## 根拠の扱い
 
-- Report only what you verified directly.
-- Cite locations as `path/to/file.ts:L42`.
-- When you have no basis for a claim, write "could not confirm" — do not guess.
-- Separate fact from inference explicitly.
-- Attach a URL to any external claim.
+- 直接確かめたことだけを報告する。
+- 場所は `path/to/file.ts:L42` で示す。
+- 根拠が無いときは「確認できなかった」と書く。推測しない。
+- 事実と推論をはっきり分ける。
+- 外部についての主張には URL を付ける。
 
-## Output
+## 出力
 
-One file, at the resolved location, in the shape the existing ADRs use.
+解決した場所に、既存の ADR と同じ形のファイルを 1 本。
 
-Then report, in this order:
+そのうえで次の順で報告する。
 
 1. **置き場所** —— どのプロファイルから解決したか。解決できなければ欠けているものと質問
 2. **新規か更新か** —— パス。更新なら既にあった内容
 3. **3 つの条件をどう満たしたか** —— 各 1 行
 4. **未決のこと** —— 確かめられなかった前提を、ADR の本文ではなく質問として
 
-## Done when
+## 完了条件
 
-- [ ] The location came from the **profile**, not from what the tree looked like
-- [ ] `adr_system.rules` was read **before** writing
-- [ ] An existing ADR on the same subject was searched for, and the choice to update or create is
-      stated with its reason
-- [ ] Every rejected alternative carries its reason
-- [ ] The `adr-shape.md` checklist passes: the title states the conclusion, and questions, summary and
-      sections share one `§` numbering
-- [ ] Every backticked identifier was confirmed to exist
-- [ ] Nothing outside the resolved location was written, and no implementation was started
+- [ ] 置き場所はツリーの見た目ではなく**プロファイル**から来た
+- [ ] 書く**前に** `adr_system.rules` を読んだ
+- [ ] 同じ対象の既存 ADR を探し、更新か新規かを理由つきで書いた
+- [ ] 却下した代替案すべてに理由がある
+- [ ] `adr-shape.md` のチェックリストを通る。題が結論を述べ、問い・要約・節が 1 つの `§` 番号を共有する
+- [ ] バッククォートの識別子はすべて存在を確かめた
+- [ ] 解決した場所の外には何も書いておらず、実装も始めていない
 
-## Next
+## 次に
 
-`/executing-plans` on the change the decision belongs to. The ADR is the standing record; the change
-is the work.
+判断が属する change に `/executing-plans` を掛ける。ADR は残り続ける記録で、change は作業である。

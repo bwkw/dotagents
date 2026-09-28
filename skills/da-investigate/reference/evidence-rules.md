@@ -1,67 +1,52 @@
-# Evidence rules
+# 根拠の規則
 
-How to report what you found, and — the part that carries the weight — what you did not.
+見つけたことと、重みを持つ側である「見なかったこと」の報告の仕方。
 
-## The rules
+## 規則
 
-**Report only what you verified directly.** Not what the naming implies, not what the pattern
-elsewhere suggests, not what would be reasonable. If you did not open it, you did not verify it.
+**直接確かめたことだけを報告する**。名前から想像したこと、他所のパターンから推したこと、妥当そうなことは含めない。開いていないものは確かめていない。
 
-**Cite locations as `path/to/file.ts:L42`.** A claim without a location is not checkable, and an
-uncheckable claim is indistinguishable from a guess. Ranges as `:L42-58`.
+**場所は `path/to/file.ts:L42` で示す**。範囲は `:L42-58`。場所の無い主張は確かめようがなく、推測と区別できない。
 
-**When you have no basis, say so.** Write "could not confirm" and name what would settle it. Never
-fill a gap with a plausible sentence — a fluent guess is more damaging than an admitted gap, because
-it does not look like one.
+**根拠が無いときはそう書く**。「確認できなかった」と書き、何があれば決着するかを添える。もっともらしい文で穴を埋めない。流暢な推測は穴に見えないぶん、認めた穴より害が大きい。
 
-**Separate fact from inference, visibly.** Both are useful; conflating them is not.
+**事実と推論を見て分かる形で分ける**。どちらも役に立つが、混ぜると役に立たない。
 
-- Fact: "`TenantGuard` is applied at `src/api/foo.controller.ts:L12`."
-- Inference: "So requests through this controller are probably tenant-scoped — assuming the guard
-  reads the same tenant key the repository filters on, which I did not verify."
+- 事実:「`TenantGuard` は `src/api/foo.controller.ts:L12` で適用されている。」
+- 推論:「よってこのコントローラ経由のリクエストはおそらくテナントで絞られる。ただしガードがリポジトリの絞り込みと同じテナントキーを読むことが前提で、これは確かめていない。」
 
-**Attach a URL to any external claim.** Documentation, issues, release notes, Stack Overflow.
-Without a URL it is a memory, and memory about library behaviour is where confident errors come from.
+**外部についての主張には URL を付ける**。ドキュメント、issue、リリースノート、Stack Overflow。URL の無いものは記憶であり、ライブラリの挙動についての記憶は自信満々の誤りの出どころである。
 
-**Name the absences.** "I did not read the batch path" is a finding. Saying nothing about the batch
-path reads as "the batch path is fine".
+**無いものを名指しする**。「バッチの経路は読んでいない」は所見である。黙っていると「バッチの経路は問題ない」と読まれる。
 
-## Confidence levels
+## 確度の段階
 
-| Level | Means |
+| 段階 | 意味 |
 |---|---|
-| **Confirmed** | Read it. Cited. |
-| **Inferred** | Follows from something confirmed, plus a stated assumption. The assumption is written down. |
-| **Unconfirmed** | Did not check. What would settle it is named. |
+| **確認済み** | 読んだ。場所を示した。 |
+| **推論** | 確認済みのことと、書き出した前提から導いた。前提を書いてある。 |
+| **未確認** | 確かめていない。何があれば決着するかを書いてある。 |
 
-Use exactly these words. "Probably", "should be", "it seems", "likely" all collapse the distinction
-between the second and third, which is precisely the distinction that matters.
+この 3 語だけを使う。「おそらく」「はず」「〜のようだ」「たぶん」は推論と未確認の区別を潰す。その区別こそが重要である。
 
-## Search-negative results
+## 検索して見つからなかった結果
 
-"I searched and found nothing" is a real result, but only with the search shown:
+「探したが何も無かった」は正当な結果だが、検索を示したときに限る。
 
-> No other caller found. Searched: `rg 'createInvoice' --type ts` across the repo (3 hits, all in
-> tests), `rg 'createInvoice' --type json` for config-driven dispatch (0 hits). **Not covered:**
-> dynamic dispatch by string, and any caller in another repository.
+> 他の呼び出し元は見つからなかった。検索: リポジトリ全体に `rg 'createInvoice' --type ts`（3 件、すべてテスト）、設定経由のディスパッチを見るため `rg 'createInvoice' --type json`（0 件）。**対象外:** 文字列による動的ディスパッチ、別リポジトリからの呼び出し。
 
-Without the query, "found nothing" is unverifiable, and the reader cannot see the hole you left.
+クエリが無ければ「何も無かった」は検証できず、読み手には残した穴が見えない。
 
-## Worked contrast
+## 対比
 
-Bad:
+悪い例:
 
-> The tenant filter is applied in the repository layer, so cross-tenant access should not be
-> possible.
+> テナントの絞り込みはリポジトリ層で掛かっているので、テナントをまたぐアクセスは起きないはずである。
 
-Two problems: no location, and "should not be possible" is inference presented as fact.
+問題は 2 つ。場所が無いことと、「起きないはず」が推論を事実として出していること。
 
-Good:
+良い例:
 
-> **Confirmed** — `PersonRepository.findMany` applies `where: { tenantId }` at
-> `src/hr/person.repository.ts:L88`.
-> **Inferred** — calls going through this repository are therefore tenant-scoped, *assuming*
-> `tenantId` comes from the request context rather than a parameter the caller supplies. I did not
-> trace where it is populated.
-> **Unconfirmed** — raw SQL. `rg 'queryRaw' src/hr` returns 4 hits I did not read. That is the next
-> thing to check.
+> **確認済み** — `PersonRepository.findMany` は `src/hr/person.repository.ts:L88` で `where: { tenantId }` を掛けている。
+> **推論** — よってこのリポジトリを通る呼び出しはテナントで絞られる。*前提*は、`tenantId` が呼び出し側の渡す引数ではなくリクエストコンテキストから来ること。どこで詰められるかは追っていない。
+> **未確認** — 生 SQL。`rg 'queryRaw' src/hr` で 4 件ヒットしたが読んでいない。次に確かめるのはここ。

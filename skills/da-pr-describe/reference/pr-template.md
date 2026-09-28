@@ -1,32 +1,29 @@
-# PR body template and writing rules
+# PR 本文のテンプレと書き方の規則
 
-## What goes in, and what stays out
+## 入れるもの、入れないもの
 
-A description exists so the change can be understood by reading it. Write **observable changes**
-only; leave internal matters to the diff.
+説明文は読むだけで変更が分かるためにある。**観測できる変化**だけを書き、内部の事情は差分に任せる。
 
-**Include** — anything that changes a reader's experience, a contract, or a result:
+**入れる**: 読み手の体験・契約・結果を変えるもの。
 
-- What became possible, and what stopped being possible
-- Changes to API responses, error conditions, validation, or output (CSV, ETL, …)
-- Changes to default behaviour, classification, or transformation rules
+- できるようになったこと、できなくなったこと
+- API レスポンス、エラー条件、バリデーション、出力（CSV、ETL など）の変化
+- 既定の挙動、分類、変換規則の変化
 
-**Leave out** — the diff covers these, and writing them adds noise:
+**入れない**: 差分が示しており、書くとノイズになるもの。
 
-- Internal refactoring, renaming, splitting functions or classes (when behaviour is unchanged)
-- Seed data, test fixtures, local-only presets
-- Unifying display strings, comments, documentation formatting
-- Stating that something is unchanged
+- 内部のリファクタリング、改名、関数やクラスの分割（挙動が変わらない場合）
+- seed データ、テストフィクスチャ、ローカル専用のプリセット
+- 表示文字列の統一、コメント、ドキュメントの整形
+- 何かが変わらないという記述
 
-> The test: if you deleted this line, would a reviewer misunderstand the change? If not, leave it out.
-> When an internal change *is* the crux of the review, give it one line under Notes — not the table.
+> 判定: この行を消したらレビュアーが変更を誤解するか。しないなら入れない。内部の変更がレビューの要なら、表ではなく 補足 に 1 行で書く。
 
 ---
 
-## Template
+## テンプレ
 
-Use only the sections you need. **Never emit an empty section — delete it.** 全体像 and 検討した代案
-are the two that are usually absent, and both are deleted rather than left with a placeholder.
+要る節だけを使う。**空の節は出さずに消す。** 全体像 と 検討した代案 はたいてい無い 2 つで、どちらもプレースホルダを残さず消す。
 
 ````markdown
 ## 全体像
@@ -82,162 +79,84 @@ flowchart LR
 <!-- レビュアが引っかかるであろう意図的な設計判断と、次フェーズに送った既知の欠落だけ。最小限に。 -->
 ````
 
-**節見出しはリポジトリの言語に合わせます。** 上は日本語のリポジトリ向けの既定形です。マージ済み PR が英語のリポジトリでは英語の見出しを使ってください —— `全体像`=At a glance / `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と3列は言語によらず同じです。**
-
+**節見出しはリポジトリの言語に合わせる。** 上は日本語のリポジトリ向けの既定形。マージ済み PR が英語のリポジトリでは英語の見出しを使う: `全体像`=At a glance / `概要`=Overview / `変わること`=What changes / `検討した代案`=Alternatives considered / `テスト`=Tests / `手動確認`=Manual verification / `補足`=Notes。**表の構造と 3 列は言語によらず同じ。**
 
 ---
 
-## Writing rules
+## 書き方の規則
 
-**Title.** A **complete sentence written as an order** — "Fix the CSV export dropping the last row",
-not "CSV export fix". Google's own rule, and the reason is that the first line has to stand alone in a
-list of a hundred others. Around 50 characters. No `feat:`-style prefix (follow the repository's own
-ticket-tag convention). Match the language the repository's other PR titles use.
+**タイトル。** **命令形の完全な 1 文**にする。「CSV 出力の修正」ではなく「CSV 出力で最終行が落ちるのを直す」。1 行目は他の 100 件と並ぶ一覧の中で単独で立たねばならない（Google の規則）。50 文字前後。`feat:` 形式の接頭辞は付けない（リポジトリ独自のチケットタグの規約には従う）。言語はリポジトリの他の PR タイトルに合わせる。
 
-**概要 (Overview).** Two to four sentences carrying **both what changes and why**, and it is the part
-that must land alone, because some reviewers read nothing else. **The why is the problem** — the
-incident, the request, the goal — not a restatement of the change and not a benefit. **Links go here**:
-the ticket, the issue, the design document, the benchmark numbers. Google's guidance names exactly those
-as body content, and this template had nowhere to put them, so they ended up crammed into a table cell
-or left out.
+**概要（Overview）。** 2〜4 文で **何が変わるかと、なぜか** の両方を運ぶ。これだけしか読まないレビュアーもいるので、単独で伝わること。**なぜは問題**（障害、要望、目標）であり、変更の言い直しでも利点でもない。**リンクはここに置く**: チケット、issue、設計ドキュメント、ベンチマークの数字。
 
-**変わること (What changes) — the table. Three columns, all of them short values.**
+**変わること（What changes）— 表。3 列で、どれも短い値。**
 
-| Column | What goes in it | The failure it prevents |
+| 列 | 入れるもの | 防ぐ失敗 |
 |---|---|---|
-| **領域** | The area **in the reader's vocabulary** — a screen, an API, a CSV export, an operational procedure. **Never a class, function, or flag.** | "added `LoadOutboundUsecase`" instead of "customer-facing CSV export" |
-| **変更前** | The current behaviour or value, short. **`—` for a pure addition.** | — |
-| **変更後** | What it becomes. Short — a value, a state, an observable behaviour. | A row describing the implementation rather than the effect. A change that cannot be written as a before/after pair is usually internal churn that does not belong in the table at all. |
+| **領域** | **読み手の語彙での**領域（画面、API、CSV 出力、運用手順）。**クラス・関数・フラグにしない** | 「顧客向け CSV 出力」でなく「`LoadOutboundUsecase` を追加」と書く |
+| **変更前** | 現在の挙動や値を短く。**純粋な追加なら `—`** | — |
+| **変更後** | 何になるか。短く（値、状態、観測できる挙動） | 効果でなく実装を述べる行。変更前 / 変更後 の組で書けない変更は、たいてい表に入れるべきでない内部の入れ替え |
 
-**なぜ was the fourth column and it has been taken out of the table.** Not because the *why* matters
-less — Google's guidance makes it the more important of the two things a description must carry — but
-because it was **the only column holding sentences**, and a column of sentences is what makes the other
-three unreadable.
+**なぜ を列にしない。** なぜ は説明文が運ぶ 2 つのうち重い方だが、文を入れる列は他の 3 列を読めなくする。GitHub の表のセルはインライン書式（リンク、インラインコード、文字装飾）しか持てず、リスト・コードブロック・段落は入らない（`|` はエスケープが要る）。列幅の指定も無いので、長い文が行幅を決め、一覧性を担う 領域/変更前/変更後 を押しつぶす。
 
-**This is a property of the medium, not a matter of taste.** GitHub's own table documentation offers
-only *inline* formatting inside a cell — links, inline code, text styling. No list, no fenced block, no
-paragraph break; a literal `|` has to be escaped. So a cell that must carry "the problem, plus the
-alternative that was rejected, plus the number that ruled it out" has exactly one shape available to it:
-one long run-on sentence. Meanwhile the table has no column widths, so that sentence sets the width of
-the row and squeezes 領域/変更前/変更後 — the three columns that were doing the scannable work.
+**なぜ の置き場**: 問題は 概要 に、却下した代案は 検討した代案 に置く。後者は節なのでリスト・数字・リンクを持てる。
 
-**Where it went**: the problem into 概要, the rejected alternative into 検討した代案 — which is a
-section, so it can hold a list, a number, a link. And it is **omitted entirely when nothing was
-rejected**, which is the outcome this file already learned to want the hard way (see below).
+**検討した代案（Alternatives considered）。** 本当に却下した代案がある時だけ。1 行 1 件で、代案、次にそれを退けた根拠（測った数字、壊れる条件、隠してしまうケース）。**無ければ節ごと消す。** 問題を言い換えて埋めない。代案が無い時に書き手は目的を言い換えてしまうので、常に置く列や節にはしない（**たいてい空になる必須欄は言い直しを招く**）。
 
-**検討した代案 (Alternatives considered).** Only when a real alternative was rejected. One line each:
-the alternative, then the evidence that ruled it out — a measured number, the condition it breaks
-under, the case it would hide. **Delete the whole section when there is none.** Do not restate the
-problem here to fill it.
+**変更前 / 変更後 は列にすることで、観測できる変化の規則を強制する。** **`LoadOutboundUsecase を追加` は 変更前 / 変更後 の組で書けない**。それが読み手向けの変化ではなかったという兆候。
 
-**変更前 / 変更後 was a separate "Before → After" section once.** It was merged because a change to
-existing behaviour appeared twice — one row describing it in prose, another contrasting the two values —
-and the prose row was always the weaker of the two. As columns they are shorter than the prose they
-replace, and they enforce the observable-change rule for free: **`LoadOutboundUsecase を追加` cannot be
-written as a before/after pair**, which is the signal that it was never a reader-facing change.
+**どのセルも値か短い句で、文にしない。** セルが文になりたがるなら、その中身は 概要・検討した代案・補足 のどれかに属する。
 
-**なぜ was two columns once — 変更目的 and この形にした理由 — and it was merged after the split failed
-on its own first use. Read this as the reason 検討した代案 is a section that gets deleted, rather than
-a column that sits there empty.** The concepts are genuinely different (*why do this* versus *why like this*), but
-the second only has content when a real alternative was rejected with evidence, which is the minority of
-rows. Where no alternative existed the writer had nothing to put there, so the purpose got restated in
-different words — in the PR that introduced the split, two of five rows kept the columns distinct and
-three did not, and one of those three had quietly become a *what I did* column. **A required column that
-is usually empty trains restatement, which is the failure it was added to prevent.** Keep both facts; do
-not give the second one a column it cannot fill.
+悪い行: `| typecheck | 遅い | 速い |`
+良い行: `| CI の typecheck | `--checkers 2` | `--singleThreaded` に固定 |`
 
-**Every cell is a value or a short phrase — never a sentence.** If a cell wants to be a sentence, its
-content belongs in 概要, 検討した代案, or 補足. That rule used to be "one or two sentences", which was a
-rule fighting the medium: the table cannot hold a sentence well, so the fix was to stop putting them
-there rather than to keep asking for shorter ones.
+悪い行は 2 回失敗している。領域 が読み手の体験するものでなくフラグで、変更前/変更後 に値が無いので行の何も検証できない。
 
-Bad row: `| typecheck | 遅い | 速い |`
-Good row: `| CI の typecheck | `--checkers 2` | `--singleThreaded` に固定 |`
+良い行には なぜ が入っていない。それが要点。なぜ は 概要 に「CI 待ちがレビューの律速になっていた」、検討した代案 に「`--checkers 2` —— このコードベースでは約2.4倍遅く、メモリも約40%多い（実測）」と書く。**どちらも元のセルより長く正確になる。** 節は数字とリンクを持てるが、セルは持てない。
 
-The bad row fails twice: 領域 is a flag rather than something a reader experiences, and 変更前/変更後
-give no values, so nothing in the row is verifiable.
+**「入れない」一覧のものは表に入れない。** 内部の変更がレビューの要なら、行ではなく 補足 に 1 行。
 
-The good row's *why* is not in it, and that is the point. It reads, in 概要: 「CI 待ちがレビューの律速に
-なっていた」。And in 検討した代案: 「`--checkers 2` —— このコードベースでは約2.4倍遅く、メモリも約40%多い（実測）」。
-**Both are longer and more precise than the cell they came from**, because a section can hold a number
-and a link and a cell cannot.
+**テスト（Tests）。** 自動テストと CI が実際に覆うものを 1 行ずつ。「テストを追加した」でなく*検証された挙動*を書く。済みは `- [x]`、未了は `- [ ]`。CI の範囲は `- [x] CI: typecheck / lint / unit` の形。**自動で検証できないものは次の節に書き、ここには書かない。**
 
-**Nothing from the "leave out" list goes in the table.** When an internal change *is* the crux of the
-review, it gets one line under 補足, not a row.
+**手動確認（Manual verification）。** マージ前に手か実環境で確かめるもののチェックボックス。典型: 実際の外部 API のレスポンスの形、実際の連携の挙動、本番に近いデータでのマイグレーション、エージェントに実行が許されていない typecheck、実テナントでの end-to-end、環境依存の設定と権限。各行に **何を確かめるかと、なぜ重要か（飛ばすと何が壊れるか）** を書く。この節は埋まるまでマージを止めるもの。自動テストで本当に足りるなら節ごと省く。役に立つなら、その項目を後で自動テストにする方法を 補足 に 1 行書き、この一覧が時間とともに縮むようにする。
 
-**テスト (Tests).** What automated tests and CI actually cover, one line each, describing the *behaviour
-verified* rather than "added tests". Done is `- [x]`; outstanding is `- [ ]`. CI coverage as
-`- [x] CI: typecheck / lint / unit`. **Anything that cannot be verified automatically goes in the
-next section, not here.**
-
-**手動確認 (Manual verification).** Checkboxes for what must be confirmed by hand or in a real environment
-before merge. Typical: real external API response shapes, real integration behaviour, migrations
-against production-like data, a typecheck the agent is not permitted to run, end-to-end against a
-real tenant, environment-dependent configuration and permissions. Each line states **what to check
-and why it matters — what breaks if it is skipped**. This section is a hold on merging until it is
-filled in. Omit it entirely when automated tests genuinely suffice. Where useful, add one line to
-補足 about how the item could become an automated test later, so this list shrinks over time.
-
-**補足 (Notes).** Only deliberate design decisions and known deferred gaps. No listing of implementation,
-nothing self-evident. Omit if empty.
+**補足（Notes）。** 意図的な設計判断と、後に回した既知の欠落だけ。実装の列挙や自明なことは書かない。空なら省く。
 
 ---
 
-## 全体像 (At a glance)
+## 全体像（At a glance）
 
-**It is a section now, and the heading is the test.** It used to be an unheaded block at the top, which
-made it the one part of the body with no name — so "is there one?" had no place to be answered, and the
-guidance about skipping it lived only in this file. As a section it behaves like 検討した代案: **present
-when there is something, deleted when there is not**, and that is one fewer rule to remember because the
-two now work the same way.
+**見出しのある節であり、見出しが判定になる。** 検討した代案 と同じく、**描くものがあればあり、無ければ消す。**
 
-**It stays above 概要.** A reader who opens a PR to decide whether to review it now sees the shape first;
-the argument for putting it after the prose is real, and it is written down at the end of this section.
+**概要 の上に置く。** レビューするか決めるために PR を開いた読み手が、先に形を見られる。
 
-**Artifact where the environment has one; Mermaid where it does not.** An Artifact is one page — it can
-group by area, put before and after side by side, and carry a diagram at a readable size, which is more
-legible than a fence in a description. Read `artifact-design` before publishing one.
+**Artifact がある環境では Artifact、無い環境では Mermaid。** Artifact は 1 ページで、領域ごとにまとめ、変更前と変更後を並べ、読める大きさの図を載せられるので、説明文内のフェンスより読みやすい。公開の前に `artifact-design` を読む。
 
-| Environment | What goes in 全体像 |
+| 環境 | 全体像 に入れるもの |
 |---|---|
-| **Artifact tool available (Claude)** | Publish one page, share it, link the URL |
-| **No Artifact tool (Cursor, or anywhere else)** | A ` ```mermaid ` fence inline — GitHub renders it for every reader with no account and no hosting |
+| **Artifact ツールがある（Claude）** | 1 ページを公開し、共有し、URL をリンクする |
+| **Artifact ツールが無い（Cursor ほか）** | ` ```mermaid ` のフェンスを本文に書く。GitHub がアカウントもホスティングも無しに全員に描画する |
 
-### Sharing is a step, not a footnote
+### 共有は手順であり、脚注ではない
 
-**An Artifact is private by default, and the tool cannot share it.** Publishing returns a URL to a page
-only the author can open; making it visible to teammates is an action the **human** takes in the artifact
-view. There is no share action in the tool, so nothing in this skill can do it for you.
+**Artifact は既定で非公開で、ツールは共有できない。** 公開で返る URL は作者しか開けない。チームに見せるのは**人間**が Artifact の画面で行う操作で、このスキルからはできない。
 
-**So a PR body with an unshared Artifact link is a PR body whose visual is a 404 for every reviewer** —
-and it fails quietly, because the author *can* open it. That is the whole reason this is a numbered step
-rather than a line of advice:
+**未共有の Artifact リンクを持つ PR 本文は、図がレビュアー全員に 404 になる。** 作者には開けるので黙って失敗する。だから番号つきの手順にする。
 
-1. Publish the page.
-2. **Stop and tell the user to share it**, naming the URL. Wait.
-3. Only then put the link in the body.
+1. ページを公開する。
+2. **止まって、URL を示してユーザーに共有を頼む。** 待つ。
+3. その後で本文にリンクを入れる。
 
-**If the user does not want to share it, do not link it** — use a Mermaid fence instead. A link the
-reviewer cannot open is worse than no visual, because it reads as content that exists.
+**ユーザーが共有したくないならリンクしない。** 代わりに Mermaid のフェンスを使う。開けないリンクは、存在する中身のように読めるので、図が無いより悪い。
 
-**Never fabricate a URL**, and never link an Artifact whose sharing has not been confirmed.
+**URL を作り上げない。** 共有を確認していない Artifact をリンクしない。
 
-**Neither is mandatory, and a bad one is worse than none.** The visual earns its place only when the
-change *has a shape*: a flow that changed, a sequence, which layers are touched, a state machine. A flag
-value changing has no shape — the table already says everything, and a diagram of it is noise. **Do not
-draw something to fill the slot.**
+**どちらも必須ではなく、悪い図は無い方がよい。** 図が意味を持つのは変更に*形がある*時だけ（変わったフロー、順序、触れる層、状態遷移）。フラグの値が変わるだけなら形は無く、表がすべてを言っており、図はノイズ。**埋めるために描かない。**
 
-**Do not restate the 変わること table.** The body already carries the scannable view; a page or diagram
-that repeats it is one more thing for the reviewer to open and dismiss. Overlap with 概要 is fine.
+**変わること の表を言い直さない。** 本文にすでに一覧があり、それを繰り返すページや図は開いて閉じるものが 1 つ増えるだけ。概要 との重なりはかまわない。
 
-**Markdown tables and Mermaid fences belong in a PR body; raw HTML does not** — GitHub strips much of it
-and what survives renders badly. That is the whole distinction: the table and the diagram go inline, an
-HTML page goes behind a link.
+**Markdown の表と Mermaid のフェンスは PR 本文に書き、生の HTML は書かない。** GitHub が多くを取り除き、残ったものも崩れる。表と図は本文に、HTML のページはリンクの先に置く。
 
-For a set of PRs spanning several repositories, give each PR its own visual and link each to its own.
+複数リポジトリにまたがる PR 群では、PR ごとに図を作り、それぞれ自分の図にリンクする。
 
-**The open question, recorded rather than settled**: a diagram of an unfamiliar system is hard to read
-before the two sentences that say what it is for, which argues for 概要 first. The counter is that the
-visual exists to be seen *before* deciding to read anything, and a reader who has to scroll past prose to
-reach it has lost that. **Kept above 概要 because that is what the skill has always done and nothing has
-gone wrong with it** — change it on evidence from a real PR, not on this paragraph.
+**未決の問い**: 馴染みの無いシステムの図は、それが何のためかを言う 2 文の前では読みにくく、概要 を先にすべきという論がある。反論は、図は何かを読むと決める*前に*見るためのもので、文章を越えてスクロールさせるとそれを失うということ。**従来どおり 概要 の上に置く。** 変えるなら実際の PR での根拠をもって変える。

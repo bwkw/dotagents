@@ -7,131 +7,103 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-fix-plan — decide what not to fix, then order the rest
+# /da-fix-plan — 直さないものを決め、残りに順番をつける
 
-A review produces findings. This turns them into a plan, and **its primary job is subtraction.**
+レビューの所見を計画にする。**主な仕事は引き算。**
 
-> A reviewer prompted to find gaps **will report some even when the work is sound**, because that is
-> what it was asked to do. Chasing every finding leads to over-engineering: extra abstraction layers,
-> defensive code, and tests for cases that cannot happen.
+> 欠落を探せと言われたレビュアーは、作業が健全でも**何かしら報告する**。全所見を追うと過剰設計（余計な抽象層、防御的なコード、起こりえないケースのテスト）になる。
 
-So the failure this skill exists to prevent is not "a finding got missed". It is **acting on all of
-them**. A plan that accepts every finding has not triaged; it has transcribed.
+防ぐのは見落としではなく**全部に対応すること**。全所見を受け入れた計画は書き写しにすぎない。
 
-**Read-only until the plan is agreed.** Produce the plan, show it, and stop. Fixing happens after.
+**計画に合意するまでは読み取り専用。** 計画を作って見せ、止まる。修正はその後。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない時 |
 |---|---|
-| A review report exists — in this conversation, at a path, or on a PR | **Stop.** Ask which review. Never plan against remembered findings. |
-| You can tell what the change was *supposed* to do — a spec, a plan, a PR description, or the user saying so | **Ask.** Without it you cannot separate "the code is wrong" from "the reviewer wanted something else", and that distinction is most of the work here. |
-| The findings carry locations | Continue, but mark any finding you cannot locate as **unactionable** rather than guessing at one |
+| レビュー報告がある（この会話、パス、または PR 上） | **止まる。** どのレビューか尋ねる。記憶の中の所見で計画しない |
+| 変更が*何をするはずだったか*分かる（spec、計画、PR の説明、ユーザーの言葉） | **尋ねる。** 無いと「コードの誤り」と「レビュアーの別の望み」を分けられない。その区別がこの作業の大半 |
+| 所見に場所がついている | 続けてよいが、場所を特定できない所見は推測せず **対応不能** と印をつける |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| `/da-review-all`, `/code-review`, `/find-bugs`, or a human review | `/da-fix-plan` | `/executing-plans` on the accepted set, then `/da-verify` |
+| `/da-review-all`、`/code-review`、`/find-bugs`、または人間のレビュー | `/da-fix-plan` | 受け入れた分に `/executing-plans`、その後 `/da-verify` |
 
-Not the same as `/receiving-code-review`, which is about how to respond to *one* piece of feedback in a
-conversation. This one takes a **whole report** and produces an ordered artifact on disk.
+`/receiving-code-review` は *1 つの*指摘への応じ方を扱う。こちらは**報告全体**から順序つきの成果物をディスクに作る。
 
-**When a bucket's outcome gets written back to the reviewer** — a Decline that needs explaining, a
-correction to a finding that was partly wrong — the register for that is the responding half of
-`profiles/review-voice.md`, and it is a different one from the reviewing half: lead with agreement or
-with the correction, cite the commit, and **volunteer what is unfavourable to you**. `receiving-code-review`
-is upstream and cannot be taught this durably, so the pointer lives here.
+**結果をレビュアーに書き返す時**（説明が要る Decline、一部誤った所見の訂正）は、`profiles/review-voice.md` の応答側の口調に従う。同意か訂正から始め、コミットを引き、**自分に不利なことも自分から言う**。`receiving-code-review` には教えられないので案内をここに置く。
 
-**This is the stopping condition for the review loop.** Reviewing until nothing is found does not
-terminate — a reviewer asked for findings produces findings. What ends the loop is not a count of
-rounds but **the Decline bucket**: deciding, on the record, which findings will not be fixed and why.
-The gate has the same shape for checks (three attempts, then a `VERDICT` that says it gave up); this is
-the shape for review. A loop with no Decline is a loop with no exit.
+**これがレビューのループの停止条件。** 所見を求められたレビュアーは所見を出すので、何も見つからなくなるまでのレビューは終わらない。ループを終わらせるのは回数ではなく **Decline のバケット**、つまりどの所見をなぜ直さないかを記録に残すこと（gate のチェックも同じ形で、3 回試して諦めたと言う `VERDICT` を出す）。Decline の無いループには出口が無い。
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| the review report | the subject |
-| the spec, plan, or PR description the change was written against | the line between a defect and a preference |
-| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | the severity vocabulary the reports use, so triage matches how they were graded |
+| レビュー報告 | 対象そのもの |
+| 変更が書かれた元の spec・計画・PR の説明 | 欠陥と好みの境界線 |
+| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | 報告が使う重大度の語彙。トリアージを採点のされ方と揃える |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 読む条件 |
 |---|---|
-| the code a finding names | before **accepting** anything above 🟡, and before declining anything at 🔴 or above |
-| `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | when a finding rests on a convention — the project's own rules decide it |
+| 所見が名指しするコード | 🟡 より上を**受け入れる**前、🔴 以上を直さないと決める前 |
+| `CLAUDE.md`、`AGENTS.md`、`.claude/rules/*` | 所見が規約に依拠する時。プロジェクト自身の規則が決める |
 
-> Do not re-read the whole diff. The review already did that; this is a decision pass, not a second
-> review. If you find yourself reviewing, stop — you are duplicating the upstream skill and will
-> introduce findings the report did not make.
+> 差分全体を読み直さない。これは判断のパスであって 2 度目のレビューではない。レビューし始めたら止まる（報告に無かった所見を持ち込むことになる）。
 
 ---
 
-**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
-paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
-a person.
+**報告はユーザーが書いている言語で書く**（不明なら日本語）。パス、識別子、コマンド、コード片、ログ出力は元の形のまま。
 
-## Step 1. Restate what the change was for
+## Step 1. 変更の目的を言い直す
 
-One or two sentences, from the spec or PR description. Confirm it before triaging.
+spec か PR の説明から 1〜2 文。トリアージの前に確認する。
 
-This is not ceremony. **Half of triage is comparing a finding against the intended scope**, and if the
-intent is only in your head the comparison is unfalsifiable.
+**トリアージの半分は、所見を意図した範囲と比べること。** 意図が頭の中にしか無いと、その比較は検証できない。
 
-## Step 2. Sort every finding into exactly one bucket
+## Step 2. すべての所見をちょうど 1 つのバケットに入れる
 
-Every finding lands in one of five. Nothing is left uncategorised, and **nothing is silently dropped** —
-declining is a visible outcome with a reason attached.
+所見は 5 つのどれかに入る。分類しないまま残さず、**黙って落とさない**。直さないことは理由つきの見える結果。
 
-| Bucket | Meaning |
+| バケット | 意味 |
 |---|---|
-| **Fix now** | Blocks the merge. Irreversible, a correctness defect on a reachable path, a security or tenancy hole, or a broken contract. |
-| **Fix now, smaller** | The finding is real but the proposed remedy is bigger than the problem. Record the *minimal* change that closes it. |
-| **Follow-up** | Real, not blocking. Needs an issue with enough context to act on later — otherwise it is not a follow-up, it is a decline in disguise. |
-| **Decline** | Not acting, **with a reason**: outside the spec, speculative, a style preference, over-engineering, or the reviewer misread the intent. |
-| **Needs a decision** | Not yours to call — a product question, an ordering constraint with another team, a trade-off the author should own. Name **who** decides and **what** they need. |
+| **今すぐ直す（Fix now）** | マージを止める。不可逆、到達しうる経路の正しさの欠陥、セキュリティやテナントの穴、壊れた契約 |
+| **今すぐ直す、ただし小さく（Fix now, smaller）** | 所見は本物だが、提案された対処が問題より大きい。塞ぐのに要る*最小*の変更を記録する |
+| **後で対応（Follow-up）** | 本物だがマージを止めない。後で動けるだけの文脈を持つ issue が要る。無ければ後で対応ではなく、偽装した Decline |
+| **直さない（Decline）** | 対応しない。**理由つきで**: spec の範囲外、推測、好みの問題、過剰設計、レビュアーが意図を読み違えた |
+| **判断が要る（Needs a decision）** | 自分が決めることではない。プロダクトの問い、他チームとの順序の制約、作者が持つべきトレードオフ。**誰が**決め、**何が**要るかを名指しする |
 
-Three rules that make the buckets mean something:
+バケットに意味を持たせる規則を 3 つ。
 
-- **A finding outside the spec goes to Follow-up or Decline, never Fix now** — unless it is a defect
-  that ships regardless of scope. Scope creep enters through exactly this door.
-- **`Nit:` findings default to Decline.** They were marked optional by the reviewer; treating them as
-  work reverses that on purpose.
-- **A 🔴 you want to decline must be checked against the code first.** Declining a severe finding on the
-  strength of the summary alone is how a real bug gets closed as noise.
+- **spec の範囲外の所見は Follow-up か Decline に入れ、Fix now には入れない。** 範囲に関係なく出荷される欠陥は例外。スコープの膨張はまさにここから入る
+- **`Nit:` の所見は既定で Decline。** レビュアーが任意と印をつけたもので、作業として扱うとその意図を覆す
+- **Decline したい 🔴 は、先にコードで確かめる。** 要約だけで重い所見を退けると、本物のバグがノイズとして閉じられる
 
-## Step 3. Order what remains, and say why the order
+## Step 3. 残りに順番をつけ、その理由を書く
 
-Not by severity. By what breaks if done in the wrong order:
+重大度の順ではなく、順番を誤ると何が壊れるかで並べる。
 
-1. **Irreversible first** — anything touching data, migrations, or a published contract. A later fix may
-   change what the migration should have been, and by then it has run.
-2. **Then fixes that change a shared interface**, before the callers that depend on it.
-3. **Then the independent ones**, which can be batched into one commit.
-4. **Last, anything that touches tests only.**
+1. **不可逆なものを先に。** データ、マイグレーション、公開された契約。後の修正であるべき形が変わっても、その時には実行済み
+2. **次に、共有インターフェースを変える修正。** それに依存する呼び出し元より前
+3. **次に、独立したもの。** 1 コミットにまとめてよい
+4. **最後に、テストだけに触れるもの。**
 
-Then check for interaction, which is the part that gets skipped:
+次に、飛ばされがちな相互作用を確かめる。
 
-- **Does one fix make another unnecessary?** Merge them and say so. Two findings on the same root cause
-  are one fix.
-- **Does one fix invalidate another's premise?** Re-check the second *after* the first, and mark it as
-  needing re-verification rather than fixing both against a state that will not exist.
-- **Do two fixes touch the same lines?** Sequence them explicitly; do not let them be discovered as a
-  conflict.
+- **ある修正が別の修正を不要にするか。** まとめ、そう書く。根本原因が同じ 2 つの所見は 1 つの修正
+- **ある修正が別の修正の前提を崩すか。** 2 つ目は再検証が要ると印をつけ、1 つ目の*後で*確かめ直す
+- **2 つの修正が同じ行に触れるか。** 順番を明示し、衝突として発見させない
 
-## Step 4. Write the plan to a file
+## Step 4. 計画をファイルに書く
 
-Not to the conversation. It has to survive `/clear`, and it becomes the criterion `/da-verify` and the
-next review are measured against.
+会話にではなくファイルに書く。`/clear` を越えて残り、`/da-verify` と次のレビューが測る基準になる。
 
-Default path: `docs/fix-plans/<date>-<branch>.md`, unless the repository has its own convention — check
-before inventing one. Follow the three properties of a useful plan: **name the files and interfaces
-involved, state what is out of scope, and end with a verification step**.
+既定のパスは `docs/fix-plans/<date>-<branch>.md`。リポジトリに独自の規約があればそれに従う（作り出す前に確かめる）。役に立つ計画の 3 つの性質を守る。**関わるファイルとインターフェースを名指しし、範囲外を書き、検証の手順で終える。**
 
 ```markdown
 # 修正計画 — <ブランチまたは PR>
@@ -173,53 +145,45 @@ involved, state what is out of scope, and end with a verification step**.
 <accepted N / total M = XX%>。前回の記録があれば併記する。
 ```
 
-The bucket headings keep their English names in parentheses: `scripts/loop.sh` and the rest of this
-file refer to the buckets by those names.
+バケットの見出しは括弧の英語名を残す。`scripts/loop.sh` とこのファイルの他の箇所がその名前でバケットを参照する。
 
-## Step 5. Report the shape, not the contents
+## Step 5. 中身ではなく形を報告する
 
-The file has the detail. In the conversation, say only:
+詳細はファイルにある。会話では次だけを言う。
 
-- the counts per bucket, with **Declined stated as a number, not hidden**
-- anything in **Needs a decision**, because that is the only part blocked on a human
-- the first two or three items in order, so the next step is obvious
+- バケットごとの件数。**Declined は隠さず数で言う**
+- **Needs a decision** の項目。人間待ちになっているのはそこだけ
+- 順番の先頭 2〜3 件。次の一手が明らかになる
 
-**If nothing was declined, say so and treat it as a warning sign.** Either the review was unusually
-clean, or this pass transcribed instead of triaging. Both are worth knowing before acting on it.
+**何も Decline しなかったなら、そう言い、警告の兆候として扱う。** レビューが珍しくきれいだったか、このパスが書き写したかのどちらか。
 
-### The decline count is the only measurement of whether the reviewer is trusted
+### Decline の数が、レビュアーを信頼できるかの唯一の計測
 
-**Report it as a rate, not just a count**: accepted (Fix now + Fix now smaller + Follow-up) over total
-findings. Write it into the plan file so it accumulates across reviews — one number from one review says
-nothing, and this is the only place the number exists.
+**件数だけでなく率で報告する。** 受け入れ（Fix now + Fix now smaller + Follow-up）÷ 全所見。1 回分の数字は何も言わないので、レビューをまたいで蓄積するよう計画ファイルに書く。
 
-It is the industry's trust signal for an automated reviewer, and it reads in both directions:
+自動レビュアーの信頼の指標であり、両方向に読む。
 
-| Acceptance rate | What it means |
+| 採択率 | 意味 |
 |---|---|
-| **below ~50%** | The reviewer is producing noise. **Do not tune the plan — tune the review.** More than half of what it raised was not worth acting on, and a reviewer at that rate gets routed around rather than read. |
-| **~50–80%** | Working, worth reading, not worth gating on. |
-| **above ~80%** | Trusted enough that a failing review could hold a merge. |
-| **100%, repeatedly** | Not a good sign. Either this pass transcribed, or the review is only raising the safe and obvious. |
+| **約 50% 未満** | レビュアーがノイズを出している。**計画ではなくレビューを調整する。** この率のレビュアーは読まれずに迂回される |
+| **約 50〜80%** | 機能している。読む価値はあるが、マージの関門にするほどではない |
+| **約 80% 超** | 失敗したレビューでマージを止めてよいほど信頼できる |
+| **繰り返し 100%** | 良い兆候ではない。このパスが書き写したか、レビューが安全で明白なものしか挙げていない |
 
-**A rate this skill never records is a rate nobody can act on.** That is the whole reason for the line —
-the refutation pass already suppresses false positives before they reach a report, but nothing has ever
-measured whether it worked.
+**記録しない率は誰も使えない。** 反証のパスが誤検知を抑えられたかを測るのはこの数字だけ。
 
-## Done when
+## 完了条件
 
-- [ ] Every finding is in exactly one bucket, and none was dropped
-- [ ] Every Decline carries a reason from the list, not "low priority"
-- [ ] Every 🔴-or-above Decline was checked against the code, not just the summary
-- [ ] The order is justified by irreversibility and dependency, not by severity
-- [ ] Fixes on the same root cause are merged, and conflicting ones are sequenced
-- [ ] The plan is on disk, names its files, states what is out of scope, and ends with a verification step
-- [ ] The declined count was reported out loud, **as a rate**, and written into the plan file
+- [ ] すべての所見がちょうど 1 つのバケットにあり、落としたものは無い
+- [ ] すべての Decline に、「優先度が低い」ではなく一覧の理由がついている
+- [ ] 🔴 以上の Decline はすべて、要約ではなくコードで確かめた
+- [ ] 順番の根拠は重大度ではなく不可逆性と依存関係
+- [ ] 根本原因が同じ修正はまとめ、衝突するものは順番を決めた
+- [ ] 計画がディスクにあり、ファイルを名指しし、範囲外を書き、検証の手順で終わる
+- [ ] Decline の件数を**率として**声に出して報告し、計画ファイルに書いた
 
-## Guardrails
+## ガードレール
 
-- **Read-only until the plan is agreed.** No code changes in this skill, even for a one-line fix that
-  looks obvious — a fix made while planning is a fix nobody reviewed.
-- Never create issues, comment on the PR, or push. The plan proposes; you decide.
-- **Do not add findings.** If the review missed something, say so separately — folding your own findings
-  into a triage pass makes it impossible to tell what the reviewer actually said.
+- **計画に合意するまでは読み取り専用。** 明らかに見える 1 行の修正でも、このスキルではコードを変えない。計画中の修正は誰もレビューしていない修正
+- issue の作成、PR へのコメント、push はしない。計画は提案し、決めるのはユーザー
+- **所見を足さない。** 見落としは別に言う。混ぜるとレビュアーが実際に何を言ったか分からなくなる

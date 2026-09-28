@@ -8,62 +8,54 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-pr-describe — make the PR readable before the diff
+# /da-pr-describe — 差分より先に PR を読めるようにする
 
-**Invoked by you only — type `/da-pr-describe`.** It writes to GitHub, so the timing is yours to choose,
-not something to infer from the code looking finished. `disable-model-invocation` also keeps its
-description out of context entirely, which costs nothing and frees budget for the skills that do need
-to fire on their own. Nothing dispatches to this skill by name.
+**ユーザーが `/da-pr-describe` と打った時だけ動く。** GitHub に書き込むので、タイミングはユーザーが選ぶ。コードが仕上がって見えることから推測しない。このスキルを名前で呼び出すものは無い。
 
-Generate a title and description that let a reviewer grasp **what changes** and **why that shape
-was chosen** without opening the diff. Optimise for being understood, not for being exhaustive.
+レビュアーが差分を開かずに **何が変わるか** と **なぜその形にしたか** を掴めるタイトルと説明を作る。網羅より理解されることを優先する。
 
-**This skill never modifies files in the repository.** It edits the PR on GitHub, and writes its
-draft body to a temporary file outside the repo.
+**このスキルはリポジトリのファイルを変更しない。** 編集するのは GitHub 上の PR で、下書きの本文はリポジトリ外の一時ファイルに書く。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない時 |
 |---|---|
-| `gh` is authenticated and a PR exists for this branch | Stop and report it. Do not create a PR unasked. |
-| The working directory is the repository that owns the target PR | Stop. See the cross-repository hazard below. |
+| `gh` が認証済みで、このブランチの PR がある | 止まって報告する。頼まれずに PR を作らない |
+| 作業ディレクトリが対象 PR を持つリポジトリである | 止まる。下の「リポジトリをまたぐ危険」を参照 |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| implementation done, PR opened | `/da-pr-describe` | request review |
+| 実装済みで PR を開いた | `/da-pr-describe` | レビュー依頼 |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/pr-template.md` | The body template and the writing rules. |
+| `${CLAUDE_SKILL_DIR}/reference/pr-template.md` | 本文のテンプレと書き方の規則 |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 読む条件 |
 |---|---|
-| the `artifact-design` skill | Before publishing the visual as an Artifact — the route wherever the Artifact tool exists |
+| `artifact-design` スキル | 図を Artifact として公開する前（Artifact ツールがある環境ではこの経路） |
 
 ---
 
-## Steps
+## 手順
 
-### Step 1. Identify the PR — and confirm it is the right one
+### Step 1. PR を特定し、正しい PR か確かめる
 
 ```bash
 gh pr view --json number,title,baseRefName,headRefName,url
 ```
 
-**`gh` runs against the repository in the current working directory.** `gh pr edit <number>` from
-the wrong directory edits *that* repository's PR with the same number — an unrelated PR. Before
-editing anything, state the repository, number, title, and URL you are about to modify, and get the
-user's confirmation. Do not trust a bare number.
+**`gh` は作業ディレクトリのリポジトリに対して動く。** 別のディレクトリから `gh pr edit <number>` を打つと、*そちらの*リポジトリの同じ番号の、無関係な PR を編集する。編集の前に、変更するリポジトリ・番号・タイトル・URL を示してユーザーの確認を取る。番号だけを信用しない。
 
-### Step 2. Gather the change
+### Step 2. 変更を集める
 
 ```bash
 BASE="$(gh pr view --json baseRefName -q .baseRefName)"
@@ -71,130 +63,86 @@ git diff "$BASE"...HEAD
 git log --oneline "$BASE"..HEAD
 ```
 
-### Step 3. Extract what actually changed for someone else
+### Step 3. 他人にとって実際に変わったことを抜き出す
 
-From the diff, pull out **what changes for a user, an operator, or a caller** — see the selection
-rules in the reference.
+差分から、**利用者・運用者・呼び出し元にとって何が変わるか**を抜き出す。選び方は reference の規則に従う。
 
-For each retained change, extract **the problem it solves** — the incident, the request, the goal.
-Without it the change reads as a solution to an unstated problem.
+残した変更ごとに **それが解く問題**（障害、要望、目標）を抜き出す。無いと、書かれていない問題への解決策に読める。
 
-**Then ask whether an obvious alternative was rejected.** If one was, name it and the evidence that
-ruled it out (a slower flag, a narrower exclude that would hide real errors, a deploy-time failure CI
-never saw) — otherwise the reviewer opens the diff to ask 「なぜこの形？」. It goes in **検討した代案**,
-a section, so it can carry a number and a link. If no real alternative existed, **delete that section**;
-do not restate the problem in different words to fill it.
+**次に、明らかな代案を却下したかを問う。** 却下したなら、代案とそれを退けた根拠（遅いフラグ、本物のエラーを隠す狭い除外、CI が見なかったデプロイ時の失敗）を名指しする。無いとレビュアーは「なぜこの形？」を聞くために差分を開く。これは節である **検討した代案** に入れ、数字やリンクを持てるようにする。本当の代案が無ければ **その節を消す**。問題を言い換えて埋めない。
 
-Also pin down, for each change:
+変更ごとに次も決める。
 
-- the **領域** — the area in the reader's vocabulary: a screen, an API, a CSV export, an operational
-  procedure. **Never a class, function, or flag.**
-- the **変更前 / 変更後 pair** — the current value or behaviour and what it becomes, both short. `—` for
-  a pure addition. **If a change cannot be written as a before/after pair, that is the signal it is
-  internal churn** and does not belong in the table.
+- **領域**: 読み手の語彙での領域（画面、API、CSV 出力、運用手順）。**クラス・関数・フラグにしない。**
+- **変更前 / 変更後 の組**: 現在の値や挙動と、それが何になるか。どちらも短く。純粋な追加なら `—`。**変更前 / 変更後 の組で書けない変更は内部の入れ替えの兆候**であり、表に入れない
 
-**Those three are the table's columns, and all three are short values.** The problem and the rejected
-alternative are prose, not a fourth column: a cell can hold only inline formatting, so a column of
-sentences sets the row width and squeezes the three that were doing the scanning. Collect the ticket,
-issue, design-doc and benchmark links here too — they belong in 概要.
+**この 3 つが表の列で、3 つとも短い値。** 問題と却下した代案は文章であって 4 列目ではない。セルはインラインの書式しか持てず、文の列は行幅を決めて、一覧性を担う 3 列を押しつぶす。チケット・issue・設計ドキュメント・ベンチマークへのリンクもここで集める。置き場は 概要。
 
-Separately, collect candidates for **manual verification**: things automated tests cannot cover and
-that must be checked by hand or in a real environment before merge. Real external API behaviour,
-real data, end-to-end against a real tenant, a typecheck the agent is not permitted to run,
-environment-specific configuration or permissions.
+別に **手動確認** の候補を集める。自動テストで覆えず、マージ前に手か実環境で確かめるもの。実際の外部 API の挙動、実データ、実テナントでの end-to-end、エージェントに実行が許されていない typecheck、環境固有の設定や権限。
 
-### Step 4. 全体像 — a section, present only when there is one
+### Step 4. 全体像 — 描けるものがある時だけの節
 
-**First ask whether the change has a shape at all**: a flow that changed, a sequence, which layers are
-touched, a state machine. A flag value changing has no shape, and the table already says everything —
-**delete the whole section rather than draw something to fill it.** Never fabricate a URL.
+**まず、変更に形があるかを問う。** 変わったフロー、順序、触れる層、状態遷移。フラグの値が変わるだけなら形は無く、表がすべてを言っている。**埋めるために描かず、節ごと消す。** URL を作り上げない。
 
-It is a heading (`## 全体像`), above 概要, and it behaves like 検討した代案: **there when there is
-something, gone when there is not.** Those two are the only optional sections, and they are optional the
-same way — one fewer rule than the unheaded block it replaced.
+見出し（`## 全体像`）で、概要 の上に置く。検討した代案 と同じく、**描くものがあればあり、無ければ無い。** 任意の節はこの 2 つだけで、同じ扱いにする。
 
-When it does have a shape, take the route the environment supports:
+形がある時は、環境が支える経路を取る。
 
-| Environment | Route |
+| 環境 | 経路 |
 |---|---|
-| **Artifact tool available (Claude)** | Read `artifact-design`, publish one page, **get it shared**, link the URL |
-| **No Artifact tool (Cursor, or anywhere else)** | A ` ```mermaid ` fence inline — GitHub renders it for every reader, no account, no hosting |
+| **Artifact ツールがある（Claude）** | `artifact-design` を読み、1 ページを公開し、**共有してもらい**、URL をリンクする |
+| **Artifact ツールが無い（Cursor ほか）** | ` ```mermaid ` のフェンスを本文に書く。GitHub がアカウントもホスティングも無しに全員に描画する |
 
-**Sharing is a step of this skill, not a caveat.** An Artifact is private by default and **the tool has no
-share action** — making it visible to teammates is something the human does in the artifact view. So an
-unshared link is a 404 for every reviewer while opening fine for the author: **it fails quietly, in the
-direction nobody checks.**
+**共有はこのスキルの手順であり、注意書きではない。** Artifact は既定で非公開で、**ツールに共有の操作は無い**。チームに見せるのは人間が Artifact の画面で行う。未共有のリンクは作者には開けてレビュアー全員には 404 になり、**誰も確かめない方向に黙って失敗する。**
 
-**Publish → stop and ask the user to share it, naming the URL → only then put it in the body.** If they
-would rather not share it, use a Mermaid fence instead. **A link the reviewer cannot open is worse than
-no visual**, because it reads as content that exists.
+**公開 → 止まって URL を示し、ユーザーに共有を頼む → その後で本文に入れる。** 共有したくないなら Mermaid のフェンスを使う。**レビュアーが開けないリンクは図が無いより悪い。** 存在する中身のように読めるから。
 
-Either way, **do not restate the 変わること table.** The body already carries the scannable view; a page
-or diagram that repeats it is one more thing to open and dismiss.
+どちらの場合も **変わること の表を言い直さない。** 本文にすでに一覧があり、それを繰り返すページや図は開いて閉じるものが 1 つ増えるだけ。
 
-### Step 5. Compose the title and body
+### Step 5. タイトルと本文を組み立てる
 
-**Language: match the repository, do not assume.** Unlike every other skill here, this output has an
-audience that is not you, so this is the one place where the language is not simply Japanese.
+**言語はリポジトリに合わせ、決めつけない。** この出力の読み手は自分ではないので、単に日本語とはしない。
 
 ```bash
 gh pr list --state merged --limit 5 --json title,body
 ```
 
-Read those, or recent commit subjects, and write in whatever language they use. **The template's
-headings are Japanese because that is the common case here; the reference lists the English equivalent
-for each.** The table's structure and its four columns do not change with the language.
+これか最近のコミットの件名を読み、使われている言語で書く。**テンプレの見出しは日本語が既定で、reference に英語の対応がある。** 表の構造と 3 列は言語によらず同じ。
 
-State which language you chose and what it was based on. If the merged PRs are mixed, or there is
-nothing to go on, **ask** — guessing wrong is visible to everyone on the PR. Paths, identifiers,
-commands and code excerpts stay verbatim inside a sentence of either language.
+どの言語を選び、何を根拠にしたかを書く。マージ済み PR の言語が混在しているか、手がかりが無ければ **尋ねる**。誤りは PR の全員に見える。パス、識別子、コマンド、コード片はどちらの言語でも文中でそのまま残す。
 
+`${CLAUDE_SKILL_DIR}/reference/pr-template.md` に従う。Step 4 で URL か Mermaid ブロックができたら、本文の最初の節 `## 全体像` に置く。どちらも無ければその見出しは無い。**URL は、Artifact が共有済みだとユーザーが確認してから入れる。** **Markdown の表と Mermaid のフェンスは本文に書き、生の HTML は書かない。** GitHub が多くを取り除き、残ったものも崩れる。
 
-Follow `${CLAUDE_SKILL_DIR}/reference/pr-template.md`. If Step 4 produced a URL or a Mermaid block, it
-goes under `## 全体像`, the first section of the body. If it produced neither, that heading is absent.
-**A URL goes in only after the user has confirmed the Artifact is shared.** **Markdown tables and Mermaid fences go
-inline; raw HTML never does** — GitHub strips much of it and what survives renders badly.
+### Step 6. 見せてから更新する
 
-### Step 6. Show it, then update
-
-Show the user the final title and body. On approval:
+最終のタイトルと本文をユーザーに見せる。承認されたら次を実行する。
 
 ```bash
 gh pr edit --title "..." --body-file "$TMPFILE"
 ```
 
-Write `$TMPFILE` under a temporary directory, never inside the repository.
+`$TMPFILE` は一時ディレクトリの下に書き、リポジトリの中には書かない。
 
-## Done when
+## 完了条件
 
-- [ ] The reviewer can tell what changes from the description alone
-- [ ] **概要 carries the problem**, not a benefit and not a restatement of the change — and the ticket,
-      issue, design doc or benchmark numbers are linked there rather than left out
-- [ ] **検討した代案 exists only if one was actually rejected**, with the evidence that ruled it out —
-      otherwise the section is deleted, not filled
-- [ ] No 領域 cell names a class, function, or flag
-- [ ] **No table cell contains a sentence** — every cell is a value or a short phrase
-- [ ] Nothing in the table failed the before/after test — a row that cannot be written as a pair is
-      internal churn and was dropped
-- [ ] `## 全体像` carries a visual, **or the section is absent** because the change has no shape — never
-      a heading with nothing under it, and never a diagram drawn to fill one
-- [ ] If it is an Artifact link, **the user confirmed it is shared** — an unshared link opens for the
-      author and 404s for every reviewer, so this cannot be inferred from the link working
-- [ ] The title is a standalone sentence written as an order, in the repository's language
-- [ ] The language was chosen from the repository's merged PRs, and which was chosen was stated
-- [ ] No internal-only churn made it into the body
-- [ ] Everything requiring manual verification is listed, unchecked, with a reason
-- [ ] Cross-repository references use full URLs or `owner/repo#number`, never a bare `#number`
+- [ ] 説明だけで何が変わるかレビュアーに分かる
+- [ ] **概要 が問題を運んでいる**（利点でも変更の言い直しでもない）。チケット・issue・設計ドキュメント・ベンチマークの数字は落とさずそこにリンクした
+- [ ] **検討した代案 は実際に却下した代案がある時だけあり**、退けた根拠を持つ。無ければ埋めずに消した
+- [ ] 領域 のセルがクラス・関数・フラグを名指ししていない
+- [ ] **表のセルに文が無い。** どのセルも値か短い句
+- [ ] 表の行はすべて 変更前 / 変更後 の組で書けている。組にできない行は内部の入れ替えとして落とした
+- [ ] `## 全体像` に図があるか、変更に形が無いので**節ごと無い**。中身の無い見出しも、埋めるための図も無い
+- [ ] Artifact のリンクなら、**共有済みだとユーザーが確認した**。リンクが自分で開けることからは推測できない
+- [ ] タイトルは単独で立つ命令形の 1 文で、リポジトリの言語で書いた
+- [ ] 言語はマージ済み PR から選び、何を選んだかを書いた
+- [ ] 内部だけの入れ替えが本文に入っていない
+- [ ] 手動確認が要るものはすべて、未チェックのまま理由つきで挙げた
+- [ ] リポジトリをまたぐ参照は完全な URL か `owner/repo#number` で、裸の `#number` ではない
 
-## Cross-repository hazards
+## リポジトリをまたぐ危険
 
-Both of these have bitten before and neither fails loudly.
+どちらも実際に起き、どちらも大きな音を立てずに失敗する。
 
-**`#number` resolves within the PR's own repository.** A `#80` written in a backend PR body points
-at backend's #80, not the frontend PR you meant. Across repositories, always use the full URL
-(`https://github.com/owner/repo/pull/80`) or `owner/repo#80`. For a set of PRs spanning backend and
-frontend, every cross-link and shared-artifact note must use that form.
+**`#number` は PR 自身のリポジトリの中で解決される。** バックエンドの PR 本文の `#80` は、意図したフロントエンドの PR ではなくバックエンドの #80 を指す。リポジトリをまたぐなら常に完全な URL（`https://github.com/owner/repo/pull/80`）か `owner/repo#80` を使う。バックエンドとフロントエンドにまたがる PR 群では、すべての相互リンクと共有成果物の注記をその形にする。
 
-**`gh` acts on the current working directory's repository.** When handling PRs across repositories,
-`cd` to the target repository before each command and verify with `gh pr view <number> --json title`
-that it is the PR you think it is.
+**`gh` は作業ディレクトリのリポジトリに対して動く。** 複数リポジトリの PR を扱う時は、コマンドごとに対象リポジトリへ `cd` し、`gh pr view <number> --json title` で意図した PR か確かめる。

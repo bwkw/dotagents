@@ -1,215 +1,143 @@
-# Design review dimensions
+# 設計レビューの観点
 
-Work through these against the plan. Group them into parallel subagents when the plan is
-substantial. Dimension 0 is never skipped, however small the plan.
+計画に対して順に当てる。計画が大きければ観点を束ねて並列のサブエージェントに分ける。観点 0 は計画がどれだけ小さくても飛ばさない。
 
-Each dimension asks the same underlying question in a different place: **what does this plan make
-impossible to take back, and does it know that it is doing so?**
+どの観点も、場所を変えて同じ問いを立てる。**この計画は何を取り返しのつかないものにし、計画はそれを自覚しているか。**
 
 ---
 
-## 0. Soundness and the level above ★never skipped
+## 0. 妥当性と一段上の問い ★飛ばさない
 
-- Is this the right problem? Does the plan solve what was actually asked, or something adjacent?
-- Is there a materially simpler approach that gets most of the value? Name it and say what it gives up.
-- Over- or under-engineered: abstraction with a single implementation, configuration nobody will
-  change, generality bought before a second case exists — or the reverse, a special case that will
-  obviously need to generalise within a month.
-- **Type-level machinery offered as the safety mechanism.** A plan that answers "how do we stop this
-  state existing" with a conditional type, a deep generic, or a mapped type buys precision and pays it
-  back in error messages nobody can act on. The bar: does the type have a name, does its definition
-  read in one place, can that name be grepped, and does violating it say where to go and what to
-  change? A named union clears all four; computed types clear none. Ask for the union.
-- **What the plan assumes stays true.** List the assumptions and mark the load-bearing ones. An
-  unstated assumption is the usual root cause of a plan that was right when written.
-- **Does this propagate a pattern?** If the plan follows an existing pattern, is that pattern sound,
-  or is this the Nth instance of something nobody has revisited? Open it once and check. → 🧭
+- 正しい問題か。求められたことを解いているか、その隣の問題を解いていないか
+- 価値の大半を得られる、ずっと単純な方法はないか。名指しし、何を諦めるかを書く
+- 過剰設計か過少設計か。実装が 1 つしかない抽象、誰も変えない設定、2 例目が無いうちの汎用化。あるいは逆に、1 か月以内に一般化が要るのが明らかな特例
+- **型レベルの仕組みを安全装置として出していないか。** 「この状態をどう存在させないか」に条件型・深いジェネリクス・mapped type で答える計画は、精度と引き換えに誰も対処できないエラーメッセージを払う。基準は 4 つ。型に名前があるか、定義が 1 か所で読めるか、その名前で grep できるか、違反時にどこへ行き何を変えるかが分かるか。名前つきの union は 4 つとも満たし、計算された型は 1 つも満たさない。union を求める
+- **計画が成り立ち続けると仮定しているもの。** 仮定を挙げ、計画を支えるものに印をつける。書かれていない仮定が、書いた時点では正しかった計画の典型的な根本原因
+- **パターンを広げていないか。** 既存のパターンに倣うなら、そのパターンは健全か、誰も見直していない N 例目ではないか。一度開いて確かめる。→ 🧭
 
-## 0b. Aggregate and transaction boundaries ★a rewrite if wrong
+## 0b. 集約とトランザクションの境界 ★誤れば書き直し
 
-The skill body weights these with architecture and security, **above where code review weights them**,
-and this dimension is where that weighting is spent: at plan stage a boundary is a paragraph, and
-afterwards it is every call site that grew around it. **A plan silent on all of this is ❓, not a pass.**
+SKILL.md はこれをアーキテクチャ・セキュリティと並べて**コードレビューより重く**見る。その重みはこの観点で使う。計画段階なら境界は 1 段落だが、後ではその周りに育ったすべての呼び出し箇所になる。**これらすべてに触れていない計画は合格ではなく ❓。**
 
-- **What is one aggregate here, and what is one transaction?** For every write the plan describes: which
-  aggregate owns it, and does a single transaction cover the whole state change? "Update the submission
-  and advance the flow" without saying whether that is one transaction has not decided anything yet.
-- **Write the invariants as sentences, then ask what can see them.** "Only the latest submission may be
-  approved, and only by the current step's approver" names two things. **Can one aggregate see everything
-  the sentence names?** If not, the invariant is cross-aggregate, and the plan must say what holds it:
-  the same transaction, a lock, or an accepted window in which it can be violated.
-- **A lock in the plan is a statement about the boundary, not a detail of it.** Reaching for an advisory
-  lock, a `SELECT FOR UPDATE` across two tables, or a serialisable transaction says the boundary sits
-  somewhere the invariant does not. Sometimes that is the cheaper answer — but ask the alternative out
-  loud: **can the invariant be made local**, one side holding the value it needs instead of reading the
-  other's? And if the lock stays: **what forces every future entry point to take it?** A choke point or
-  an architecture test, never a comment enumerating today's callers
-  (`silent-failure-patterns.md`, pattern 1).
-- **If the plan needs to undo, the two boundaries already disagree.** Release the claim, revert the
-  status, cancel what was sent — that is a saga, and it must be planned as one: **one applier, reached by
-  every failing path**, not "roll back on error" left to the implementation. Where the effect left the
-  system, no compensation exists at any layer — that belongs in dimension 1.
-- **Guards before the first side effect.** Ordering is free in a plan and expensive in code: validate
-  before claiming, incrementing, sending or writing. Every guard the plan places after a mutation is a
-  rollback path somebody has to write, test and get right.
-- **Where will the rule live once written?** The test to apply now: **if a second entry point — an admin
-  screen, a batch job, a new endpoint — is added next quarter, must this check be copied?** If yes, the
-  plan should say the rule sits on the aggregate. The same for ports: the repository interface belongs in
-  the domain, its implementation outside.
-- **One rule, one definition — including the read side.** A list screen filtering on status in SQL while
-  the aggregate decides the same thing in code is one rule written twice; they agree until the next status
-  exists. The plan should name which is authoritative and how the other derives from it.
+- **ここで 1 つの集約は何で、1 つのトランザクションは何か。** 計画が述べる書き込みごとに、どの集約が持ち主か、状態変化全体を 1 つのトランザクションが覆うかを問う。「提出を更新してフローを進める」が 1 トランザクションかを言わない計画は、まだ何も決めていない
+- **不変条件を文で書き、それを見られるものを問う。** 「承認できるのは最新の提出だけで、承認者は現ステップの承認者だけ」は 2 つのものを名指ししている。**1 つの集約がその文の名指すものすべてを見られるか。** 見られないなら不変条件は集約をまたいでおり、何がそれを保つか（同一トランザクション、ロック、違反を許容する時間幅）を計画が言う必要がある
+- **計画に出てくるロックは境界の細部ではなく、境界についての表明。** advisory lock、2 テーブルにまたがる `SELECT FOR UPDATE`、serializable トランザクションを持ち出すのは、境界が不変条件と違う場所にあることを示す。それが安い答えの時もあるが、代案を声に出して問う。**不変条件を局所化できないか**（相手を読む代わりに、片側が必要な値を持つ）。ロックを残すなら、**今後のすべての入口にそれを取らせるものは何か。** 関所（choke point）かアーキテクチャテストであって、今日の呼び出し元を列挙したコメントではない（`silent-failure-patterns.md` のパターン 1）
+- **取り消しが要る計画では、2 つの境界がすでに食い違っている。** 確保を解放する、ステータスを戻す、送ったものを取り消す。それは saga であり、saga として計画する。**失敗するすべての経路が到達する 1 つの適用者**を置き、「エラー時にロールバック」を実装任せにしない。効果がシステムの外に出たなら、どの層にも補償は無い。それは観点 1 で扱う
+- **最初の副作用の前にガードを置く。** 順序は計画では無料、コードでは高い。確保・加算・送信・書き込みの前に検証する。変更の後に置いたガードは、誰かが書き、テストし、正しくするロールバック経路になる
+- **書いた後、規則はどこに住むか。** 今当てるテストは **来四半期に 2 つ目の入口（管理画面、バッチジョブ、新エンドポイント）が加わったら、このチェックはコピーが要るか。** 要るなら、規則が集約に置かれることを計画が言うべき。ポートも同じで、リポジトリのインターフェースはドメインに、実装はその外に置く
+- **1 つの規則に 1 つの定義。読み取り側も含む。** 一覧画面が SQL でステータスを絞り、集約がコードで同じことを決めるのは、同じ規則を 2 度書いている。次のステータスが増えるまでしか一致しない。どちらが正本で、もう一方がどう導かれるかを計画が名指しすべき
 
-## 1. One-way doors ★highest priority
+## 1. 一方通行の判断 ★最優先
 
-The distinguishing question of a design review: **what becomes irreversible, and when?**
+設計レビューを特徴づける問い。**何が、いつ不可逆になるか。**
 
-- **Data**: dropped columns, destructive backfills, deletions, anonymisation. Once the old value is
-  gone it is gone.
-- **Public contracts**: a released API shape, an event schema consumers have started reading, a URL
-  that has been linked to. Reversible only if nobody has depended on it yet — and you rarely know.
-- **External effects**: anything sent outside the system. A submitted government filing, a charged
-  card, a dispatched email or webhook. No rollback exists at any layer.
-- **Identifiers**: anything persisted or exchanged that others key off.
-- **Infrastructure**: a replaced stateful resource, a deleted key, a released DNS name.
+- **データ**: 列の削除、破壊的な backfill、削除、匿名化。古い値は消えたら戻らない
+- **公開された契約**: リリース済みの API の形、利用者が読み始めたイベントスキーマ、リンクされた URL。誰も依存していなければ戻せるが、それはめったに分からない
+- **外部への作用**: システムの外に送ったもの。提出済みの行政申請、課金済みのカード、送信済みのメールや webhook。どの層にもロールバックは無い
+- **識別子**: 永続化されたか交換されて、他が鍵にしているもの
+- **インフラ**: 置き換えた状態を持つリソース、削除した鍵、手放した DNS 名
 
-For each: **at what moment** does it become irreversible — merge, deploy, first request, first
-record? That moment is where a gate has to sit, if one is needed.
+それぞれについて、**どの瞬間に**不可逆になるか（マージ、デプロイ、最初のリクエスト、最初のレコード）を問う。関門が要るなら、その瞬間に置く。
 
-## Landing boundaries
+## 着地の境界
 
-Where the work divides into separate changes to ship. The inputs are the two sections around this one:
-what is irreversible, and what must deploy in order.
+作業を別々に出荷する change に分ける位置。入力は前後の 2 節、つまり何が不可逆か、何が順にデプロイされるべきか。
 
-- **A one-way door is its own landing.** Shipped alongside reversible work, reverting it takes back
-  things that did not need taking back.
-- **A contract and its consumer: same landing, or ordered?** `da-review-all` raises this as a finding
-  after the code exists. Answered here, it never becomes one.
-- **expand → migrate → contract is three landings**, not one. "Add the column, backfill it, drop the
-  old one" is three.
-- **Fold together anything with no ordering constraint.** Splitting has a cost -- each landing is
-  another review, another gate run, another merge. Separate only what must be.
-- **Every landing needs a gate you can name.** `gate.sh verify` is what runs it. If you cannot say
-  what proves a landing is done, it cannot be verified, and the plan is not finished.
+- **一方通行の判断は単独の着地にする。** 戻せる作業と一緒に出すと、戻す時に戻す必要の無いものまで戻る
+- **契約とその利用側は、同じ着地か、順序つきか。** `da-review-all` はコードができた後にこれを所見として挙げる。ここで答えれば所見にならない
+- **expand → migrate → contract は 3 つの着地**であり 1 つではない。「列を足し、backfill し、古い列を落とす」は 3 つ
+- **順序の制約が無いものはまとめる。** 分割にはコストがある（着地ごとにレビュー、関門の実行、マージが 1 回ずつ増える）。分けるのは分けねばならないものだけ
+- **どの着地にも名指しできる関門が要る。** それを実行するのは `gate.sh verify`。着地が済んだと何が証明するか言えないなら検証できず、計画は未完成
 
-A plan that is genuinely one landing is one row with a reason. An absent table means nobody decided,
-which is the state this section exists to end.
+本当に 1 つの着地で済む計画は、理由をつけた 1 行にする。表が無いのは誰も決めていないということで、この節はその状態を終わらせるためにある。
 
-## 2. Migration and ordering
+## 2. 移行と順序
 
-- Is the change **additive-first**? Is anything destructive split into expand → migrate → contract?
-- **Deploy order** between schema, code, config, and infrastructure. Does every intermediate state
-  work, or only the final one? Whatever ships first runs against whatever has not shipped yet.
-- **In-flight work** during the transition: open requests, queued jobs, running batches, active
-  sessions, an open browser tab holding old JavaScript.
-- **Backfill**: idempotent, resumable, sized for production row counts, and producing the same
-  result as the online path. Safe to re-run after partial application.
-- **Config and seed read live at startup** rather than from a snapshot: changing it opens a rollout
-  window where new data meets old code.
+- **追加から先に**しているか。破壊的なものは expand → migrate → contract に分けているか
+- スキーマ・コード・設定・インフラの間の**デプロイ順**。途中のすべての状態が動くか、最終状態だけか。先に出たものは、まだ出ていないものに対して動く
+- 移行中の**処理中の作業**: 開いたリクエスト、キュー上のジョブ、実行中のバッチ、有効なセッション、古い JavaScript を持った開きっぱなしのタブ
+- **backfill**: 冪等で、再開でき、本番の行数を想定した大きさで、オンライン経路と同じ結果を出すか。部分適用の後に再実行して安全か
+- **起動時にスナップショットでなくライブで読む設定と seed**: 変えると、新しいデータが古いコードに出会う展開の時間幅が開く
 
-## 3. Backward compatibility
+## 3. 後方互換性
 
-- Does anything existing break — a caller, a consumer, a stored value, a bookmark?
-- Are old and new able to coexist for the duration of the rollout, or does the plan assume
-  everything switches at once?
-- Is there a deprecation path for what is being replaced, or does it just disappear?
+- 既存の何かが壊れるか。呼び出し元、利用者、保存された値、ブックマーク
+- 展開の間、旧と新が共存できるか。それとも全部が一度に切り替わる前提か
+- 置き換えられるものに非推奨化の経路があるか、ただ消えるのか
 
-## 4. Failure and rollback
+## 4. 失敗とロールバック
 
-- **What is the rollback?** Not "revert the commit" — what happens to data written by the new code
-  while it was live?
-- Is there a point of no return, and does the plan acknowledge it?
-- **Which way does failure fall?** When a default is missing, an evaluation errors, a context key is
-  absent — does the operation **silently skip, auto-complete, or no-op**? For anything irreversible,
-  statutory, externally-submitted, or billable, **failing silently is worse than failing loudly**.
-- Partial failure: half the batch, half the resources, one of two services deployed.
+- **ロールバックは何か。** 「コミットを revert」ではなく、新しいコードが動いていた間に書いたデータはどうなるか
+- 戻れない地点はあるか。計画はそれを認めているか
+- **失敗はどちらに倒れるか。** 既定値が無い、評価がエラーになる、コンテキストのキーが無い時、操作は**黙ってスキップ・自動完了・何もしない**のどれかにならないか。不可逆・法定・外部提出・課金のものでは、**黙って失敗する方が大きな音で失敗するより悪い**
+- 部分的な失敗: バッチの半分、リソースの半分、2 サービスのうち 1 つだけデプロイ
 
-## 5. Blast radius
+## 5. 波及範囲
 
-- Which modules, screens, stacks, and teams does this touch? Does the plan name them, or has it only
-  considered the primary path?
-- **Shared code**: does the plan change something with other consumers? Are they enumerated?
-- Are there other entry paths to the same behaviour — another controller, a batch job, an event
-  handler, an admin screen — that the plan has not accounted for?
+- どのモジュール・画面・スタック・チームに触れるか。計画はそれを名指ししているか、主経路しか考えていないか
+- **共有コード**: 他に利用者のあるものを変えるか。利用者は列挙されているか
+- 同じ振る舞いへの別の入口（別のコントローラ、バッチジョブ、イベントハンドラ、管理画面）を計画が見落としていないか
 
-## 6. Security and data protection
+## 6. セキュリティとデータ保護
 
-- New surface: endpoints, permissions, roles, external integrations.
-- Tenant boundary, if the system is multi-tenant. Does the plan say how it is enforced, or assume it?
-- PII and secrets: what is stored, where it is logged, what crosses a boundary.
-- Authorization: is it enforced server-side, or does the plan describe hiding something in the UI?
+- 新しい面: エンドポイント、権限、ロール、外部連携
+- マルチテナントならテナント境界。計画はどう強制するかを言っているか、仮定しているか
+- PII と秘密情報: 何を保存し、どこにログし、何が境界を越えるか
+- 認可: サーバー側で強制しているか、UI で隠すことを述べているだけか
 
-## 7. Operability
+## 7. 運用性
 
-- **How will you know it worked?** Not the absence of errors — an active signal. Especially where a
-  path can succeed silently by doing nothing.
-- How will you know it broke, and how fast?
-- Is there a kill switch, a feature flag, a staged rollout — and does the plan say who flips it?
-- What does the on-call person need to know that is not in the plan?
+- **うまくいったとどう分かるか。** エラーが無いことではなく、能動的なシグナル。何もしないことで黙って成功しうる経路では特に
+- 壊れたとどう分かるか、どれだけ速く
+- キルスイッチ、フィーチャーフラグ、段階的展開はあるか。誰が切り替えるかを計画は言っているか
+- オンコール担当が知る必要があり、計画に書かれていないことは何か
 
-## 8. Verifiability
+## 8. 検証可能性
 
-- Can the acceptance criteria actually be executed? A criterion nobody can run is a wish.
-- What cannot be covered by automated tests and will need manual or real-environment verification?
-  The plan should name these rather than discover them at merge time.
-- Does the plan's definition of done include evidence, or only "implemented"?
+- 受け入れ条件は実際に実行できるか。誰も実行できない条件は願望
+- 自動テストで覆えず、手動や実環境の検証が要るものは何か。マージ時に見つけるのでなく、計画が名指しすべき
+- 計画の完了の定義は証拠を含むか、「実装した」だけか
 
-## 9. Production readiness ★the tech-lead gate
+## 9. 本番投入の準備 ★テックリードの関門
 
-The dimensions a production-readiness review covers, applied at plan stage where they are still cheap to
-change. Do not treat this as a checkbox sweep — the value is finding the dimension the plan is **silent**
-on, because silence is where the surprise comes from.
+本番準備レビューが扱う観点を、まだ変えるのが安い計画段階で当てる。チェックボックスを埋める作業にしない。価値は計画が**黙っている**観点を見つけることにあり、驚きは沈黙から来る。
 
-| Dimension | The question that catches things |
+| 観点 | 引っかけるための問い |
 |---|---|
-| **Service levels** | What does "working" mean numerically, and who notices when it stops? A plan with no target has no way to fail visibly. |
-| **Architecture** | Covered by §0 and §5 above. |
-| **Performance and capacity** | At what load does this stop working? What happens at 10×? Is there a quota, a connection pool, or a rate limit that this change moves closer to its ceiling? |
-| **Observability** | §7. |
-| **Testing** | §8. |
-| **Deployment and rollback** | §2 and §4. |
-| **Documentation and runbook** | When this pages someone at 3am, what do they read? A plan that changes operational behaviour and ships no runbook change has moved work onto the on-call rotation without saying so. |
-| **Dependency readiness** | **The most commonly skipped one.** This plan depends on other services, teams, quotas, or infrastructure being ready. Are they? Has anyone asked them, or is it assumed? A dependency that is "nearly done" elsewhere is a scheduling risk this plan owns. |
+| **サービスレベル** | 「動いている」は数値で何か。止まった時に誰が気づくか。目標の無い計画は目に見える形で失敗できない |
+| **アーキテクチャ** | §0 と §5 で扱う |
+| **性能と容量** | どの負荷で動かなくなるか。10 倍ではどうなるか。この変更で上限に近づくクォータ・コネクションプール・レート制限はあるか |
+| **可観測性** | §7 |
+| **テスト** | §8 |
+| **デプロイとロールバック** | §2 と §4 |
+| **ドキュメントとランブック** | 午前 3 時に呼び出された人は何を読むか。運用上の振る舞いを変えてランブックを変えない計画は、黙って仕事をオンコールに移している |
+| **依存先の準備** | **最も飛ばされる観点。** この計画は他のサービス・チーム・クォータ・インフラの準備に依存している。準備できているか。誰かが尋ねたか、仮定しているだけか。他所で「ほぼ終わり」の依存は、この計画が負うスケジュールリスク |
 
-Two failure modes worth naming, because they are documented pitfalls of this kind of review rather than
-hypotheticals: treating readiness as a **one-time gate** (it changes as the system does), and
-**checkbox culture** — answering the dimension instead of thinking about it. If every row gets a
-confident one-line answer, the review has not happened.
+この種のレビューの既知の落とし穴を 2 つ挙げる。準備を**一度きりの関門**として扱うこと（システムが変われば変わる）と、**チェックボックス文化**（考える代わりに観点に答えること）。すべての行に自信ありげな 1 行の答えが付いたなら、レビューは行われていない。
 
 ---
 
-## Calibration
+## 較正
 
-Apply `finding-discipline.md` throughout. Two adjustments for reviewing plans rather than code:
+全体を通して `finding-discipline.md` を当てる。コードでなく計画をレビューするための調整が 2 つある。
 
-**A plan is allowed to be incomplete.** Not every unanswered question is a defect. Ask whether the
-answer is needed *before implementation starts* or can be settled during it. Only the former is 🔴.
+**計画は不完全でよい。** 未回答の問いがすべて欠陥ではない。その答えが*実装開始前に*要るのか、実装中に決めてよいのかを問う。🔴 は前者だけ。
 
-**Reachability is weaker evidence here.** In code review you can often demonstrate that a path is
-unreachable. In a plan the code does not exist yet, so err toward raising the concern and marking
-confidence honestly — but do not inflate severity to compensate for the uncertainty.
+**到達可能性は弱い証拠になる。** コードレビューでは経路が到達不能だと示せることが多いが、計画ではコードがまだ無い。懸念は挙げる側に倒し、確度を正直に書く。ただし不確かさを補うために重大度を上げない。
 
-## Pre-mortem — why the past tense, with the measurement
+## 事前の検死（Pre-mortem）
 
-`SKILL.md` Step 4 asks for the incident review written as though it already happened. The tense is the
-mechanism, not the style.
+`SKILL.md` の Step 4 は、障害の振り返りをすでに起きたこととして書かせる。時制は文体ではなく仕組み。
 
-Imagining an outcome as **already having happened** — prospective hindsight — raises the number of
-correctly identified causes by roughly **30%** against asking what *could* go wrong (Mitchell, Russo &
-Pennington 1989; the technique is Gary Klein's, HBR 2007).
+結果を**すでに起きたこと**として想像する（prospective hindsight）と、「何がうまくいかない*かもしれない*か」と問うより、正しく特定される原因が約 **30%** 増える（Mitchell, Russo & Pennington 1989。手法は Gary Klein, HBR 2007）。
 
-Forward-looking risk questions produce the list everyone already has. **Past-tense questions surface
-what people privately suspect and would not otherwise put in writing** — which is the half a design
-review exists to collect.
+先を見る問いは、皆がすでに持っているリストしか出さない。**過去形の問いは、人が内心疑っていて普段は書かないことを引き出す。** それが設計レビューが集めるべき半分。
 
-Be concrete about the first symptom. *"the queue backed up and nobody noticed for a day"* is a finding;
-*"there may be performance issues"* is not.
+最初の症状は具体的にする。*「キューが詰まり、1 日誰も気づかなかった」* は所見、*「性能問題があるかもしれない」* は所見ではない。
 
-## Report skeleton
+## 報告の骨格
 
-`SKILL.md` Step 6 names this file for it. **The order is load-bearing**: the irreversible decisions sit
-above everything somebody can still fix, so a reader who stops after two sections has read the part that
-cannot be undone.
+`SKILL.md` の Step 6 がこれを参照する。**並び順に意味がある。** 不可逆な判断をまだ直せるものすべての上に置くので、2 節で読むのをやめた人も取り返しのつかない部分は読んでいる。
 
 ```markdown
 ## 設計レビュー — <計画の名前>
@@ -236,5 +164,4 @@ cannot be undone.
 - **validator の出力**をそのまま貼る。リポジトリに無ければそう書く。緑は形式が正しいという意味で、妥当性の保証ではない。
 ```
 
-Keep the English in the landing-plan header cells: `scripts/loop.sh` parses the table by it.
-
+着地計画の表見出しの英語は残す。`scripts/loop.sh` がそれで表を読み取る。
