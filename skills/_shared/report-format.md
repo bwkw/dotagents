@@ -1,160 +1,100 @@
-# Report format
+# レポートの形式
 
-## Output language
+## 出力言語
 
-**Write the report in the language the user is writing in.** Headings, findings, explanations, and
-suggested comments — all of it. When that is genuinely unclear, use Japanese: this toolkit is
-maintained in Japanese, and a report in a language its reader does not use is a report nobody reads.
+**レポートはユーザーが書いている言語で書く。** 見出し・所見・説明・コメント案のすべてが対象。判断できない時は日本語にする（このツールキットは日本語で保守されている）。
 
-This used to say "in Japanese" flatly, in five separate files. That is correct for the machine it was
-written on and wrong everywhere else — an English-speaking user who installed the toolkit got reports
-they could not read, from skills whose own instructions they could read fine.
+次のものは元の形のまま残す。変えると壊れるか精度を失うため: ファイルパス、識別子、コマンド、コード抜粋、ログ出力、重大度の絵文字、エラー文字列、差分からの引用。コメント案の中でも、実在するシンボル名はそのまま書く。
 
-Leave these in their original form, because changing them breaks them or loses precision: file paths,
-identifiers, commands, code excerpts, log output, severity emoji, error strings, and quoted text from
-the diff. A suggested comment names real symbols, so the symbols stay as they are inside the
-surrounding sentence.
+## レビューに必ず入れるもの
 
-These instructions are in English because they are read by the model; the report is read by a person.
-Do not mirror the language of this file into the output.
+埋めるテンプレートではなく、レビューの目的そのもの。1 つでも欠けたレポートは、所見の数に関係なく未完成。
 
-## The five things every review must contain
-
-Not a template to fill in — the five things a review is *for*. A report missing any of them is
-incomplete regardless of how many findings it has, and the last row is the one usually skipped.
-
-| | Required | Where |
+| | 必須 | 場所 |
 |---|---|---|
-| **0** | **変更マップ** — the findings placed on a diagram of what the change touches, when the change has a shape. Skipped is fine; **silently skipped is not.** | 「変更マップ」節 |
-| **1** | **What actually changed.** The units, the observable difference for someone else, the mechanism, and the blast radius. **Written first, and written even when nothing was found.** | 「変更内容」節 |
-| **2** | **A critical multi-perspective review as a tech lead for that domain**, with **architecture, aggregate and transaction boundaries, and security weighted highest** and never collapsed away. | The layer's perspective clusters; the **five** that survive every collapse are listed in `review-process.md` |
-| **3** | **For every finding: why this implementation is wrong, in detail** — mechanism, the concrete failure, the path that reaches it, and whether the *shape* causes it — **plus the exact line and the comment to leave there.** | [How each finding is presented](#how-each-finding-is-presented) |
-| **4** | **Severity as levels, with the criteria stated**, so the reader knows what blocks and what does not. | [Bucketing](#bucketing) |
+| **0** | **変更マップ** — 変更が触れるものの図に所見を載せたもの（変更に形がある場合）。飛ばしてよいが、**黙って飛ばさない。** | 「変更マップ」節 |
+| **1** | **実際に何が変わったか。** 単位、他者から観測できる違い、仕組み、波及範囲。**最初に書き、所見がゼロでも書く。** | 「変更内容」節 |
+| **2** | **その領域のテックリードとしての、批判的な多観点レビュー。** アーキテクチャ、集約とトランザクションの境界、セキュリティを最も重く見て、決して畳まない。 | 層ごとの観点クラスタ。どう畳んでも残る **5 つ** は `review-process.md` にある |
+| **3** | **所見ごとに、この実装がなぜ誤りかを詳しく** — 仕組み、具体的な失敗、そこに至る経路、形がそれを招いているか — **加えて正確な行と、そこに残すコメント。** | [所見の示し方](#所見の示し方) |
+| **4** | **重大度を段階で示し、基準も書く。** 何がブロックで何がそうでないかを読者が分かるように。 | [バケット分け](#バケット分け) |
 
-Two more that are not negotiable either, because without them the four above can be quietly hollow:
+次の 2 つも外せない。これが無いと上の 4 つが中身の無いまま通る。
 
-| | Required | Where |
+| | 必須 | 場所 |
 |---|---|---|
-| **5** | **What was read versus assumed**, and what was not checked at all. A clean result means "not detected at this depth", never "safe". | 🔎 in the skeleton |
-| **6** | **The refutation count.** How many findings were raised and killed. Zero refutations means the pass was not calibrated — say which it was. | 🔬 in the skeleton |
+| **5** | **読んだものと仮定したもの**、そしてまったく確かめなかったもの。綺麗な結果は「この深さでは検出されなかった」であり、「安全」ではない。 | 骨格の 🔎 |
+| **6** | **反証の件数。** 出した所見のうちいくつが潰れたか。反証ゼロは較正されていない。どちらだったかを書く。 | 骨格の 🔬 |
 
-## Merging duplicates
+## 重複の統合
 
-Findings on the same `file` within roughly ±5 lines, or sharing a root cause, **merge into one**:
-list both perspectives, take the **highest severity**, and combine `why` and `recommendation`. The
-same problem must not appear once per perspective that noticed it.
+同じ `file` のおおむね ±5 行以内にある所見、または根本原因が同じ所見は **1 つにまとめる**。両方の観点を列挙し、**最も高い重大度** を取り、`why` と `recommendation` を合わせる。同じ問題を、気づいた観点の数だけ出さない。
 
-## Bucketing
+## バケット分け
 
-Each finding is counted in **exactly one** bucket.
+各所見は **ちょうど 1 つ** のバケットに数える。
 
-**State the criteria in the report itself**, as a one-line legend under the summary table. A reader who
-does not know what separates 🔴 from 🟡 cannot act on either, and "critical" means something different in
-every review they have read before this one.
+**基準をレポート自体に書く。** 集計表の下に 1 行の凡例として。🔴 と 🟡 の違いが分からない読者はどちらにも動けない。
 
-| Bucket | Contents | What it means for the reader |
+| バケット | 中身 | 読者にとっての意味 |
 |---|---|---|
-| ⛔ | `irreversible=true`. Never also counted under 🔴. | **Do not merge.** Shipping it cannot be taken back: data loss, a destructive migration, a broken contract for a consumer you do not control, a permission already used. |
-| 🔴 | `critical` that is not irreversible. | **Fix before merge.** A reachable correctness, security or tenancy defect — with the path written out, not assumed. |
-| 🟡 | warning | **Should fix, does not block.** Real but bounded: recoverable, or reachable only in a state you can accept for now. |
-| 💡 | info | **Optional.** Prefix the comment `Nit:` so the author can see it does not block. |
-| 🧭 | Design soundness, system-wide and propagation risk, upgraded unverified clears. Things a senior would ask about but cannot call defects. **Exempt from noise caps.** | **A judgement call, not a defect.** "This shape will cost us" — worth a decision, not a fix. When the harm becomes legible it belongs in 🔴/⛔ instead. |
-| 👤 | Needs a human: unverified clears, unresolved reachability. | **Blocked on someone.** Says what to look at or whom to ask to settle it. |
+| ⛔ | `irreversible=true`。🔴 には重ねて数えない。 | **マージしない。** 出したら取り消せない: データ消失、破壊的マイグレーション、制御できない利用側への契約破壊、すでに使われた権限。 |
+| 🔴 | 不可逆でない `critical`。 | **マージ前に直す。** 到達可能な正しさ・セキュリティ・テナント境界の欠陥。経路は仮定せず書き出す。 |
+| 🟡 | warning | **直すべきだがブロックしない。** 実在するが限定的: 回復できる、または当面受け入れられる状態でしか到達しない。 |
+| 💡 | info | **任意。** コメントの頭に `Nit:` を付け、ブロックしないと分かるようにする。 |
+| 🧭 | 設計の妥当性、システム全体・伝播のリスク、未検証のまま格上げした clear。シニアなら問うが欠陥とは言えないもの。**ノイズ上限の対象外。** | **欠陥ではなく判断事項。** 「この形は後で高くつく」— 修正ではなく決定に値する。害が読めるようになったら 🔴/⛔ に移す。 |
+| 👤 | 人間の判断が必要: 未検証の clear、未解決の到達可能性。 | **誰かの判断待ち。** 何を見れば、誰に聞けば決着するかを書く。 |
 
-Summary-table totals must equal the post-merge finding count.
+集計表の合計は、統合後の所見数と一致させる。
 
-**Output budget** — **the only cap on findings, and it discloses what it cuts**: 🟡 at most ~7, 💡 at
-most ~5; fold the overflow into a single aggregate note and count it in 🔬. Never truncate ⛔, 🔴, or 🧭.
-The find phase has no rank cap of its own (`finding-discipline.md`): two caps in series meant the inner
-one dropped findings the outer one’s note never counted.
+**出力予算** — **所見に対する唯一の上限であり、削ったものを開示する。** 🟡 は最大 7 件程度、💡 は最大 5 件程度。溢れた分は 1 つの集約メモにまとめ、🔬 に数える。⛔・🔴・🧭 は決して削らない。発見フェーズには順位による上限を持たせない（`finding-discipline.md`）。上限を 2 段にすると、内側で落ちた所見がどこにも数えられないため。
 
-## How each finding is presented
+## 所見の示し方
 
-Every ⛔ and 🔴 finding carries **four parts, all required**. 🟡 carries all four but may be terser. 💡
-may collapse to a one-line summary.
+⛔ と 🔴 の所見は **4 部すべてが必須**。🟡 も 4 部だが簡潔でよい。💡 は 1 行の要約にしてよい。
 
-**1. 📍 Location** — `path/to/file.ts:123`, the **exact line** the inline comment attaches to. Ranges as
-`:120-135`. A finding without a line is not a finding; it is an impression.
+**1. 📍 場所** — `path/to/file.ts:123`。インラインコメントを付ける **正確な行**。範囲は `:120-135`。行の無い所見は所見ではなく印象。
 
-**2. Why this implementation is wrong** — the technical rationale, and **the part that must not be
-short.** Four things, in this order:
+**2. この実装がなぜ誤りか** — 技術的な根拠で、**短くしてはいけない部分。** 次の 4 つをこの順で書く。
 
-- **What the code does now.** The actual mechanism, read from the file rather than inferred from the
-  name. Quote the two or three lines that matter.
-- **The concrete failure.** A specific input and state → the specific wrong result. Not "may cause
-  inconsistency" but "two requests arriving inside the same transaction window both read version 3, both
-  write version 4, and the second silently discards the first's line items".
-- **The path that reaches it.** Which caller, which permission, which timing. This is what separates a
-  branch that exists in the code from a branch that runs in production, and it is why the severity is
-  what it is.
-- **Why the shape causes it, not just this line.** Is this a slip, or does the structure make the slip
-  likely — an invariant no guard enforces, a default whose correctness depends on every caller
-  compensating, a type that permits the invalid state? A finding that only fixes the line leaves the next
-  one to be written.
+- **コードが今していること。** 名前から推測せず、ファイルから読んだ実際の仕組み。効いている 2〜3 行を引用する。
+- **具体的な失敗。** 特定の入力と状態 → 特定の誤った結果。「不整合が起きうる」ではなく「同じトランザクション窓に届いた 2 つのリクエストが両方 version 3 を読み、両方 version 4 を書き、2 つ目が 1 つ目の明細を黙って捨てる」。
+- **そこに至る経路。** どの呼び出し元、どの権限、どのタイミングか。コードにあるだけの分岐と本番で走る分岐を分けるのがこれで、重大度の根拠になる。
+- **この行だけでなく、形が招いているか。** 単なるうっかりか、構造がうっかりを起こしやすくしているか — ガードの無い不変条件、全呼び出し元の補正に依存するデフォルト、不正な状態を許す型。行だけ直す所見は、次の同じ誤りを残す。
 
-> **This part is never dropped for being long.** It is the part that makes a finding actionable by
-> someone who did not do the review, and the part a reader uses to decide whether to believe it. If it
-> cannot be written, the finding is not understood well enough to report — say so and move it to 👤.
+> **この部分は長いという理由で落とさない。** レビューしていない人が所見に基づいて動けるのも、信じるかどうか決められるのもこの部分による。書けないなら、報告できるほど理解していない。そう書いて 👤 に移す。
 
-**3. Plain explanation** — two to four sentences, no jargon (gloss it if unavoidable): what the situation
-is now, what is wrong, and **whose problem it becomes if left alone**. This is for the person reading the
-report, not the person fixing the code. It may be brief; it may not be absent.
+**3. 平易な説明** — 2〜4 文。専門語は避ける（避けられなければ注釈する）。今の状況、何がまずいか、**放置すると誰の問題になるか。** 修正する人ではなくレポートを読む人向け。短くてよいが、無くてはいけない。
 
-**4. 💬 Suggested comment**, as a block quote, ready to paste on that line:
+**4. 💬 コメント案** — その行に貼れる引用ブロックで書く。
 
-> **[🔴/🟡] One-line summary.** What the problem is (concrete input and state → result) → why it
-> matters → the recommended fix (the relevant API, the direction of the smallest diff, pseudocode if
-> useful). When confidence is low, say "needs confirming: X".
+> **[🔴/🟡] 1 行の要約。** 問題は何か（具体的な入力と状態 → 結果）→ なぜ重要か → 推奨する修正（関係する API、最小差分の方向、有用なら疑似コード）。確信度が低い時は「要確認: X」と書く。
 
-The comment must **stand on its own when displayed as a single line**, since the review UI shows it
-attached to a line with nothing around it. It is a compression of part 2, not a replacement for it —
-**the comment is what the author reads at the line; part 2 is what makes the report reviewable.**
+コメントは **1 行だけ表示されても自立する** こと。レビュー UI は周囲の文脈なしで行に付けて表示する。コメントは 2 部の圧縮であって置き換えではない — **作者が行で読むのはコメント、レポートをレビュー可能にするのは 2 部。**
 
-Each ⛔ row gets one 💬 suggested comment with its line. Each 👤 item must state, in the comment,
-**what to look at or whom to ask** to settle it.
+⛔ の各行には、行つきの 💬 コメント案を 1 つ付ける。👤 の各項目は、コメントの中に **何を見るか、誰に聞くか** を書く。
 
-**Mark what is optional, inside the comment.** Anything that is a preference rather than a defect opens
-with **`Nit:`** — the widely used convention for "worth considering, not a reason to hold this up". Four
-characters, and it removes the most common failure of an otherwise good review: the author cannot tell
-which of eleven comments actually block, so they either do all of them or ignore the lot.
+**任意のものはコメントの中で示す。** 欠陥ではなく好みのものは **`Nit:`** で始める。どのコメントがブロックなのか作者が分からないと、全部やるか全部無視するかになるため。
 
-**A personal style preference is not a finding.** Where the project states no convention, the author's
-choice stands. A review that spends its credibility on formatting has none left for the migration that
-loses data. `finding-discipline.md` has the suppression rule; this is its presentation half.
+**個人的なスタイルの好みは所見ではない。** プロジェクトが規約を定めていない所では作者の選択を尊重する。書式に信用を使うレビューは、データを失うマイグレーションに使う信用が残らない。抑制の規則は `finding-discipline.md` にあり、ここはその示し方の側。
 
-**This is a proposal, not a post.** The skill is read-only. Actually posting with
-`gh pr review --comment` or `gh api` happens only when the user explicitly asks, and then the
-bodies above are used verbatim.
+**これは提案であって投稿ではない。** スキルは読み取り専用。`gh pr review --comment` や `gh api` での実際の投稿は、ユーザーが明示的に頼んだ時だけ行い、その時は上の本文をそのまま使う。
 
 ---
 
 ## 変更マップ — 一枚絵、所見を載せたもの
 
-**A Mermaid block, first in the report, before the change summary.** GitHub, GitLab and most Markdown
-viewers render ` ```mermaid ` fences natively, so this needs no tool and looks the same from Claude and
-from Cursor.
+**レポートの先頭、変更内容より前に Mermaid ブロックを置く。** GitHub・GitLab・多くの Markdown ビューアが ` ```mermaid ` をそのまま描画するので、ツール不要で Claude からも Cursor からも同じに見える。
 
-**What makes it worth drawing is not the change — it is the findings placed on it.** A diagram of what a
-diff touches is something the file list already says. A diagram that shows **where the risk sits** is the
-one thing a reader cannot reconstruct from a list of findings, because a finding names a file and the
-reader has to hold the topology in their head to see that two of them are the same edge.
+**描く価値は変更ではなく、そこに載せた所見にある。** 差分が触れるものの図ならファイル一覧で足りる。**どこにリスクがあるか** を示す図は、所見の一覧からは再構成できない（2 つの所見が同じ辺だと気づくには、読者が頭の中でトポロジーを持つ必要がある）。
 
-Rules, and each exists because the obvious version of this is worse than nothing:
+規則。どれも、素直に描くと無いより悪くなるから存在する。
 
-- **Nodes are what the reader recognises** — a screen, an endpoint, a table, a queue, a resource. **Not
-  file paths and not class names.** A map of internal structure is the diff again.
-- **Edges are the ones the change affects**, and an edge carries its risk marker: `⛔` irreversible,
-  `🔴` critical, `🧭` design doubt. **An unmarked edge means it was looked at and nothing was found** —
-  say so in the legend, so a clean edge is a statement rather than an omission.
-- **Only findings at ⛔ / 🔴 / 🧭 go on the map.** 🟡 and 💡 belong in the table; putting them on the map
-  flattens severity into "everything is marked" and the map stops carrying information.
-- **A finding on the map is also in the table.** The map is an index, never the only place something
-  appears — a reader who skips the diagram must lose nothing.
-- **Cap it at roughly a dozen nodes.** Past that a reader scans it like a list, which the table already
-  does better. When the change is genuinely wider, group by area and name what was collapsed.
-- **Skip it when the change has no shape.** One file, one flag, one value — the table says everything and
-  a diagram of one node is noise. **Say that you skipped it and why**, so a missing map is never read as
-  a forgotten one.
+- **ノードは読者が認識するもの** — 画面、エンドポイント、テーブル、キュー、リソース。**ファイルパスやクラス名ではない。** 内部構造の図は差分の繰り返し。
+- **辺は変更が影響するもの** で、辺にリスクの印を付ける: `⛔` 不可逆、`🔴` 重大、`🧭` 設計への疑い。**印の無い辺は、見た上で何も無かったという意味** — 凡例にそう書き、綺麗な辺を書き漏れではなく表明にする。
+- **地図に載せるのは ⛔ / 🔴 / 🧭 の所見だけ。** 🟡 と 💡 は表に置く。載せると「全部に印がある」になり、地図が情報を運ばなくなる。
+- **地図に載せた所見は表にも載せる。** 地図は索引であって唯一の置き場ではない。図を飛ばした読者が何も失わないように。
+- **ノードは十数個までにする。** それ以上は一覧として眺められ、それなら表の方がよい。本当に広い変更は領域でまとめ、何を畳んだかを書く。
+- **形の無い変更では飛ばす。** 1 ファイル、1 フラグ、1 値なら表で足り、1 ノードの図はノイズ。**飛ばしたことと理由を書く。** 地図が無いのを忘れたと読まれないように。
 
 ```mermaid
 flowchart LR
@@ -166,13 +106,11 @@ flowchart LR
   %% 印の無い辺 = 見た上で所見なし
 ```
 
-For a cross-layer review the map is **the only place both sides of a boundary appear at once**, which is
-what the layer reviews structurally cannot produce. For a single-layer review it is optional — draw it
-when the layer has internal topology worth showing, skip it when it does not.
+層をまたぐレビューでは、地図は **境界の両側が同時に現れる唯一の場所** で、層ごとのレビューでは構造的に作れない。単一層のレビューでは任意 — 層の内部に見せる価値のあるトポロジーがあれば描き、無ければ飛ばす。
 
-## Report skeleton
+## レポートの骨格
 
-Replace `<Layer>` with Backend, Frontend, or Infra.
+`<層>` はバックエンド・フロントエンド・インフラのいずれかに置き換える。
 
 ```markdown
 ## <層> レビュー報告
@@ -181,115 +119,90 @@ Replace `<Layer>` with Backend, Frontend, or Infra.
 
 ### 変更内容 — 常に最初、所見が無くても書く
 
-**所見より先に書き、所見がゼロでも書く。** 差分を知らない読者は、これ無しにどの重要度も判断できない。問題から始まるレビューは、**何をレビューしているのかを確立する工程を飛ばしている。**
+**所見より先に書き、所見がゼロでも書く。** 差分を知らない読者は、これ無しにどの重要度も判断できない。
 
-**表で書く。** 散文の箇条書きだと「観測できる変化」と「実装の説明」が混ざり、混ざったものは読者が仕分ける羽目になる。列があれば空欄が見える。
+**表で書く。** 散文だと「観測できる変化」と「実装の説明」が混ざる。列があれば空欄が見える。
 
 <!-- dotagents:change-table | 領域 | 変更前 | 変更後 | -->
 | 領域 | 変更前 | 変更後 |
 |---|---|---|
 | 読者が認識するもの（画面・エンドポイント・テーブル・キュー・リソース）。**ファイルパスとクラス名は禁止** | 現在の挙動や値、短く。新規追加は `—` | 何になるか。短く |
 
-`/da-pr-describe` と同じ3列にしてある。**同じ変更について2つの語彙を持つと、レビューと PR 説明が食い違って読者が突き合わせる作業を負う。**
+`/da-pr-describe` と同じ 3 列。**同じ変更に 2 つの語彙があると、レビューと PR 説明が食い違う。**
 
-**「なぜ」は列ではなく、表の直下に散文で1〜2文。** 4列目だった時期があり、そこだけが**文**を入れる列だったので、行が伸びて他の3列が潰れていました。列は**短い値が並ぶとき**に効く道具で、文が入ると効きません。
+**「なぜ」は列ではなく、表の直下に散文で 1〜2 文。** 列は短い値が並ぶ時に効き、文が入ると他の列が潰れる。
 
-書く内容は変わりません: 差分・spec・PR 説明から読み取れる意図。**読み取れなければ「意図が読み取れなかった」と書く** —— それ自体が所見（👤）で、意図が無ければ意味的な正しさは判定できない。**散文に移したことで、これはむしろ目立つようになりました** —— セルの中の「不明」は読み飛ばせますが、1文は飛ばせません。
+書く内容は差分・spec・PR 説明から読み取れる意図。**読み取れなければ「意図が読み取れなかった」と書く** —— それ自体が所見（👤）で、意図が無ければ意味的な正しさは判定できない。
 
-表の下に2つ、散文で:
+表の下に 2 つ、散文で:
 
-- **仕組み**: 2〜3文。**仕組みを説明できないなら、まだレビューできる状態ではない。**
-- **影響範囲**: Step 2 の追跡で出た関連ドメイン・モジュール・画面・スタック —— **そのうち読まなかったものも名指しする。**
+- **仕組み**: 2〜3 文。**仕組みを説明できないなら、まだレビューできる状態ではない。**
+- **波及範囲**: Step 2 の追跡で出た関連ドメイン・モジュール・画面・スタック —— **そのうち読まなかったものも名指しする。**
 
 ### ⛔ 不可逆な箇所（最優先・検証済み）
-| Location | Kind | Why it cannot be undone | Must confirm before release |
+| 場所 | 種類 | 取り消せない理由 | リリース前に確認すること |
 |---|---|---|---|
-| `file:line` | dropped column / API break / deletion / shared-function fan-out / resource replacement | … | … |
+| `file:line` | カラム削除 / API 破壊 / 削除 / 共有関数の波及 / リソース置換 | … | … |
 
-(each row followed by one 💬 suggested comment with its line)
+（各行の後に、行つきの 💬 コメント案を 1 つ）
 
 ### 🔴 重大 / 🟡 警告 / 💡 参考 / 👤 人間の判断が必要
-Each finding in the three-part set above. 💡 may be one line.
+各所見を上の形式で。💡 は 1 行でよい。
 
 ### 🧭 設計とシステム全体への疑い
-Each item: the doubt — why it is concerning — how to settle it. May fall outside the diff.
+各項目: 疑い — なぜ気になるか — どう決着させるか。差分の外に出てよい。
 
 ### 🔎 このレビューの確度 —— 綺麗な結果を信じる前に必ず読む
-- **What was read versus what was assumed.** Especially: did you actually open the shared or base
-  code that the high-risk parts lean on? Cite `file:line`.
-- Areas covered only shallowly, and what could not be confirmed. Honestly.
-- The caveat: this result means "no defect was detected locally in the diff at this depth". It does
-  not mean "a senior signed off on the design".
+- **読んだものと仮定したもの。** 特に、高リスク部分が依存する共有コード・基底コードを実際に開いたか。`file:line` で示す。
+- 浅くしか見ていない領域と、確認できなかったこと。正直に。
+- 注意書き: この結果は「この深さで差分の局所に欠陥が検出されなかった」という意味。「シニアが設計を承認した」ではない。
 
 ### 🔬 除外したもの（参考・件数のみ）
-- N refuted during verification
-- N scored below the confidence threshold
-- N folded into the aggregate note by the output budget (🟡/💡 only)
-- **N provisional severities settled by 6b, and N still open** — a finding parked below its severity
-  because reachability was never traced is not an excluded finding, it is an **unfinished** one. Report
-  the two counts separately, and never leave the "still open" number implicit: an unstated zero and an
-  unmeasured backlog look identical here, and the second one is the report that reads as settled while
-  carrying placeholders.
-(one-line summaries only if useful — do not restate them)
+- 検証で反証された: N
+- 確信度の閾値未満: N
+- 出力予算で集約メモにまとめた（🟡/💡 のみ）: N
+- **6b で確定した暫定の重大度: N、未確定のまま: N** — 到達可能性を追えず重大度を下げて置いた所見は、除外ではなく **未完了**。2 つの件数を分けて書き、「未確定」を暗黙にしない（書かれないゼロと測っていない残件は、ここでは見分けがつかない）。
+（役に立つ場合だけ 1 行の要約。言い直さない）
 
 ### 📊 集計
-| Bucket | Count |
+| バケット | 件数 |
 |---|---|
-| ⛔ Irreversibility hotspots | |
-| 🔴 Critical | |
-| 🟡 Warning | |
-| 💡 Info | |
-| 🧭 Design / system-wide | |
-| 👤 Needs human | |
-| 🔬 Filtered out | |
+| ⛔ 不可逆な箇所 | |
+| 🔴 重大 | |
+| 🟡 警告 | |
+| 💡 参考 | |
+| 🧭 設計 / システム全体 | |
+| 👤 人間の判断が必要 | |
+| 🔬 除外 | |
 ```
 
-## When the change is an open PR
+## 変更が open な PR の時
 
-The report is finished at this point, and it is the **complete** set. A pull request wants something
-smaller: the findings worth another person's attention, in the voice of the person whose name goes on
-them.
+レポートはここで完成で、これが **完全な** 集合。PR に載せるのはもっと小さいもの — 他人の注意に値する所見を、名前が載る本人の口調で。
 
-**Offer that in one line, then stop.** Do not post anything, and do not skip the offer either — a review
-that ends without it leaves the author to transcribe it by hand. If the user wants it, follow
-[`pr-comments.md`](pr-comments.md), which owns all of it: selection **by rule, never by rank**, the
-register (from `profiles/review-voice.md`, and it asks rather than inventing one), every draft shown
-verbatim, and the literal **`Go`** before a single byte leaves the session.
+**1 行で申し出て止まる。** 何も投稿しない。申し出も省かない（省くと作者が手で書き写すことになる）。ユーザーが望めば [`pr-comments.md`](pr-comments.md) に従う。選び方（**規則で選び、順位では選ばない**）、口調（`profiles/review-voice.md` から。無ければ作らずに尋ねる）、下書きをすべてそのまま見せること、1 バイトでも外に出す前に文字どおりの **`Go`** を待つことは、すべてそちらが持つ。
 
-**`Go` posts comments.** It is never `--approve` or `--request-changes` — a PR's review state is the
-human's, always — and it covers one post, not the round after the author replies.
+**`Go` はコメントを投稿する。** `--approve` や `--request-changes` には決してならない（PR のレビュー状態は常に人間のもの）。対象は 1 回の投稿だけで、作者が返信した後の回は含まない。
 
-**Nothing is dropped by selecting.** Everything stays in the report, one scroll up, which is the only
-reason the subset is allowed to be smaller.
+**選んでも何も落ちない。** すべてはレポートに残っている。だから部分集合を小さくしてよい。
 
-**A report where nothing was filtered out has not been calibrated.** Reviewers instructed to find
-gaps will always find something; acting on all of it produces over-engineering — extra abstraction
-layers, defensive code, tests for cases that cannot occur. If the filtered count is zero, say so and
-explain why, rather than letting it pass as a thorough review.
+**何も除外されていないレポートは較正されていない。** 穴を探せと言われたレビュアーは必ず何か見つける。そのすべてに対応すると過剰設計になる — 余分な抽象層、防御的なコード、起こりえないケースのテスト。除外がゼロなら、そう書いて理由を説明する。徹底したレビューとして通さない。
 
-## Design review substitutions
+## 設計レビューでの置き換え
 
-`da-design-review` reviews a plan, not a diff, and reports through this file with three substitutions.
-They live here rather than in that skill's body because presentation is this file's subject for every
-review in the toolkit, and the design variant was a second copy of these rules.
+`da-design-review` は差分ではなく計画をレビューし、このファイルで報告する。置き換えは 3 つ。
 
-- **⛔ becomes 🚪 one-way doors** — decisions expensive or impossible to reverse once shipped. They lead
-  the report. For each: what becomes irreversible, **at what moment**, and what would have to be true to
-  proceed safely. If you cannot name the moment, it is not a door.
-- **🧭 carries more weight than in code review.** At plan stage "this is the wrong shape" is actionable;
-  after implementation it is a rewrite.
-- **📍 points at a section of the plan**, plus the `file:line` in the code it conflicts with when there
-  is one.
+- **⛔ は 🚪 一方通行の判断になる** — 出した後に戻すのが高いか不可能な決定。レポートの先頭に置く。各項目に、何が不可逆になるか、**どの時点で** なるか、安全に進むには何が成り立つ必要があるかを書く。時点を言えなければ一方通行の判断ではない。
+- **🧭 はコードレビューより重い。** 計画段階なら「形が違う」は対応できる。実装後なら書き直しになる。
+- **📍 は計画の節を指す。** 衝突するコードがあればその `file:line` も。
 
-The four required parts, read for a plan:
+必須の 4 部を計画に読み替えると次のとおり。
 
-| Part | Here it means |
+| 部 | ここでの意味 |
 |---|---|
-| **1. What changed** | *What the plan proposes to do*, restated from Step 1 and confirmed. First, and present even when nothing is found. |
-| **2. Why this is wrong, in detail** | The mechanism the plan implies → the concrete failure it produces → **when** it produces it (which deploy step, which migration, which load) → and whether the *shape* of the plan causes it rather than one sentence in it. "This will be slow" is not this part; "the backfill locks the orders table for the duration and the plan runs it before the read path moves off it" is. |
-| **3. Plain explanation** | Two to four sentences for whoever has to decide, jargon glossed. |
-| **4. 💬 Suggested comment** | Pasteable onto that plan section, or onto the PR that will implement it. |
+| **1. 何が変わったか** | *計画が何をしようとしているか*。Step 1 から再掲して確認したもの。最初に置き、所見が無くても書く。 |
+| **2. なぜ誤りか、詳しく** | 計画が含意する仕組み → 生む具体的な失敗 → **いつ** 生むか（どのデプロイ段階、どのマイグレーション、どの負荷）→ 1 文ではなく計画の形が招いているか。「遅くなる」はこれに当たらない。「backfill が実行中ずっと orders テーブルをロックし、計画は読み取り経路を移す前にそれを走らせる」がこれに当たる。 |
+| **3. 平易な説明** | 決める人向けに 2〜4 文。専門語は注釈する。 |
+| **4. 💬 コメント案** | その計画の節、または実装する PR に貼れるもの。 |
 
-**A plan is a document, so anything unwritten looks missing** — which is why the design review's
-refutation pass exists and why ❓ is a bucket of its own rather than a severity.
-
+**計画は文書なので、書かれていないものはすべて欠けて見える。** だから設計レビューには反証のパスがあり、❓ は重大度ではなく独立したバケットになっている。

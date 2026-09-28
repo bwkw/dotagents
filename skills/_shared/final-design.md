@@ -1,61 +1,40 @@
-# Write it as the design, not as the route you took to it
+# たどった道筋ではなく、設計として書く
 
-Two skills need this and neither owns it: `da-spec` writes the change, `da-adr` writes the decision.
-Both produce a document that **outlives the conversation that produced it**, and both fail the same
-way when they forget that.
+`da-spec`（変更を書く）と `da-adr`（判断を書く）の両方が使う。どちらも **生んだ会話より長く残る** 文書を作り、それを忘れた時に同じ形で失敗する。
 
-## The standard
+## 基準
 
-**Write it as though the design had been planned this way from the start.** Not "here is where we
-ended up" — *here is the design*. Everything that is only true because of the order in which the
-understanding arrived is noise to the person reading it later, and they are the entire audience.
+**最初からこの設計で計画していたかのように書く。** 「ここに行き着いた」ではなく *これが設計である*。理解が届いた順序のせいでだけ真であるものは、後で読む人にとってノイズで、その人が読者のすべてである。
 
-This is a rewrite instruction, not an editing one. A document assembled by appending as the
-understanding changed cannot be repaired by deleting the offending sentences: its **ordering** still
-encodes the conversation. When a document fails the test below in more than one place, write it
-again from the current understanding rather than patching it.
+これは編集ではなく書き直しの指示。理解が変わるたびに追記して組み立てた文書は、問題の文を消しても直らない。**並び順** がまだ会話を写している。下のテストに 2 か所以上で落ちる文書は、継ぎ当てせず、今の理解から書き直す。
 
-## The reader
+## 読者
 
-**The reader is a newcomer who was not in the conversation.** They have the repository and this
-document. They do not know what was proposed first, what was withdrawn, what the third option was
-before it collapsed into the second, or which sentence answers a question someone asked out loud.
+**読者は会話にいなかった新規参加者。** リポジトリとこの文書を持っている。最初に何が提案されたか、何が取り下げられたか、3 つ目の案が 2 つ目に吸収される前に何だったか、どの文が誰かの口頭の質問への答えかは知らない。
 
-A sentence that only parses if you were there is not a shorter sentence. It is an **unreadable**
-one — and it reads as authoritative while being unreadable, which is worse than being absent.
+その場にいないと解釈できない文は、短い文ではなく **読めない** 文。しかも読めないまま権威ありげに読めるので、無いより悪い。
 
-## Cut on sight
+## 見つけたら削る
 
-| Shape | Example | Why it fails |
+| 形 | 例 | なぜ失敗するか |
 |---|---|---|
-| Discovery narrative | "we first tried X, but it turned out that…" | The reader never tried X. The route is not the design |
-| Contrast with something unseen | "this is not a new constraint, it is…", "unlike the earlier approach" | Negates a thing that exists only in the conversation |
-| Positional cross-reference | "as noted above", "the fact cited earlier", "the second option" | Resolves only when read in one order, by someone who remembers |
-| Chronological numbering | decisions numbered by when they were made | The reader needs them ordered by what depends on what |
-| Correction traces | "revised", "withdrawn", "superseded in review" | The document is the final state. A superseded thing is simply absent |
-| Attribution to the session | "as the review found", "per the grilling" | The finding is either load-bearing — then state it as fact with its evidence — or it is not, and it goes |
+| 発見の語り | 「最初は X を試したが、実は…」 | 読者は X を試していない。道筋は設計ではない |
+| 見えないものとの対比 | 「これは新しい制約ではなく…」「以前の方式と違い」 | 会話の中にしか無いものを否定している |
+| 位置による相互参照 | 「上で述べたとおり」「先に挙げた事実」「2 つ目の案」 | 1 つの順序で、覚えている人が読んだ時しか解決しない |
+| 時系列の番号 | 決めた順に番号を振った判断 | 読者に要るのは、何が何に依存するかの順 |
+| 訂正の痕跡 | 「改訂」「取り下げ」「レビューで置き換え」 | 文書は最終状態。置き換えられたものは単に無い |
+| セッションへの帰属 | 「レビューで分かったとおり」「grilling によれば」 | 所見が要なら根拠つきの事実として書く。要でなければ消す |
 
-**Dated repository history stays.** A measurement, an incident, a commit that established a
-constraint, a configuration value observed in production — those are evidence a newcomer can check,
-not conversation. Cite them.
+**日付のあるリポジトリの履歴は残す。** 計測、インシデント、制約を定めたコミット、本番で観察した設定値 — 新規参加者が確かめられる証拠で、会話ではない。引用する。
 
-**Rejected alternatives stay.** They are what makes a decision a decision. Write them as *alternatives
-considered and why they lose*, never as *things we tried and abandoned*. The first is design; the
-second is a diary.
+**却下した代替案は残す。** 判断を判断にするのはそれ。*検討した代替案と負ける理由* として書き、*試して諦めたこと* としては書かない。前者は設計、後者は日記。
 
-## The test
+## テスト
 
-Read the document as though you have never seen this repository's chat history. **Every sentence that
-raises the question "compared to what?" or "found by whom?" and does not answer it in the same
-paragraph is a rewrite, not a polish.**
+このリポジトリのチャット履歴を一度も見たことがないつもりで読む。**「何と比べて？」「誰が見つけた？」という問いを生み、同じ段落で答えていない文は、磨くのではなく書き直す。**
 
-Ordering is part of this. Present decisions so each one only depends on ones already stated. If
-decision 5 explains itself by pointing at decision 7, the order is the conversation's, not the
-design's.
+並び順もこれに含む。各判断が、すでに述べた判断だけに依存するように並べる。判断 5 が判断 7 を指して自分を説明しているなら、その順序は設計ではなく会話のもの。
 
-## What this is not
+## これは何でないか
 
-This is not a rule against detail, length, or strong claims. A final design can be long and sharp.
-It is a rule against **a document that encodes its own history** — which is the default output of any
-process where the document is edited as the understanding changes, and therefore the default output
-of every skill that writes one.
+詳細・長さ・強い主張を禁じる規則ではない。最終的な設計は長く鋭くてよい。禁じるのは **自分の履歴を写した文書** — 理解が変わるたびに文書を編集する過程の既定の出力であり、したがって文書を書くすべてのスキルの既定の出力。

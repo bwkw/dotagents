@@ -1,82 +1,46 @@
-# Verification pass
+# 検証パス
 
-> **Where the enforcement lives.** Four mechanisms exist; they are not interchangeable.
+> **強制がどこにあるか。** 仕組みは 4 つあり、互いに置き換えられない。
 >
-> | Mechanism | Cost | Enforces? | Use it for |
+> | 仕組み | コスト | 強制するか | 使いどころ |
 > |---|---|---|---|
-> | Instructions in the prompt | free | no | the default. Everything starts here. |
-> | `/goal` | re-evaluated **every turn** | no, but it re-asserts | a condition that must hold across a long session and that no script can express — "the public API shape must not change". Claude Code only. |
-> | Stop hook | runs once per turn | **yes**, on Claude Code | anything a command can decide. Cheaper than `/goal` and not subject to persuasion. |
-> | A separate `claude -p` round | one process | no, but it **is** independent | judgement calls a command cannot make — "does this diff satisfy the acceptance criteria?". A fresh process, unlike a subagent, is not the same context wearing a hat. |
+> | プロンプト内の指示 | 無料 | しない | 既定。すべてここから始める。 |
+> | `/goal` | **毎ターン**再評価 | しないが、繰り返し主張する | 長いセッションを通して保つべきで、スクリプトでは表せない条件（「公開 API の形を変えない」）。Claude Code のみ。 |
+> | Stop hook | 1 ターンに 1 回 | Claude Code では**する** | コマンドで判定できるもの全般。`/goal` より安く、説得されない。 |
+> | 別の `claude -p` ラウンド | 1 プロセス | しないが、**独立している** | コマンドでは判定できない判断（「この差分は受け入れ条件を満たすか」）。サブエージェントと違い、新しいプロセスは同じ文脈の着せ替えではない。 |
 >
-> Prefer the Stop hook whenever the condition is mechanically checkable: it costs one run instead of
-> one per turn, and it cannot be talked out of its answer. Reach for `/goal` only when the condition
-> needs a model to evaluate it and has to survive many turns. The two are complements, not
-> alternatives — the hook checks the build, `/goal` watches the invariant.
+> 機械的に確かめられる条件には Stop hook を優先する（1 回で済み、答えを覆されない）。`/goal` は、条件の評価にモデルが要り、かつ多くのターンを生き延びる必要がある時だけ使う。両者は補完であって代替ではない —— hook はビルドを確かめ、`/goal` は不変条件を見張る。
 
+発見フェーズの後に行う。偽陽性と偽陰性は非対称な問題なので、**6a と 6b の両方が必須**。6b を飛ばすと、自信のある誤った「問題なし」が出る。
 
-Run after the find phase. False positives and false negatives are asymmetric problems, so **both
-6a and 6b are mandatory**. Skipping 6b is how a review produces a confident, wrong "clean".
+## このパスは inline で、自己検証である。そう書く
 
-## This pass is inline, and it is self-verification. Say so.
+**サブエージェントは使わない。** 新しいサブエージェントは、*同じ差分*を*同じ規律*で読み直す*同じモデル*であり、傾きは同じまま文脈が空になるだけ。検証役の傾きはインスタンスではなく、レビュアーと問いの立て方で決まる。そのうえ「検証役が確認した」という報告は「自分の作業を確かめた」より強く読まれるので、正直に書くより悪い。
 
-**No subagent.** This used to spawn a fresh `x-review-verifier` and called that non-negotiable, on the
-grounds that you cannot refute your own reasoning from inside the context that produced it.
+代わりに次を行う。
 
-**That reasoning was right about the problem and wrong about the remedy.** A fresh subagent is the *same
-model* re-reading the *same diff* under the *same discipline*. It does not have a different disposition;
-it has the same one with an empty context — and the measured effects below say a verifier's lean is
-**per-reviewer and per-framing**, not per-instance. So a second instance of yourself buys a cold-start
-bill and the illusion of independence, which is worse than the honest version, because a report that says
-"a verifier confirmed it" reads as stronger than one that says "I checked my own work".
+1. **問いの立て方を意図して変える。** 発見フェーズは「何がおかしいか」を問うた。このパスは逆に「これが起き得ないことを示せ」と問う。測定上効くのは問いの立て方である。
+2. **ページにあるものだけで判断する。** 引用された `file:line` とその周りの経路を読み直す。所見を生んだ推論をたどり直さない。根拠ではなく論証を読み直した時にだけ説得力が残る所見は、反証されたとみなす。
+3. **何をしたかを書く。** 🔎 に **「inline で自己検証した。独立した検証ではない」** と書く。独立したエージェントが承認したと思った読み手は綺麗な部分を誤って重く見る。その誤りが inline で行うことのコストのすべて。
 
-**What you do instead, and it is not nothing:**
-
-1. **Change the framing, deliberately.** The find phase asked "what is wrong here". This pass asks the
-   opposite question — "show that this cannot happen" — and framing is the axis that measurably matters.
-2. **Judge only what is on the page.** Re-read the cited `file:line` and the path around it. Do not
-   re-run the reasoning that produced the finding; if a finding's persuasiveness survives only when you
-   reread its argument rather than its evidence, that is a refutation.
-3. **Say what it was.** 🔎 states **"self-verified inline, not independently"**. A reader who thinks an
-   independent agent signed off will weight the clean parts wrongly, and that misweighting is the entire
-   cost of doing this inline.
-
-**Real independence is bought elsewhere, and the toolkit already buys it**: `/find-bugs` is a
-**differently built** reviewer, and the measurement that justifies it is the one in `review-process.md`
-— 93.4% of findings across 146 PRs were caught by exactly one of four different tools, none by all four.
-Where a stronger or different model is available (`--advisor`), route this pass to it and say so in 🔎.
-**A different tool or a different model is independence. A second copy of this one never was.**
+**本当の独立性は別のところで得る。** `/find-bugs` は**別の作りの**レビュアーである（146 PR で所見の 93.4% は別々の 4 ツールのうち 1 つにしか拾われず、4 つすべてが拾ったものは無かった。数字は `review-process.md` にもある）。より強いモデルや別のモデルが使えるなら（`--advisor`）このパスをそちらに回し、🔎 にそう書く。**別のツールや別のモデルは独立性になる。同じもののもう 1 つの複製はならない。**
 
 ---
 
-## 6a. Refutation — against false positives
+## 6a. 反証 —— 偽陽性に対して
 
-Applies only to findings with `severity=critical` or `irreversible=true`.
+対象は `severity=critical` の所見だけ、それに `irreversible=true` の所見を加える。
 
-**Work them cluster by cluster**, not finding by finding: the same code path usually carries several, and
-re-reading it once per finding is how this pass used to get expensive.
+**所見ごとではなくクラスタごとに進める。** 同じコード経路が複数の所見を持つことが多く、所見ごとに読み直すと高くつく。
 
-**Order matters, because you are your own verifier.** Take the findings in **reverse severity order
-within this pass’s scope** — 🔴 first, ⛔ last. The measured position effect is that whatever you judge
-first sets the tone for the rest, and judging your own ⛔ first is the arrangement most likely to launder
-the whole list.
+**自分が自分の検証役なので、順序が効く。** このパスの対象の中で、重大度の順を逆にたどって扱う（🔴 を先に、⛔ を最後に）。
+最初に判断したものが残りの基調を決めるので、自分の ⛔ を先に判断するのが最もリストを甘くする並びである。対象外の重大度をこの並びに含めない。
 
-**This used to read "💡 and 🟡 first" — the two severities the line above excludes.** Resolving it went one
-of two ways, and both lost something: widen the scope and you triple the cost of the cheap half of the
-report, against the rule four paragraphs down; keep the scope and you drop the ordering, and with it the
-position guard this paragraph exists for. **A pass may not be told to order findings it was told not to
-take.**
+**本当に読み直せる数より所見が多い時は、不可逆性、次に重大度の順で優先し、残りは 👤 に送る。** 黙って下げず、未検証とラベルを付ける。**1 回のパスで検証しきれない数の ⛔/🔴 を出す層は、それ自体が何かを告げている。**
 
-**When there are more findings than you can genuinely re-read, prioritise by irreversibility then
-severity and send the remainder to 👤** — labelled unverified rather than silently downgraded. **A layer
-that produces more ⛔/🔴 than one pass can verify is telling you something** that another pass would not.
+各所見に当てる指示（同点の扱いを含む）:
 
-The instruction to apply to each finding, including the tie-breaking rule:
-
-> For each finding, read the actual code path and try to show that **the claimed failure cannot
-> happen** — a guard exists, a constraint enforces it, the path is unreachable. If you can show
-> that, return `refuted`. When you cannot substantiate the finding, return **`refuted`**, not
-> `uncertain`. Reserve `uncertain` for cases that are genuinely data- or runtime-dependent.
+> 各所見について実際のコード経路を読み、**主張された失敗が起き得ない**ことを示そうとする —— ガードがある、制約が強制している、経路に到達できない。示せたら `refuted` を返す。所見を裏付けられない時は `uncertain` ではなく **`refuted`** を返す。`uncertain` は本当にデータや実行時に依存する場合に限る。
 
 ```
 { id, verdict: "confirmed" | "refuted" | "uncertain",
@@ -84,161 +48,69 @@ The instruction to apply to each finding, including the tie-breaking rule:
   corrected_severity?, reachability? }
 ```
 
-**Severity recalibration.** Apply the reachability rule from `finding-discipline.md` and return
-`corrected_severity` and `reachability` accordingly. That is where the rule is defined; it is not
-restated here.
+**重大度の再調整。** `finding-discipline.md` の到達可能性の規則を当て、それに従って `corrected_severity` と `reachability` を返す。規則はそこで定義しており、ここで繰り返さない。
 
-| Verdict | Disposition |
+| 判定 | 扱い |
 |---|---|
-| `confirmed` | Keep. Re-bucket by `corrected_severity` when present. |
-| `refuted` | Drop from Critical/⛔. Report the **count and a one-line summary only** — do not restate each finding or its evidence. |
-| `uncertain` | Demote to 👤. |
+| `confirmed` | 残す。`corrected_severity` があればそのバケットに移す。 |
+| `refuted` | Critical/⛔ から落とす。**件数と 1 行の要約だけ**を報告し、所見やその根拠を書き直さない。 |
+| `uncertain` | 👤 に下げる。 |
 
-### Perspective-diverse verification, for ⛔ and 🔴 only
+### 観点を変えた検証 —— ⛔ と 🔴 だけ
 
-A finding checked one way survived **one way of being wrong**. For the two severities where being wrong
-is expensive in both directions — a false ⛔ costs the reader's trust in the whole report, a missed one
-costs production — make **three separate passes with different lenses** and let them disagree with each
-other.
+1 通りに確かめた所見は、**1 通りの誤り方**を生き延びたにすぎない。誤りがどちらの向きにも高くつく 2 つの重大度（誤った ⛔ はレポート全体への信頼を失わせ、見落とした ⛔ は本番を壊す）については、**レンズを変えて 3 回別々にパスを行い**、互いに食い違わせる。
 
-**Three passes, not three agents.** This is the part of the old three-verifier design that survives
-intact, and it survives *because* the file already admitted what it was: "three lenses reduce the chance
-of one bad run; they do not remove bias shared by all three, **because it is the same model each time**".
-That was true of three subagents and it is true of three passes — so the subagents were paying a
-cold-start bill for a diversity that came from the **framing**, which costs nothing to vary inline.
+**3 つのエージェントではなく 3 回のパス。** 多様性は問いの立て方から来るので、inline でも費用をかけずに変えられる。繰り返しではなくレンズを変える。繰り返しは同じ盲点を再現するだけ。
 
-Three lenses, not three repetitions. Repetition mostly reproduces the same blind spot:
-
-| Lens | The only question it answers |
+| レンズ | 答える問いはこれだけ |
 |---|---|
-| **reachability** | Does real execution reach this? Which caller, which permission, which timing — and **what constructs the state**, which is usually not the caller? |
-| **existing guard** | Is this already prevented somewhere else — a constraint, a middleware guard, a type that makes the state unrepresentable? |
-| **severity** | Is ⛔/🔴 right for what the code actually does, or is this a 🟡/💡? |
+| **到達可能性** | 実際の実行はここに届くか。どの呼び出し元、どの権限、どのタイミングか —— そして**その状態を何が組み立てるか**（たいてい呼び出し元ではない）。 |
+| **既存のガード** | 他の場所ですでに防がれていないか —— 制約、ミドルウェアのガード、その状態を表現できなくする型。 |
+| **重大度** | コードが実際にすることに対して ⛔/🔴 は正しいか。それとも 🟡/💡 か。 |
 
-Rules that make the diversity worth its cost:
+多様性を費用に見合わせる規則:
 
-- **Each pass answers only its own lens.** Write the verdict for that lens before starting the next, and
-  do not soften one in anticipation of another — the separation is the only reason three beats one.
-- **Settle reachability at the construction site, not the call site.** "Which caller" answers who invokes
-  the code; it does not answer whether the state the finding needs can exist. That answer lives in
-  whatever **produces** the value — the factory, or the `ensure`/`resolve` function that chooses between
-  reusing an existing object and making a fresh one — and in the **gate** that admits work into the path.
-  Observed: every caller of a suspect branch read correctly and the admission gate filtered on a
-  different field than the finding was about, so a caller sweep cleared it; the factory three files away
-  reused an object in exactly the state the finding needed, and its own docstring said so. **A
-  reachability verdict that names only callers has answered a different question** — name the
-  construction sites you read, or record the reachability as still open.
-- **Two of three must not refute** for the finding to survive at ⛔/🔴. One refutation with concrete
-  evidence beats two shrugs; weigh the evidence, not the tally, and say when you overrode the count.
-- **The severity lens can only lower**, never raise <!-- dotagents:severity-direction 6a-lowers-only -->.
-  Raising *here* is the find phase's job, and a refutation pass that escalates is no longer refuting.
-  **That rule has a hole, and 6b is where it gets closed.** A finding parked *below* its true severity
-  because reachability was never traced is a false negative, not an escalation — 6b's "settle the
-  provisional severities" job owns it. Keep the seams apart: **6a only lowers, 6b settles in either
-  direction.**
-- **Scope is the point.** ⛔ and 🔴 only. Applying this to 🟡 and 💡 triples the cost of the cheap half
-  of the report for findings nobody was going to act on urgently.
-- **The 3 most irreversible ⛔/🔴 per layer** <!-- dotagents:lens-cap 3 -->; everything past that gets
-  one lens. Inline the pass costs attention and output, but it no longer costs an agent — and **the
-  agent was the whole cost basis for capping it.** Decision 16 set the cap at 3 while each lens was a
-  cold subagent; the commit that removed every subagent cut it to *one* finding, and said only that the
-  three lenses survive as three passes. **The number moved 3× in the tightening direction at the exact
-  moment its reason disappeared**, and `docs/decisions.md` went on stating 3 — so the record described a
-  review this file no longer performed. Restored to 3, and now checked in `verify-skills.sh`.
-- **A layer with more ⛔/🔴 than it can three-lens has a bigger problem than verification depth** — say
-  so, and 🔎 states which findings got three lenses and which got one.
-- **Do not claim independence you do not have.** Three lenses reduce the chance of one bad run; they do
-  not remove bias shared by all three, because it is the same model each time. Report it as "checked
-  from three angles", never as agreement between reviewers, and route the pass to a different or
-  stronger model when one is available.
+- **各パスは自分のレンズにだけ答える。** 次に移る前にそのレンズの判定を書き、別のレンズを見越して和らげない。分けることだけが 3 回を 1 回より良くする。
+- **到達可能性は呼び出し箇所ではなく組み立て箇所で決める。** 「どの呼び出し元か」は誰がコードを呼ぶかに答えるだけで、所見が必要とする状態が存在し得るかには答えない。その答えは値を**生み出す**もの（ファクトリ、既存オブジェクトの再利用と新規作成を選ぶ `ensure`/`resolve` 関数）と、その経路に仕事を通す**ゲート**にある。**呼び出し元しか名指ししない到達可能性の判定は別の問いに答えている** —— 読んだ組み立て箇所を名指しするか、到達可能性を未決として記録する。
+- **⛔/🔴 に残るには、3 つのうち 2 つが反証しないこと。** 具体的な根拠のある 1 つの反証は、根拠の無い 2 つの肯定に勝る。数ではなく根拠を量り、数を覆した時はそう書く。
+- **重大度レンズは重大度を下げることしかできない** <!-- dotagents:severity-direction 6a-lowers-only -->。引き上げるのは発見フェーズの仕事で、格上げする反証パスはもう反証していない。到達可能性を追わなかったために本来より*低く*置かれた所見は偽陰性であり、6b の「暫定の重大度の確定」が扱う。**6a は下げるだけ、6b はどちらの向きにも確定させる。**
+- **範囲が要点。** ⛔ と 🔴 だけ。🟡 と 💡 にまで当てると、誰も急いで手を打たない安い側の所見に 3 倍の費用をかけることになる。
+- **層ごとに最も不可逆な ⛔/🔴 の 3 件まで** <!-- dotagents:lens-cap 3 -->。それを超えたものは 1 レンズで扱う。この数は `docs/decisions.md` の記録と一致させる（`verify-skills.sh` が検査する）。
+- **3 レンズにかけきれない数の ⛔/🔴 を持つ層は、検証の深さより大きな問題を抱えている** —— そう書き、🔎 にどの所見が 3 レンズでどれが 1 レンズだったかを書く。
+- **持っていない独立性を主張しない。** 3 レンズは 1 回の不出来の確率を下げるが、3 つに共通する偏りは消さない（毎回同じモデルだから）。レビュアー間の合意ではなく「3 つの角度から確かめた」と報告し、別のモデルや強いモデルが使えるならそちらに回す。
 
-### The verifier is biased too — three measured ways
+### 検証役にも偏りがある —— 測定された 3 つ
 
-The biases below are why `refuted` is the default and why the three lenses are *lenses* rather than
-repetitions. **This is the only copy**, and it sits in the verify phase's own file because only the
-verify phase acts on it.
+`refuted` が既定であり、3 レンズが繰り返しではなく*レンズ*である理由がこれ。**写しはここにしか無い。** これに従って動くのは検証フェーズだけだから。
 
-**A verifier's verdicts are systematically tilted, and the tilt is not mainly about self-flattery.**
-The obvious story is self-preference — a model rating its own family's output higher, reported in the
-range of 10–25%. But that finding is contested: sanity-check work pushes back on it, and one analysis
-attributes most of the effect to a **flat per-reviewer disposition** rather than to self-favouring, with
-about a 2.8-point spread between the strictest and most lenient reviewer. Read together, the reliable
-claim is narrower and more useful: **a verifier has a fixed lean, and you do not know which way yours
-leans.**
+**検証役の判定は系統的に傾いており、傾きの向きは分からない。** 自分の系統の出力を高く評価する自己選好（10〜25% と報告される）には異論があり、効果の大半はレビュアーごとの一定の傾き（最も厳しいものと最も甘いものの差が約 2.8 ポイント）だとする分析もある。確かなのは「検証役には固定の傾きがあり、自分の傾きの向きは分からない」ということ。
 
-> **`refuted` is the default because the lean is unknown, not because models are vain.** Three separate
-> effects push toward over-confirming: anchoring on a claim that is already written down, the reviewer's
-> own disposition, and the fact that models do not reliably self-correct without external evidence. The
-> asymmetry is the counterweight to all three at once, and it does not depend on the self-preference
-> number being right.
+> **`refuted` が既定なのは、傾きの向きが分からないから。** 書かれた主張への係留、レビュアー自身の傾き、外部の根拠なしにモデルが確実には自己修正しないこと —— 3 つがどれも確認しすぎの方向に押す。非対称な既定は 3 つすべてへの重しになり、自己選好の数字が正しいかには依存しない。
 
-> **Different prompting matters more than a different instance.** If the lean is per-reviewer rather
-> than self-directed, then a second look from the same model with the *same* framing buys little, while a
-> genuinely different framing buys a lot. That is also the measured reason the **find** phase is capped
-> rather than widened: scaling *homogeneous* agents — same model, same prompt, same discipline — shows
-> marginal gain per agent collapsing toward zero, while a measurement of four differently-built reviewers
-> over the same 146 pull requests found **93.4% of findings were caught by exactly one of the four, and
-> none by all four**. Coverage comes from a different reviewer, not a sixth copy of this one — which is
-> why the toolkit keeps `/find-bugs` and `/code-review` around instead of treating its own review as
-> sufficient. Where a stronger or different model is available (this toolkit's `--advisor`), route the
-> verify pass to it and say so in 🔎.
+> **別のインスタンスより、別の問いの立て方が効く。** 同じモデル・同じ問いで 2 回目を見てもほとんど得るものは無く、本当に違う問いの立て方は多くを得る。同質のエージェントを増やすと 1 体あたりの上積みはゼロに近づき、別々に作られたレビュアーは互いに違うものを拾う（上の 93.4%）。だからこのツールキットは自分のレビューで足りるとせず、`/find-bugs` と `/code-review` を置いている。より強いモデルや別のモデルが使えるなら（`--advisor`）検証パスをそちらに回し、🔎 にそう書く。
 
-**Verbosity: a longer answer is judged 15–30 points more favourably.** An elaborate finding with three
-paragraphs of reasoning reads as more credible than a one-line one citing a real line of code. **Length
-is not evidence.** Judge the cited `file:line` and whether the path is reachable. If a finding's
-persuasiveness drops once you look only at what it points at, that is a refutation.
+**冗長さ: 長い答えは 15〜30 ポイント好意的に判定される。** 3 段落の推論を持つ所見は、実在の 1 行を引用する 1 行の所見より信用できそうに読める。**長さは根拠ではない。** 引用された `file:line` と経路に到達できるかで判断する。指している先だけを見ると説得力が落ちる所見は、反証されたとみなす。
 
-**Position: order of presentation changes the verdict.** Do not judge findings in severity order and let
-the first ⛔ set the tone for the rest. Each finding is judged against the code, not against its
-neighbours.
+**位置: 提示の順序が判定を変える。** 最初の ⛔ に残りの基調を決めさせない。各所見は隣の所見ではなくコードに照らして判断する。
 
-**What this means for the three-lens pass.** Three lenses reduce *variance* — one verifier having an off
-run — and, because the framings genuinely differ, they buy some real coverage. What they do **not** buy
-is independence: the same model with the same disposition is behind all three. So three agreeing lenses
-are not three independent opinions, and a report must not imply they are.
+**3 レンズのパスにとっての意味。** 3 レンズは*ばらつき*（1 回の不出来）を減らし、問いの立て方が本当に違うので実際の網羅も少し得る。得られないのは独立性で、3 つとも同じ傾きの同じモデルが背後にいる。3 つのレンズが一致しても 3 つの独立した意見ではなく、レポートはそう読める書き方をしない。
 
-**The infrastructure exception overrides the reachability lens.** For a destructive or
-permission-widening change — resource replacement, state loss, a delete that takes data with it, a
-widened IAM grant — improbability is not a refutation. Refute only by showing the guard exists or that
-the change is not in fact destructive. **This exception is easiest to lose inline**, because the
-reachability lens is the one that feels most like diligence — "nobody would call it with that" is not a
-guard, and on a destructive change it is not a refutation either.
+**インフラの例外は到達可能性レンズに優先する。** 破壊的な変更や権限を広げる変更（リソースの置き換え、状態の喪失、データを道連れにする削除、広げた IAM 権限）では、起きにくさは反証にならない。ガードの存在を示すか、実際には破壊的でないことを示すことでだけ反証する。**inline ではこの例外が最も失われやすい。** 「そんな呼び方は誰もしない」はガードではなく、破壊的な変更では反証でもない。
 
 ---
 
-## 6b. Challenging the clears, and hunting what was missed — against false negatives
+## 6b. クリアへの異議と見落としの探索 —— 偽陰性に対して
 
-**A distinct pass, run after 6a rather than interleaved with it** — the two ask opposite questions, and
-running them together lets the refuting frame answer the hunting one. It does four things.
+**6a に混ぜず、6a の後に別のパスとして行う。** 2 つは逆の問いを立てており、一緒に行うと反証の枠組みが探索の枠組みに答えてしまう。行うことは 4 つ。
 
-**Challenge overconfident clears.** Find the high-risk places the find phase dismissed as "same as
-existing" or "no problem", and read the actual guard, citing `file:line`. Where you cannot confirm
-it, return `kind: "unverified-clear"` — or a `defect` if the concrete harm is legible.
+**自信過剰なクリアに異議を唱える。** 発見フェーズが「既存と同じ」「問題なし」として退けた高リスクの箇所を見つけ、実際のガードを読み、`file:line` を引用する。確認できなければ `kind: "unverified-clear"` を返す。具体的な害が読み取れるなら `defect` にする。
 
-**Hunt for what was missed.** Make one fresh pass over the most irreversible, highest-risk surfaces —
-money, billing, external or government submission, authorization, PII, data migration, concurrency —
-looking for failure modes the find phase did not raise. File anything found as a normal finding
-(it then goes through 6a).
+**見落としを探す。** 最も不可逆で高リスクな面（お金、課金、外部・行政への提出、認可、PII、データ移行、並行性）を新たに 1 巡し、発見フェーズが挙げなかった失敗の仕方を探す。見つけたものは通常の所見として出す（その後 6a を通る）。
 
-**Settle the provisional severities.** <!-- dotagents:severity-direction 6b-settles -->
-A finding whose own text says reachability is unresolved **does not have a severity yet** — it has a
-placeholder, because `finding-discipline.md` told the find phase to park it rather than inflate it. 6a
-cannot pick it up: 6a is scoped to ⛔/🔴 and may only lower. So unless this job exists, **nothing in the
-pass is chartered to finish the trace**, and the placeholder ships looking like a verdict. Take every
-finding carrying an unresolved-reachability note, and every 👤 filed for that reason, and either complete
-the trace — using the construction-site rule in 6a's reachability lens — or state that it is still open.
-**Raising is correct here and only here**, because the finding was never at its own severity to begin
-with.
+**暫定の重大度を確定させる。** <!-- dotagents:severity-direction 6b-settles -->
+到達可能性が未解決だと本文に書いてある所見は、**まだ重大度を持っていない**。`finding-discipline.md` が発見フェーズに、膨らませずに置いておくよう指示した仮置きの値である。6a は ⛔/🔴 に限られ下げることしかしないので拾えない。到達可能性の未解決を注記した所見すべてと、その理由で 👤 に入れたものすべてについて、6a の到達可能性レンズの組み立て箇所の規則を使って追跡を終えるか、まだ未決だと書く。**本来の重大度に置かれたことが無いので、ここでは引き上げてよい。** ここ以外では引き上げない。仮置きが判定の顔をして出荷されないように、🔎 に確定させた数と未決のまま残った数を書く。
 
-Why this is a separate job and not a wider 6a: the failure it fixes is a report that *reads* as settled
-while carrying placeholders. Observed — a warning-level finding said in its own body that reachability
-was not established, the report shipped that way, and it was resolved only because the human asked for a
-second adversarial pass; the trace then took three file reads and moved the finding two buckets. **A pass
-that depends on being asked twice did not verify anything the first time.** 🔎 states how many provisional
-severities were settled and how many remain open, so a reader can tell those two apart.
-
-**Re-check design and system-wide concerns.** Confirm that cluster 0's 🧭 candidates were not
-quietly dropped, and supply what is missing.
+**設計とシステム全体の懸念を確かめ直す。** クラスタ 0 の 🧭 候補が黙って落とされていないかを確かめ、欠けているものを補う。
 
 ```
 { challenged: [{ id, upgraded_to, reason, evidence }],
@@ -248,20 +120,11 @@ quietly dropped, and supply what is missing.
 
 ---
 
-## Recurring silent, irreversible failure patterns
+## 繰り返し現れる、黙って起きる不可逆な失敗のパターン
 
-These live in [`silent-failure-patterns.md`](silent-failure-patterns.md) — **read it now if you have
-not already.**
+これは [`silent-failure-patterns.md`](silent-failure-patterns.md) にある。**まだ読んでいなければ今読む。**
 
-They are deliberately not duplicated here, because they are not a verify-phase concern. The find phase
-applies them too, and keeping the only copy in this file is exactly the mistake that once removed them
-from the find phase entirely: the patterns were still written down, still correct, and no longer read
-by the pass that had the best chance of catching them early.
+発見フェーズもこれを当てるので、ここには複製しない。このフェーズの役目は 2 度目の確認である。
 
-What belongs to *this* phase is the second look:
-
-- A cluster that reported clean is a **claim**. These five patterns are where such a claim is most
-  often wrong, because each one is locally invisible — every individual file reads correctly.
-- When you match a pattern here that the find phase did not, record both the finding **and the fact
-  that find missed it**. That second part calibrates 🔎: it is direct evidence about how much the clean
-  portions of this review are worth.
+- 問題なしと報告したクラスタは**主張**である。この 5 つのパターンは、どれも局所的には見えない（個々のファイルはすべて正しく読める）ので、その主張が最も外れやすい場所。
+- 発見フェーズが拾わなかったパターンにここで当たったら、所見**と、発見フェーズが見落としたという事実**の両方を記録する。後者は 🔎 の校正に使う。このレビューの綺麗な部分にどれだけの価値があるかの直接の証拠になる。

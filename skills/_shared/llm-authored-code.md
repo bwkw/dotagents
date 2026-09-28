@@ -1,147 +1,80 @@
-# Reviewing code an LLM probably wrote
+# LLM が書いたらしいコードのレビュー
 
-Assume it did. In this workflow most diffs are agent-authored, and that changes **where the defects
-are**, not just how many. The failure profile is specific and worth checking directly, because it is
-almost the inverse of human error: the code compiles, reads well, follows the surrounding conventions,
-and is confidently wrong about a fact.
+書いたものと仮定する。このワークフローでは差分の多くがエージェント製で、変わるのは欠陥の数より **欠陥の場所** である。コンパイルが通り、読みやすく、周囲の規約に従い、事実について自信満々に間違っている — 人間の誤りのほぼ裏返し。
 
-> The signals that matter most here are **not** stylistic. They are: an unfamiliar API used
-> confidently, a suspiciously precise function signature, a dependency the team has never used
-> before, and a guard for a state nothing constructs. When the author is a model, spend the review
-> budget there.
+> 効くシグナルはスタイルでは **ない**。見慣れない API の自信ある使用、妙に精密な関数シグネチャ、チームが使ったことのない依存、何も構築しない状態へのガード。作者がモデルなら、レビューの予算をそこに使う。
 
 ---
 
-## 1. Fabricated dependencies — check they exist before anything else
+## 1. 捏造された依存 — まず実在を確かめる
 
-Roughly **one in five** agent-authored samples references a package that does not exist. This is not a
-rare edge case, and it has a matching attack: **slopsquatting**, where someone registers the
-hallucinated name and waits for it to be installed.
+エージェント製のサンプルのおよそ **5 件に 1 件** が実在しないパッケージを参照する。対応する攻撃もある: 幻覚された名前を先に登録して待つ **slopsquatting**。
 
-For every added or changed dependency:
+追加・変更された依存ごとに確かめる。
 
-- **Does the package exist, and is it the one intended?** Check the registry, not the lockfile — the
-  lockfile records what was resolved, which may be the attacker's package.
-- **Is the name plausibly a typo or a near-miss** of a well-known package? One transposed character,
-  a scoped/unscoped swap, a hyphen where the real one has a dot.
-- **Is the pinned version real, and is it current?** A yanked version, or one pinned just before a
-  disclosed CVE, is a common shape — the model reproduces what it saw during training.
-- **Was a new direct dependency added for something the codebase already does?** Check for the existing
-  helper before accepting a new package.
+- **パッケージは実在し、意図したものか。** ロックファイルではなくレジストリで確かめる。ロックファイルは解決された結果で、それが攻撃者のパッケージかもしれない。
+- **名前が有名パッケージの打ち間違い・類似名ではないか。** 1 文字の入れ替わり、スコープ付き/無しの取り違え、本物がドットの所にハイフン。
+- **固定したバージョンは実在し、最新か。** 取り下げられた版や、公開された CVE の直前に固定した版はよくある形（モデルは学習時に見たものを再現する）。
+- **コードベースがすでにやっていることのために新しい直接依存を足していないか。** 受け入れる前に既存のヘルパーを探す。
 
-A dependency that cannot be confirmed to exist is **⛔**, not a nit. It is the one finding here that
-justifies blocking on its own.
+実在を確認できない依存は nit ではなく **⛔**。ここで単独でブロックに値する唯一の所見。
 
-## 2. Fabricated APIs and signatures
+## 2. 捏造された API とシグネチャ
 
-Confident use of a method, option, or field that the installed version does not have. It looks right
-because it is the API the library *should* have.
+インストール済みの版に無いメソッド・オプション・フィールドを自信をもって使う。ライブラリに *あるべき* API なので正しく見える。
 
-- **Open the installed version** — `node_modules`, the vendor directory, the lockfile's resolved
-  version, the type definitions — not the current online documentation. The docs describe the latest
-  release; the repository pins something else.
-- **Precision is a warning sign, not reassurance.** An exact-looking signature with named options that
-  nobody on the team recognises is more suspect than a vague one.
-- For a dynamically typed call path with no type checking, the failure is a runtime `undefined` on a
-  path that tests do not cover. Ask which test would have caught it.
+- **インストール済みの版を開く** — `node_modules`、vendor ディレクトリ、ロックファイルの解決済みバージョン、型定義。オンラインの最新ドキュメントではない（ドキュメントは最新版を書き、リポジトリは別の版を固定している）。
+- **精密さは安心ではなく警告。** チームの誰も知らない名前付きオプションを持つ正確そうなシグネチャは、曖昧なものより疑わしい。
+- 型チェックの無い動的型付けの呼び出し経路では、失敗はテストが覆わない経路での実行時 `undefined` になる。どのテストなら捕まえたかを問う。
 
-## 3. Happy-path bias
+## 3. 正常系への偏り
 
-Agent-authored code handles the described case well and the undescribed cases structurally poorly.
-Specific shapes to grep for in the diff:
+エージェント製のコードは、説明されたケースをうまく扱い、説明されていないケースを構造的にまずく扱う。差分で探す形:
 
-- **Network or IPC calls with no timeout.** The single most common omission, and the one that turns a
-  slow dependency into an outage. Ask what the default timeout is — for many clients it is *none*.
-- **No retry, or retry with no backoff and no cap.** Retry without backoff converts a blip into a
-  self-inflicted denial of service.
-- **A catch-all that swallows.** `catch { }`, `except Exception: pass`, a logged-and-continued error
-  whose caller then proceeds as if it succeeded. Compare against the fail-open direction question in
-  `silent-failure-patterns.md`.
-- **Missing null / empty / absent-key handling** on inputs the code does not control.
-- **Pagination, streaming, and loop termination** — the case where there is one more page than expected,
-  or zero.
+- **タイムアウトの無いネットワーク・IPC 呼び出し。** 最も多い漏れで、遅い依存を障害に変える。デフォルトのタイムアウトを問う（多くのクライアントでは *無し*）。
+- **リトライが無い、またはバックオフも上限も無いリトライ。** バックオフの無いリトライは一瞬の揺れを自前の DoS に変える。
+- **握りつぶす catch-all。** `catch { }`、`except Exception: pass`、ログだけ出して続行し呼び出し元が成功したとみなすエラー。`silent-failure-patterns.md` の fail open の向きの問いと照らす。
+- **制御できない入力での null / 空 / キー欠落の扱いの欠如。**
+- **ページング・ストリーミング・ループの終了** — 想定より 1 ページ多い、またはゼロのケース。
 
-## 4. Guards for states the type should not have allowed
+## 4. 型が許すべきでなかった状態へのガード
 
-The mirror image of happy-path bias, and the one a sweep for missing guards will mistake for
-diligence. Where a type admits a state the domain does not have, agent-authored code fills it in — a
-branch, a fallback, a `?? null`. Nothing was omitted. The author handled every state the signature
-offered, which is the right thing to do with that signature.
+正常系への偏りの鏡像で、欠けたガードを探すスイープが勤勉さと取り違えるもの。型がドメインに無い状態を許すと、エージェント製のコードはそれを埋める — 分岐、フォールバック、`?? null`。何も漏れていない。作者はシグネチャが示すすべての状態を扱っており、そのシグネチャに対しては正しい。
 
-The cost lands on the reviewer. Whether a guard is **live or dead** cannot be read off the function
-holding it; it takes tracing every site that constructs the value, and that answer is never written
-down, so the next reader traces it again. Three independent flags on one record put eight states in
-reach where four exist, and each surplus state buys a branch somebody has to adjudicate.
+コストはレビュアーに落ちる。ガードが **生きているか死んでいるか** は、それを持つ関数からは読めない。値を構築するすべての箇所を追う必要があり、その答えはどこにも書かれないので次の読み手がまた追う。1 レコードに独立したフラグが 3 つあれば、4 つしか存在しない所に 8 つの状態が届き、余った状態のぶんだけ誰かが裁く分岐が増える。
 
-- **For every defensive branch in the diff, name the state that reaches it.** If no construction site
-  produces it, the finding is **the type, not the branch** — report the field that admits the state,
-  not the guard that handles it. Deleting the guard and leaving the type is the fix that comes back.
-- **A record of optionals where the domain has a sum.** A loading flag plus `data | null` plus
-  `error | null` is the canonical shape: eight combinations, four meanings. Ask for a **discriminated
-  union** instead — the same construct is a tagged union in TypeScript, an `enum` in Rust, a `sealed`
-  hierarchy in Kotlin or Java, a `Literal`-tagged union in Python — with each variant carrying only the
-  data it actually has. The surplus branches then have nowhere to attach, and adding a variant later
-  makes the compiler name every call site instead of leaving that to whoever remembers.
-- **A `default` clause, or a `catch` that continues, over a closed set of cases.** The compiler had the
-  whole set and was talked out of using it, so the case added elsewhere next month is absorbed in
-  silence. Where a total branch is genuinely wanted, ask for the form that still fails to compile — an
-  exhaustiveness assertion rather than a fallback.
-- **Two branches with the same body for different reasons.** Usually one of them is real and the other
-  is the type's slack. Worth separating before either is trusted.
-- **When the invariant genuinely cannot be a type, ask where it is enforced.** A lint rule or a schema
-  check fails on the machine that runs it; the same rule written into a review checklist or an
-  instruction file fails only when somebody remembers it. Prefer the one CI can lose sleep over, and
-  treat "the convention is documented" as unenforced.
+- **差分の防御的な分岐ごとに、そこに届く状態を名指しする。** それを生む構築箇所が無ければ、所見は **分岐ではなく型** — ガードではなく、その状態を許すフィールドを報告する。ガードを消して型を残す修正は、また戻ってくる。
+- **ドメインが直和なのに optional を並べたレコード。** ローディングフラグ + `data | null` + `error | null` が典型: 8 通りの組み合わせに 4 つの意味。代わりに **判別共用体（discriminated union）** を求める — TypeScript の tagged union、Rust の `enum`、Kotlin や Java の `sealed` 階層、Python の `Literal` タグ付き union — 各バリアントは実際に持つデータだけを持つ。余った分岐は付く場所が無くなり、後でバリアントを足せばコンパイラがすべての呼び出し箇所を名指しする。
+- **閉じたケース集合に対する `default` 節や、続行する `catch`。** コンパイラは集合全体を持っていたのに使うのをやめさせられており、来月よそで足したケースが黙って吸収される。全域の分岐が本当に要るなら、コンパイルが失敗し続ける形 — フォールバックではなく網羅性のアサーション — を求める。
+- **理由の違う 2 つの分岐が同じ本体。** たいてい一方が本物で他方は型の緩み。どちらかを信じる前に分けておく価値がある。
+- **不変条件がどうしても型にできないなら、どこで強制しているかを問う。** lint ルールやスキーマ検査は実行するマシンの上で失敗する。同じ規則をレビューのチェックリストや指示ファイルに書くと、誰かが思い出した時にしか失敗しない。CI が守れる方を選び、「規約は文書化されている」は強制されていないものとして扱う。
 
-Severity is usually `design-doubt`, on the same footing as over-abstraction below — the code is correct
-today and the next change pays. It becomes correctness when the surplus state **is** reachable and the
-branch handles it wrongly, which is the "right type, wrong value" shape arriving by this route.
+重大度はたいてい下の過剰な抽象化と同じ `design-doubt`（今日のコードは正しく、次の変更が払う）。余った状態が **実際に** 到達可能で分岐がそれを誤って扱うなら正しさの問題になり、「型は正しく値が誤り」の形がこの経路で現れたものになる。
 
-## 5. Placeholder credentials and secrets
+## 5. プレースホルダの認証情報とシークレット
 
-Placeholder API keys, tokens, and admin credentials get completed inline and read as configuration.
-Grep the diff for anything key-shaped, and treat a "example"/"changeme"/"xxx" value in a code path as
-either a real leak or a broken default — both are findings.
+プレースホルダの API キー・トークン・管理者認証情報はその場で埋められ、設定として読まれる。差分でキーらしいものを grep し、コード経路にある "example"/"changeme"/"xxx" の値は、本物の漏洩か壊れたデフォルトのどちらかとして扱う — どちらも所見。
 
-## 6. Plausible-but-wrong business logic
+## 6. もっともらしいが誤ったビジネスロジック
 
-The hardest of these, and the reason a human still reads the diff. The code is well-formed and does
-something *reasonable* that is not what was asked.
+最も難しく、人間が差分を読む理由。コードは整っていて、*妥当な* ことをしているが、頼まれたことではない。
 
-- **Read the requirement, then the code, in that order.** Reviewing the code first anchors you to the
-  behaviour it implements, and the mismatch stops being visible.
-- **Boundaries and rounding.** Inclusive versus exclusive ranges, off-by-one on dates, half-up versus
-  banker's rounding on money, timezone applied at the wrong step.
-- **Inverted conditions and negations** that read naturally in either direction.
-- **Right type, wrong value.** An edge-case branch that returns a well-typed answer that is incorrect —
-  zero instead of null, an empty list instead of an error, the first match instead of the best.
+- **要件を読み、それからコードを読む。この順で。** 先にコードを読むと、実装された振る舞いに引きずられて食い違いが見えなくなる。
+- **境界と丸め。** 閉区間か開区間か、日付の off-by-one、金額の四捨五入か銀行丸めか、誤った段階で適用したタイムゾーン。
+- **どちらの向きにも自然に読める条件の反転・否定。**
+- **型は正しく値が誤り。** エッジケースの分岐が型の合った誤った答えを返す — null の代わりにゼロ、エラーの代わりに空リスト、最良ではなく最初の一致。
 
-## 7. Over-abstraction
+## 7. 過剰な抽象化
 
-The opposite failure to the usual review instinct. Agent-authored code tends toward *more* structure
-than the problem needs: a strategy interface with one implementation, a config option nobody sets, a
-generic helper used once. `finding-discipline.md` suppresses ordinary nits, but this one is a
-`design-doubt` worth raising, because each layer is permanent and the next change pays for it.
+普段のレビューの本能とは逆の失敗。エージェント製のコードは問題が必要とするより *多い* 構造に寄る: 実装が 1 つの strategy インターフェース、誰も設定しない config オプション、1 回しか使わない汎用ヘルパー。`finding-discipline.md` は普通の nit を抑制するが、これは挙げる価値のある `design-doubt`。各層は恒久的で、次の変更が払うため。
 
-**The same failure inside the type system, and the ceiling on the section above.** Tightening a type is
-the fix for a guard that should not exist; the over-tightened form is a conditional type, a deep
-generic, or a mapped type that computes the invariant somewhere other than where the type is declared.
-It is more precise and worse to work with, for a human and a model alike: the error message is the
-expanded type rather than the mistake, and it points at neither the declaration nor the call site. A
-type earns its keep when it **has a name**, when its **definition sits in one place and reads there**,
-when that name can be **grepped**, and when violating it **produces a message saying where to go and
-what to change**. A discriminated union passes all four. A type-level construct encoding the same
-invariant passes none, so when "make this unrepresentable" is answered with type-level computation
-rather than a named union, that is a `design-doubt` too — even though it is the stronger type.
+**型システムの中の同じ失敗であり、上の節の上限。** 型を締めるのは存在すべきでないガードへの修正だが、締めすぎた形は、不変条件を型の宣言場所以外で計算する条件型・深いジェネリクス・mapped type になる。より精密で、人間にもモデルにも扱いにくい: エラーメッセージは誤りではなく展開された型で、宣言も呼び出し箇所も指さない。型が元を取るのは、**名前があり**、**定義が 1 か所にあってそこで読め**、その名前で **grep でき**、違反すると **どこに行って何を変えるかを言うメッセージ** が出る時。判別共用体は 4 つすべてを満たす。同じ不変条件を型レベルの構成で表すものは 1 つも満たさない。だから「表現できなくせよ」に名前付きの union ではなく型レベルの計算で応えたら、より強い型であっても `design-doubt` である。
 
 ---
 
-## How to report these
+## 報告の仕方
 
-Same discipline as everything else — a traced path, a confidence score, `file:line`. Two adjustments:
+他と同じ規律 — 追跡した経路、確信度スコア、`file:line`。調整は 2 つ。
 
-- **Say when a finding is of this kind.** "This package may not exist" and "this guard is missing" are
-  acted on differently: the first is verified in a registry in ten seconds, the second needs judgement.
-- **Do not fill a report with these on a diff the author clearly hand-wrote.** The point is to spend the
-  budget where the defects actually are. If the diff shows signs of human authorship — inconsistent
-  style, a half-finished refactor, a commented-out attempt — weight the ordinary clusters instead.
+- **この種の所見だと書く。** 「このパッケージは実在しないかもしれない」と「このガードが欠けている」は扱いが違う。前者はレジストリで 10 秒で確かめられ、後者は判断が要る。
+- **作者が明らかに手で書いた差分を、これで埋めない。** 目的は欠陥が実際にある所に予算を使うこと。人間が書いた兆候 — 不揃いなスタイル、やりかけのリファクタリング、コメントアウトした試行 — があれば、通常の観点クラスタを重く見る。

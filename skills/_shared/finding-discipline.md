@@ -1,178 +1,102 @@
-# Finding discipline
+# 所見の規律
 
-Mandatory for every reviewing subagent, in every layer, and for the verification pass.
+すべての層のレビューするサブエージェントと検証パスに必須。
 
-Two tiers. Noise suppression applies **only** to low-risk findings. Irreversibility, authorization,
-system-wide risk, and design soundness are never suppressed.
-
----
-
-## Posture
-
-You are not here to approve. You are here to stop changes that break production.
-
-**"Clean" is a conclusion earned with evidence, not a default.**
-
-- **"Same as the existing code" and "same as its siblings" are hypotheses, not conclusions.**
-  You may write "safe" only after opening the code that safety rests on — the shared helper, the
-  base class, the guard, the transaction boundary — and citing `file:line`. If you have not read it,
-  write "unverified" and raise it as 👤 or 🧭. **Never disguise not-knowing as verified.** Silence
-  is not a safety claim either.
-
-- **Ask the question one level up.** Not only "is this diff internally consistent" but "is this
-  change, this design, correct at all", "is the foundation it leans on sound", and "is this
-  propagating a dangerous or unverified pattern to its Nth site". Raise it as 🧭 even when it lies
-  outside the diff, if this change adds to it or depends on it.
-
-- **Do not go easy.** When unsure, speak with a confidence level rather than staying quiet. Low-risk
-  nits are suppressed by tier ① below; high-risk, system-wide, and design-soundness findings are
-  not. The value of a tech lead is having zero instances of "noticed it and said nothing".
-
-- **Be adversarial toward your own severe findings.** Before writing `critical` or ⛔, ask whether
-  the failure is reachable in a real use case. **"This branch exists in the code" and "this branch
-  runs in production" are different claims.** If you cannot show reachability — which path, which
-  permission, which timing — in real code, do not inflate severity: place it in 👤 and state what
-  would settle it. Even when reachability is unclear, separate **permanent design defects**
-  (an invariant not enforced by a guard or an architecture test) from **probabilistic triggers**
-  (a specific path, a deploy window, malformed input). Keep the former as 🧭 even outside the diff.
+2 段構え。ノイズの抑制は低リスクの所見に**だけ**掛ける。不可逆性、認可、システム全体のリスク、設計の健全性は抑制しない。
 
 ---
 
-## Tier ① — Noise suppression (low-risk findings only: warning and info)
+## 姿勢
 
-- **Zero findings is a valid result.** Never invent findings to fill a quota.
-- **Only report low-risk problems this change originates** — that it newly creates, worsens, or
-  directly depends on. Pre-existing low-risk problems in surrounding, calling, or consuming code are
-  out of scope (one aggregate note at most).
-- Every finding attaches to a **concrete failure scenario**: input and state, leading to a result.
-  Never file a vague "consider reviewing X".
-- Pattern matches (`as`, `OrThrow`, `Promise.all` inside one transaction, IAM `*`,
-  `dangerouslySetInnerHTML`, `localStorage`, …) are filed only once you can show the danger **at that
-  site**. Excluded: `as const`, TypedString ID passthrough, already-sanitized values, `*` scoped to a
-  single resource.
-- "Just hasn't been added" for observability, tests, error handling, a11y, empty states, or analytics
-  is not a finding — only when the change adds a new failure mode, external call, async path, or
-  user-facing entry point.
-- **Do not cap warning and info by rank here.** The report phase caps 🟡/💡 and **folds the overflow
-  into an aggregate note that 🔬 counts**, so what it cuts stays visible. A rank cap at
-  find time is cut by nothing that counts — a 4th warning in a cluster, scoring above 80 and never
-  refuted, lands in no bucket at all — and it is the same shape as the `> 40 files` threshold that was
-  retracted for it. Suppress by the rules above: origination, a concrete failure scenario, the 80
-  threshold. **Never by position in a list.**
+承認するために居るのではない。本番を壊す変更を止めるために居る。
 
-## Tier ② — Never suppressed (no caps, no diff-scope excuse)
+**「問題なし」は根拠で勝ち取る結論であって、既定値ではない。**
 
-- **critical / irreversible.** Set `irreversible=true` strictly: only when you can name the specific
-  data or state destroyed, and none of redirect, migration, backfill, restore, or config revert
-  recovers it. A route change you can put a redirect on, or a stored-schema change with a fallback,
-  is *not* irreversible.
+- **「既存のコードと同じ」「兄弟と同じ」は仮説であって結論ではない。** 安全がよりかかっているコード（共有ヘルパー、基底クラス、ガード、トランザクション境界）を開いて `file:line` を引用した後にだけ「安全」と書ける。読んでいなければ「未確認」と書き、👤 か 🧭 に挙げる。**知らないことを確認済みに見せない。** 黙っていることも安全の主張にならない。
 
-- **Unverified safety claims** → 👤. In a high-risk area — money, billing, external or government
-  submission, authn/authz, PII, irreversible operations, concurrency, transaction boundaries,
-  persistent client storage — where the risk was waved off as "same as existing" and **the actual
-  guard was never read**. Do not write "safe". Write "unverified: reading `file:line` would settle
-  it". **"Matches siblings" is never sufficient grounds for a clear.**
+- **一段上の問いを立てる。** 「この差分は内部で一貫しているか」だけでなく、「この変更・この設計はそもそも正しいか」「よりかかっている土台は健全か」「危険な・未確認のパターンを N か所目に広げていないか」を問う。この変更がそれに加担するか依存するなら、差分の外でも 🧭 として挙げる。
 
-- **System-wide, propagation, and foundation risk** → 🧭. This change spreads a dangerous or
-  unverified pattern to a new path or procedure; the base or shared implementation it leans on is
-  questionable; the whole family lacks tests or guards. Report it even outside the diff when this
-  change adds to it or depends on it.
+- **手加減しない。** 迷ったら黙らず、確度を添えて言う。低リスクの細かい指摘は下の段 ① で抑制するが、高リスク・システム全体・設計の健全性の所見は抑制しない。テックリードの価値は「気づいて黙っていた」が 0 件であること。
 
-- **Design-soundness doubts** → 🧭. Whether this feature, abstraction, or boundary is right at all;
-  whether something simpler would do; whether it is over- or under-engineered.
-
-In high-risk areas you must leave **either** a `file:line` you read and verified **or** an explicit
-statement that it is unverified. One of the two is mandatory — never neither.
+- **自分の重い所見に敵対的になる。** `critical` や ⛔ と書く前に、その失敗が実際のユースケースで到達可能かを問う。**「この分岐がコードにある」と「この分岐が本番で走る」は別の主張。** 実際のコードで到達可能性（どの経路、どの権限、どのタイミング）を示せなければ重大度を膨らませず、👤 に置いて何があれば決着するかを書く。到達可能性が不明でも、**恒久的な設計の欠陥**（ガードやアーキテクチャテストで強制されていない不変条件）と**確率的な引き金**（特定の経路、デプロイの時間帯、不正な入力）は分ける。前者は差分の外でも 🧭 として残す。
 
 ---
 
-## Confidence scoring and the discard threshold
+## 段 ① —— ノイズの抑制（低リスクの所見だけ: warning と info）
 
-Qualitative confidence drifts. "Medium" means whatever the agent that wrote it felt at the time, and
-under pressure to be useful it drifts upward. Score numerically instead, and discard mechanically.
+- **所見ゼロは正当な結果。** 数合わせで所見を作らない。
+- **この変更が起点の低リスクの問題だけを報告する** —— 新たに作った、悪化させた、または直接依存したもの。周囲・呼び出し元・利用側のコードにある既存の低リスクの問題は範囲外（まとめて 1 件の注記まで）。
+- すべての所見は**具体的な失敗シナリオ**（入力と状態 → 結果）に結びつける。漠然とした「X の見直しを検討」は出さない。
+- パターン一致（`as`、`OrThrow`、1 トランザクション内の `Promise.all`、IAM の `*`、`dangerouslySetInnerHTML`、`localStorage` など）は、**その箇所で**危険を示せた時だけ出す。対象外: `as const`、TypedString の ID の受け渡し、サニタイズ済みの値、単一リソースに絞った `*`。
+- 可観測性・テスト・エラー処理・a11y・空状態・分析の「まだ足されていない」は所見ではない。変更が新しい失敗の仕方・外部呼び出し・非同期経路・ユーザー向けの入口を加えた時だけ所見になる。
+- **ここで warning と info を順位で打ち切らない。** 🟡/💡 の上限はレポートのフェーズが持ち、**あふれた分を 🔬 が数えるまとめの注記に畳む**ので、削ったものが見える。発見時に順位で打ち切ると、削ったものをどこも数えず、どのバケットにも現れない。抑制は上の規則（起点であること、具体的な失敗シナリオ、閾値 80）で行う。**リスト内の位置では抑制しない。**
 
-**Score each finding 0–100** on one question only: *how likely is it that a competent engineer who
-knows this codebase would agree this is a real problem worth acting on?* Not how severe it would be
-if real — severity is a separate axis and mixing them inflates both.
+## 段 ② —— 抑制しない（上限なし、差分の範囲を言い訳にしない）
 
-| Score | Meaning |
+- **critical / 不可逆。** `irreversible=true` は厳密に付ける。壊れる特定のデータや状態を名指しでき、リダイレクト・マイグレーション・バックフィル・リストア・設定の差し戻しのどれでも戻せない時だけ。リダイレクトを置けるルート変更や、フォールバックのある保存スキーマの変更は不可逆*ではない*。
+
+- **確認していない安全の主張** → 👤。高リスクの領域（お金、課金、外部・行政への提出、認証・認可、PII、不可逆な操作、並行性、トランザクション境界、クライアントの永続ストレージ）で、「既存と同じ」としてリスクを退け、**実際のガードを読んでいない**場合。「安全」と書かず、「未確認: `file:line` を読めば決着する」と書く。**「兄弟と一致」はクリアの根拠にならない。**
+
+- **システム全体・伝播・土台のリスク** → 🧭。この変更が危険な・未確認のパターンを新しい経路や手順に広げる、よりかかる基底や共有の実装が疑わしい、その一群全体にテストやガードが無い。この変更がそれに加担するか依存するなら、差分の外でも報告する。
+
+- **設計の健全性への疑い** → 🧭。この機能・抽象・境界がそもそも正しいか、もっと単純なもので足りないか、作り込みすぎ・足りなすぎではないか。
+
+高リスクの領域では、読んで確かめた `file:line` か、未確認だという明示の、**どちらか**を必ず残す。どちらも無いのは許されない。
+
+---
+
+## 確信度の採点と破棄の閾値
+
+定性的な確信度は漂い、役に立とうとする圧力の下で上に漂う。数値で採点し、機械的に捨てる。
+
+**所見ごとに 0〜100 で採点する。** 問いは 1 つだけ: *このコードベースを知る有能なエンジニアが、手を打つべき本物の問題だと同意する見込みはどれだけか。* 本物だった場合の深刻さではない。重大度は別の軸で、混ぜると両方が膨らむ。
+
+| 点数 | 意味 |
 |---|---|
-| 90–100 | Demonstrated. You read the code path and can show the failure. |
-| 80–89 | Strong. The mechanism is clear; one assumption remains unverified. |
-| 60–79 | Plausible, unverified. Would need reading you did not do. |
-| < 60 | Speculative. Pattern-matched, not established. |
+| 90–100 | 実証済み。コード経路を読み、失敗を示せる。 |
+| 80–89 | 強い。仕組みは明確で、未確認の仮定が 1 つ残る。 |
+| 60–79 | ありそうだが未確認。やっていない読み込みが要る。 |
+| < 60 | 推測。パターン照合であって確立していない。 |
 
-**Discard everything below 80.** Not "mark as low confidence" — remove it from the report. Report
-only the count of what was dropped.
+**80 未満はすべて捨てる。** 「確信度低」と印を付けるのではなく、レポートから除く。捨てた件数だけを報告する。
 
-This is deliberately aggressive, and it is the right trade. The failure mode that kills a review
-habit is not a missed finding; it is a report where most items are noise, because after two of those
-nobody reads the third. A finding you cannot score at 80 is one you have not done the work to
-support — do the work, or drop it.
+意図して強くしてある。レビューの習慣を殺すのは見落としではなく、大半がノイズのレポートである（2 回続くと 3 回目は誰も読まない）。80 を付けられない所見は裏付けの作業をしていない所見なので、作業するか捨てる。
 
-The exemptions are in the schema below, under `kind`, rather than stated here as a rule to remember.
+免除は規則として覚えるのではなく、下のスキーマの `kind` にある。
 
-### What counts as a false positive
+### 偽陽性とみなすもの
 
-Score these below 80 by definition, however real they look:
+どれほど本物に見えても、定義上 80 未満を付ける。
 
-- A pre-existing problem the change did not create, worsen, or newly depend on
-- Anything a linter, formatter, or type checker already catches
-- A problem in lines the change did not touch
-- A style preference not written down in the project's own conventions
-- A pattern flagged by name (`as`, `OrThrow`, `Promise.all`, IAM `*`, `dangerouslySetInnerHTML`)
-  without showing the danger **at that site**
-- "Consider adding" tests, logging, or error handling where no new failure mode was introduced
-- A failure requiring a state the code makes unreachable
+- 変更が作っても悪化させても新たに依存してもいない既存の問題
+- linter、フォーマッタ、型チェッカーがすでに拾うもの
+- 変更が触れていない行の問題
+- プロジェクト自身の規約に書かれていないスタイルの好み
+- 名前で拾ったパターン（`as`、`OrThrow`、`Promise.all`、IAM の `*`、`dangerouslySetInnerHTML`）で、**その箇所での**危険を示していないもの
+- 新しい失敗の仕方を持ち込んでいないのに、テスト・ログ・エラー処理の「追加を検討」
+- コードが到達不能にしている状態を必要とする失敗
 
-**One carve-out on "pre-existing", because without it a spec and its implementation drift apart in the
-very commit that wrote the spec.** A change that **newly asserts an invariant its own implementation does
-not satisfy** has introduced a defect, even when the runtime behaviour is byte-identical to the base
-branch. The artefact making the assertion is part of the diff: a spec line saying MUST or MUST NOT, an
-ADR, a docstring stating a guarantee, or a parameter newly made **required** so that every caller has to
-decide. The behaviour is old; **the claim is new, and the claim is what the next reader will trust.**
+**「既存」の例外 1: 変更が新しく主張した不変条件。** これが無いと、spec を書いたそのコミットで spec と実装がずれる。変更が**自分の実装が満たしていない不変条件を新たに主張した**なら、実行時の振る舞いがベースブランチと 1 バイトも違わなくても欠陥を持ち込んでいる。主張する成果物は差分の一部である: MUST や MUST NOT を書いた spec の行、ADR、保証を述べる docstring、すべての呼び出し元に判断させるために新たに**必須**にした引数。振る舞いは古いが、**主張は新しく、次の読み手が信じるのは主張のほう。**
 
-Report it, and **state in the finding that behaviour is unchanged from base.** That is what lets the
-author choose between satisfying the new claim and softening it — a decision they are entitled to make,
-and one they cannot make if the finding hides which half is new. Observed: a change made a skip-decision
-parameter required *precisely* so each call site would decide, wrote the MUST NOT into its own spec, then
-passed a value at one call site covering one of the two conditions the parameter's own name enumerated.
-Scored as "pre-existing" it drops below the threshold, and the spec ships describing behaviour the code
-does not have.
+報告し、**振る舞いはベースから変わっていないと所見に書く。** それで作者は、新しい主張を満たすか、主張を弱めるかを選べる。どちらが新しいのかを所見が隠すと、作者はその判断ができない。
 
-**A second carve-out, on "style preference" — readability and extensibility are not style.** The row
-above suppresses *taste*: brace placement, a name you would have picked differently, an ordering with no
-consequence. It does **not** suppress a finding that names **what the next change will cost**, and the
-two are told apart by one test:
+**例外 2: 「スタイルの好み」について —— 読みやすさと拡張性はスタイルではない。** 上の行が抑えるのは*好み*（波括弧の位置、自分なら別に付ける名前、結果の無い並び順）であり、**次の変更が何を払うかを名指しする**所見は抑えない。見分けるテストは 1 つ。
 
-> **Can you name the next change, and what it has to touch?**
+> **次の変更を名指しでき、それが何に触れなければならないかを言えるか。**
 
-"This is hard to read" is taste and stays suppressed. "**The rule is now expressed in three places, so
-adding a fourth status means finding all three**" is a cost with a scenario, and it belongs in 🧭 —
-where its value does not depend on being right, which is exactly the bucket a maintainability finding
-needs. The same for the other direction: "this abstraction is unnecessary" is taste; "**deleting this
-wrapper costs nothing, and it is now the layer every future call goes through**" is a cost.
+「読みにくい」は好みで、抑制したまま。「**規則が 3 か所に書かれているので、4 つ目のステータスを足すには 3 か所すべてを見つける必要がある**」はシナリオ付きのコストで、🧭 に入る（🧭 は正しいかどうかに価値が依存しないバケットで、保守性の所見に合う）。逆向きも同じ。「この抽象は不要」は好みで、「**このラッパーを消すコストは無く、しかも今後のすべての呼び出しが通る層になった**」はコスト。
 
-What this deliberately keeps out: rewriting someone's naming, restructuring a working file, and any
-suggestion whose payoff is "it would be nicer". What it deliberately lets in: a shape that makes the
-*fifth* caller wrong, a copy that will drift, a type that pushes narrowing onto every consumer, an
-invariant that lives only in a comment. **Those are cheap now and expensive at the next change**, which
-is the definition this file uses for a design doubt.
+入れないもの: 他人の命名の書き換え、動いているファイルの再構成、見返りが「そのほうが綺麗」の提案。入れるもの: *5 つ目の*呼び出し元を誤らせる形、ずれていく複製、絞り込みをすべての利用者に押しつける型、コメントの中にしか無い不変条件。**今は安く、次の変更で高くつく**。このファイルはそれを設計への疑いと定義する。
 
-## The verifier is biased too
+## 検証役にも偏りがある
 
-Adversarial verification is the strongest tool here and it is **not neutral**. The measured biases are in
-[`verification.md`](verification.md) — the phase that acts on them.
+敵対的な検証はここで最も強い道具だが、**中立ではない。** 測定された偏りは、それに従って動くフェーズの [`verification.md`](verification.md) にある。
 
-One of them applies to *writing* findings, so it stays here: **a longer finding is judged 15–30 points
-more favourably than a short one.** Length is not evidence. Do not pad; a finding is worth what its
-`file:line` is worth.
+所見を*書く*ことに掛かる偏りが 1 つあるので、それだけここに置く: **長い所見は短い所見より 15〜30 ポイント好意的に判定される。** 長さは根拠ではない。水増ししない。所見の価値はその `file:line` の価値。
 
-> **This file is the most-duplicated text in the toolkit** — every find subagent reads it, cold, at full
-> uncached price. Before adding anything here, check that *every* reader needs it. If one phase needs it,
-> it belongs in that phase's file.
+> **このファイルはツールキットで最も多く複製されるテキストで**、すべての読み手が読む。ここに何か足す前に、*すべての*読み手が必要とするかを確かめる。1 つのフェーズだけが必要なら、そのフェーズのファイルに置く。
 
-## Return schema
+## 返却スキーマ
 
 ```
 [
@@ -191,16 +115,14 @@ more favourably than a short one.** Length is not evidence. Do not pad; a findin
 ]
 ```
 
-`kind` is orthogonal to `severity`, and it is what decides the threshold:
+`kind` は `severity` と直交し、閾値を決めるのは `kind`。
 
-| `kind` | Means | Threshold |
+| `kind` | 意味 | 閾値 |
 |---|---|---|
-| `defect` | Something is wrong. | Dropped below 80. |
-| `design-doubt` | A question a senior would ask. Not a claim that anything is broken. | **Exempt** — its value does not depend on being right. |
-| `unverified-clear` | "I could not confirm this is safe." A statement about your own knowledge. | **Exempt** — you have complete confidence about what you did not read. |
+| `defect` | 何かが誤っている。 | 80 未満は捨てる。 |
+| `design-doubt` | シニアが立てる問い。何かが壊れているという主張ではない。 | **免除** —— 正しいかどうかに価値が依存しない。 |
+| `unverified-clear` | 「安全だと確認できなかった」。自分の知識についての言明。 | **免除** —— 何を読まなかったかについては完全な確信がある。 |
 
-Return every `defect` scoring 80 or above, every `design-doubt` and `unverified-clear` regardless,
-and a count of what was dropped. The bucket follows: `design-doubt` → 🧭, `unverified-clear` → 👤.
+80 以上のすべての `defect`、点数にかかわらずすべての `design-doubt` と `unverified-clear`、捨てた件数を返す。バケットは `design-doubt` → 🧭、`unverified-clear` → 👤。
 
-`file` must point at the **specific line** the comment goes on. A filename with no line is not
-acceptable. `comment` may be a draft; it gets finished during synthesis.
+`file` はコメントを付ける**特定の行**を指す。行の無いファイル名は認めない。`comment` は下書きでよく、まとめの段階で仕上げる。
