@@ -5,63 +5,60 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /skill-name — one-line role
+# /skill-name — 役割を 1 行で
 
-**Important**: this skill never modifies source code. *(Investigation and review skills only. Delete
-this line for skills that do write code, and say plainly what they are allowed to touch.)*
+**重要**: このスキルはソースコードを変更しない。*（調査・レビュー系のスキルだけ。コードを書くスキルではこの行を消し、触ってよいものをはっきり書く）*
 
-## Preconditions
+## 実行条件
 
-Stop immediately if any row fails. Report which condition failed. Do not continue.
+1 行でも満たさなければ即座に止まり、どの条件かを報告する。続けない。
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| … | Stop, report the unmet condition, do not proceed |
+| … | 止まり、満たさない条件を報告し、進まない |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
 | … | `/skill-name` | … |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
 | … | … |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
 | … | … |
 
-> Reading everything "just in case" is forbidden. Load the conditional table only when its trigger
-> actually applies.
+> 「念のため」全部を読むことは禁止。条件つきの表は、その条件が実際に当てはまる時だけ読む。
 
-## Steps
+## 手順
 
 ### Step 1. …
 
-## Evidence discipline
+## 根拠の扱い
 
-- Report only what you verified directly.
-- Cite locations as `path/to/file.ts:L42`.
-- When you have no basis for a claim, write "could not confirm" — do not guess.
-- Separate fact from inference explicitly.
-- Attach a URL to any external claim.
+- 直接確かめたことだけを報告する。
+- 場所は `path/to/file.ts:L42` で示す。
+- 根拠が無いときは「確認できなかった」と書く。推測しない。
+- 事実と推論をはっきり分ける。
+- 外部についての主張には URL を付ける。
 
-## Output
+## 出力
 
-Where it goes and what shape it takes. If the template runs long, move it to
-`${CLAUDE_SKILL_DIR}/reference/output-template.md` and point at it here.
+どこに出し、どういう形か。テンプレートが長くなるなら `${CLAUDE_SKILL_DIR}/reference/output-template.md` に移し、ここから指す。
 
-## Done when
+## 完了条件
 
 - [ ] …
 
-## Next
+## 次に
 
-What to run next, and whether to `/clear` first.
+次に何を実行するか、その前に `/clear` するか。

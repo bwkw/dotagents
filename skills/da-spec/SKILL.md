@@ -7,70 +7,61 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-spec — record intent where this repository keeps it
+# /da-spec — 意図を、このリポジトリが置く場所に記録する
 
-**This skill writes only intent artifacts** — spec, proposal, design, tasks, plan. It never touches
-source, migrations, schema or config, and it never starts the implementation.
+**このスキルが書くのは意図の成果物（spec、proposal、design、tasks、plan）だけ**。ソース・マイグレーション・スキーマ・設定は触らない。実装も始めない。
 
-It exists because **the routing used to live in `README.md`**, in a parenthetical saying that a
-repository using openspec should get openspec instead of a plan file. `README.md` is not loaded at
-runtime, so nothing ever read it, and the answer was always a plan file in the upstream skill's
-default location. **A rule written where it cannot bind is not a rule** — this file is the place it
-binds, and `spec_system` in the profile is the place the fact lives.
+置き場所の規約は実行時に読まれる場所にしか効かない。事実はプロファイルの `spec_system` にあり、効かせる場所はこのファイルである。
 
-## Preconditions
+## 実行条件
 
-Stop immediately if any row fails. Report which condition failed. Do not continue.
+1 行でも満たさなければ即座に止まり、どの条件かを報告する。続けない。
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository with an `origin` remote | Stop, say so, do not guess a location |
-| **What the change is, is stated** | **Stop and ask.** A spec written from an inferred goal is a spec for the wrong change, and it reads as authoritative. |
-| A profile matches this repository | Continue **only** as far as Step 1, which reports the gap and asks. Never invent a convention |
-| `spec_system.kind` is `none` | Stop. Say the repository records intent nowhere, and ask where it should go — do not create a directory |
+| 作業ディレクトリが `origin` リモートを持つ git リポジトリ内にある | 止まってそう書く。置き場所を推測しない |
+| **変更の内容が述べられている** | **止まって聞く**。推測した目的から書いた spec は別の変更の spec になり、しかも権威があるように読まれる |
+| このリポジトリに合うプロファイルがある | Step 1 までに**限って**続け、欠けていることを報告して聞く。規約をでっち上げない |
+| `spec_system.kind` が `none` | 止まる。このリポジトリは意図をどこにも記録していないと書き、どこに置くかを聞く。ディレクトリを作らない |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| `/research`, `/grilling`, `/da-investigate` | `/da-spec` | **`/da-design-review`**, then `/executing-plans` |
+| `/research`, `/grilling`, `/da-investigate` | `/da-spec` | **`/da-design-review`**、その後 `/executing-plans` |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | how to resolve the convention, why not from the tree, and the validator rule. Shared with `da-design-review`, so the two cannot disagree about where the artifact lives |
-| the matching `profiles/*.json` → `spec_system` | which convention this repository uses, and where |
-| the file named by `spec_system.rules` | **the repository's own authoring rules.** Not optional: writing to a generic template when the repository has written its rules down produces an artifact that fails its own validator |
-| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | **who the document is written for.** A spec edited as the understanding changed encodes its own history by default, and the newcomer who reads it later was not in that conversation |
+| `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | 規約の解決の仕方、ツリーから決めない理由、validator の規則。`da-design-review` と共有しているので、成果物の置き場所について両者が食い違わない |
+| 合致する `profiles/*.json` → `spec_system` | このリポジトリがどの規約をどこで使うか |
+| `spec_system.rules` が指すファイル | **リポジトリ自身の書き方の規則**。省略不可。規則が書かれているのに汎用テンプレートで書くと、自分の validator に落ちる成果物になる |
+| `${CLAUDE_SKILL_DIR}/reference/final-design.md` | **誰に向けて書くか**。理解が変わるたびに直した spec は放っておくと自分の経緯を抱え込み、後で読む新規参加者はその会話にいなかった |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| the existing change or plan being updated | Step 2 found one — and it usually should |
-| `${CLAUDE_SKILL_DIR}/reference/openspec.md` | `kind` is `openspec` — the directory shape, the delta headings, and what `validate --strict` actually checks |
-| `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*` | the repository has them, and the rules file delegates to them |
+| 更新する既存の change や計画 | Step 2 で見つかった時（たいてい見つかるはず） |
+| `${CLAUDE_SKILL_DIR}/reference/openspec.md` | `kind` が `openspec` の時。ディレクトリの形、delta の見出し、`validate --strict` が実際に検査すること |
+| `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*` | リポジトリにあり、rules ファイルがそれらに委ねている時 |
 
-> Reading everything "just in case" is forbidden.
+> 「念のため」全部を読むことは禁止。
 
 ---
 
-## Step 1. Resolve the convention — do not choose one
+## Step 1. 規約を解決する（選ばない）
 
-Follow `${CLAUDE_SKILL_DIR}/reference/spec-system.md`: resolve `spec_system` from the profile, read the
-rules file it names, and stop and ask when there is no profile or no `spec_system`. **Observing a
-directory is not being told to write into it.**
+`${CLAUDE_SKILL_DIR}/reference/spec-system.md` に従う。プロファイルから `spec_system` を解決し、それが指す rules ファイルを読む。プロファイルか `spec_system` が無ければ止まって聞く。**ディレクトリが見えることは、そこに書けと言われたことではない**。
 
-## Step 2. Look for the change that already exists — before creating one
+## Step 2. 既存の change を探す（作る前に）
 
-**This is the step whose absence is the whole complaint.** Creating a second change for a capability
-that already has one splits the record in two, and neither half is wrong on its own, so nothing
-reports it.
+すでに change がある能力に 2 つ目を作ると、記録が 2 つに割れる。どちらの半分も単独では誤りでないので、誰も気づかない。
 
-Search by **capability and by subject, not by title**:
+**タイトルではなく、能力と対象で探す**。
 
 ```bash
 ls "$ROOT"/changes 2>/dev/null                       # openspec: change ids are slugs, read them all
@@ -78,83 +69,62 @@ rg -l "<the entity, table, endpoint, or capability>" "$ROOT"
 git log --oneline -20 -- "$ROOT"                     # what was last touched here, and by which branch
 ```
 
-Then decide, and **say which you chose and why**:
+そのうえで決め、**どれを選んだかと理由を書く**。
 
-| What you found | Do this |
+| 見つかったもの | すること |
 |---|---|
-| A change covering this capability, not yet archived | **Update it.** Add requirements to the existing delta rather than starting a sibling |
-| A change that is adjacent but genuinely separate | New change. **State the boundary** — what makes them separate deliveries |
-| A **deployed** spec (`specs/<capability>/spec.md`) but no open change | New change, and its delta is `## MODIFIED Requirements` against that spec — not `ADDED` |
-| Nothing | New change |
+| この能力を扱う、まだアーカイブされていない change | **それを更新する**。兄弟を作らず、既存の delta に要件を足す |
+| 隣接するが本当に別物の change | 新しい change。**境界を書く**（何が別の納品にしているか） |
+| **デプロイ済みの** spec（`specs/<capability>/spec.md`）があり、開いた change は無い | 新しい change。delta はその spec に対する `## MODIFIED Requirements` で、`ADDED` ではない |
+| 何も無い | 新しい change |
 
-**When it is ambiguous, ask.** Two people's judgement of "same capability" differs, and the cost of
-asking is one message against a split record nobody notices for a month.
+**曖昧なら聞く**。「同じ能力か」の判断は人によって違い、聞く手間は 1 通で、割れた記録は 1 か月誰も気づかない。
 
-## Step 3. Write it, against the repository's rules
+## Step 3. リポジトリの規則に沿って書く
 
-`kind: openspec` → read `${CLAUDE_SKILL_DIR}/reference/openspec.md`, then write the change directory.
+`kind: openspec` → `${CLAUDE_SKILL_DIR}/reference/openspec.md` を読み、change ディレクトリを書く。
 
-`kind: plans` → **use the `writing-plans` skill and follow it exactly**, then place the file where
-`spec_system.root` says rather than at that skill's default. **Do not restate its guidance here.**
-Task decomposition, right-sizing and the plan header are its subject and it is maintained upstream;
-duplicating it here would produce two versions that drift, and the copy in this repository would be
-the stale one.
+`kind: plans` → **`writing-plans` スキルを使い、そのとおりに従う**。ファイルはそのスキルの既定ではなく `spec_system.root` の場所に置く。**その指針をここで繰り返さない**。タスク分割・粒度・計画ヘッダーは upstream が保守しており、写すと 2 版がずれて、このリポジトリ側が古くなる。
 
-Either way, two rules that are this skill's own:
+どちらでも、このスキル固有の規則が 2 つある。
 
-- **The rules file wins over any template.** If `spec_system.rules` requires headings, a normative
-  vocabulary, or that a modified requirement is restated whole, that is the standard. A generic
-  template that reads well and fails the validator is worse than no artifact.
-- **Write what you verified, and mark what you did not.** A spec is read later as settled fact. An
-  assumption you did not check goes in as an explicit open question, not as a requirement.
+- **rules ファイルはどのテンプレートにも優先する**。`spec_system.rules` が見出し、規範語彙、修正した要件の全文再掲を求めるなら、それが基準。読みやすくても validator に落ちる汎用テンプレートは、成果物が無いより悪い。
+- **確かめたことを書き、確かめていないことは印を付ける**。spec は後で確定した事実として読まれる。確かめていない前提は要件ではなく、明示した未決の問いとして入れる。
 
-## Step 4. Run the validator, and show its output
+## Step 4. validator を実行し、出力を見せる
 
-Per `${CLAUDE_SKILL_DIR}/reference/spec-system.md`. **Red means not finished** — fix and re-run rather
-than reporting the artifact as written. Green means well-formed and nothing more; say that in those
-words, and leave the design judgement to `/da-design-review`.
+`${CLAUDE_SKILL_DIR}/reference/spec-system.md` に従う。**赤は未完了**。成果物を書いたと報告せず、直して再実行する。緑は形式が正しいという意味でしかない。そう明記し、設計の判断は `/da-design-review` に任せる。
 
-> **The frontmatter allowlist is the enforcement, and the prose below is not.** An earlier version of
-> this file opened `Bash` and put the constraint in a sentence, reasoning that an allowlist would fail
-> silently on an interpreter it did not guess. **That had the failure direction backwards**: a denied
-> tool call is refused loudly, in front of the user, while a sentence is a request. The gate hook says
-> it in one line — *a rule written in a skill is a request, not a guarantee*.
+> **強制力は frontmatter の許可リストにあり、以下の文章には無い**。拒否されたツール呼び出しはユーザーの前で大きく拒否されるが、文章はお願いにすぎない（スキルに書いた規則は保証ではなく依頼である）。
 >
-> So: **if the repository's validator is not one the allowlist covers, say so and stop.** Do not route
-> it through a covered interpreter to get it to run. Report "the validator could not be run here" and
-> let the profile or the allowlist be changed deliberately.
+> よって、**リポジトリの validator が許可リストの範囲外なら、そう書いて止まる**。範囲内のインタプリタを経由させて動かさない。「ここでは validator を実行できなかった」と報告し、プロファイルか許可リストを意図して変えてもらう。
 >
-> Within what is allowed: **run the profile's `validate` argv and nothing else.** Refuse an argv whose
-> first element is a shell (`sh`, `bash`, `zsh`) or that contains `-c` — that is a command string
-> wearing an array's clothes. Check every element against the profile's `forbidden` list first.
-> `pnpm run <anything>` is not in scope just because the validator happens to start with `pnpm`.
+> 許可の範囲内では、**プロファイルの `validate` の argv だけを実行する**。先頭要素がシェル（`sh`, `bash`, `zsh`）の argv や `-c` を含む argv は拒否する。配列の形をしたコマンド文字列だからである。各要素を先にプロファイルの `forbidden` と照合する。validator が `pnpm` で始まるからといって `pnpm run <anything>` が範囲に入るわけではない。
 
-## Evidence discipline
+## 根拠の扱い
 
-- Report only what you verified directly. Cite locations as `path/to/file.md:L42`.
-- When you have no basis for a claim, write "could not confirm" — do not guess.
-- Separate fact from inference explicitly.
-- Attach a URL to any external claim.
+- 直接確かめたことだけを報告する。場所は `path/to/file.md:L42` で示す。
+- 根拠が無いときは「確認できなかった」と書く。推測しない。
+- 事実と推論をはっきり分ける。
+- 外部についての主張には URL を付ける。
 
-## Output
+## 出力
 
-Report, in this order:
+次の順で報告する。
 
 1. **規約** —— どのプロファイルから解決したか。解決できなければ欠けているものと質問
 2. **新規か更新か** —— パス。**更新なら既にあった内容**
 3. **validator の出力** —— そのまま貼る。無ければそう書く
 4. **未決のこと** —— 確かめられなかった前提を、spec の本文ではなく質問として
 
-## Done when
+## 完了条件
 
-- [ ] The convention came from the **profile**, not from what the tree looked like
-- [ ] `spec_system.rules` was read **before** writing, and the artifact follows it
-- [ ] Step 2 ran: an existing change was **searched for by capability** and the choice to update or
-      create is stated with its reason
-- [ ] The validator ran and its output is **pasted**, or its absence is stated
-- [ ] Nothing outside the spec root was written, and no implementation was started
+- [ ] 規約はツリーの見た目ではなく**プロファイル**から来た
+- [ ] 書く**前に** `spec_system.rules` を読み、成果物がそれに従っている
+- [ ] Step 2 を実行した。既存の change を**能力で**探し、更新か新規かを理由つきで書いた
+- [ ] validator を実行し、出力を**貼った**か、実行していないことを書いた
+- [ ] spec のルート外には何も書いておらず、実装も始めていない
 
-## Next
+## 次に
 
-`/da-design-review` on what was just written. It reads the same `spec_system` and reviews the change
-directory rather than guessing at a plan path.
+書いたものに `/da-design-review` を掛ける。同じ `spec_system` を読み、計画のパスを推測せずに change ディレクトリをレビューする。

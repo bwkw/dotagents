@@ -1,9 +1,8 @@
-# openspec — the shape, and what the validator actually checks
+# openspec — 形と、validator が実際に検査すること
 
-Read this only when `spec_system.kind` is `openspec`. **`openspec/config.yaml` outranks this file**:
-this describes the format, that describes *this repository's* rules for filling it in.
+`spec_system.kind` が `openspec` の時だけ読む。**`openspec/config.yaml` がこのファイルに優先する**。このファイルは形式を、あちらは*このリポジトリ*の埋め方の規則を書いている。
 
-## The shape
+## 形
 
 ```
 openspec/
@@ -17,16 +16,13 @@ openspec/
     .openspec.yaml
 ```
 
-**`specs/` is what shipped. `changes/<id>/specs/` is what would change.** Writing a proposal into
-`specs/` states as deployed truth something that does not exist yet, and nothing in the tree marks it
-as speculative afterwards.
+**`specs/` は出荷したもの、`changes/<id>/specs/` は変わるもの**。提案を `specs/` に書くと、まだ存在しないものをデプロイ済みの事実として書くことになり、後からそれを推測と示すものがツリーに何も残らない。
 
-**A change id is a slug of the outcome**, matching its siblings — `add-*`, and the verb the repository
-already uses. Read the existing ids before inventing a style.
+**change id は結果のスラッグで、兄弟に揃える**。`add-*` など、リポジトリがすでに使う動詞。新しい流儀を作る前に既存の id を読む。
 
-## The delta headings
+## delta の見出し
 
-A change's spec file uses exactly these:
+change の spec ファイルは次の見出しだけを使う。
 
 ```markdown
 ## ADDED Requirements
@@ -35,43 +31,27 @@ A change's spec file uses exactly these:
 ## RENAMED Requirements
 ```
 
-**`MODIFIED` restates the whole requirement block — heading and every scenario.** A partial update is
-rejected, and the reason is worth knowing rather than working around: the archived change has to be
-readable on its own years later, and a diff-of-a-diff is not. If you are tempted to write only the
-changed line, you are about to make the record unreadable to save four lines.
+**`MODIFIED` は要件ブロック全体（見出しとすべてのシナリオ）を再掲する**。部分更新は拒否される。アーカイブした change は何年後も単独で読めなければならず、差分の差分は読めないからである。
 
-**`ADDED` against a capability that already has a deployed spec is usually wrong** — it is `MODIFIED`.
-Check `specs/<capability>/spec.md` before choosing the heading; this is the most common validator
-failure and the one that looks correct while writing it.
+**デプロイ済み spec がある能力に `ADDED` はたいてい誤りで、`MODIFIED` である**。見出しを選ぶ前に `specs/<capability>/spec.md` を確かめる。最も多い validator の失敗で、書いている間は正しく見える。
 
-## Requirements and scenarios
+## 要件とシナリオ
 
-- Normative vocabulary is **SHALL / MUST / MUST NOT**, matched to the terms already used in the
-  capability's spec. Do not mix in "should" for something the system enforces.
-- **Every requirement carries at least one `#### Scenario:`** with `GIVEN` / `WHEN` / `THEN` / `AND`
-  bullets. A requirement with no scenario is a sentence nobody can test, and the validator says so.
-- A scenario names **state and input, then result**. "THEN it works" is not a scenario.
+- 規範語彙は **SHALL / MUST / MUST NOT** で、その能力の spec がすでに使う語に揃える。システムが強制することに「should」を混ぜない。
+- **すべての要件に少なくとも 1 つの `#### Scenario:` を付ける**。箇条は `GIVEN` / `WHEN` / `THEN` / `AND`。シナリオの無い要件は誰もテストできない文で、validator もそう言う。
+- シナリオは**状態と入力、次に結果**を書く。「THEN 動く」はシナリオではない。
 
-## What `validate --strict` catches, and what it cannot
+## `validate --strict` が見つけるもの、見つけられないもの
 
-**It catches shape**: missing headings, a requirement with no scenario, a delta heading that is not
-one of the four, `MODIFIED` blocks that are not whole, references to a capability that does not exist.
+**見つけるのは形**。見出しの欠落、シナリオの無い要件、4 種以外の delta 見出し、全体でない `MODIFIED` ブロック、存在しない能力への参照。
 
-**It cannot catch**: whether the requirement is the *right* requirement, whether `ADDED` should have
-been `MODIFIED` against a spec that exists, whether the scenarios cover the failure paths, or whether
-the change contradicts a sibling capability's spec.
+**見つけられないもの**。その要件が*正しい*要件か、既存 spec に対して `ADDED` を `MODIFIED` にすべきだったか、シナリオが失敗経路を覆うか、兄弟の能力の spec と矛盾しないか。
 
-So a green validator means **the artifact is well-formed**, and nothing more. Say exactly that when
-reporting it — "validate --strict passed" read as "the design is sound" is the same misweighting a
-clean code review causes, and it is the reason `/da-design-review` runs after this and not instead
-of it.
+よって validator の緑は**成果物の形式が正しい**という意味でしかない。報告ではそのとおりに書く。「validate --strict が通った」を「設計が健全」と読ませない。`/da-design-review` がこのスキルの代わりではなく後に走るのはそのためである。
 
-## Updating an existing change
+## 既存の change を更新する
 
-- **Add to the existing delta**, in the heading it belongs under. Do not append a second
-  `## ADDED Requirements` block — merge into the one that is there.
-- When the new requirement modifies one this change already added, **edit that block**. Two versions
-  of the same requirement inside one change is the state the validator does not catch and a reader
-  cannot resolve.
-- The `<change-id>/tasks.md` checklist is ordered: a new task goes where its dependencies put it, not at the end.
-- Re-run the validator after any edit, not only after creation.
+- **既存の delta の、属する見出しの下に足す**。2 つ目の `## ADDED Requirements` ブロックを追加せず、既存のものにまとめる。
+- 新しい要件が、この change ですでに足した要件を修正するなら、**そのブロックを直す**。1 つの change に同じ要件が 2 版あると、validator も読み手も解決できない。
+- `<change-id>/tasks.md` のチェックリストは順序つき。新しいタスクは末尾ではなく依存関係が決める位置に置く。
+- 作成後だけでなく、編集のたびに validator を再実行する。

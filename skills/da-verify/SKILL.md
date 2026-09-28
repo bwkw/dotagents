@@ -7,37 +7,29 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-verify — run the checks, show the evidence
+# /da-verify — チェックを実行し、根拠を示す
 
-Claude stops when work *looks* done. Without a check it can actually run, "looks done" is the only
-signal available, and the human ends up being the verification loop. This skill is the check.
+Claude は作業が終わったように*見えた*時に止まる。実行できるチェックが無ければ判断材料はそれだけで、人間が検証ループ役になる。このスキルがそのチェックである。
 
-**This skill never modifies source code.** It runs verification commands and reports what happened.
+**このスキルはソースコードを変更しない**。検証コマンドを実行し、結果を報告するだけ。
 
-It is also the **manual path for the Stop gate**. `dotagents-verify-gate.sh` runs these same checks
-at the end of a turn on both agents — but only Claude Code's Stop hook can actually refuse to
-finish. **Cursor's `stop` hook cannot block**; it only auto-submits a follow-up message asking the
-agent to keep going, and Cursor caps how many times that can happen. So in Cursor the gate is a
-nudge, and running `/da-verify` explicitly is how you actually know. Do not assume parity.
+Stop ゲートの手動の経路でもある。`dotagents-verify-gate.sh` は両エージェントでターン終了時に同じチェックを走らせるが、終了を実際に拒めるのは Claude Code の Stop フックだけ。**Cursor の `stop` フックはブロックできない**。続行を促すメッセージを自動送信するだけで、回数にも上限がある。Cursor ではゲートは促しにすぎず、確かめるには `/da-verify` を明示的に実行する。同等だと思わない。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository with an `origin` remote | Stop and report it. The profile is resolved by remote. |
-| The dotagents checkout is locatable (`~/.claude/.dotagents-managed.json` → `repo`) | Report it, and run the checks without arming the gate. Say that the gate is not active. |
-| A profile matches this repository | **Stop, and hand back a profile ready to fill in** — see below. **Never guess commands**: running an invented `npm test` in an unfamiliar repository is how a verification tool loses trust. |
+| 作業ディレクトリが `origin` リモートを持つ git リポジトリ内にある | 止まって報告する。プロファイルはリモートで解決する |
+| dotagents のチェックアウトが特定できる（`~/.claude/.dotagents-managed.json` → `repo`） | 報告し、ゲートを arm せずにチェックを実行する。ゲートが無効だと書く |
+| このリポジトリに合うプロファイルがある | **止まり、埋めるだけのプロファイルを渡す**（下記）。**コマンドを推測しない**。見知らぬリポジトリででっち上げた `npm test` を走らせると、検証ツールは信頼を失う |
 
-### When no profile matches
+### プロファイルが合わない時
 
-Stopping used to be sufficient because an upstream skill covered the general case. That skill was
-removed, so **stopping is now the entire answer unless you make the next step trivial.** Do that:
+止まるだけでは答えにならないので、次の一歩を手間なくする。
 
-1. Report the repository's remote, and that nothing matches it.
-2. **Read the repository's own manifests** — `package.json` scripts, `Makefile` targets, `justfile`,
-   `pyproject.toml`, the CI workflow — and **propose** the commands you find, quoting where each came
-   from. Reporting what a file says is not guessing; running it unasked would be.
-3. Emit a profile with those filled in, ready to save:
+1. リポジトリのリモートと、合うものが無いことを報告する。
+2. **リポジトリ自身のマニフェストを読む**。`package.json` の scripts、`Makefile` のターゲット、`justfile`、`pyproject.toml`、CI ワークフロー。見つけたコマンドを出どころを引用して**提案する**。ファイルの記述を報告するのは推測ではない。頼まれずに実行するのが推測である。
+3. それを埋めた、保存するだけのプロファイルを出す。
 
 ```jsonc
 // <dotagents>/profiles/<repo>.json — gitignored unless explicitly allowlisted
@@ -52,116 +44,92 @@ removed, so **stopping is now the entire answer unless you make the next step tr
 }
 ```
 
-4. Say plainly that **until it is saved this repository has no gate**: the Stop hook stays inert, so
-   nothing holds a turn that ends red. That is the cost of having no profile, and it should not be
-   discovered later.
+4. **保存するまでこのリポジトリにゲートは無い**とはっきり書く。Stop フックは動かず、赤で終わるターンを止めるものが無い。後で気づかれてはいけないコストである。
 
-**Do not fall back to running something.** A green result you cannot trace to a configured command is
-indistinguishable from no check at all, which is worse than stopping.
+**代わりに何かを実行しない**。設定されたコマンドに辿れない緑はチェックが無いのと区別できず、止まるより悪い。
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| implementation, or a fix | `/da-verify` | commit, `/da-review-all`; `/da-pr-describe` when the user types it |
+| 実装、または修正 | `/da-verify` | コミット、`/da-review-all`。ユーザーが打てば `/da-pr-describe` |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| the matching `profiles/*.json` | The commands, and which of them you are permitted to run |
+| 合致する `profiles/*.json` | コマンドと、そのうち実行してよいもの |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/profile-authoring.md` | Only when no profile matches and you are writing one |
+| `${CLAUDE_SKILL_DIR}/reference/profile-authoring.md` | プロファイルが合わず、書く時だけ |
 
 ---
 
-**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
-paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
-a person.
+レポートはユーザーが書いている言語で書く（不明なら日本語）。パス・識別子・コマンド・コード片・ログは原文のまま残す。
 
-## Steps
+## 手順
 
-### Step 0. Arm the gate
+### Step 0. ゲートを arm する
 
 ```bash
 <dotagents>/scripts/gate.sh arm
 ```
 
-This is what makes the end-of-turn gate active for this repository. **Without it the gate does
-nothing** — it is deliberately inert until a skill arms it, so that sessions which only answer
-questions never run a test suite on the way out.
+これでこのリポジトリのターン終了ゲートが有効になる。**arm しなければゲートは何もしない**。質問に答えるだけのセッションが終わり際にテストを走らせないよう、スキルが arm するまで意図して止めてある。
 
-Arm it when the session is going to change code. For a read-only question, skip this step and just
-report; there is nothing to hold.
+セッションがコードを変えるなら arm する。読み取りだけの質問ならこの手順を飛ばして報告する。止めるものが無い。
 
-The dotagents checkout is recorded in `~/.claude/.dotagents-managed.json` under `repo`.
+dotagents のチェックアウトは `~/.claude/.dotagents-managed.json` の `repo` に記録されている。
 
-### Step 1. Resolve the profile
+### Step 1. プロファイルを解決する
 
 ```bash
 git remote get-url origin
 ```
 
-Find the profile in the dotagents repository whose `match.remote` is a substring of that URL. The
-dotagents checkout is recorded in `~/.claude/.dotagents-managed.json` under `repo`; profiles live in
-`<repo>/profiles/`.
+dotagents リポジトリで、`match.remote` がこの URL の部分文字列になるプロファイルを探す。プロファイルは `<repo>/profiles/` にある。
 
-No match → stop, per the preconditions.
+合わなければ、実行条件に従って止まる。
 
-### Step 2. Report what you are about to run
+### Step 2. 実行するものを先に報告する
 
-Before running anything, show the user the table: check id, command, whether you may run it. This is
-what makes a wrong profile obvious in one glance instead of one confusing failure.
+何か実行する前に、チェック id・コマンド・実行してよいかの表をユーザーに見せる。プロファイルの誤りが、分かりにくい失敗 1 回ではなく一目で分かる。
 
-### Step 3. Run the checks you are permitted to run
+### Step 3. 実行してよいチェックを実行する
 
-**Run them through the gate, not by hand:**
+**手で回さず、ゲート経由で実行する**。
 
 ```bash
 <dotagents>/scripts/gate.sh verify --json     # or without --json to read it yourself
 ```
 
-This is the same code the Stop hook runs — profile order, the profile's `cwd`, `{files}` substitution,
-`forbidden` refusals, per-check timeouts, the total budget. It reports and **touches nothing**: no
-attempt counted, no verdict, no heartbeat, and no gate needs to be armed. So you can run it as often
-as you like while implementing.
+Stop フックと同じコードで、プロファイルの順序、プロファイルの `cwd`、`{files}` の置換、`forbidden` による拒否、チェックごとのタイムアウト、全体の予算を扱う。報告するだけで**何も触らない**（試行回数も判定もハートビートも残さず、arm も要らない）。実装中に何度実行してもよい。
 
-**Do not reimplement the loop here.** These instructions used to describe it step by step and had
-already drifted from the gate: they said to substitute `{files}` from
-`git diff --name-only --diff-filter=d HEAD`, while the gate also includes untracked files —
-deliberately, because a turn that only adds new files produced an empty list and skipped the check
-entirely. **The skill would have skipped a check the gate runs.** Two implementations of one rule
-disagree eventually; that is what this repository keeps finding.
+**ここでループを再実装しない**。同じ規則の 2 実装はいずれ食い違う。以前この手順を文章で書いた時、`{files}` を `git diff --name-only --diff-filter=d HEAD` から作ると書き、未追跡ファイルを含めるゲートと食い違って、新規ファイルだけのターンでチェックを飛ばしていた。
 
-On failure, stop and report. Do not push on to the remaining checks — `verify` already stops at the
-first failure, and that failure is the information the user needs.
+失敗したら止まって報告する。残りのチェックに進まない。`verify` は最初の失敗で止まり、その失敗がユーザーに要る情報である。
 
-### Step 4. Delegate what you are not permitted to run
+### Step 4. 実行してはいけないものは委ねる
 
-For each check with `agent_may_run: false`:
+`agent_may_run: false` のチェックごとに:
 
-- **Do not run it.** The flag exists because the repository forbids it, or because it consumes
-  resources or credentials the session should not.
-- Show the user the exact command and the `delegate_reason`, and ask them to run it.
-- **Wait for their output.** Do not proceed, and do not report success, while a gating check is
-  outstanding. "I asked the user to run typecheck" is not a result.
-- When they report it, record it so the gate can see it:
+- **実行しない**。リポジトリが禁じているか、セッションが使うべきでない資源や認証情報を使うためのフラグである。
+- 正確なコマンドと `delegate_reason` をユーザーに見せ、実行を頼む。
+- **出力を待つ**。ゲートになっているチェックが残る間は進まず、成功も報告しない。「ユーザーに typecheck を頼んだ」は結果ではない。
+- 報告を受けたら、ゲートが見えるよう記録する。
   ```bash
   <dotagents>/scripts/gate.sh record <check-id>
   ```
-  Do not write the file by hand. The gate finds the armed directory by the repository root stored
-  inside it, and a hand-written path can land somewhere the gate never looks.
+  ファイルを手で書かない。ゲートは arm したディレクトリを中に保存したリポジトリルートで見つけるので、手書きのパスはゲートが見ない場所に落ちうる。
 
-### Step 5. Report with evidence
+### Step 5. 根拠つきで報告する
 
-**State the evidence, do not assert success.** A claim that something passes, without the command
-and its exit code, is the thing this skill exists to prevent.
+**成功を主張せず、根拠を書く**。コマンドと終了コードの無い「通った」は、このスキルが防ぐためにあるものそのもの。
 
 ```markdown
 ## 検証結果
@@ -175,32 +143,25 @@ and its exit code, is the thing this skill exists to prevent.
 **未実行:** sql（scope: changed、対象ファイルの変更なし）
 ```
 
-Write **"not run"** for anything you did not run. Never write "should pass" or "presumably fine" —
-if it was not executed, that is the finding.
+実行していないものは**「未実行」**と書く。「通るはず」「たぶん大丈夫」とは書かない。実行していないこと自体が所見である。
 
-### Step 6. Release the gate when everything is green
+### Step 6. すべて緑ならゲートを解除する
 
 ```bash
 <dotagents>/scripts/gate.sh disarm
 ```
 
-Leave it armed while anything is still red — that is the point. Disarm once the checks pass, or when
-abandoning the work; an armed gate in a repository you are no longer changing blocks turns for no
-reason, and a gate that blocks for no reason gets switched off.
+赤が残る間は arm したままにする。それが目的である。チェックが通るか作業を放棄したら disarm する。もう変更しないリポジトリで arm したままだと理由なくターンを止め、理由なく止めるゲートは切られる。
 
-`gate.sh status` shows whether this repository is armed and what has been recorded.
+`gate.sh status` で、このリポジトリが arm されているかと記録済みの内容が分かる。
 
-## Done when
+## 完了条件
 
-- [ ] Every gating check is either green with evidence, or explicitly reported as failing or not run
-- [ ] Nothing on the `forbidden` list was executed
-- [ ] No `agent_may_run: false` check is recorded as passing without the user's own output
-- [ ] The gate is disarmed if everything passed, still armed if anything is red
+- [ ] ゲートになっているチェックがすべて、根拠つきで緑か、失敗・未実行と明示されている
+- [ ] `forbidden` にあるものを何も実行していない
+- [ ] `agent_may_run: false` のチェックを、ユーザー自身の出力なしに通過と記録していない
+- [ ] すべて通ったならゲートを disarm し、赤があるなら arm したまま
 
-## Next
+## 次に
 
-All green → commit, then `/da-review-all`. Anything red → fix it, then run `/da-verify` again.
-**If the same check fails twice in a row, stop patching.** Write down what you tried and why it
-failed, `/clear`, and restart with that folded into the prompt — repeated correction piles failed
-approaches into the context and makes each attempt worse than the last.
-x
+すべて緑 → コミットし、`/da-review-all`。赤がある → 直して `/da-verify` を再実行する。**同じチェックが 2 回続けて落ちたら、継ぎ当てをやめる**。試したことと失敗した理由を書き出し、`/clear` し、それをプロンプトに入れて始め直す。修正を重ねると失敗した手がコンテキストに積もり、試すたびに悪くなる。

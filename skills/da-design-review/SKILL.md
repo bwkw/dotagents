@@ -7,172 +7,121 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-design-review — catch it while it is still cheap
+# /da-design-review — 安いうちに捕まえる
 
-Code review finds defects in an implementation. It cannot find that the implementation should never
-have been built this way. By the time a diff exists, the expensive decisions — the migration
-strategy, the contract shape, the deploy order — are already made, and the review that follows is
-scoped to whether they were executed correctly.
+差分ができた時点で、移行戦略・契約の形・デプロイ順といった高くつく判断は済んでおり、コードレビューはそれを問えない。このスキルはその判断そのものをレビューする。
 
-This skill reviews the decisions themselves.
+**このスキルは読み取り専用で、コードも計画も書き換えない。** 所見を報告するだけ。計画の修正は別の行為として行う。
 
-**This skill never writes code and never edits the plan.** It reports findings. Revising the plan is
-a separate act, done deliberately.
+## 実行条件
 
-## Preconditions
-
-| Condition | If unmet |
+| 条件 | 満たさない時 |
 |---|---|
-| A plan, spec, or design document is identified | **Stop.** Ask which document to review. Never review an imagined plan. |
-| The repository's `spec_system` resolved, or its absence was reported | Step 0. Never guess the subject from the tree |
-| The document describes changes to a codebase you can read | Continue, but say in 🔎 that you could not ground the claims in code |
+| レビュー対象の計画・spec・設計ドキュメントが特定できている | **止まる。** どのドキュメントか尋ねる。想像上の計画はレビューしない |
+| リポジトリの `spec_system` が解決できた、または無いことを報告した | Step 0。ツリーから対象を推測しない |
+| ドキュメントが、読めるコードベースへの変更を述べている | 続けてよいが、主張をコードで裏付けられなかったことを 🔎 に書く |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| `/da-spec` (or `/writing-plans`, `/research`, an ADR) | `/da-design-review` | revise, then `/executing-plans` |
+| `/da-spec`（または `/writing-plans`、`/research`、ADR） | `/da-design-review` | 修正してから `/executing-plans` |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| the plan or spec under review | the subject |
-| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | posture and reporting rules; passed to every subagent |
-| `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` | the review dimensions |
-| `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | which artifact is the subject, the repository's own rules, the validator, and how 🧱 relates to its task list |
+| レビュー対象の計画・spec | 対象そのもの |
+| `${CLAUDE_SKILL_DIR}/reference/finding-discipline.md` | 姿勢と報告の規則。すべてのサブエージェントに渡す |
+| `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` | レビューの観点 |
+| `${CLAUDE_SKILL_DIR}/reference/spec-system.md` | どの成果物が対象か、リポジトリ自身の規則、validator、🧱 とタスク一覧の関係 |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 読む条件 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/verification.md` | entering the refutation pass (Step 5) |
-| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | when the plan introduces a fallback, a shared default, or an irreversible action — `verification.md` sends you here, and it is listed at this level so it is not reached only through another reference |
-| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | when writing the report, for bucketing and presentation |
-| `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | if the repository has them — the project's own conventions are the standard |
-| the code the plan names | always for the high-risk claims; see Step 2 |
+| `${CLAUDE_SKILL_DIR}/reference/verification.md` | 反証（Step 5）に入る時 |
+| `${CLAUDE_SKILL_DIR}/reference/silent-failure-patterns.md` | 計画がフォールバック・共有の既定値・不可逆な操作を持ち込む時 |
+| `${CLAUDE_SKILL_DIR}/reference/report-format.md` | 報告を書く時。バケット分けと見せ方 |
+| `CLAUDE.md`、`AGENTS.md`、`.claude/rules/*` | リポジトリにあれば。プロジェクト自身の規約が基準 |
+| 計画が名指しするコード | 高リスクの主張については必ず。Step 2 参照 |
 
-> Reading everything "just in case" is forbidden.
+> 「念のため」全部読むのは禁止。
 
 ---
 
-## Step 0. Find the subject, and run what checks it
+## Step 0. 対象を見つけ、それを検査するものを実行する
 
-Follow `${CLAUDE_SKILL_DIR}/reference/spec-system.md`. In an `openspec` repository the subject is the
-whole change directory — proposal, design, tasks **and the spec deltas** — not one file of it, and the
-standard includes the rules file the profile names.
+`${CLAUDE_SKILL_DIR}/reference/spec-system.md` に従う。`openspec` のリポジトリでは、対象は change ディレクトリ全体（proposal・design・tasks と **spec delta**）であり、1 ファイルではない。基準にはプロファイルが指定する rules ファイルも含む。
 
-**Then run `spec_system.validate` and paste the output, before any judgement.** A malformed delta is
-not a design finding and must not be reported as one; and a review that reads a spec whose validity was
-mechanically checkable, without checking it, is asserting where it could have measured.
+**判断を下す前に `spec_system.validate` を実行し、出力をそのまま貼る。** 形式の壊れた delta は設計の所見ではないので、所見として報告しない。機械的に確かめられる妥当性を確かめずに語らない。
 
-> **The allowlist in the frontmatter is the enforcement.** `Bash` was briefly unrestricted here with the
-> constraint written as prose; a denied tool call is refused loudly while a sentence is only a request,
-> so the permission is back in the frontmatter where the harness applies it. **A validator the allowlist
-> does not cover is reported as unrunnable, not worked around.** Run the profile's `validate` argv and
-> nothing else, refuse one that starts with a shell or contains `-c`, and check it against `forbidden`
-> first. Everything else stays read-only: `git`, `gh`, reading. **This skill never writes.**
+> **強制するのは frontmatter の allowlist**（文章は依頼にすぎない）。**allowlist が許さない validator は実行不能として報告し、回避しない。** 実行するのはプロファイルの `validate` argv だけ。シェルで始まるものや `-c` を含むものは拒否し、先に `forbidden` と照合する。それ以外は読み取りだけ。
 
-## Step 1. Restate the plan in your own words
+## Step 1. 計画を自分の言葉で言い直す
 
-Before critiquing anything, write what you understand the plan to do, in three to five sentences:
-what changes, why, and in what order.
+批判の前に、計画が何をするかを 3〜5 文で書く。何が変わり、なぜ、どの順で。
 
-**Show this to the user.** A misread plan produces confident, irrelevant findings, and this is the
-cheapest place to catch it. Too vague to restate is itself the first finding — stop and report it.
+**これをユーザーに見せる。** 読み違いを最も安く捕まえられる場所。言い直せないほど曖昧なら、それ自体が最初の所見なので、止まって報告する。
 
-## Step 2. Ground the plan in the actual code
+## Step 2. 計画を実際のコードで裏付ける
 
-A plan review that only reads the plan is a proofread. The value is in the gap between what the plan
-assumes and what the code actually does.
+価値は、計画の前提とコードの実際のずれにある。
 
-For each of the plan's load-bearing claims — "this table is append-only", "no other caller depends on
-this", "the frontend already handles a missing field" — **open the code and check**, citing
-`file:line`. When you cannot confirm one, that is a finding, not a footnote.
+計画を支える主張（「このテーブルは追記のみ」「他の呼び出し元は依存していない」「フロントエンドはフィールド欠落を処理済み」）ごとに、**コードを開いて確かめ**、`file:line` を引く。確かめられない主張は脚注ではなく所見にする。
 
-Budget: **25 files.** On reaching it, stop and record what you did not verify — an unbounded
-"investigate the codebase" burns the context the review itself needs.
+予算は **25 ファイル**。達したら止まり、確かめなかったものを記録する（際限のない調査はレビューに要るコンテキストを食う）。
 
-## Step 3. Review across the dimensions
+## Step 3. 観点ごとにレビューする
 
-Read `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` and work through it.
+`${CLAUDE_SKILL_DIR}/reference/design-checklist.md` を読み、順に進める。
 
-For a substantial plan, dispatch the dimensions to **parallel subagents** in a single message, one per
-dimension group, each given the plan, the Step 2 findings and `finding-discipline.md`. The checklist and
-code excerpts are bulky; inline they crowd out the synthesis. **Small plan — a handful of files, nothing
-irreversible — work through it directly.**
+大きな計画では、観点グループごとに **parallel subagents** を 1 メッセージでディスパッチする。各サブエージェントには計画、Step 2 の所見、`finding-discipline.md` を渡す（チェックリストとコード抜粋は大きく、抱えると統合を圧迫する）。**小さな計画（数ファイルで不可逆なものが無い）は自分で直接進める。**
 
-## Step 4. The question one level up
+## Step 4. 一段上の問い
 
-Separately from the checklist, always ask:
+チェックリストとは別に、必ず問う。
 
-- **Should this be built at all?** Is there a simpler approach that gets most of the value?
-- **Is the plan solving the stated problem**, or a nearby, more interesting one?
-- **What does the plan assume will stay true?** Name the assumptions and mark which are load-bearing.
-- **What is missing entirely** — a rollback path, a migration for existing data, a story for
-  in-flight requests during deploy, the operational signal that says it worked?
+- **そもそも作るべきか。** 価値の大半を得られる、より単純な方法はないか
+- **計画は述べられた問題を解いているか。** 近くの面白い問題を解いていないか
+- **計画は何が成り立ち続けると仮定しているか。** 仮定を挙げ、計画を支えるものに印をつける
+- **丸ごと欠けているものは何か。** ロールバック経路、既存データの移行、デプロイ中の処理中リクエストの扱い、うまくいったと分かる運用上のシグナル
 
-Absence is the hardest thing to review and the most common source of production surprise. A checklist
-finds what is wrong with what is written; only this step finds what was never written.
+チェックリストは書かれたものの誤りを見つけ、このステップだけが書かれなかったものを見つける。
 
-### The pre-mortem — write it in the past tense, and the tense is the point
+### 事前の検死 — 過去形で書く。時制が要点
 
-Before moving on, write this out properly rather than thinking about it:
+頭で考えるだけでなく実際に書き出す。
 
-> **It is six months from now. This shipped, and it failed.** Write the incident review. What broke,
-> what the first symptom was, how long it took anyone to notice, and what the retrospective concluded
-> should have been obvious.
+> **今は 6 か月後。これは出荷され、失敗した。** 障害の振り返りを書く。何が壊れたか、最初の症状は何か、誰かが気づくまでどれだけかかったか、振り返りで「明らかだったはず」とされたことは何か。
 
-**The tense is not stylistic** — the measurement and the citations are in `design-checklist.md` under
-*Pre-mortem*. Forward-looking risk questions produce the list everyone already has.
+**時制は文体の問題ではない。** 根拠と出典は `design-checklist.md` の「事前の検死（Pre-mortem）」にある。
 
-Write it as narrative, and be concrete about the first symptom: *"the queue backed up and nobody
-noticed for a day"* is a finding; *"there may be performance issues"* is not.
+物語として書き、最初の症状は具体的にする。*「キューが詰まり、1 日誰も気づかなかった」* は所見、*「性能問題があるかもしれない」* は所見ではない。
 
-Then convert each cause into a 🔴 (the plan should handle this), a 🧭 (the shape may be wrong), or a ❓
-(the plan does not mention it). **Anything that will not convert stays in the report as a named residual
-risk** — do not drop a cause because it did not fit a bucket.
+その後、各原因を 🔴（計画が扱うべき）、🧭（形が間違っているかもしれない）、❓（計画が触れていない）に変換する。**変換できない原因は、名前をつけた残存リスクとして報告に残す。** バケットに合わないという理由で落とさない。
 
-## Step 5. Refute your own findings
+## Step 5. 自分の所見を反証する
 
-**Mandatory, and it applies to 🚪 one-way doors and 🔴 findings.** Read
-`${CLAUDE_SKILL_DIR}/reference/verification.md` for the general shape — the refute-by-default
-asymmetry, the ⛔/🔴 three-lens pass, and the disposition table all apply here unchanged. Dispatch to
-**`x-review-verifier`**, which did not take part in Steps 1–4.
+**必須。対象は 🚪 一方通行の判断と 🔴 の所見。** 全体の形は `${CLAUDE_SKILL_DIR}/reference/verification.md` を読む。既定で反証する非対称性、⛔/🔴 の 3 レンズ、処置の表はそのまま適用する。Step 1〜4 に関わっていない **`x-review-verifier`** にディスパッチする。
 
-Design review has a specific failure mode that code review does not, and it is what this step exists
-to catch: **a plan is a document, so anything not written down looks missing.** The find phase is
-structurally biased toward over-reporting absence. Three questions turn that bias back:
+**計画は文書なので、書かれていないものはすべて欠けて見える。** 発見フェーズは構造的に欠落を過剰に報告するので、次の 3 問で戻す。
 
-- **Is this "one-way door" actually irreversible, or just expensive to undo?** Expensive is a 🟡. A
-  door is one-way only when reversing it destroys data, breaks a consumer you do not control, or
-  cannot be done at all. Name the moment it closes. If you cannot name the moment, it is not a door.
-- **Is the omission actually omitted?** Check the rest of the plan, the repository's existing
-  conventions, and the framework's defaults. "The plan does not mention rollback" is refuted if the
-  deploy pipeline already rolls back, and that is the single most common false positive here.
-- **Can you write the path by which the design fails?** "This is the wrong shape" without a concrete
-  bad outcome is a 🧭, not a 🔴. Keep it — 🧭 is load-bearing at plan stage — but do not let it wear
-  🔴's severity.
+- **その「一方通行の判断」は本当に不可逆か、戻すのが高いだけか。** 高いだけなら 🟡。一方通行は、戻すとデータが失われる・管理外の利用者が壊れる・戻せない、のどれかの時だけ。閉じる瞬間を名指しできないなら一方通行ではない
+- **その欠落は本当に欠落しているか。** 計画の他の箇所、既存の規約、フレームワークの既定を確かめる。最も多い誤検知は「ロールバックに触れていない」で、デプロイパイプラインが既にロールバックするなら反証される
+- **設計が失敗する経路を書けるか。** 具体的な悪い結果の無い「形が違う」は 🔴 ではなく 🧭。🧭 は残すが、🔴 の重大度を着せない
 
-Report the refuted count. **A design review where nothing was refuted did not run this step**, or
-reported everything it thought of — say which, plainly, in 🔎.
+反証した件数を報告する。**何も反証されなかったなら、このステップを実行していないか思いついたことを全部報告している。** どちらかを 🔎 に書く。
 
-## Step 6. Report
+## Step 6. 報告
 
-Follow `${CLAUDE_SKILL_DIR}/reference/report-format.md` for bucketing and presentation, with these
-substitutions:
+バケット分けと見せ方は `${CLAUDE_SKILL_DIR}/reference/report-format.md` に従い、次を置き換える。
 
-**The four required parts still apply, read for a plan rather than a diff** — `report-format.md` carries
-them under *Design review substitutions*, together with the ⛔ → 🚪 mapping and how 📍 points at a plan
-section. **Architecture, aggregate and transaction boundaries, and security are weighted highest here**,
-more than in code review: at plan stage they are cheap to move and afterwards they are a rewrite. A plan
-silent on any of the three is a ❓, not a pass.
+**必須の 4 部分は計画として読み替えて適用する。** `report-format.md` の設計レビュー向けの置き換え（Design review substitutions）に、⛔ → 🚪 の対応と 📍 が計画の節を指す方法とともにある。**アーキテクチャ、集約とトランザクションの境界、セキュリティは、コードレビューより重く見る。** 計画段階なら動かすのは安いが、後では書き直しになる。3 つのどれかに計画が触れていなければ、合格ではなく ❓。
 
-**The full skeleton is in `design-checklist.md` under *Report skeleton*.** Follow it exactly — the
-order puts the irreversible decisions above everything somebody can still fix. Two sections are
-reproduced here because they must not go missing:
+**骨格の全体は `design-checklist.md` の「報告の骨格」にあり、そのとおりに書く**（不可逆な判断を直せるものより上に置く順）。次の 2 節は落とせないのでここにも載せる。
 
 ```markdown
 ### 🚪 一方通行の判断（One-way doors）
@@ -182,33 +131,23 @@ reproduced here because they must not go missing:
 | # | 着地するもの（What lands） | 確認の関門（What gates it） | 一方通行？（One-way?） | 次を始める前に |
 ```
 
-### The landing plan is the same judgement, written down
+### 着地計画は同じ判断を書き出したもの
 
-You have already decided what is irreversible and what must deploy in order. **Where the landings
-divide is the conclusion of that**, and nothing else here decides it: `da-fix-plan` orders fixes into
-commits inside one change, `da-review-all` asks whether two layers ship together only as a finding. So
-plans reach implementation with the split unmade.
+**着地の分け目は、不可逆性とデプロイ順の判断の結論**であり、他のどこもこれを決めない（`da-fix-plan` は change 内のコミット順、`da-review-all` は層を一緒に出すかを所見として問うだけ）。
 
-**N rows means N changes** — N openspec `changes/<id>/` directories, N plan files otherwise. Not one
-change with the landings as task groups: a landing ships on its own and a task does not.
-`spec-system.md` carries that mapping, because `da-spec` has to create what this table decided.
+**N 行は N 個の change**（openspec なら `changes/<id>/` が N 個、それ以外は計画ファイルが N 個）。着地をタスクグループにした 1 つの change ではない（着地は単独で出荷され、タスクはされない）。この対応は `da-spec` が使うので `spec-system.md` にある。
 
-The rules are in `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` under **Landing boundaries**.
-The one that decides most: **every landing needs a gate you can name** — if you cannot say what proves
-it, the plan is not finished. One landing is a legitimate answer as one row with a reason; **an absent
-table means nobody decided.**
+規則は `${CLAUDE_SKILL_DIR}/reference/design-checklist.md` の **着地の境界** にある。最も効く規則は **どの着地にも名指しできる関門が要る** こと。何がそれを証明するか言えないなら、計画は未完成。着地が 1 つなら、理由をつけた 1 行で正当な答えになる。**表が無いのは誰も決めていないということ。**
 
-## Done when
+## 完了条件
 
-- [ ] The plan was restated and confirmed before critique
-- [ ] Every load-bearing claim is either grounded with `file:line` or listed as unverified
-- [ ] One-way doors are separated from ordinary findings
-- [ ] Step 4 ran — absences, not just errors
-- [ ] **Step 5 ran in `x-review-verifier`**, and every 🚪 names the moment the door closes
-- [ ] **Some findings were rejected**, and the count is reported. A review that refuted nothing either
-      skipped Step 5 or reported everything it thought of — say which in 🔎.
+- [ ] 批判の前に計画を言い直し、確認した
+- [ ] 計画を支える主張はすべて、`file:line` で裏付けたか、未確認として挙げた
+- [ ] 一方通行の判断を通常の所見と分けた
+- [ ] Step 4 を実行した（誤りだけでなく欠落も見た）
+- [ ] **Step 5 を `x-review-verifier` で実行し**、すべての 🚪 が閉じる瞬間を名指ししている
+- [ ] **いくつかの所見が退けられ**、その件数を報告した。ゼロなら理由を 🔎 に書いた
 
-## Next
+## 次に
 
-Revise the plan against the 🔴 items, then `/da-design-review` again if the shape changed materially.
-Otherwise proceed to implementation.
+🔴 の項目に沿って計画を直す。形が大きく変わったなら `/da-design-review` をもう一度。そうでなければ実装へ進む。

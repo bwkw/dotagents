@@ -7,130 +7,107 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-skills-audit — keep the toolkit from rotting
+# /da-skills-audit — ツールキットを腐らせない
 
-Skills degrade in a specific way: they accumulate. Every installed skill's `description` is resident
-in context at all times, so the more there are, the less of each one survives — and the model picks
-by matching a request against exactly those descriptions. A toolkit that grows without pruning stops
-selecting correctly, and nothing announces it.
+スキルは溜まることで劣化する。インストール済みの全 `description` は常にコンテキストに載り、モデルはそれと依頼を突き合わせて選ぶ。刈り込まずに増やすと、誰にも気づかれずに選択が外れ始める。
 
-**This skill never modifies anything.** It reports, and proposes. Removals are yours to approve.
+**このスキルは何も変更しない**。報告と提案だけで、削除の承認はユーザーが行う。
 
-**This skill reads files. It does not measure usage, and it is not an eval.** Four tools, and you want
-more than one:
+このスキルはファイルを読む。利用状況は測らず、評価（eval）でもない。道具は 4 つあり、1 つでは足りない。
 
-| Tool | Reads | Answers |
+| 道具 | 読むもの | 答えること |
 |---|---|---|
-| **`/skill-doctor`** | the loaded set, with usage | **which loaded skills are unused and costing context.** Run this *first* — it answers what this skill cannot. |
-| **`/doctor`** | settings and the listing | the listing's real context cost and its biggest contributors; slow hooks; duplicated instructions |
-| this skill | the files on disk | over-constraint, overlapping triggers, Cursor incompatibility, oversized bodies, the `AGENTS.md` invariants |
-| **`anthropic-skills:skill-creator`** | with-skill versus without-skill runs | **whether a skill actually helps.** Aggregates pass rate, time and tokens into `benchmark.json`; measures trigger accuracy with should-fire / should-not-fire prompts. |
+| **`/skill-doctor`** | 読み込まれた全体と利用状況 | **使われずにコンテキストを食っているスキル**。このスキルに答えられないことを答えるので*最初に*実行する |
+| **`/doctor`** | 設定と一覧 | 一覧の実際のコンテキストコストと大口、遅いフック、重複した指示 |
+| このスキル | ディスク上のファイル | 過剰な制約、トリガーの重複、Cursor 非互換、大きすぎる本文、`AGENTS.md` の不変条件 |
+| **`anthropic-skills:skill-creator`** | スキルあり / なしの実行比較 | **スキルが実際に役立つか**。合格率・時間・トークンを `benchmark.json` に集計し、発火すべき / すべきでないプロンプトでトリガー精度を測る |
 
-Open the report by naming which of the four were run. **A clean file-level audit says nothing about
-whether the skills help** — that needs the last row, and it is already installed.
+レポートの冒頭で、4 つのうちどれを実行したかを書く。**ファイル監査が綺麗でも、スキルが役立つかは何も分からない**。それには最後の行が要り、すでにインストールされている。
 
-Two things to know before trusting any result:
+結果を信じる前に知っておくこと。
 
-- **The listing is far larger than this repository.** Around 40 skills are compiled into the Claude Code
-  binary and never appear on disk; an Anthropic-managed plugin adds roughly 11 more. A filesystem audit
-  therefore sees a fraction of what the model sees — the exact mistake this table exists to prevent.
-  `/skill-doctor` and `/doctor` see the whole set; **do not present a count from disk as the total.**
-- **A skill benchmarked in the session that wrote it will look better than it is.** Leftover context
-  masks gaps in the written instructions. Benchmark from a fresh session.
+- **一覧はこのリポジトリよりずっと大きい**。約 40 本が Claude Code 本体に組み込まれてディスクに現れず、Anthropic 管理のプラグインがさらに約 11 本足す。ファイル監査はモデルが見る一部しか見ない。全体を見るのは `/skill-doctor` と `/doctor` で、**ディスク上の本数を総数として出さない**。
+- **書いたセッションでベンチマークしたスキルは実際より良く見える**。残ったコンテキストが指示の穴を埋めるので、新しいセッションで測る。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| `~/.agents/skills` exists, or a path was given | Stop and report it |
-| The dotagents checkout is locatable (`~/.claude/.dotagents-managed.json` → `repo`) | Continue, but skip the checks that need `verify-skills.sh` and say so |
+| `~/.agents/skills` が存在するか、パスが渡された | 止まって報告する |
+| dotagents のチェックアウトが特定できる（`~/.claude/.dotagents-managed.json` → `repo`） | 続けるが、`verify-skills.sh` が要るチェックは飛ばし、そう書く |
 
-## Position in the workflow
+## ワークフロー上の位置
 
-| Upstream | This skill | Downstream |
+| 上流 | このスキル | 下流 |
 |---|---|---|
-| about to add a skill, or a quarterly clean-up | `/da-skills-audit` | consolidate, rewrite descriptions, or uninstall |
+| スキルを追加する前、または四半期ごとの掃除 | `/da-skills-audit` | 統合、description の書き直し、アンインストール |
 
-## Files to read
+## 読むファイル
 
-### Always read
+### 常に読む
 
-| File | Why |
+| ファイル | 理由 |
 |---|---|
-| every `SKILL.md` frontmatter under the audit path | names, descriptions, sizes, frontmatter keys |
+| 監査パス配下のすべての `SKILL.md` の frontmatter | 名前、description、サイズ、frontmatter のキー |
 
-### Read only if
+### 条件つきで読む
 
-| File | Trigger condition |
+| ファイル | 条件 |
 |---|---|
-| a skill's body | Only when the static checks flag it and you need to judge overlap |
+| スキルの本文 | 静的チェックが指摘し、重複を判断する必要がある時だけ |
 
-> Do not read every skill body. That is the exact failure this skill is meant to detect, and doing it
-> here would cost more context than the audit saves.
+> すべてのスキル本文を読まない。それはこのスキルが見つけるべき失敗そのもので、監査で節約する以上のコンテキストを使う。
 
 ---
 
-**Write the report in the language the user is writing in** (Japanese when that is unclear), keeping
-paths, identifiers, commands, code excerpts and log output in their original form. These instructions are English because the model reads them; the report is read by
-a person.
+レポートはユーザーが書いている言語で書く（不明なら日本語）。パス・識別子・コマンド・コード片・ログは原文のまま残す。
 
-## Step 0. Separate ours from theirs
+## Step 0. 自作と外部を分ける
 
 ```bash
 grep -l 'source: bwkw/dotagents' ~/.agents/skills/*/SKILL.md
 ```
 
-Everything else was installed from a third party. The distinction changes what you may propose:
+それ以外は第三者からのインストール。どちらかで提案してよいことが変わる。
 
-- **Ours** — anything is on the table. Rewrite the description, split the body, delete it.
-- **Theirs** — the only levers are install or uninstall. Do not propose editing an upstream skill;
-  the edit is lost on the next `npx skills update`, and silently. If an upstream skill is the
-  problem, say so and propose removing it or raising it upstream.
+- **自作** — 何でも提案してよい。description の書き直し、本文の分割、削除。
+- **外部** — 手段はインストールかアンインストールだけ。upstream のスキルの編集は提案しない。次の `npx skills update` で黙って消える。upstream のスキルが問題なら、そう書いて削除か upstream への報告を提案する。
 
-State the counts before going further. A budget report that does not say which half is yours cannot
-be acted on.
+先に進む前に本数を書く。どちらが自作か分からない予算報告は動きようがない。
 
-## Step 1. Static checks
+## Step 1. 静的チェック
 
-Run the linter over the audit path — it already implements the mechanical checks:
+監査パスにリンターを掛ける。機械的なチェックはすでに実装されている。
 
 ```bash
 "$(node -e 'console.log(require(process.env.HOME+"/.claude/.dotagents-managed.json").repo)')/scripts/verify-skills.sh" ~/.agents/skills
 ```
 
-It reports: missing `name` or `description`; `name` disagreeing with the directory; oversized
-`SKILL.md`; `disable-model-invocation`; `allowed-tools` or `context:` unsupported by the body;
-relative reference paths; and the total description budget.
+報告されるもの: `name` / `description` の欠落、`name` とディレクトリの不一致、大きすぎる `SKILL.md`、`disable-model-invocation`、本文が裏付けない `allowed-tools` / `context:`、相対の reference パス、description の合計予算。
 
-Interpreting the results:
+結果の読み方:
 
-| Signal | Threshold | What it means |
+| 兆候 | しきい値 | 意味 |
 |---|---|---|
-| Total description characters | > 8,000 | Selection accuracy is degrading. Consolidate or remove. |
-| One description | > 500 chars | It is crowding out everything else. Rewrite it shorter. |
-| One `SKILL.md` | > 12 KB | Invoking it parks that much in context until the session ends. |
-| Skill count | > 40 | Past the point where descriptions get squeezed. |
-| `disable-model-invocation: true` | any | The skill can never auto-fire **and cannot be called by another skill**. Intentional for interactive skills; fatal for anything meant to be chained. |
+| description の合計文字数 | > 8,000 | 選択精度が落ちている。統合か削除 |
+| 1 本の description | > 500 字 | 他を押し出している。短く書き直す |
+| 1 本の `SKILL.md` | > 12 KB | 呼ぶとセッション終了までその分がコンテキストに居座る |
+| スキル数 | > 40 | description が圧縮され始める |
+| `disable-model-invocation: true` | どれでも | 自動発火せず、**他のスキルからも呼べない**。対話専用なら意図どおり、連鎖させるものには致命的 |
 
-## Step 2. Overlapping coverage
+## Step 2. 守備範囲の重複
 
-Group skills whose descriptions share trigger vocabulary. Two skills competing for the same request
-means neither reliably wins.
+トリガーの語彙を共有する description をまとめる。同じ依頼を 2 本が取り合うと、どちらも確実には勝たない。
 
-Look specifically for pairs across sources — upstream sets overlap with each other and with anything
-written locally. Report each cluster as: the skills, the shared triggers, and which one should own
-that ground.
+特に出どころをまたぐ組を探す。upstream の集合同士も、ローカルで書いたものとも重なる。まとまりごとに、スキル・共通のトリガー・その領域を持つべき 1 本を報告する。
 
-## Step 3. Usage — ask the tools that already know
+## Step 3. 利用状況 — 知っている道具に聞く
 
-Static analysis cannot tell you what is never used. Three sources can, in order of effort:
+使われていないものは静的解析では分からない。分かる情報源は 3 つあり、手間の少ない順に並べる。
 
-**1. `/skill-doctor`.** Purpose-built: which loaded skills are unused and costing context. Ask the user
-to run it and paste the output. This is the cheapest answer and covers the bundled and plugin skills a
-filesystem audit cannot see.
+**1. `/skill-doctor`**。使われずにコンテキストを食うスキルを出す専用の道具。ユーザーに実行して出力を貼ってもらう。最も安く、ファイル監査に見えない組み込み・プラグインのスキルも含む。
 
-**2. `~/.claude.json` → `skillUsage`.** A map of skill name to `{usageCount, lastUsedAt}`, readable
-directly:
+**2. `~/.claude.json` → `skillUsage`**。スキル名から `{usageCount, lastUsedAt}` への対応で、直接読める。
 
 ```bash
 node -e 'const u=require(process.env.HOME+"/.claude.json").skillUsage||{};
@@ -138,29 +115,23 @@ node -e 'const u=require(process.env.HOME+"/.claude.json").skillUsage||{};
     .forEach(([k,v])=>console.log(String(v.usageCount).padStart(5), new Date(v.lastUsedAt).toISOString().slice(0,10), k))'
 ```
 
-Three cautions, all of which have already caused a wrong conclusion here:
+注意が 3 つある。どれも実際に誤った結論を生んだ。
 
-- **Absence of a key means "never invoked by name"**, not "useless". An auto-fired skill may not appear.
-- **Keys carry no provenance.** A bare `review` may be the bundled skill or a project command of the
-  same name, and project-scoped commands from other repositories are mixed in indistinguishably.
-- **Compare against install dates.** A skill installed yesterday with no usage tells you nothing. Check
-  `~/.agents/.skill-lock.json` or the directory mtime before drawing a conclusion.
+- **キーが無いのは「名前で呼ばれたことが無い」という意味で**、役に立たないという意味ではない。自動発火したスキルは載らないことがある。
+- **キーに出どころが無い**。素の `review` は組み込みスキルかもしれず、同名のプロジェクトコマンドかもしれない。他リポジトリのプロジェクト用コマンドも区別なく混ざる。
+- **インストール日と比べる**。昨日入れて利用 0 のスキルからは何も分からない。結論の前に `~/.agents/.skill-lock.json` かディレクトリの mtime を見る。
 
-**3. OpenTelemetry**, when you want the trigger breakdown rather than a total. Requires
-`OTEL_LOG_TOOL_DETAILS=1` (dotagents sets this). Events are `skill_activated`, carrying `skill.name` and
-`invocation_trigger`. Emit the queries for the user to run — do not query the backend yourself:
+**3. OpenTelemetry**。合計ではなくトリガー別の内訳が欲しい時。`OTEL_LOG_TOOL_DETAILS=1` が要る（dotagents が設定する）。イベントは `skill_activated` で、`skill.name` と `invocation_trigger` を持つ。クエリはユーザーが実行するものとして出し、自分でバックエンドに問い合わせない。
 
-| Question | What to look at | Reading |
+| 問い | 見るもの | 読み方 |
 |---|---|---|
-| Never used? | count of `skill_activated` by `skill.name`, 90 days | **0 → removal candidate** |
-| Only ever explicit? | breakdown by `invocation_trigger` | auto-invocation never fires → the description is not doing its job. Rewrite before removing. |
-| Fires when unwanted? | activations followed by an immediate change of direction | triggers are too broad |
+| 一度も使われていないか | `skill.name` ごとの `skill_activated` の件数、90 日 | **0 → 削除候補** |
+| 明示呼び出しだけか | `invocation_trigger` の内訳 | 自動発火しない → description が仕事をしていない。削除の前に書き直す |
+| 望まない時に発火するか | 発火の直後に方向転換が起きたもの | トリガーが広すぎる |
 
-> **Cursor emits none of this.** The sample is Claude Code only, so a skill used mainly from Cursor
-> looks unused here. Never remove on telemetry alone — this narrows the candidates, and the user
-> decides.
+> **Cursor はこれを何も出さない**。標本は Claude Code だけなので、主に Cursor で使うスキルはここでは未使用に見える。テレメトリだけで削除しない。これは候補を絞るもので、決めるのはユーザー。
 
-## Step 4. Report
+## Step 4. 報告する
 
 ```markdown
 ## スキル監査 — N 本、description 合計 M 文字
@@ -187,14 +158,12 @@ upstream のスキルのエラーは報告するが、その場で直すもの�
 | … | 自作 / upstream | 残す / description を書き直す / X に統合 / 削除 | … |
 ```
 
-## Done when
+## 完了条件
 
-- [ ] Every error from Step 1 is either listed as blocking or explained as acceptable
-- [ ] The description budget is stated as a number against the target
-- [ ] Every proposed removal has a reason that is not solely "telemetry says zero"
+- [ ] Step 1 のエラーがすべて、ブロッカーとして挙がっているか、許容できる理由が書かれている
+- [ ] description の予算が目標に対する数値で書かれている
+- [ ] 提案した削除のすべてに、「テレメトリが 0」だけではない理由がある
 
-## Next
+## 次に
 
-Apply the actions you agree with. Removing an upstream skill:
-`npx skills remove <name> -g`. Removing one of your own: delete it from `dotagents/skills/` and run
-`setup.sh install --prune-scripts`.
+合意したアクションを適用する。upstream のスキルの削除は `npx skills remove <name> -g`。自作の削除は `dotagents/skills/` から消して `setup.sh install --prune-scripts` を実行する。
