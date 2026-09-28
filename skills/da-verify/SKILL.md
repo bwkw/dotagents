@@ -1,7 +1,7 @@
 ---
 name: da-verify
-description: Run this repository's own verification commands and report with evidence. Use before claiming work is done, before committing, or before opening a PR. Resolves commands from the repo's profile rather than guessing, and refuses what the repo forbids.
-argument-hint: "[check-id] (default: every gating check)"
+description: このリポジトリ自身の検証コマンドを実行し、根拠つきで報告する。作業完了を宣言する時・コミットする前・PR を出す前に使う。コマンドは推測せずプロファイルから解決し、リポジトリが禁止しているものは実行しない。
+argument-hint: "[check-id]（省略時はゲートになっている全チェック）"
 allowed-tools: Bash, Read, Grep, Glob
 metadata:
   source: bwkw/dotagents
@@ -164,15 +164,15 @@ For each check with `agent_may_run: false`:
 and its exit code, is the thing this skill exists to prevent.
 
 ```markdown
-## Verification
+## 検証結果
 
-| Check | Command | Exit | Ran by | Output (tail) |
+| チェック | コマンド | 終了コード | 実行者 | 出力（末尾） |
 |---|---|---|---|---|
-| lint | `pnpm run lint:fix` | 0 | agent | … |
-| typecheck | `NODE_OPTIONS=… pnpm typecheck` | 0 | **user** | … |
-| unit | `pnpm exec vitest run src/foo.spec.ts` | 1 | agent | 1 failed |
+| lint | `pnpm run lint:fix` | 0 | エージェント | … |
+| typecheck | `NODE_OPTIONS=… pnpm typecheck` | 0 | **ユーザー** | … |
+| unit | `pnpm exec vitest run src/foo.spec.ts` | 1 | エージェント | 1 件失敗 |
 
-**Not run:** sql (scope: changed, no matching files changed)
+**未実行:** sql（scope: changed、対象ファイルの変更なし）
 ```
 
 Write **"not run"** for anything you did not run. Never write "should pass" or "presumably fine" —

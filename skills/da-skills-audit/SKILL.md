@@ -1,7 +1,7 @@
 ---
 name: da-skills-audit
-description: Audit the whole set of installed skills for bloat and breakage. Use before adding a skill, when skills stop firing automatically, or for periodic clean-up. Not a security scan.
-argument-hint: "[path] (default: ~/.agents/skills)"
+description: インストール済みスキル全体を、肥大化と壊れがないか監査する。スキルを追加する前、スキルが自動で発火しなくなった時、定期的な掃除の時に使う。セキュリティスキャンではない。
+argument-hint: "[パス]（省略時は ~/.agents/skills）"
 allowed-tools: Bash, Read, Grep, Glob
 metadata:
   source: bwkw/dotagents
@@ -163,28 +163,28 @@ Three cautions, all of which have already caused a wrong conclusion here:
 ## Step 4. Report
 
 ```markdown
-## Skills audit — N skills, M chars of descriptions
+## スキル監査 — N 本、description 合計 M 文字
 
-### Ours / theirs
-N ours, M installed from upstream, of T total.
+### 自作 / 外部
+自作 N 本、upstream からのインストール M 本、計 T 本。
 
-### Blocking
-(errors from Step 1: broken frontmatter, oversized bodies, Cursor-incompatible declarations.
-Errors in upstream skills are reported but are not yours to fix in place.)
+### ブロッカー
+(Step 1 のエラー: 壊れた frontmatter、大きすぎる本文、Cursor で動かない宣言。
+upstream のスキルのエラーは報告するが、その場で直すものではない)
 
-### Budget
-Total M chars against a target of 8,000. Worst offenders:
-| Skill | Chars | Suggested cut |
+### 予算
+合計 M 文字（目標 8,000）。超過の大きいもの:
+| スキル | 文字数 | 削る案 |
 
-### Overlapping coverage
-| Cluster | Skills | Shared triggers | Suggested owner |
+### 守備範囲の重複
+| まとまり | スキル | 共通のトリガー | 持ち主にする案 |
 
-### Usage queries
-(the queries, for the user to run)
+### 利用状況のクエリ
+(ユーザーが実行するクエリ)
 
-### Proposed actions
-| Skill | Ours? | Action | Why |
-| … | yes / upstream | keep / rewrite description / consolidate into X / remove | … |
+### 提案するアクション
+| スキル | 自作？ | アクション | 理由 |
+| … | 自作 / upstream | 残す / description を書き直す / X に統合 / 削除 | … |
 ```
 
 ## Done when

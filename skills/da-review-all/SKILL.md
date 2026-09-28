@@ -1,7 +1,7 @@
 ---
 name: da-review-all
-description: The entry point for every code review — one layer or many. Use for PR review, reviewing a diff, or checking work before shipping, including when only the backend, only the frontend, or only infrastructure changed. Classifies the change, reviews each layer against its own checklist, then finds the irreversible risks that fall between them, like a contract and its consumer shipping out of order. Read-only.
-argument-hint: "[base-branch | path/ | file | 'all'] (default: the working diff and its blast radius)"
+description: すべてのコードレビューの入口（1 層でも複数層でも）。PR レビュー、差分のレビュー、出す前の確認をする時に使う。1 層だけの変更でもこれを使う。変更を層に分類して各層をレビューし、層の間に落ちる不可逆なリスク（契約と利用側のリリース順のずれなど）を見つける。読み取り専用。
+argument-hint: "[base ブランチ | path/ | ファイル | 'all']（省略時は作業中の差分とその波及範囲）"
 allowed-tools: Read, Grep, Glob, Write, Skill, Artifact, Bash(git:*), Bash(gh:*)
 metadata:
   source: bwkw/dotagents
@@ -204,8 +204,8 @@ earlier run write one finding four times.
 ## Guardrails
 
 - Never modify code or configuration. Read-only.
-- Posting happens on the literal `Go`, and never as `--approve` or `--request-changes` — a PR's review
-  state is the human's, always.
+- Post on `Go` or an explicit instruction to post. `APPROVE` / `REQUEST_CHANGES` only when the
+  user says so in that reply.
 - Do not run reviews for layers the change does not touch.
 - Cross-layer findings need the same traced path as anything else (`finding-discipline.md`): which
   path is actually used, the config rollout order, whether the two sides release together.

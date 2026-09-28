@@ -4,8 +4,10 @@ Personal AI development toolkit. Skills, hooks, and repository profiles that wor
 Code and Cursor**, installed once globally. `CLAUDE.md` symlinks here, because Claude Code does not
 read `AGENTS.md`.
 
-**The human documentation is in Japanese; skill bodies and this file are in English** — they are prompts
-the model reads, and English costs about a third of the tokens. There is no English README: the one that
+**What a person reads is in Japanese; what only the model reads is in English.** Japanese: human docs,
+`description` / `argument-hint`, and the output templates skills hand back. English: skill bodies,
+reference prose and this file — English costs about a third of the tokens. A template heading a script
+parses (🧱 Landing plan, the fix-plan buckets) keeps its English in parentheses. There is no English README: the one that
 existed was a 57-line summary of a 385-line document, and a stale translation that contradicts the source
 is worse than no translation. This toolkit has one user, and they read Japanese.
 

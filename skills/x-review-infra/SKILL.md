@@ -1,6 +1,6 @@
 ---
 name: x-review-infra
-description: Infrastructure layer of a da-review-all review — Terraform, CDK, CloudFormation, SAM, Kubernetes, IAM, networking, pipelines, CI permissions. Runs when da-review-all dispatches it after classifying the change; for any review use da-review-all, not this directly. Read-only.
+description: da-review-all のインフラ層レビュー。Terraform、CDK、CloudFormation、SAM、Kubernetes、IAM、ネットワーク、パイプライン、CI の権限を見る。da-review-all が変更を分類して呼び出した時に動く。レビューは直接これではなく da-review-all から行う。読み取り専用。
 user-invocable: false
 metadata:
   source: bwkw/dotagents

@@ -1,7 +1,7 @@
 ---
 name: da-pr-describe
-description: Write or update the current branch's PR title and description. Use when preparing a PR for review, or when the description is stale. Produces something a reviewer can read before opening the diff. Touches only the PR, never repository files.
-argument-hint: "[PR number] (default: the PR for the current branch)"
+description: 現在のブランチの PR タイトルと説明文を書く、または更新する。PR をレビューに出す準備をする時や、説明文が古くなった時に使う。レビュアーが差分を開く前に読める説明にする。触るのは PR だけで、リポジトリのファイルは変更しない。
+argument-hint: "[PR 番号]（省略時は現在のブランチの PR）"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(mktemp:*), Read, Grep, Glob, Write
 disable-model-invocation: true
 metadata:

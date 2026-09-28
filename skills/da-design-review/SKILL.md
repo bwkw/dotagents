@@ -1,7 +1,7 @@
 ---
 name: da-design-review
-description: Review a plan or spec before any code exists. Use when a design doc is ready, before implementation starts, or when asked whether an approach is sound. Catches one-way doors, migration order, and rollback. Read-only.
-argument-hint: "[change-id | path to the spec or plan] (default: resolve from the repository's spec_system, then ask)"
+description: コードを書く前に、計画や仕様（spec / design doc）をレビューする。設計ドキュメントができた時、実装を始める前、進め方が妥当か聞かれた時に使う。一方通行の判断（one-way door）、移行の順序、ロールバックを見つける。読み取り専用。
+argument-hint: "[change-id | spec や計画のパス]（省略時はリポジトリの spec_system から解決し、無ければ質問する）"
 allowed-tools: Task, Read, Grep, Glob, WebFetch, Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npm:*), Bash(npx:*), Bash(yarn:*), Bash(make:*), Bash(bundle:*)
 metadata:
   source: bwkw/dotagents
@@ -175,11 +175,11 @@ order puts the irreversible decisions above everything somebody can still fix. T
 reproduced here because they must not go missing:
 
 ```markdown
-### 🚪 One-way doors
-| Decision | Irreversible from | Why it cannot be undone | What must be true to proceed |
+### 🚪 一方通行の判断（One-way doors）
+| 判断 | どこから戻せなくなるか | 戻せない理由 | 進める前に成り立っているべきこと |
 
-### 🧱 Landing plan
-| # | What lands | What gates it | One-way? | Before the next one starts |
+### 🧱 Landing plan（着地の分け方）
+| # | 着地するもの（What lands） | 確認の関門（What gates it） | 一方通行？（One-way?） | 次を始める前に |
 ```
 
 ### The landing plan is the same judgement, written down

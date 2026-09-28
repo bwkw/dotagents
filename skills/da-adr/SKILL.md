@@ -1,7 +1,7 @@
 ---
 name: da-adr
-description: Record an architecture decision where this repository actually keeps them. Use when a decision is hard, surprises a newcomer, and has a real trade-off — after grilling, a design review, or an investigation that settled something. Resolves the location from the profile rather than the tree, and writes the ADR in the repository's own form. Writes only the ADR, never source.
-argument-hint: "[the decision | path to the change being recorded] (default: ask)"
+description: アーキテクチャ上の判断を、このリポジトリが実際に ADR を置いている場所へ「判断の記録」として書く。判断が難しく、新規参加者が驚き、トレードオフがある時に使う（grilling・設計レビュー・調査で何かが決まった後）。置き場所はツリーではなくプロファイルから解決する。書くのは ADR だけで、ソースは触らない。
+argument-hint: "[判断の内容 | 記録する変更のパス]（省略時は質問する）"
 allowed-tools: Read, Grep, Glob, Write, Edit, Bash(git:*), Bash(rg:*)
 metadata:
   source: bwkw/dotagents
@@ -51,6 +51,7 @@ one of them belongs in the change's design document or the commit message. Most 
 | the file named by `adr_system.rules` | the repository's own authoring rules. Writing to a generic template when the repository has written its standard down produces an artifact that fails its own review |
 | one existing ADR under `adr_system.roots` | the shape actually in use — headings, language, how alternatives are recorded. Match it |
 | `${CLAUDE_SKILL_DIR}/reference/final-design.md` | who the ADR is written for, and the shapes that only parse for someone who was in the conversation |
+| `${CLAUDE_SKILL_DIR}/reference/adr-shape.md` | the shape of the ADR itself: title as conclusion, questions ↔ summary ↔ sections numbered one-to-one, premises with sources, what is lost, when to revisit. The newest existing ADR wins where they differ |
 
 ### Read only if
 
@@ -92,6 +93,10 @@ Follow `${CLAUDE_SKILL_DIR}/reference/final-design.md`. It carries the reader, t
 the test to apply before calling the draft done — shared with `da-spec` so the two cannot drift into
 disagreeing about what a finished document reads like.
 
+Then lay it out per `${CLAUDE_SKILL_DIR}/reference/adr-shape.md`: the sections, the sub-headings a
+decision section carries, and the writing rules (constraints stated as what cannot be answered,
+future changes stated as the number of places to touch, no unmeasured "small").
+
 One rule is this skill's own: **every alternative that was seriously considered gets its rejection
 reason.** An ADR with no rejected alternative is describing, not deciding.
 
@@ -120,10 +125,10 @@ One file, at the resolved location, in the shape the existing ADRs use.
 
 Then report, in this order:
 
-1. **Which location resolved**, and from which profile — or the gap, and the question
-2. **Created or updated**, with the path, and for an update, what was already there
-3. **Which bar the decision cleared**, in one line each
-4. **What is still open** — assumptions you could not check, as questions rather than as ADR text
+1. **置き場所** —— どのプロファイルから解決したか。解決できなければ欠けているものと質問
+2. **新規か更新か** —— パス。更新なら既にあった内容
+3. **3 つの条件をどう満たしたか** —— 各 1 行
+4. **未決のこと** —— 確かめられなかった前提を、ADR の本文ではなく質問として
 
 ## Done when
 
@@ -132,6 +137,8 @@ Then report, in this order:
 - [ ] An existing ADR on the same subject was searched for, and the choice to update or create is
       stated with its reason
 - [ ] Every rejected alternative carries its reason
+- [ ] The `adr-shape.md` checklist passes: the title states the conclusion, and questions, summary and
+      sections share one `§` numbering
 - [ ] Every backticked identifier was confirmed to exist
 - [ ] Nothing outside the resolved location was written, and no implementation was started
 

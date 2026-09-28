@@ -212,28 +212,29 @@ above everything somebody can still fix, so a reader who stops after two section
 cannot be undone.
 
 ```markdown
-## Design Review — <plan name>
+## 設計レビュー — <計画の名前>
 
-### What I understand the plan to do
-(Step 1, three to five sentences)
+### 計画の理解
+(Step 1。3〜5 文)
 
-### 🚪 One-way doors
-| Decision | Irreversible from | Why it cannot be undone | What must be true to proceed |
+### 🚪 一方通行の判断（One-way doors）
+| 判断 | どこから戻せなくなるか | 戻せない理由 | 進める前に成り立っているべきこと |
 
-### 🔴 Must resolve before implementing
-### 🟡 Should resolve
-### 🧭 Design doubts (judgement, not defects)
-### ❓ Missing from the plan
-(Step 4: rollback, data migration, in-flight requests, observability, …)
+### 🔴 実装前に解決すべきこと
+### 🟡 解決した方がよいこと
+### 🧭 設計への疑い（判断の問題で、欠陥ではない）
+### ❓ 計画に欠けているもの
+(Step 4: ロールバック、データ移行、処理中のリクエスト、監視、…)
 
-### 🧱 Landing plan
-| # | What lands | What gates it | One-way? | Before the next one starts |
+### 🧱 Landing plan（着地の分け方）
+| # | 着地するもの（What lands） | 確認の関門（What gates it） | 一方通行？（One-way?） | 次を始める前に |
 |---|---|---|---|---|
 
-### 🔎 Confidence
-- Which claims I grounded in code, with `file:line`; which I took on trust; where I hit the 25-file
-  budget. A clean review means "no problem found at this depth", not a design sign-off.
-- **The validator's output**, pasted, or the fact that the repository has none. Green means well-formed,
-  not sound.
+### 🔎 確度
+- コードで裏付けた主張（`file:line`）、信用したまま進めた主張、25 ファイルの予算に達した箇所。
+  問題なしは「この深さでは見つからなかった」であって、設計の承認ではない。
+- **validator の出力**をそのまま貼る。リポジトリに無ければそう書く。緑は形式が正しいという意味で、妥当性の保証ではない。
 ```
+
+Keep the English in the landing-plan header cells: `scripts/loop.sh` parses the table by it.
 
