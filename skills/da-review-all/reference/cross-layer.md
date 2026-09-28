@@ -1,143 +1,90 @@
-# Silent failures in their cross-layer form
+# 層をまたぐ形の silent failure
 
-Read this during Step 4, after every layer report is in. It is the only reference `review-all` loads,
-and the reason is that **no layer review can reach any of these**: each copy, each half, each side is
-locally correct, so a reviewer scoped to one layer has nothing to report.
+Step 4 で、すべての層のレポートが揃ってから読む。**どの層のレビューもここには届かない。** 各コピー・各半分・各側が局所的に正しく、1 層にスコープを絞ったレビュアーには報告するものが無いから。
 
-Read [`silent-failure-patterns.md`](silent-failure-patterns.md) first if you have not. These are the
-same five patterns, in the shape they take when the cause and the consequence sit in different layers.
-Do not stop at re-applying the patterns as written — a pattern applied within one layer has already
-been applied, by that layer.
+まだなら [`silent-failure-patterns.md`](silent-failure-patterns.md) を先に読む。ここにあるのは同じ 5 パターンが、原因と結果が別の層にある時に取る形。書かれたとおりに当て直すだけで止まらない。1 層の中での適用は、その層がもう済ませている。
 
-**When only one layer ran, this file is the only one to read** — skip `silent-failure-patterns.md` and
-`llm-authored-code.md`. The layer skill already applied both internally, in its find phase *and* its
-verify phase, and with no boundary for a cross-layer pattern to straddle, re-reading them here just
-re-applies a single-layer lens to a single layer and re-finds what the layer already reported. What is
-left for the dispatcher is this file's skeleton and the pull-up of 🧭 and 👤.
+**1 層だけが走った場合は、このファイルだけを読む。** `silent-failure-patterns.md` と `llm-authored-code.md` は飛ばす。層のスキルが発見フェーズと検証フェーズの両方で適用済みで、パターンがまたぐ境界も無いから。ディスパッチャに残るのは、このファイルの骨組みと 🧭 / 👤 の引き上げだけ。
 
-Severity and discipline are unchanged: [`finding-discipline.md`](finding-discipline.md) governs, and a
-finding here needs the same traced path and confidence score as anywhere else. Being a known
-cross-layer shape is not evidence.
+重大度と規律は変わらない。[`finding-discipline.md`](finding-discipline.md) に従い、ここでの所見にも他と同じく追跡した経路と確信度スコアが要る。既知の層またぎの形であることは根拠にならない。
 
 ---
 
-## The four structural forms — take these before the five patterns
+## 構造上の 4 つの形 — 5 パターンより先に扱う
 
-These are about **order and ownership** rather than about a pattern in the code, which is why they come
-first: they are answerable from the layer reports you already have, without opening anything.
+コードのパターンではなく**順序と持ち主**の問題なので先に扱う。手元の層のレポートだけで、何も開かずに答えられる。
 
-- **Schema ↔ code deploy-order coupling.** Do the database or contract change (backend), the code that
-  reads it, and the infrastructure deploy survive being applied in the **real** order? Is it a
-  backward-compatible staged rollout, or does it only work if everything lands at once?
-- **API contract, backend ↔ frontend.** Does the contract change land in the same PR or release as the
-  frontend that consumes it, or does one side shipping first break the other?
-- **Infrastructure change versus application assumptions.** Does renaming, replacing, or re-scoping a
-  resource break a runtime assumption held in backend or frontend code?
-- **Release order and rollback.** The safe order to ship this change, and what stays consistent if only
-  one side is rolled back.
+- **スキーマ ↔ コードのデプロイ順の結合。** DB や契約の変更（backend）、それを読むコード、インフラのデプロイが、**実際の**順で適用されても耐えるか。後方互換の段階的ロールアウトか、全部同時に着地した時だけ動くのか。
+- **API 契約、backend ↔ frontend。** 契約の変更は、それを使う frontend と同じ PR / リリースに着地するか。片側が先に出るともう片側が壊れないか。
+- **インフラの変更とアプリの前提。** リソースの改名・置き換え・スコープ変更が、backend や frontend のコードが持つ実行時の前提を壊さないか。
+- **リリース順とロールバック。** この変更を安全に出す順序と、片側だけロールバックした時に何が整合したまま残るか。
 
-Then the five patterns below, and the sixth that exists only across a boundary. All ten checks are what
-"applied the cross-layer forms" means.
+続いて下の 5 パターンと、境界にしか無い 6 つ目。この 10 のチェックすべてで「層をまたぐ形を当てた」ことになる。
 
 ---
 
-## 1. Global default in one layer, compensating work in another
+## 1. ある層のグローバルな既定値と、別の層の補償
 
-A shared default — a job catalog, a base class, a database default, a seed — whose correctness depends
-on the **frontend** sending a particular value, or a **batch job** setting a flag, or an
-**infrastructure** parameter being present.
+共有の既定値（ジョブカタログ、基底クラス、DB の既定値、シード）の正しさが、**frontend** が特定の値を送ること、**バッチジョブ**がフラグを立てること、**インフラ**のパラメータがあることに依存している。
 
-Read alone, each layer is right. The backend default is reasonable; the frontend sends what it was told
-to send; the infrastructure supplies what it was asked for.
+単独で読むとどの層も正しい。backend の既定値は妥当で、frontend は言われた値を送り、インフラは頼まれたものを用意している。
 
-What to do:
+やること:
 
-1. `grep` every entry path **across all layers**, not only within the layer that owns the default.
-   Other controllers, other screens, batch jobs, event handlers, admin tooling, IaC that writes the
-   same value.
-2. Check each against the compensation individually.
-3. Ask what **enforces** the invariant when the next caller is added in a third layer. A guard, a
-   constraint, an architecture test, a contract test? **If nothing does, that is the finding** → 🧭, or
-   🔴 when you can read a path to real harm.
+1. 既定値を持つ層の中だけでなく、**すべての層で**入口を `grep` する。他のコントローラー、他の画面、バッチジョブ、イベントハンドラ、管理ツール、同じ値を書く IaC。
+2. それぞれを補償と個別に照らす。
+3. 3 つ目の層に次の呼び出し元が足された時、何が不変条件を**強制する**かを問う。ガード、制約、アーキテクチャテスト、契約テスト。**何も無ければそれが所見** → 🧭。実害に至る経路を読めれば 🔴。
 
-The third step is the one that gets skipped. "Every current caller happens to be correct" is a
-snapshot, and the next caller is written by someone who read one layer.
+飛ばされやすいのは 3 つ目。「今の呼び出し元はたまたま全部正しい」はスナップショットにすぎず、次の呼び出し元は 1 つの層しか読まない人が書く。
 
-## 2. Fail-open across a layer boundary
+## 2. 層の境界をまたぐ fail open
 
-The direction of the fallback when the value arrives **from somewhere else**: a config the
-infrastructure was meant to supply, a header the frontend was meant to send, a claim the gateway was
-meant to inject, a field the upstream service was meant to populate.
+値が**別の場所から**届く時のフォールバックの向き。インフラが用意するはずの設定、frontend が送るはずのヘッダー、ゲートウェイが注入するはずのクレーム、上流サービスが埋めるはずのフィールド。
 
-If the receiving layer treats **absent as permitted**, or silently skips an irreversible, statutory, or
-billable action when the input is missing, the two layers are individually defensible and jointly
-wrong. Ask which layer is *responsible* for the value being present, and whether anything fails loudly
-when it is not.
+受け取る層が**無いことを許可として扱う**、あるいは入力が無い時に不可逆・法定・課金の処理を黙って飛ばすなら、2 つの層はそれぞれ弁護できて合わせると誤り。値があることにどの層が*責任を持つ*か、無い時に何かが大きく失敗するかを問う。
 
-> **Failing silently is worse than failing loudly**, and a layer boundary is exactly where silence
-> hides — each side assumes the other handled it. → 🧭 / 🔴
+> **黙って失敗するのは、大きく失敗するより悪い。** 層の境界は、互いに相手が扱ったと思い込むので沈黙が隠れる場所そのもの。→ 🧭 / 🔴
 
-## 3. One source of truth, re-declared in another layer
+## 3. 1 つの正本を、別の層で宣言し直す
 
-A mapping, enum, constant, or correspondence declared authoritative in backend code and
-**re-hardcoded** in an infrastructure template, a frontend constant, a seed, a CI variable, or a
-migration.
+backend のコードで正本とされたマッピング・enum・定数・対応関係が、インフラのテンプレート、frontend の定数、シード、CI 変数、マイグレーションに**ハードコードし直されている**。
 
-**Search for the literal values, not the identifier.** The names will differ across layers — that is
-why this survives review. A backend `OrderStatus.CANCELLED` and a Terraform `"cancelled"` and a
-frontend `'CANCELLED'` are the same fact spelled three ways, and nothing compares them.
+**識別子ではなくリテラル値で検索する。** 名前は層ごとに違い、だからレビューを生き延びる。backend の `OrderStatus.CANCELLED`、Terraform の `"cancelled"`、frontend の `'CANCELLED'` は同じ事実の 3 通りの綴りで、誰も比較していない。
 
-If no test reconciles them, they will drift, and the drift is silent. → 🟡
+両者を突き合わせるテストが無ければずれ、そのずれは静か。→ 🟡
 
-## 4. Live-read config against a multi-layer rollout
+## 4. 複数層のロールアウトに対するライブ読みの設定
 
-A parameter store value, seeded catalog, or feature flag read **fresh on each access** takes effect the
-moment infrastructure writes it — **not** when the application code that understands it finishes
-deploying.
+**アクセスのたびに読み直す**パラメータストアの値・シードされたカタログ・フィーチャーフラグは、インフラが書いた瞬間に効く。それを理解するアプリのコードがデプロイを終えた時では**ない**。
 
-Establish the ordering across *both* pipelines:
+*両方の*パイプラインをまたいで順序を確定する:
 
-- When does the infrastructure change take effect — on merge, on apply, or by a manual step?
-- When does the application code that reads it finish rolling out?
-- Is there a **hard gate** enforcing that order, or is the safe order a convention someone remembers?
+- インフラの変更はいつ効くか。merge 時、apply 時、手作業のステップか。
+- それを読むアプリのコードのロールアウトはいつ終わるか。
+- その順序を強制する**ハードなゲート**があるか。安全な順序は誰かが覚えている慣習にすぎないか。
 
-If you cannot determine it from the repositories, that is **👤 needs human**, not a clean pass. This is
-the pattern most likely to be obvious to whoever built it and invisible to everyone else.
+リポジトリから確定できなければ **👤 人間の判断が必要**であり、問題なしではない。作った本人には自明で他の誰にも見えない、最もそうなりやすいパターン。
 
-## 5. Detectability split across layers
+## 5. 層に分かれた検知可能性
 
-The irreversible action happens in one layer and the only signal lands in another: a log line the
-backend emits that nothing alerts on, a metric the infrastructure collects for an action it cannot
-interpret, an error the frontend swallows because the backend "already logged it".
+不可逆な処理はある層で起き、唯一のシグナルは別の層に落ちる。誰もアラートを張っていない backend のログ行、意味を解釈できない処理についてインフラが集めるメトリクス、backend が「もうログを出した」から frontend が握りつぶすエラー。
 
-Each layer looks instrumented. In practice the failure is undetectable, because no one owns the join.
-Name which layer would have to change for the failure to be noticed. → 🟡
+どの層も計装済みに見えるが、結合部を誰も持たないので失敗は検知できない。失敗に気づけるようにするにはどの層が変わるべきかを名指す。→ 🟡
 
-> **Do not propose a new sweep or cron as the fix.** Prefer one passive monitor plus a documented manual
-> recovery; suggest a standing process only when recovery genuinely cannot wait for a human.
+> **修正として新しいスイープや cron を提案しない。** 受け身のモニター 1 つと、文書化した手動復旧を優先する。常設の処理を提案するのは、復旧が人間を待てない時だけ。
 
-## 6. A fabrication both layers agree on
+## 6. 両方の層が合意した作り話
 
-Specific to agent-authored change, and the cross-layer half of
-[`llm-authored-code.md`](llm-authored-code.md). A model writing both sides of a boundary in one pass makes
-them **consistent with each other and wrong about the outside world**:
+エージェントが書いた変更に固有で、[`llm-authored-code.md`](llm-authored-code.md) の層をまたぐ半分。モデルが境界の両側を一度に書くと、両側は**互いに一致し、外の世界とはずれる**。
 
-- The frontend calls an endpoint and the backend defines it — but the path, method, or field names are not
-  what the deployed contract or the generated client says. Each half reviews as correct because it matches
-  the other half.
-- Both sides adopt the same name for a value the upstream service actually calls something else.
-- A shared constant is introduced in two layers with the same plausible value, and the value is wrong.
-- Infrastructure provisions a resource under the name the application expects, and neither matches what the
-  platform actually assigns.
+- frontend がエンドポイントを呼び、backend がそれを定義する。だがパス・メソッド・フィールド名が、デプロイ済みの契約や生成クライアントと違う。各半分はもう片方と一致するので正しく見える。
+- 上流サービスが別の名前で呼ぶ値に、両側が同じ名前を採る。
+- 共有の定数が 2 つの層にもっともらしい同じ値で入り、その値が誤っている。
+- インフラがアプリの期待する名前でリソースを用意するが、どちらもプラットフォームが実際に割り当てる名前と違う。
 
-The layer reviews structurally cannot catch this: internal consistency is precisely what each of them
-checks. **Check one side against something that is not the other side** — the generated client, the
-OpenAPI document, the deployed schema, the provider's documentation, a caller that predates this change.
-If both halves are new, there is no anchor inside the diff at all, and that is itself the finding. → 🔴
+層のレビューは内部の一貫性こそを確かめるので、構造上これを拾えない。**片側を、もう片側ではない何かと照らす。** 生成クライアント、OpenAPI ドキュメント、デプロイ済みのスキーマ、provider のドキュメント、この変更より前からある呼び出し元。両半分とも新しければ差分の中に錨が無く、それ自体が所見。→ 🔴
 
-**The deliberate copy is the cheap case — diff it mechanically.** Where a frontend keeps a local copy of
-a backend contract that has not been published yet, strip comments and whitespace from both and compare;
-five minutes settles what reading two files side by side does not:
+**意図的なコピーは安い場合で、機械的に diff する。** frontend が未公開の backend 契約のローカルコピーを持つなら、両方からコメントと空白を除いて比べる。2 つのファイルを並べて読んでも決まらないことが 5 分で決まる。
 
 ```bash
 norm(){ grep -vE '^\s*(//|\*|/\*)' | tr -d '[:space:]' ; }
@@ -145,62 +92,52 @@ diff <(git -C "$BE" show "$BE_REF:$be_contract" | norm) \
      <(git -C "$FE" show "$FE_REF:$fe_copy"     | norm)
 ```
 
-A clean result is worth stating — it converts the loudest-looking risk in the change into a verified
-clear. **What it does not settle is the outside world**: two halves matching each other says nothing
-about whether the names came from the specification. That remains the finding above, and where the only
-anchor is a document outside every repository, **say that no layer verified it.**
+一致したら書く価値がある。変更の中で最も目立つリスクが、確認済みの問題なしに変わる。**ただし外の世界は決まらない。** 両半分が一致しても、名前が仕様から来たかは分からない。それは上の所見のまま残る。唯一の錨がどのリポジトリの外にある文書なら、**どの層も確かめていないと書く。**
 
 ---
 
-## Reporting these
+## 報告の仕方
 
-They go under **🔗 Cross-layer irreversibility and consistency risks**, and each row names **both**
-layers. Follow each with one 📍 location per side — for a backend ↔ frontend contract issue that means a
-line in each repository or directory — and one 💬 suggested comment.
+**🔗 層をまたぐ不可逆性と整合性のリスク** の節に置き、各行で**両方の**層を名指す。続けて各側に 📍 を 1 つずつ（backend ↔ frontend の契約の問題なら各リポジトリ / ディレクトリの行）と、💬 の提案コメントを 1 つ付ける。
 
-A cross-layer finding whose 📍 points at only one layer has not been traced across the boundary yet.
+📍 が片方の層しか指していない層またぎの所見は、まだ境界を越えて追跡されていない。
 
-**Attach the three-part set only to the 🔗 findings raised here.** Each layer report already carries its
-own 📍 location, plain explanation, and 💬 suggested comment per finding — **do not restate them.** The
-dispatcher adds presentation to what it newly raises, and passes the rest through untouched.
+**3 点セットはここで出した 🔗 の所見にだけ付ける。** 各層のレポートは所見ごとに 📍・平易な説明・💬 を既に持つので、**書き直さない。** ディスパッチャは自分で新しく出したものにだけ体裁を足し、残りは手を加えずに通す。
 
 ---
 
-## The report skeleton
+## レポートの骨組み
 
 ```markdown
-## Cross-Layer Review Summary
+## 層横断レビューの要約
 
-### Layers touched
-- infra: N files / backend: M files / frontend: K files (unclassified: L)
+### 触れた層
+- infra: N ファイル / backend: M ファイル / frontend: K ファイル（分類できず: L）
 
-### Layer reports
-- 🏗️ Infra / ⚙️ Backend / 🖥️ Frontend — see each report for detail
-- Counts are consolidated in 📊 below; not repeated here
-- Each report carries, per ⛔/🔴 finding: 📍 exact line, the detailed why-this-is-wrong, a plain explanation, and 💬 a pasteable comment
+### 層ごとの報告
+- 🏗️ Infra / ⚙️ Backend / 🖥️ Frontend —— 詳細は各層の報告
+- 件数は下の 📊 にまとめる。ここでは繰り返さない
+- 各層の報告は、⛔/🔴 の所見ごとに 📍 正確な行、なぜ誤りかの詳細、平易な説明、💬 そのまま貼れるコメントを持つ
 
-### 🔗 Cross-layer irreversibility and consistency risks (highest priority)
-| Risk | Layers | What breaks | Ship order / must confirm |
+### 🔗 層をまたぐ不可逆性と整合性のリスク（最優先）
+| リスク | 層 | 何が壊れるか | 出す順番 / 確認すべきこと |
 |---|---|---|---|
-| e.g. contract field made required, backend deployed first | backend→frontend | old frontend fails validation | ship frontend first, or accept both during a staged migration |
+| 例: 契約のフィールドを必須にし、backend を先に出す | backend→frontend | 古い frontend が検証で落ちる | frontend を先に出すか、段階移行中は両方を受け付ける |
 
-Follow each 🔗 row with **one 📍 per side**, the detailed why-this-is-wrong, and one 💬 pasteable comment.
+🔗 の各行には、**両側に 1 つずつ 📍**、なぜ誤りかの詳細、💬 貼れるコメント 1 つを続ける。
 
-### 🧭 Design and system-wide doubts / unverified clears (pulled up from every layer)
-- Which layer, and what would settle it.
+### 🧭 設計とシステム全体への疑い / 未検証の安全判断（全層から引き上げる）
+- どの層か、何があれば決着するか。
 
-### 🔎 Confidence of this review
-- What each layer actually read versus assumed, in one or two lines. State plainly that a clean
-  result means "not detected at this depth", not a design sign-off.
-- **Name what no layer could verify because the anchor is outside every repository** — a vendor
-  specification, a government form definition, an upstream schema. That is not an unverified clear
-  about your reading; it is a statement that the codebase contains no way to check it.
+### 🔎 このレビューの確度
+- 各層が実際に読んだものと仮定したものを 1〜2 行で。問題なしは「この深さでは見つからなかった」であって、設計の承認ではないと明記する。
+- **どのリポジトリの外にも根拠がある項目を名指しする**（ベンダーの仕様、行政の様式定義、upstream のスキーマ）。読み方の未検証ではなく、コードベースに確かめる手段が無いという記述である。
 
-### 📊 Summary
-| Layer | ⛔ | 🔴 | 🟡 | 💡 | 🧭 | 👤 |
+### 📊 集計
+| 層 | ⛔ | 🔴 | 🟡 | 💡 | 🧭 | 👤 |
 |---|---|---|---|---|---|---|
 | infra | | | | | | |
 | backend | | | | | | |
 | frontend | | | | | | |
-| 🔗 cross-layer | | | | | | |
+| 🔗 層横断 | | | | | | |
 ```

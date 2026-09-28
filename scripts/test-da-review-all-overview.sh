@@ -19,14 +19,14 @@ require() {
 }
 
 # The step exists in the skill and points at the reference.
-require "$SKILL" "## Step 5. The one-page overview" "dedicated overview output step"
+require "$SKILL" "## Step 5. 1 枚の概要ページ" "dedicated overview output step"
 require "$SKILL" "overview-artifact.md" "required overview content reference"
-require "$SKILL" "Artifact in Claude Code, Canvas" "host-dependent container"
+require "$SKILL" "Claude Code では Artifact、Cursor では Canvas" "host-dependent container"
 
 # Every container is named, so no host silently produces nothing.
 require "$REFERENCE" "Claude Code" "Claude Code container named"
 require "$REFERENCE" "Cursor" "Cursor container named"
-require "$REFERENCE" "Neither available" "fallback when neither exists"
+require "$REFERENCE" "どちらも無い場合" "fallback when neither exists"
 
 # The page is about the change, and carries the honesty rows the layer reports no longer print.
 require "$REFERENCE" "何ができるようになったか" "what the change enables"

@@ -1,185 +1,119 @@
-# Infrastructure / IaC layer — what to trace, and the perspective clusters
+# インフラ / IaC 層 — 追うものと観点クラスタ
 
-The two layer-specific parts of the review: **Step 2** (what to trace) and **Step 5** (the perspective
-clusters to fan out across). Posture, the seven steps, and the finding discipline come from the skill
-that sent you here.
+この層固有の 2 つ、**Step 2**（何を追うか）と **Step 5**（観点クラスタ）を定める。姿勢・7 つの手順・所見の規律は呼び出し元のスキルに従う。
 
-If you arrived here without having read `finding-discipline.md` and `review-process.md`, **read those
-first** — this file assumes both. `silent-failure-patterns.md` applies on top of whichever cluster you
-are assigned; pattern 4 is native to this layer.
+`finding-discipline.md` と `review-process.md` を読んでいなければ**先に読む**（このファイルは両方を前提にする）。`silent-failure-patterns.md` はどのクラスタにも重ねて当てる。パターン 4 はこの層に固有。
 
-**Read-only. Never modify anything.**
+**読み取り専用。何も変更しない。**
 
-> **Never run `apply`, `deploy`, `destroy`, or `import`.** Read-only synthesis (`cdk synth`,
-> `terraform plan`, `cdk diff`) is acceptable *only* where the environment permits it and it consumes
-> no credentials you were not given. When you cannot run it, say so and infer the logical change
-> from the code and snapshot diffs instead.
+> **`apply`、`deploy`、`destroy`、`import` は実行しない。** 読み取りだけの合成（`cdk synth`、`terraform plan`、`cdk diff`）は、環境が許し、与えられていない認証情報を使わない場合に限ってよい。実行できなければその旨を書き、コードとスナップショットの差分から論理的な変更を推定する。
 
 ---
 
-## Step 2 — what to trace in this layer
+## Step 2 — この層で追うもの
 
-1. **Changed units**: constructs, modules, stacks, resources, IAM, networking, config added,
-   changed, or removed.
-2. **Track logical IDs and resource addresses.** Pin down each resource's **logical ID, physical
-   name, and dependencies**. This matters most: a changed or moved logical ID silently becomes a
-   **replace or delete**.
-3. **Enumerate the blast radius**:
-   - A change to a shared construct or module requires **naming every stack and every environment
-     (dev / staging / prod) that uses it**.
-   - Follow dependent resources: referenced VPCs, security groups, IAM, KMS, buckets, cross-stack
-     exports and imports.
-   - Understand the per-environment differences (environment-specific config and parameters).
-4. **Check the synthesised diff** — read-only operations only:
+1. **変更単位**: 追加・変更・削除された construct、モジュール、スタック、リソース、IAM、ネットワーク、設定。
+2. **論理 ID とリソースアドレスを追う。** 各リソースの**論理 ID、物理名、依存**を確定する。最重要。論理 ID が変わったり移ったりすると、黙って**置き換えか削除**になる。
+3. **波及範囲を列挙する**:
+   - 共有 construct やモジュールの変更では、**それを使うスタックと環境（dev / staging / prod）をすべて名指す**。
+   - 依存リソースを追う。参照される VPC、セキュリティグループ、IAM、KMS、バケット、スタック間の export / import。
+   - 環境ごとの差（環境固有の設定とパラメータ）を把握する。
+4. **合成後の差分を見る**（読み取り操作のみ）:
    ```bash
    # e.g. cdk diff / terraform plan -- never apply or deploy
    ```
-   If you cannot run it, infer the logical change from the code plus the snapshot (`*.snap`) diff.
+   実行できなければ、コードとスナップショット（`*.snap`）の差分から論理的な変更を推定する。
 
 ---
 
-## Step 2b — the conformance sweep in this layer
+## Step 2b — この層での適合スイープ
 
-`review-process.md` Step 2b is the whole-diff, mechanical pass that **no diff size excuses**. In this
-layer it is also the cheapest place to catch the most expensive mistakes. Report a verdict per row.
+`review-process.md` の Step 2b は、差分全体への機械的な確認で、**差分の大きさを理由に省かない**。この層では最も高くつく誤りを最も安く拾える場所でもある。行ごとに判定を報告する。
 
-| Row | Infrastructure form |
+| 行 | インフラでの形 |
 |---|---|
-| **Placement** | Does the new construct/module sit where this repository puts that kind of resource, and is it wired into whatever list actually deploys it? **A stack that is instantiated but absent from the deploy pipeline's stack list never ships** — check the pipeline, not just the code. |
-| **Dependency direction** | Cross-stack references: an export/import where a constructed name would do, or a constructed name where the real dependency needs ordering. Which stacks now depend on this one, and in which wave. |
-| **Irreversible surfaces** | **Every logical ID and physical name in the diff.** A changed or moved one is a replace or a delete, and for a stateful resource that is data loss. Also: removal policies, deletion protection, versioning, DNS and certificate changes. Enumerate them all; name the command that would confirm each. |
-| **Boundary and exposure** | Every IAM statement, security group, bucket policy and public setting the diff touches: what widened, and is the resource scope actually a scope. |
-| **New entry points** | Every new queue, schedule, trigger or compute environment: what can invoke it, what its failure surfaces as, and whether anything alerts. |
+| **配置** | 新しい construct / モジュールは、このリポジトリがその種のリソースを置く場所にあり、実際にデプロイする一覧に配線されているか。**インスタンス化されてもデプロイパイプラインのスタック一覧に無いスタックは出荷されない。** コードだけでなくパイプラインを確認する。 |
+| **依存の向き** | スタック間参照。組み立てた名前で足りるのに export / import を使っていないか、逆に順序付けが要るのに組み立てた名前で済ませていないか。どのスタックがこれに依存し、どの wave に入るか。 |
+| **不可逆な面** | **差分内のすべての論理 ID と物理名。** 変更・移動は置き換えか削除で、ステートフルなリソースならデータ喪失。削除ポリシー、削除保護、バージョニング、DNS と証明書の変更も。すべて列挙し、それぞれを確認するコマンドを名指す。 |
+| **境界と露出** | 差分が触る IAM ステートメント、セキュリティグループ、バケットポリシー、公開設定のすべて。何が広がったか、リソースのスコープが本当にスコープになっているか。 |
+| **新しい入口** | 新しいキュー、スケジュール、トリガー、計算環境のすべて。何が起動できるか、失敗が何として表に出るか、何かがアラートを出すか。 |
 
-**Two traps that only this layer has.** A permission or size limit that `synth` accepts and `deploy`
-rejects — say plainly that no plan output was seen and name the command that would settle it. And a
-policy-splitting or auto-generated boundary that **moves unrelated statements between resources** when
-you add one: read the snapshot diff for statements that moved, not only for lines added.
+**この層にしか無い罠が 2 つある。** 1 つは、`synth` は通るが `deploy` が弾く権限やサイズの上限。plan の出力を見ていないと明記し、決着をつけるコマンドを名指す。もう 1 つは、ポリシー分割や自動生成の境界が、1 つ追加しただけで**無関係なステートメントをリソース間で移す**こと。追加行だけでなく、移ったステートメントをスナップショット差分で読む。
 
-## Perspective clusters
+## 観点クラスタ
 
-### 0. Design soundness and the question one level up ★system-wide
+### 0. 設計の妥当性と一段上の問い ★システム全体
 
-Required even for a small diff. When collapsing the fan-out, this must still land in one subagent.
+小さな差分でも必須。レビューを畳む場合も必ず残す。
 
-- Is this topology, this design, **correct at all** — resource choice, boundaries, environment
-  separation, and is there a simpler or safer alternative?
-- **Verify the foundation.** Open at least once the shared construct or module, the state, the
-  naming convention, and the existing pattern this depends on, and confirm through the synthesised
-  diff or `file:line` that the premises around replacement, deletion, and permission scope actually
-  hold. Do not skip it because "it has always been this way". Cannot confirm → 👤. Suspicious → 🧭.
-- **Propagation risk**: is this adding the Nth instance of a dangerous pattern — RETAIN removed, a
-  broad IAM or trust policy, a changed logical ID, a naming collision — to another stack or
-  environment? → 🧭
-- Naming, tagging, governance; over- and under-engineering.
+- このトポロジと設計が**そもそも正しいか**。リソースの選択、境界、環境分離。より単純で安全な代替はあるか。
+- **土台を確かめる。** 依存する共有 construct やモジュール、state、命名規約、既存のパターンを少なくとも一度開き、置き換え・削除・権限スコープに関する前提が本当に成り立つことを、合成後の差分か `file:line` で確認する。「昔からこうだから」で飛ばさない。確認できない → 👤。怪しい → 🧭。
+- **伝播リスク**: 危険なパターン（RETAIN の削除、広い IAM や信頼ポリシー、論理 ID の変更、名前の衝突）の N 例目を、別のスタックや環境に増やしていないか → 🧭
+- 命名、タグ付け、ガバナンス。過剰設計と過少設計。
 
-### 1. Intent and semantic correctness ★always covered
+### 1. 意図と意味の正しさ ★常に扱う
 
-**The largest category of bugs that survive review, by a wide margin.** In this layer it is usually
-configuration that is syntactically valid and semantically wrong — and it applies cleanly.
+**レビューを生き延びるバグの最大の分類。** この層では、構文は正しく意味が誤った設定が多く、しかも問題なく apply される。
 
-- **Against the stated intent.** Does the resource definition express what was asked for? **If there is
-  no stated intent, that is the finding** → 👤.
-- **Values that are wrong rather than absent.** A timeout in seconds where the API takes milliseconds, a
-  retention of 1 where 1 day was meant, a CIDR one bit wider than intended, a memory limit below what
-  the process needs. **A plan that shows no error says nothing about whether the value is right.**
-- **Wrong operator or condition in a policy or rule.** `Allow` where `Deny` was meant, a condition key
-  that never matches so the guard never applies, `NotAction` semantics, a wildcard that widens more than
-  the author read it as.
-- **Missing mechanism.** The parameter is set but nothing reads it; the alarm exists but has no action;
-  the rule is defined but not attached; the schedule exists but the target does not.
-- **Incomplete change.** One environment updated and the others not; a resource renamed in one module
-  and referenced by the old name elsewhere.
+- **述べられた意図と照らす。** リソース定義は頼まれたことを表しているか。**意図が述べられていなければ、それが所見** → 👤。
+- **欠けているのではなく誤っている値。** API がミリ秒を取るのに秒で書いたタイムアウト、1 日のつもりの保持期間 1、意図より 1 ビット広い CIDR、プロセスに足りないメモリ上限。**エラーの無い plan は、値が正しいかについて何も言わない。**
+- **ポリシーやルールの演算子・条件の誤り。** `Deny` のつもりの `Allow`、決して一致しない条件キー（ガードが効かない）、`NotAction` の意味、作者が読んだより広がるワイルドカード。
+- **仕組みの欠落。** パラメータは設定されたが誰も読まない。アラームはあるがアクションが無い。ルールは定義されたが付与されていない。スケジュールはあるがターゲットが無い。
+- **不完全な変更。** 1 つの環境だけ更新され他は未更新。あるモジュールでリソース名を変えたが、他で古い名前を参照している。
 
-### 2. Destructive resource change and replacement ★highest irreversibility
+### 2. 破壊的なリソース変更と置き換え ★不可逆性が最も高い
 
-- Does a changed or moved **logical ID or address** cause a **replace or delete**?
-- Replacement, deletion, or rename of **stateful** resources (RDS/Aurora, S3, DynamoDB, EBS,
-  ElastiCache, SQS/SNS, EFS, Cognito) causing **data loss**.
-- Changes to immutable properties (database engine, encryption, availability zone, subnet, bucket
-  name) forcing replacement; resources that vanished or were renamed in the snapshot tests.
-- Destructive DNS and certificate changes (deleting or switching a Route53 record, TTL, ACM, custom
-  domains) causing unreachability or expiry. This is a distinct category of irreversible risk from
-  replacement and state loss.
+- **論理 ID やアドレス**の変更・移動が**置き換えや削除**を起こさないか。
+- **ステートフル**なリソース（RDS/Aurora、S3、DynamoDB、EBS、ElastiCache、SQS/SNS、EFS、Cognito）の置き換え・削除・改名による**データ喪失**。
+- 置き換えを強いる不変プロパティ（DB エンジン、暗号化、アベイラビリティゾーン、サブネット、バケット名）の変更。スナップショットテストで消えた・改名されたリソース。
+- 到達不能や期限切れを起こす DNS と証明書の破壊的変更（Route53 レコードの削除・切替、TTL、ACM、カスタムドメイン）。置き換えや state 喪失とは別種の不可逆リスク。
 
-### 3. State loss, protection, backup and DR ★highest irreversibility
+### 3. state の喪失、保護、バックアップと DR ★不可逆性が最も高い
 
-- `RemovalPolicy`, `deletionProtection`, `prevent_destroy`, `lifecycle`: is a stateful resource set
-  to DESTROY or otherwise deletable, and has RETAIN been removed unintentionally?
-- Backups, snapshots, PITR, snapshot-on-delete, and **whether a restore procedure actually exists
-  and can be exercised** (DR). A backup nobody has restored from is a hypothesis. Ask when it was last
-  exercised, and mark 👤 if the answer is not in the repository.
-- **The state file is itself sensitive infrastructure**, and reviews routinely skip it:
-  - **Terraform state stores resource attributes in plaintext, including secrets** — generated
-    passwords, keys, connection strings. So read access to state is equivalent to read access to those
-    secrets. Who can read the bucket?
-  - Remote backend **encrypted at rest**, **versioned** so a corrupted state can be rolled back, and
-    **locked** (DynamoDB or the backend's native locking) so two applies cannot interleave. A missing
-    lock is a corruption risk that only shows up under concurrency, which is to say during an incident.
-  - Changes that move state — `moved` blocks, `terraform state mv`, refactoring a module path — are as
-    dangerous as changing a resource, because getting them wrong destroys and recreates.
-- **Drift**: does this change assume a state that matches reality? If the last apply was manual or
-  partial, the plan is computed against a lie.
-- **Provider and module versions pinned**, and the pin actually intended. An unpinned provider means the
-  next apply is a different apply, run by whoever happens to go next.
+- `RemovalPolicy`、`deletionProtection`、`prevent_destroy`、`lifecycle`: ステートフルなリソースが DESTROY などで削除可能になっていないか。RETAIN が意図せず外れていないか。
+- バックアップ、スナップショット、PITR、削除時スナップショット、そして**復元手順が実在し実行できるか**（DR）。誰も復元したことのないバックアップは仮説。最後にいつ実施したかを問い、答えがリポジトリに無ければ 👤。
+- **state ファイル自体が機密のインフラである**（レビューでよく飛ばされる）:
+  - **Terraform の state はシークレットを含むリソース属性を平文で持つ**（生成されたパスワード、鍵、接続文字列）。state の読み取り権はそれらのシークレットの読み取り権と同じ。誰がバケットを読めるか。
+  - リモートバックエンドが**保存時に暗号化**され、壊れた state を戻せるよう**バージョニング**され、2 つの apply が交互に走らないよう**ロック**（DynamoDB かバックエンド固有のロック）されているか。ロックの欠如は並行時、つまりインシデント中にしか表に出ない破損リスク。
+  - state を動かす変更（`moved` ブロック、`terraform state mv`、モジュールパスのリファクタ）は、リソースの変更と同じく危険。誤ると破棄して作り直す。
+- **ドリフト**: この変更は state が現実と一致していると仮定していないか。最後の apply が手動や部分的なら、plan は偽の前提で計算される。
+- **provider とモジュールのバージョンが固定され**、その固定が意図どおりか。固定されていなければ、次の apply は次に実行した人の別物になる。
 
-> **Run the scanners rather than reading for these.** `checkov` and `trivy config` (formerly `tfsec`)
-> cover the mechanical CIS-style checks — public buckets, unencrypted volumes, open security groups,
-> missing logging — faster and more completely than a human pass. Report what they found, and spend your
-> own attention on blast radius, intent, and ordering, which they cannot see. If you cannot run them,
-> say so; do not silently substitute eyeballing for a scan.
+> **これらは読むより scanner を走らせる。** `checkov` と `trivy config`（旧 `tfsec`）は、CIS 型の機械的な確認（公開バケット、未暗号化ボリューム、開いたセキュリティグループ、ログ欠如）を人手より速く漏れなく扱う。結果を報告し、自分の注意は scanner に見えない波及範囲・意図・順序に使う。走らせられなければそう書く。目視を scan の代わりに黙って使わない。
 
-### 4. IAM, permissions, exposure, networking ★security focus
+### 4. IAM、権限、露出、ネットワーク ★セキュリティ重点
 
-- Least privilege: `*` actions or resources, `iam:PassRole`, widening `AssumeRole` trust.
-- Widened exposure: security groups, NACLs, bucket policies, public settings (`0.0.0.0/0`,
-  public-read, placement in a public subnet); network boundaries (VPC, subnets, endpoints, egress).
-- Secrets: any in plaintext, or properly via Secrets Manager / SSM / KMS? Exposure through logs or
-  stack outputs. Encryption at rest and in transit; KMS key policy; **the irreversibility of key
-  deletion**.
-- CDN and caching: cache keys, caching of authenticated responses, header forwarding, signed URLs
-  and OAI — could this cause cross-tenant leakage or cache poisoning?
+- 最小権限: `*` のアクションやリソース、`iam:PassRole`、`AssumeRole` の信頼の拡大。
+- 露出の拡大: セキュリティグループ、NACL、バケットポリシー、公開設定（`0.0.0.0/0`、public-read、パブリックサブネットへの配置）。ネットワーク境界（VPC、サブネット、エンドポイント、egress）。
+- シークレット: 平文か、Secrets Manager / SSM / KMS 経由か。ログやスタック出力からの露出。保存時と転送時の暗号化。KMS のキーポリシー。**キー削除の不可逆性**。
+- CDN とキャッシュ: キャッシュキー、認証済みレスポンスのキャッシュ、ヘッダー転送、署名付き URL と OAI。テナント間の漏えいやキャッシュポイズニングを起こさないか。
 
-### 5. Availability, deploy safety, rollback
+### 5. 可用性、デプロイの安全性、ロールバック
 
-One-way deletions and irreversible migrations are filed with `irreversible=true`.
+一方通行の削除と不可逆なマイグレーションは `irreversible=true` で出す。
 
-- Zero-downtime: replacement ordering, connection draining, health checks, rolling / blue-green /
-  canary.
-- Rollback: is a one-way deletion or an irreversible migration wedged in the middle?
-- Multi-AZ and redundancy; creation ordering and circular dependencies; the effect of schedule and
-  concurrency changes.
+- 無停止: 置き換えの順序、コネクションドレイン、ヘルスチェック、ローリング / blue-green / canary。
+- ロールバック: 途中に一方通行の削除や不可逆なマイグレーションが挟まっていないか。
+- マルチ AZ と冗長性。作成順序と循環依存。スケジュールと並行数の変更の影響。
 
-### 6. Cost, scale, runaway prevention
+### 6. コスト、規模、暴走防止
 
-- Timeouts, memory, concurrency; unbounded retries and runaway pagination; autoscaling ceilings;
-  unintended expense (NAT gateways, large instances, provisioned capacity); log and data retention.
+- タイムアウト、メモリ、並行数。上限の無いリトライとページングの暴走。オートスケールの上限。意図しない費用（NAT ゲートウェイ、大きなインスタンス、プロビジョンド容量）。ログとデータの保持期間。
 
-### 7. Idempotency and consistency in pipelines and jobs
+### 7. パイプラインとジョブの冪等性と整合性
 
-- Re-runs, partial failures, and duplicate delivery must not double-process or corrupt data
-  (chunking, checkpoints); dead-letter handling; failure handling.
+- 再実行・部分失敗・重複配信で二重処理やデータ破損が起きないこと（チャンク分割、チェックポイント）。デッドレターの扱い。失敗時の扱い。
 
-### 8. Observability, alerting, operability
+### 8. 可観測性、アラート、運用性
 
-- Do new resources and paths get **monitoring, alarms, and dashboards**? Log aggregation. On-call
-  runbook and recovery procedure. Tagging, naming, governance. Data residency and compliance.
+- 新しいリソースと経路に**監視・アラーム・ダッシュボード**があるか。ログ集約。オンコールの runbook と復旧手順。タグ付け、命名、ガバナンス。データの所在とコンプライアンス。
 
-### 9. Readability and extensibility — what the next change pays
+### 9. 読みやすさと拡張性 — 次の変更が払うもの
 
-Not style. `finding-discipline.md` suppresses taste and **explicitly does not suppress this**: the test
-is whether you can **name the next change and what it has to touch**. These land in 🧭, where a finding's
-value does not depend on being right.
+スタイルの話ではない。`finding-discipline.md` は好みを抑えるが、**これは抑えない**。基準は**次の変更と、それが触るべき場所を名指せるか**。これらは 🧭 に置く（当たっているかどうかに価値が依存しない）。
 
-- **A value duplicated across stacks or repositories.** A queue name, an ARN fragment, a port. They
-  match today; nothing compares them, and the drift is a runtime 404 rather than a failed synth.
-- **A limit that will be hit by addition, not by load.** A policy size, an attached-policy count, a rule
-  count. Ask how many more of *this change* fit before it stops deploying.
-- **A comment carrying the deploy order.** Wave membership, "apply this before that". If the order is
-  only in prose, the next stack is added by someone who did not read it.
-- **The comment that is the only enforcement.** A docstring enumerating the callers, a "always call X
-  first", a "keep these in sync" — true the day it is written, silently false when the next entry point
-  appears, and its author never reads it. Ask what *forces* it instead.
-- **The thing that will be copied next.** This change is the second instance of a shape; the third is
-  written by someone who reads only this one. Is the shape worth propagating, and does anything make the
-  third copy consistent?
+- **スタックやリポジトリをまたいで重複した値。** キュー名、ARN の断片、ポート。今日は一致しているが誰も比較しておらず、ずれると synth の失敗ではなく実行時の 404 になる。
+- **負荷ではなく追加で当たる上限。** ポリシーサイズ、付与ポリシー数、ルール数。*この変更*があと何個入ればデプロイできなくなるかを問う。
+- **デプロイ順序を運ぶコメント。** wave の所属、「これをあれより先に apply」。順序が文章にしか無ければ、次のスタックはそれを読まなかった人が足す。
+- **唯一の強制手段になっているコメント。** 呼び出し元を列挙する docstring、「必ず先に X を呼ぶ」、「これらは揃えておく」。書いた日は正しく、次の入口ができた時に黙って誤りになり、作者は読み返さない。何が代わりに*強制*するかを問う。
+- **次に複製されるもの。** この変更がある形の 2 例目なら、3 例目はこれだけを読んだ人が書く。その形は広める価値があるか。3 例目を揃えさせる仕組みはあるか。

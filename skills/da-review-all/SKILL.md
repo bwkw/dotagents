@@ -7,205 +7,150 @@ metadata:
   source: bwkw/dotagents
 ---
 
-# /da-review-all — cross-layer review dispatcher
+# /da-review-all — 層をまたぐレビューのディスパッチャ
 
-Works out which layers a change touches and runs **only the layer reviews that apply**. When one
-change spans several layers — a schema change, the code that reads it, the infrastructure that hosts
-it — this removes both the work of invoking each layer by hand and, more importantly, the
-**cross-layer irreversibility risks that are invisible from inside any single layer**.
+変更が触る層を割り出し、**該当する層のレビューだけ**を走らせ、**どの層の中からも見えない層またぎの不可逆リスク**を拾う。
 
-**Read-only. This skill never modifies code or configuration.** The Step 5 overview is a review
-artifact, not a source change.
+**読み取り専用。コードも設定も変更しない。** Step 5 の概要ページはレビューの成果物で、ソースの変更ではない。
 
-**What it hands back depends on whose change it is** (Step 1). Someone else's PR → an **overview page
-plus comment drafts in the user's voice**, with the layer reports as working material that never
-reaches the terminal. Your own work, or a diff with no PR → the layer reports, as before.
+**返すものは誰の変更かで変わる**（Step 1）。
 
-## Preconditions
+## 実行条件
 
-| Condition | If unmet |
+| 条件 | 満たさない場合 |
 |---|---|
-| The working directory is inside a git repository | Stop, say so, do not proceed |
-| A diff, path, or `all` resolves to at least one file | Report "no changes", suggest `path/` or `all`, and stop |
+| 作業ディレクトリが git リポジトリ内 | 止まり、その旨を伝え、進めない |
+| 差分・パス・`all` が 1 つ以上のファイルに解決する | 「変更なし」と報告し、`path/` か `all` を提案して止まる |
 
-Upstream: implementation complete, or a PR open. Downstream: `/da-fix-plan` triages the findings into
-an ordered plan, then `/da-verify`.
+上流: 実装完了、または PR が開いている。下流: `/da-fix-plan` が所見を順序付きの計画にし、次に `/da-verify`。
 
-## What this skill delegates to
+## 委譲先
 
-| Layer skill | Owns |
+| 層のスキル | 担当 |
 |---|---|
-| `x-review-backend` | server-side source, migrations and schema, contracts and DTOs, queues and jobs, dependencies |
-| `x-review-frontend` | components, routes, hooks, stores, styling, frontend i18n |
-| `x-review-infra` | Terraform, CDK, CloudFormation, k8s, IAM, networking, pipelines, CI permissions |
+| `x-review-backend` | サーバー側のソース、マイグレーションとスキーマ、契約と DTO、キューとジョブ、依存関係 |
+| `x-review-frontend` | コンポーネント、ルート、フック、ストア、スタイル、フロントエンドの i18n |
+| `x-review-infra` | Terraform、CDK、CloudFormation、k8s、IAM、ネットワーク、パイプライン、CI の権限 |
 
-Each is a full skill with its own posture, process and perspectives. This one classifies the change,
-runs the layers that apply, then does the part none can.
 
-## Files to read, and when
+## 読むファイルとタイミング
 
-**Nothing up front.** Each opens at the step that applies it; read early it just sits in context.
+**最初には何も読まない。** 各ファイルは適用するステップで開く。
 
-| File (under `${CLAUDE_SKILL_DIR}/reference/` unless noted) | When |
+| ファイル（注記が無ければ `${CLAUDE_SKILL_DIR}/reference/` 配下） | タイミング |
 |---|---|
-| `profiles/review-voice.md` — **toolkit root**, not `reference/` | **Step 1**, the moment ownership resolves to someone else. Read late, the register gets rebuilt from scratch. |
-| `cross-layer.md` | **Step 4, always** — the ten checks and the skeleton |
-| `silent-failure-patterns.md` | **Step 4, ≥2 layers** — the single-layer form, re-read across the boundary |
-| `llm-authored-code.md` | **Step 4, ≥2 layers**, agent-authored — both sides of a boundary agreeing with each other and wrong about the world |
-| `decisions-sweep.md` | **Step 4b**, someone else's PR |
-| `overview-artifact.md` | **Step 5** — the six sections and this host's container |
-| `../_shared/pr-comments.md` | **Step 6**, and its PR-mapping part at Step 1 |
+| `profiles/review-voice.md` — `reference/` ではなく**ツールキットのルート** | **Step 1**、他人の変更と分かった時点で |
+| `cross-layer.md` | **Step 4、常に** — 10 のチェックと骨組み |
+| `silent-failure-patterns.md` | **Step 4、2 層以上** |
+| `llm-authored-code.md` | **Step 4、2 層以上**でエージェントが書いた変更 |
+| `decisions-sweep.md` | **Step 4b**、他人の PR |
+| `overview-artifact.md` | **Step 5** — 6 つの節と、このホストでの入れ物 |
+| `../_shared/pr-comments.md` | **Step 6**。PR との対応付けの部分は Step 1 |
 
-**One layer: of the Step 4 rows read only `cross-layer.md`**, say **no cross-layer impact**, pass
-through. Steps 1 / 4b / 5 / 6 are unaffected — a single-layer PR still gets the page and drafts.
+**1 層だけなら、Step 4 の行は `cross-layer.md` だけ読み**、**層横断の影響なし** と書いてそのまま通す。Step 1 / 4b / 5 / 6 は変わらない。1 層の PR でも概要ページと下書きを作る。
 
 ---
 
-## Step 1. Establish scope, then ownership
+## Step 1. スコープを決め、次に持ち主を決める
 
-`$ARGUMENTS`: empty means the working diff; a branch means the diff against it; a path means an audit
-of that path; `all` means the whole repository.
+`$ARGUMENTS`: 空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
 
-Resolve the base and the file list exactly as `../_shared/review-process.md` Step 1 does — same
-fallback order, same empty-tree case, and **say so** when the base could not be resolved. Every layer
-uses that resolution, so it is not restated here.
+base とファイル一覧は `../_shared/review-process.md` の Step 1 と同じ方法で決め、決められなかった時は**その旨を書く**。
 
-**No PR is required.** Review before pushing is when it is worth the most; a PR URL is accepted but
-never demanded. If the diff is genuinely empty, report "no changes", suggest `path/` or `all`, stop.
+**PR は要らない。** push 前のレビューが最も価値がある。PR の URL は受け付けるが要求しない。
 
-**Several PRs or several repositories are one review, not N.** Resolve them all here, and **record
-which PR's diff each file belongs to** — a line comment can only land on the PR whose diff contains
-that line, and a stacked PR's base is the branch below it, not the trunk. The mapping procedure is in
-`pr-comments.md`; run it now, while the branches are fetched.
+**複数の PR や複数のリポジトリは、N 個ではなく 1 つのレビュー。** ここで全部を解決し、**各ファイルがどの PR の差分に属するかを記録する**。行コメントはその行を差分に含む PR にしか付けられないから。手順は `pr-comments.md` にあり、fetch した今のうちに実行する。
 
-### Whose change is this
+### 誰の変更か
 
 ```bash
 gh pr view <n> --json author -q .author.login    # or: git log -1 --format=%ae
 git config user.email
 ```
 
-`review-process.md` Step 1 says ownership decides what you may assume. It also decides what you hand
-back:
+`review-process.md` の Step 1 のとおり、持ち主は何を仮定してよいかを決める。返すものも決める。
 
-| | Your own work / no PR | **Someone else's PR** |
+| | 自分の作業 / PR 無し | **他人の PR** |
 |---|---|---|
-| Deliverable | The layer reports | **Overview page + comment drafts in the user's voice** |
-| Layer reports | Printed | **Working material, never printed.** Their 🔎 and 🔬 move onto the page; the rest is consumed by the page and the drafts |
-| Read at Step 1 | — | `profiles/review-voice.md` (toolkit root) |
-| Extra step | — | Step 4b, the decisions sweep |
+| 成果物 | 層のレポート | **概要ページ + ユーザーの口調のコメント下書き** |
+| 層のレポート | 出力する | **作業材料で、出力しない。** 🔎 と 🔬 はページへ移し、残りはページと下書きの材料にする |
+| Step 1 で読む | — | `profiles/review-voice.md`（ツールキットのルート） |
+| 追加のステップ | — | Step 4b、決まっていないことの洗い出し |
 
-**Ambiguous — a shared branch, a pair-written change — ask.** Guessing wrong costs a whole deliverable
-in the wrong shape.
+**曖昧なら（共有ブランチ、ペアで書いた変更）聞く。** 取り違えると成果物がまるごと違う形になる。
 
-## Step 2. Classify each file into layers
+## Step 2. 各ファイルを層に分類する
 
-One file may belong to several layers.
+1 つのファイルが複数の層に属してよい。
 
-| Layer | Signals |
+| 層 | 手がかり |
 |---|---|
-| **infra** | `*.tf`, `cdk.json`, constructs under `lib/**`, `template.ya?ml` (CFn/SAM), `serverless.yml`, k8s manifests, platform or runner `Dockerfile`, `*.snap` (IaC snapshots), IAM / networking / pipeline definitions |
-| **backend** | server-side source (NestJS, Express, …), `*.prisma` and migrations, API contracts and DTOs, domain / use case / repository code, Lambda handlers |
-| **frontend** | `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, route definitions, components, hooks, stores, CSS and styling, frontend i18n resources |
-| **build / deps / CI** | `package.json`, `*-lock.*`, Renovate and dependency config, `.github/workflows/**`, application `Dockerfile`. Route **dependencies and supply chain to backend**, and **CI permission or secret changes to infra** |
+| **infra** | `*.tf`、`cdk.json`、`lib/**` 配下の construct、`template.ya?ml`（CFn/SAM）、`serverless.yml`、k8s マニフェスト、プラットフォームやランナーの `Dockerfile`、`*.snap`（IaC スナップショット）、IAM / ネットワーク / パイプラインの定義 |
+| **backend** | サーバー側のソース（NestJS、Express など）、`*.prisma` とマイグレーション、API 契約と DTO、ドメイン / ユースケース / リポジトリのコード、Lambda ハンドラ |
+| **frontend** | `*.tsx`、`*.jsx`、`*.vue`、`*.svelte`、ルート定義、コンポーネント、フック、ストア、CSS とスタイル、フロントエンドの i18n リソース |
+| **build / deps / CI** | `package.json`、`*-lock.*`、Renovate と依存の設定、`.github/workflows/**`、アプリの `Dockerfile`。**依存とサプライチェーンは backend へ**、**CI の権限やシークレットの変更は infra へ**回す |
 
-For a monorepo or several repositories, classify per repository and per directory. Files you cannot
-place: read them and classify by content; if still unclear, list them as **unclassified** — never drop
-one silently.
+モノレポや複数リポジトリでは、リポジトリ・ディレクトリごとに分類する。置き場の分からないファイルは中身で分類し、それでも不明なら **unclassified** として列挙する。黙って落とさない。
 
-**Print the classification, then keep going — do not wait for confirmation.** It must be *visible* (a
-misclassification loses a whole layer), not *approved*: blocking bought no accuracy and cost a round
-trip every run. **Stop for one case only — an unclassified file.** That is the sole branch where
-continuing means guessing.
+**分類を表示し、確認を待たずに進む。** 誤分類は層を 1 つ丸ごと失うので見える必要はあるが、承認は要らない。**止まるのは unclassified のファイルがある時だけ**（進めると推測になる）。
 
-## Step 3. Run the layer reviews — inline, one after another
+## Step 3. 層のレビューを走らせる — インラインで 1 つずつ
 
-**Spawn nothing.** For each layer with files, invoke that layer's skill **by name, in this context**,
-scoped strictly to that layer's file list:
+**何も起動しない。** ファイルのある層ごとに、その層のスキルを**このコンテキストで名前で呼び**、その層のファイル一覧だけにスコープを絞る。
 
 > Use the `x-review-<layer>` skill and follow it exactly. Scope: `<the list>`. Do not re-derive the
 > full diff.
 
-Finish one layer before starting the next. The layer skill handles posture, process, perspectives and
-the silent-failure patterns. **Do not restate its instructions here** — guidance a layer needs belongs
-in that layer's own skill.
+1 層ずつ終えて進む。**層のスキルの指示をここに書き直さない。** 層に要る指示はその層のスキルに置く。
 
-> **Never set `disable-model-invocation` on a layer skill.** It blocks programmatic `Skill` calls too,
-> so this step becomes a silent no-op. The linter and the lint hook both check for it.
+> **層のスキルに `disable-model-invocation` を付けない。** プログラムからの `Skill` 呼び出しも止まり、このステップが黙って空振りする。リンターと lint フックの両方が検査している。
 
-**Why no subagents** — measured account in `review-process.md` Step 5 and `docs/decisions.md`. Short
-form: same model, same diff, same discipline returns this context's blind spot at 2.6–5.9× the tokens
-and no less wall-clock; independence comes from a **differently built** reviewer, `/find-bugs`.
-**Say "inline, no subagents"** — never imply agents ran.
+**サブエージェントを使わない理由**（詳細は `review-process.md` の Step 5 と `docs/decisions.md`）: 同じモデル・同じ差分・同じ規律では同じ盲点をトークン 2.6〜5.9 倍で返すだけ。独立性は**作りの違うレビュアー**、`/find-bugs` から来る。**「inline, no subagents」と書く。** 動いていないエージェントが動いたように書かない。
 
-**Check each layer reported its Step 2b conformance sweep** — architecture, dependency direction,
-irreversible surfaces, tenancy, new entry points, over its **whole** file list with a verdict per row,
-at any diff size. **A layer calling architecture a token pass has skipped Step 2b**; send it back.
+**各層が Step 2b の適合スイープ**（アーキテクチャ、依存の向き、不可逆な面、テナント、新しい入口）を、**ファイル一覧全体**に行ごとの判定付きで報告したか確かめる。差分の大きさは関係ない。アーキテクチャを形だけで済ませた層は差し戻す。
 
-**Unclassified files**: fold each into the nearest layer by content. Anything you genuinely cannot
-place, review openly at Step 4 and mark **"not reviewed / needs confirmation"**.
+**unclassified のファイル**: 中身で最も近い層に入れる。どうしても置けないものは Step 4 で明示的にレビューし、「**未レビュー / 要確認**」と付ける。
 
-## Step 4. Cross-layer synthesis — what only this skill can do
+## Step 4. 層をまたぐ統合 — このスキルにしかできないこと
 
-**Wait until every layer report is in**, then read `cross-layer.md` and apply **all ten** checks — the
-four structural forms, the five patterns in their cross-layer shape, and the sixth that exists only
-across a boundary. Each appears only when cause and consequence sit in **different layers**, which is
-why no layer review reaches them: every half is locally correct.
+**すべての層のレポートが揃うまで待ち**、`cross-layer.md` を読んで **10 のチェックすべて**を当てる（構造上の 4 つの形、層をまたぐ形の 5 パターン、境界にしか無い 6 つ目）。どれも原因と結果が**別の層**にあり、どの層のレビューも届かない。
 
-**Pull every layer's 🧭 and 👤 to the top**, and **merge duplicates** — the same root cause in two
-layers becomes one finding naming both, counted **once**. Never add per-layer totals.
+**すべての層の 🧭 と 👤 を先頭に集め**、**重複をまとめる**。2 つの層に出た同じ根本原因は、両方を名指す 1 つの所見にして **1 回**だけ数える。層ごとの件数を足し合わせない。
 
-## Step 4b. The decisions sweep — someone else's PR only
+## Step 4b. 決まっていないことの洗い出し — 他人の PR のみ
 
-Read `decisions-sweep.md`. Two sources: a mechanical marker sweep over the whole diff, and — where the
-surprises are — the decisions the review itself surfaced that carry no marker at all.
+`decisions-sweep.md` を読む。差分全体のマーカー探索と、レビューで浮かんだマーカーの無い判断の 2 つを見る。
 
-**Say what changes depending on the answer**, not that the item is open. The TODO restated is worth
-nothing; the author wrote it.
+**未決だと言うのではなく、答えによって何が変わるかを書く。**
 
-## Step 5. The one-page overview
+## Step 5. 1 枚の概要ページ
 
-Read `overview-artifact.md` for the six sections and the container: **Artifact in Claude Code, Canvas
-in Cursor, a written HTML file where neither exists.** Sections identical in all three.
+`overview-artifact.md` を読み、6 つの節と入れ物を決める。**Claude Code では Artifact、Cursor では Canvas、どちらも無い場合は HTML ファイルを書く。** 節はどの入れ物でも同じ。
 
-**The page is about the change, not about the review** — what it enables, how it relates to what
-exists, how it flows, where the code sits, what ships in what order, what is undecided. Findings live
-in the drafts; the page carries the 🔎 / 🔬 honesty rows and the decisions.
+**ページはレビューではなく変更についてのもの。** 所見は下書きに置き、ページには 🔎 / 🔬 の正直さの行と未決事項を載せる。
 
-On the own-work path, offer it in one line rather than building it unasked.
+自分の作業の場合は、頼まれずに作らず、1 行で申し出る。
 
-## Step 6. Comment drafts and the terminal index — someone else's PR only
+## Step 6. コメントの下書きとターミナルの索引 — 他人の PR のみ
 
-Follow `pr-comments.md` end to end: select by rule, draft in the voice loaded at Step 1, **verify every
-anchor against the PR head**, show the drafts, wait for the literal `Go`.
+`pr-comments.md` に最初から最後まで従う。規則で選び、Step 1 で読んだ口調で下書きし、**すべてのアンカーを PR の head で確かめ**、下書きを見せ、文字どおりの `Go` を待つ。
 
-**The terminal gets an index, not a report.** Per draft: target, severity, one line. Then the link to
-the page. **Nothing on the page or in a draft is restated here** — that duplication is what made an
-earlier run write one finding four times.
+**ターミナルに出すのはレポートではなく索引。** 下書きごとに対象・重大度・1 行。続けてページへのリンク。**ページや下書きの内容をここで繰り返さない。**
 
-## Done when
+## 完了条件
 
-- [ ] **Ownership resolved before anything was produced**, and the deliverable matches it
-- [ ] Classification shown **before** any review ran; every file in a layer, an unclassified one having
-      stopped the run
-- [ ] **Every layer reported its Step 2b sweep with a verdict per row.** A layer that sampled
-      architecture, tenancy or the irreversible surfaces skipped the step no size excuses
-- [ ] Every layer with files invoked **by skill name** — a layer reported as covered with nothing
-      behind it is the failure this dispatcher exists to avoid
-- [ ] 🔎 says **"inline, no subagents"**, names what it did not reach and any token-pass cluster, and
-      states that a clean result is not a sign-off
-- [ ] **All ten `cross-layer.md` checks applied**; every 🔗 names **both** layers with a 📍 on each
-      side; merged duplicates counted once; a single-layer change says **no cross-layer impact**
-- [ ] **One overview page in this host's container**, linked, with **no finding on it restated** in the
-      terminal or a draft
-- [ ] Someone-else's-PR path: drafts written **after** the voice profile loaded, **every anchor verified
-      against the PR head** before posting, decisions sweep ran
+- [ ] **何かを作る前に持ち主が決まり**、成果物がそれに合っている
+- [ ] どのレビューより**先に**分類が表示され、すべてのファイルが層に入っている（unclassified があれば止まっている）
+- [ ] **すべての層が Step 2b のスイープを行ごとの判定付きで報告した**（抜き取りで済ませていない）
+- [ ] ファイルのある層がすべて**スキル名で**呼ばれた（中身無しに「扱った」と報告された層が無い）
+- [ ] 🔎 に「**inline, no subagents**」と書き、届かなかったものと形だけのクラスタを名指し、問題なしの結果が承認ではないと述べている
+- [ ] **`cross-layer.md` の 10 のチェックをすべて当てた。** すべての 🔗 が**両方の**層を名指し、各側に 📍 がある。まとめた重複は 1 回だけ数える。1 層の変更では **層横断の影響なし** と書く
+- [ ] **このホストの入れ物で概要ページが 1 枚**あり、リンクされ、ページ上の所見をターミナルや下書きで**繰り返していない**
+- [ ] 他人の PR: 口調プロファイルを読んだ**後に**下書きを書き、投稿前に**全アンカーを PR の head で確かめ**、Step 4b を実行した
 
-## Guardrails
+## ガードレール
 
-- Never modify code or configuration. Read-only.
-- Post on `Go` or an explicit instruction to post. `APPROVE` / `REQUEST_CHANGES` only when the
-  user says so in that reply.
-- Do not run reviews for layers the change does not touch.
-- Cross-layer findings need the same traced path as anything else (`finding-discipline.md`): which
-  path is actually used, the config rollout order, whether the two sides release together.
+- コードも設定も変更しない。読み取り専用。
+- 投稿は `Go` か明示の投稿指示があった時だけ。`APPROVE` / `REQUEST_CHANGES` は、ユーザーがその返信でそう言った時だけ。
+- 変更が触らない層のレビューは走らせない。
+- 層をまたぐ所見にも、他と同じく追跡した経路が要る（`finding-discipline.md`）。実際に使われる経路、設定のロールアウト順、両側が一緒にリリースされるか。

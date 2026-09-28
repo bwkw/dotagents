@@ -1,71 +1,46 @@
-# The one-page overview
+# 1 枚の概要ページ
 
-Read at Step 5. **The container depends on the host; the six sections do not.**
+Step 5 で読む。**入れ物はホストで変わり、6 つの節は変わらない。**
 
-## Pick the container
+## 入れ物を選ぶ
 
-| Host | Container | How |
+| ホスト | 入れ物 | やり方 |
 |---|---|---|
-| **Claude Code** | Artifact | Write the HTML to a file, then publish it with the `Artifact` tool. Load the `artifact-design` skill first — it is required before writing any artifact. |
-| **Cursor** | Canvas | Use the `canvas` skill and follow it exactly. Exactly one Canvas. |
-| **Neither available** | An HTML file | Write it to disk and give the path. **Say which container was unavailable and why** — a missing page silently is the failure this row exists to stop. |
+| **Claude Code** | Artifact | HTML をファイルに書き、`Artifact` ツールで公開する。先に `artifact-design` スキルを読む（artifact を書く前に必須）。 |
+| **Cursor** | Canvas | `canvas` スキルを使い、そのとおりに従う。Canvas はちょうど 1 つ。 |
+| **どちらも無い場合** | HTML ファイル | ディスクに書き、パスを示す。**どの入れ物が使えず、なぜかを書く。** ページが黙って出ないことを防ぐための行。 |
 
-The response links the page either way. **Do not build one on the own-work path unless asked** — offer
-it in one line instead.
+どの場合も応答でページにリンクする。**自分の作業の場合は、頼まれない限り作らず**、1 行で申し出る。
 
-## The page is about the change, not about the review
+## ページはレビューではなく変更についてのもの
 
-This is the section that gets it wrong when it goes wrong. The instinct is to render the finding table
-with better typography, and a finding table is what the comment drafts are for.
+誤る時はここで誤る。所見の表を見栄えよく並べたくなるが、所見の表はコメントの下書きの役目。
 
-**What a reader wants from this page is the thing no PR description gave them: what this feature
-actually does, and how it sits against what already exists.** Findings are the reviewer's output;
-orientation is the reader's need, and only one of the two is missing everywhere else.
+**読み手がこのページに求めるのは、PR の説明が与えなかったもの、つまりこの機能が実際に何をし、既存とどう並ぶか。** 所見はレビュアーの出力で、全体像は読み手の必要。他のどこにも無いのは後者だけ（実際の実行でも、読み手の追加の質問はすべて全体像の側だった）。
 
-Measured on a real run: the reviewer produced both, and the reader's follow-up questions were all about
-the orientation half.
+## 6 つの節
 
-## The six sections
+1. **何ができるようになったか** — 前 → 後を、システムではなく利用者の言葉で。段落より前後 1 組のカードがよい。利用者が最終的に手にする具体的な成果物を名指す。
+2. **既存との関係** — 似ている兄弟機能との差分表。共通点、分かれる点、**既存側で何が変わったか**。既存機能に 1 点だけ触れる変更は、その精度でそう書く。
+3. **処理フロー** — Mermaid 図。Artifact も Canvas も ```mermaid フェンスと `<pre class="mermaid">` をそのまま描画するので、ライブラリは読み込まない。ノードは読み手が分かるもの（画面、エンドポイント、テーブル、キュー、ステージ）にし、ファイルパスやクラス名にしない。
+4. **コードの置きどころ** — 新しいコードを層ごとにどこへ置いたか、**なぜそこか**。Step 2b の適合スイープが人間に見える場所。「adapter はリポジトリ自身の規則どおり、持ち主のモジュールで定義されている」は書く価値があり、差分からは見えない。
+5. **リポジトリ間の依存とリリース順序** — 複数リポジトリにまたがる変更で、何が何に依存し、安全な順序は何か、**誤った順序ごとに何が壊れるか**。3 行の表。
+6. **決まっていないこと** — Step 4b の洗い出しを、答えが何を変えるかでまとめる。
 
-1. **何ができるようになったか** — before → after, in the user's terms rather than the system's. A
-   before/after pair of cards beats a paragraph. Name the concrete artefact the user ends up with.
-2. **既存との関係** — the sibling feature this resembles, as a difference table: what is shared, what
-   diverges, and **what changed in the existing thing**. A change that touches an existing feature at
-   one point should say so at that level of precision.
-3. **処理フロー** — a Mermaid diagram. Artifacts and Canvas both render ```mermaid fences and
-   `<pre class="mermaid">` natively, so no library is loaded. Nodes are what the reader recognises —
-   screens, endpoints, tables, queues, stages — never file paths or class names.
-4. **コードの置きどころ** — where the new code went, by layer, and **why there**. This is where the
-   Step 2b conformance sweep surfaces for a human: "the adapter is defined in the owning module, per
-   the repository's own rule" is worth stating, and is invisible in a diff.
-5. **リポジトリ間の依存とリリース順序** — for a change spanning repositories: what depends on what,
-   the safe order, and **what breaks in each wrong order**. A three-row table.
-6. **決まっていないこと** — the Step 4b sweep, grouped by what the answer changes.
+## 加えて正直さの行を 2 つ。省略しない
 
-## Plus two honesty rows, and they are not optional
+この経路では層のレポートがターミナルに出ないので、**その 🔎 と 🔬 は他に置き場が無い。** これが無いと、短い所見の一覧が徹底したレビューに見える。
 
-The layer reports do not reach the terminal on this path, so **their 🔎 and 🔬 have nowhere else to
-live.** Without them a short finding list reads as a thorough review.
+- **🔎 読んだもの / 仮定したもの** — 差分のどれだけを実際に開いたか（「本番 65 ファイル中 30」）、名前を挙げて開かなかったもの、形だけで済ませたクラスタ、実行しなかったもの（typecheck、テスト、`terraform plan`）。問題なしは「この深さでは検出されなかった」の意味だと明記する。
+- **🔬 除外したもの** — 出して反証された所見の数、確信度の閾値を下回った数、目立つ反証をそれぞれ 1 行。**何も除外しなかったレビューは較正されていない。** 0 件ならそう書く。
 
-- **🔎 読んだもの / 仮定したもの** — how much of the diff was actually opened ("本番 65 ファイル中 30"),
-  what was never opened by name, which clusters got a token pass, and what was not run (typecheck,
-  tests, `terraform plan`). State plainly that a clean result means "not detected at this depth".
-- **🔬 除外したもの** — how many findings were raised and refuted, how many fell below the confidence
-  threshold, and one line each for the notable refutations. **A review that filtered nothing has not
-  been calibrated**; say so if the count is zero.
+`pr-comments.md` は、残りは「レポートにまだある」という前提で PR に載せる部分を選ぶ。**この経路では、除外した項目にとってページがそのレポートになる。** 各 1 行で足り、それが選択を監査可能に保つ。
 
-`pr-comments.md` selects the PR subset on the premise that everything else "is still in the report".
-**On this path the page is that report** for the excluded items — one line each is enough, and it is
-what keeps the selection auditable.
+## デザイン
 
-## Design
+`artifact-design` スキルに従う。このページ固有の点は 2 つ。
 
-The `artifact-design` skill governs. Two things specific to this page:
+- **ダッシュボードではなく文書。** 文字の階層と本物のタイプスケールで組む。重大度のチップで飾らない。重大度は下書きにある。
+- **N×M のものは表にする。** 幅の広い表はページを横にスクロールさせず、表自身のコンテナ内でスクロールさせる。
 
-- **It is a document, not a dashboard.** Typographic hierarchy and a real type scale carry it. Resist
-  the severity-chip treatment; the severities are in the drafts.
-- **Tables for anything N×M**, and let wide tables scroll inside their own container rather than making
-  the page scroll sideways.
-
-Name it after the feature, not after the review: `年末調整 国税庁XMLエクスポート`, not
-`レビュー結果`. It sits in a gallery beside other pages and has to be findable by what it is about.
+名前はレビューではなく機能から付ける。`年末調整 国税庁XMLエクスポート` であって `レビュー結果` ではない。他のページと並ぶギャラリーで、内容から見つけられる必要がある。
