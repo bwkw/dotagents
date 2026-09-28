@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
-# Arm and disarm the verification gate.
+# 検証ゲートを掛ける・外す。
 #
-#   gate.sh arm [dir]            hold this repository's session until its checks pass
-#   gate.sh disarm [dir]         release it
-#   gate.sh record <check> [dir] note that the user ran a delegated check themselves
-#   gate.sh status [dir]         is it armed, how idle, and what has been recorded
-#   gate.sh status --json [dir]  the same, for a driver rather than a human
-#   gate.sh verify [--json] [dir] run this repository's gating checks now, without ending a turn
-#   gate.sh gc                   reclaim gates left armed by sessions that ended
+#   gate.sh arm [dir]            このリポジトリのセッションを、チェックが通るまで止める
+#   gate.sh disarm [dir]         止めるのをやめる
+#   gate.sh record <check> [dir] 委任したチェックをユーザーが実行したと記録する
+#   gate.sh status [dir]         掛かっているか、アイドル時間、記録済みの内容
+#   gate.sh status --json [dir]  同じ内容を、人ではなくドライバー向けに出す
+#   gate.sh verify [--json] [dir] ターンを終えずに、このリポジトリのゲートのチェックをいま実行する
+#   gate.sh gc                   終わったセッションが掛けたまま残したゲートを回収する
 #
-# The gate hook does nothing unless armed. Skills call this; nothing else needs to.
+# ゲートの hook は掛けられていなければ何もしない。呼ぶのはスキルだけでよい。
 #
-# The sentinel file holds the repository root it belongs to, and the hook matches on that content
-# rather than on the directory name. An earlier design had both sides derive a slug from the repo,
-# which meant two implementations that had to agree forever -- and the skill that recorded a
-# delegated check could write into a different directory than the one that was armed, silently.
-# Matching on content removes the coupling: the name is an implementation detail nobody depends on.
+# 番兵ファイルには所属するリポジトリのルートを書き、hook はディレクトリ名ではなくその中身で照合する。
+# 双方が同じ規則で slug を導く設計だと、2 つの実装が永遠に一致し続ける必要があり、ずれると
+# 委任の記録が掛けたのとは別のディレクトリへ黙って書かれる。中身で照合すれば名前に誰も依存しない。
 #
-# Arming a repository also arms its linked worktrees. Matching only the exact toplevel meant every
-# worktree of an armed repo answered "armed elsewhere" -- while `using-git-worktrees` is this
-# toolkit's own recommended way to isolate parallel work, so the gate was absent exactly where the
-# work was most deliberate. Counters stay per worktree under wt/<key>: inheriting a gate must not
-# mean sharing its attempt count with another piece of work.
+# リポジトリに掛けると、リンクされた worktree にも掛かる（`using-git-worktrees` が推奨する並行作業の
+# 場所でゲートが外れないように）。カウンタは wt/<key> で worktree ごとに持つ。ゲートを継いでも
+# 試行回数は他の作業と共有しない。
 
 set -uo pipefail
 
@@ -30,22 +26,20 @@ GATE_DIR="${DOTAGENTS_GATE_DIR:-$HOME/.claude/.dotagents-gate}"
 die() { printf 'gate: %s\n' "$1" >&2; exit 1; }
 
 # >>> dotagents:gate-shared -- byte-identical in scripts/gate.sh and hooks/dotagents-verify-gate.sh.
-# Duplicated rather than sourced from a lib: invariant 4 says a hook must not depend on a path that
-# can go missing, and a lib under the repo can. scripts/verify-skills.sh asserts the copies match.
+# lib から source せず複製している。不変条件 4（hook は消えうるパスに依存しない）のため。
+# 2 つのコピーの一致は scripts/verify-skills.sh が検査する。
 #
-# --- identity ---------------------------------------------------------------
-# Two levels, because they answer different questions.
-#   Whether a repository is gated is a property of the *repository*, so it keys on the shared git
-#   directory -- which is what makes a linked worktree inherit its main checkout's gate.
-#   Attempts and delegated records are properties of a *working tree*, so they key per worktree.
-#   Inheriting a gate must not mean sharing its counters.
-gate_abs() { # <dir> <rev-parse-flag> -> absolute path, or empty when it cannot be determined
+# --- 識別 -------------------------------------------------------------------
+# 問いが違うので 2 段に分ける。
+#   ゲートが掛かっているかはリポジトリの性質なので、共有の git ディレクトリで引く。
+#   これでリンクされた worktree がメインのチェックアウトのゲートを継ぐ。
+#   試行回数と委任の記録は作業ツリーの性質なので worktree ごとに持つ。継いでもカウンタは共有しない。
+gate_abs() { # <dir> <rev-parse-flag> -> 絶対パス。決められなければ空
   local d="$1" f="$2" p
   p="$(git -C "$d" rev-parse --path-format=absolute "$f" 2>/dev/null || true)"
   case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
-  # git < 2.31 has no --path-format, and a bare --git-common-dir answers relative to the directory it
-  # was asked from. Resolve by hand, refusing to guess when anything is empty: `cd ""` succeeds and
-  # would silently answer with $HOME.
+  # git < 2.31 には --path-format が無く、素の --git-common-dir は問い合わせ元からの相対で返る。
+  # 手で解決し、どれかが空なら推測しない。`cd ""` は成功して黙って $HOME を返す。
   p="$(git -C "$d" rev-parse "$f" 2>/dev/null || true)"
   [[ -n "$p" ]] || return 0
   case "$p" in /*) printf '%s' "$p"; return 0 ;; esac
@@ -54,36 +48,34 @@ gate_abs() { # <dir> <rev-parse-flag> -> absolute path, or empty when it cannot 
 
 gate_common_dir() { gate_abs "$1" --git-common-dir; }
 
-# git already maintains a unique name per linked worktree, at <common>/worktrees/<name>. Reusing it
-# beats hashing the path: no crypto, no node, and the directory stays readable by a human.
-gate_worktree_key() { # <dir> -> a filesystem-safe id unique to this working tree
+# git はリンクされた worktree ごとに一意の名前を <common>/worktrees/<name> に持っている。
+# パスをハッシュするより再利用がよい。暗号も node も要らず、人が読めるディレクトリ名になる。
+gate_worktree_key() { # <dir> -> この作業ツリーに一意な、ファイル名に使える ID
   local g c
   g="$(gate_abs "$1" --git-dir)"
   c="$(gate_abs "$1" --git-common-dir)"
   if [[ -n "$g" && -n "$c" && "$g" != "$c" ]]; then basename "$g"; else printf 'main'; fi
 }
 
-# Where a working tree's own counters live. One level below the sentinel, so a gate inherited by
-# several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
+# 作業ツリー自身のカウンタの置き場。番兵の 1 段下なので、複数の worktree が継いだゲートでも
+# 試行回数はツリーごとに 1 組になる。
 state_dir_for() { # <armed-dir> <dir>
   printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
 }
 
-# --- the trace --------------------------------------------------------------
-# One line per event, so "nothing happened" can be told apart from "never ran". Capped, because an
-# unbounded log under $HOME is the same failure as the unbounded backups.
+# --- トレース ---------------------------------------------------------------
+# 1 イベント 1 行。「何も起きなかった」と「動かなかった」を見分けるため。$HOME の下で際限なく
+# 育たないよう上限を設ける。
 #
-# Shared so that `gate.sh` writes here too, not only the hook. Without it, arm / disarm / record left
-# no trace at all -- and the whole reason this file exists is to explain a gate nobody remembers
-# arming, which is precisely an arm nobody recorded.
+# hook だけでなく `gate.sh` もここへ書く。誰も覚えていないゲートを説明するのがこのファイルの役目で、
+# arm / disarm / record が残らなければその役目を果たせない。
 gate_trace() { # <who> <where> <what>
   [[ -d "$GATE_DIR" ]] || return 0
   local trace="$GATE_DIR/trace.log" tmp
   printf '%s\t%s\t%s\t%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-?}" "${3:-}" >> "$trace" 2>/dev/null || true
-  # Trimmed through a temp file and renamed. `tail > f.trim && mv f.trim f` is two steps with a window
-  # between them, so two turns ending at once could lose lines -- in the one file that exists to say
-  # what happened.
+  # 一時ファイルに切り詰めて rename する。`tail > f.trim && mv f.trim f` は 2 手の間に隙があり、
+  # 同時に終わった 2 ターンが行を失いうる。
   if [[ "$(wc -l < "$trace" 2>/dev/null || echo 0)" -gt 200 ]]; then
     tmp="$trace.trim.$$"
     tail -100 "$trace" > "$tmp" 2>/dev/null && mv -f "$tmp" "$trace" 2>/dev/null || rm -f "$tmp" 2>/dev/null
@@ -91,26 +83,26 @@ gate_trace() { # <who> <where> <what>
   return 0
 }
 
-# --- the clock --------------------------------------------------------------
-# Epochs are stored as file *contents*, not as mtimes: `touch -t` arithmetic differs between BSD and
-# GNU, and the tests have to move time deterministically. `date +%s` is identical on both.
-# DOTAGENTS_GATE_NOW exists for those tests. Nothing else sets it.
+# --- 時計 -------------------------------------------------------------------
+# エポックは mtime ではなくファイルの中身に持つ。`touch -t` の計算は BSD と GNU で違い、テストは
+# 時刻を決定的に動かす必要がある。`date +%s` は両方で同じ。
+# DOTAGENTS_GATE_NOW はそのテスト用。他では設定しない。
 gate_now() {
   local n="${DOTAGENTS_GATE_NOW:-}"
   case "$n" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$n" ;; esac
 }
 
-# 12 hours is chosen, not measured. It has to outlast a long unattended run without outlasting a night.
+# 12 時間は計測ではなく選んだ値。長い無人実行より長く、一晩よりは短く。
 gate_ttl_seconds() {
   local h="${DOTAGENTS_GATE_TTL_HOURS:-12}"
   case "$h" in ''|*[!0-9]*) h=12 ;; esac
   printf '%s' $(( h * 3600 ))
 }
 
-# Seconds since this gate last saw a turn end -- idle time, not age. A TTL counted from arming would
-# kill the case this exists for: a six-hour unattended run would expire mid-flight and the gate would
-# open in silence. Empty when there is no heartbeat to compare against, which callers must NOT read as
-# "infinitely idle": that would evict a gate somebody armed a minute ago with an older gate.sh.
+# このゲートで最後にターンが終わってからの秒数。経過時間ではなくアイドル時間。掛けた時点から
+# 数えると、6 時間の無人実行が途中で期限切れになり、ゲートが黙って開く。
+# heartbeat が無ければ空を返す。呼び出し側はこれを「無限にアイドル」と読んではいけない。
+# 古い gate.sh で 1 分前に掛けたゲートを追い出してしまう。
 gate_idle_seconds() { # <armed-dir>
   local hb now
   hb="$(cat "$1/HEARTBEAT" 2>/dev/null || true)"
@@ -125,28 +117,26 @@ gate_touch_heartbeat() { # <armed-dir>
   return 0
 }
 
-# --- verdicts ---------------------------------------------------------------
-# A verdict is a file that is *present*, not a state that is absent. If ending a gate only removed
-# ACTIVE, the next session's `status` would say "not armed" -- indistinguishable from a session that
-# never armed anything, which is the exact lie this is here to prevent.
+# --- verdict ----------------------------------------------------------------
+# verdict は「無い状態」ではなく「在るファイル」で表す。ACTIVE を消すだけだと、次のセッションの
+# `status` は「not armed」と答え、一度も掛けなかったセッションと区別できない。
 #
-# One field per line, read with `sed -n Np`, the same idiom the hook already uses for its work file.
-#   1 timestamp   2 reason   3 check id   4 attempts   5 exit code   6 agent   7 command   8+ output
+# 1 行 1 フィールド。hook が作業ファイルに使うのと同じ `sed -n Np` で読む。
+#   1 時刻   2 理由   3 チェック ID   4 試行回数   5 終了コード   6 エージェント   7 コマンド   8 以降 出力
 gate_write_verdict() { # <dir> <reason> <check> <attempts> <exit> <agent> <command> [output]
   local d="$1" tmp="$1/VERDICT.tmp.$$"
   {
     date -u +%Y-%m-%dT%H:%M:%SZ
     printf '%s\n%s\n%s\n%s\n%s\n' "${2:--}" "${3:--}" "${4:-0}" "${5:--}" "${6:--}"
-    # Flattened to one line: every field above is addressed by line number, so a command containing a
-    # newline would push the output tail into the middle of the record.
+    # 1 行に潰す。各フィールドは行番号で引くので、改行を含むコマンドが出力の末尾を記録の途中へ押し込む。
     printf '%s' "${7:--}" | tr '\n' ' '
     printf '\n%s\n' "${8:-}"
   } > "$tmp" 2>/dev/null && mv -f "$tmp" "$d/VERDICT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
   return 0
 }
 
-# Beside trace.log, but never trimmed. The trace self-trims at 200 lines by design, so a verdict
-# recorded only there would be deleted by ordinary operation.
+# trace.log の隣に置くが、切り詰めない。trace は 200 行で自動的に切り詰めるので、そこにしか無い
+# verdict は通常運用で消える。
 gate_log_verdict() { # <root> <reason> <detail>
   printf '%s\t%s\t%s\t%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:--}" "${2:--}" "${3:-}" \
@@ -154,8 +144,8 @@ gate_log_verdict() { # <root> <reason> <detail>
   return 0
 }
 
-# Reclaim an idle sentinel. ACTIVE goes, so the gate correctly becomes inert. ROOT and VERDICT stay,
-# so `status` can still answer whose gate it was and why it ended. Prints the root it reclaimed.
+# アイドルの番兵を回収する。ACTIVE は消してゲートを無効にする。ROOT と VERDICT は残し、`status` が
+# 誰のゲートで、なぜ終わったかを答えられるようにする。回収したルートを出力する。
 gate_expire() { # <armed-dir> <idle-seconds>
   local d="$1" idle="${2:-0}" root ttl
   root="$(cat "$d/ROOT" 2>/dev/null || true)"
@@ -163,39 +153,39 @@ gate_expire() { # <armed-dir> <idle-seconds>
   ttl="$(gate_ttl_seconds)"
   [[ -n "$root" ]] && printf '%s' "$root" > "$d/ROOT" 2>/dev/null
   gate_write_verdict "$d" expired - 0 - - - \
-"Reclaimed after $(( idle / 3600 ))h idle (ttl $(( ttl / 3600 ))h). The session that armed this gate
-ended without disarming it. Nothing was checked by this verdict -- it records only that the gate
-stopped holding, not that the work was verified."
+"アイドル $(( idle / 3600 ))h のため回収（ttl $(( ttl / 3600 ))h）。ゲートを掛けたセッションが、
+解除せずに終わった。この verdict は何も検査していない。ゲートが止めるのをやめたことだけを
+記録しており、作業が検証済みだとは言っていない。"
   rm -f "$d/ACTIVE"
   printf '%s' "$root"
 }
 # <<< dotagents:gate-shared
 
-# Absolute repository root, or the directory itself when it is not a repo.
+# リポジトリの絶対ルート。リポジトリでなければそのディレクトリ自身。
 repo_root() {
   local d="${1:-$PWD}"
-  [[ -d "$d" ]] || die "not a directory: $d"
+  [[ -d "$d" ]] || die "ディレクトリではない: $d"
   git -C "$d" rev-parse --show-toplevel 2>/dev/null || (cd "$d" && pwd)
 }
 
-# A readable directory name. Only for humans reading ~/.claude/.dotagents-gate; never parsed.
-# The branch used to be part of it. It was dropped when worktrees began inheriting the gate: a
-# directory called `repo-main` holding the gate for a worktree on another branch is a label that lies.
+# 人が ~/.claude/.dotagents-gate を読むための名前。どこでもパースしない。
+# ブランチ名は入れない。worktree がゲートを継ぐので、`repo-main` が別ブランチの worktree の
+# ゲートを持つと、ラベルが嘘をつく。
 slug_for() {
   printf '%s' "$(basename "$1")" | tr -cs 'A-Za-z0-9._-' '-' | cut -c1-80
 }
 
-# Where a working tree's own counters live. One level down from the sentinel, so a gate inherited by
-# several worktrees keeps one set of attempts per tree instead of one shared set for the repository.
+# 作業ツリー自身のカウンタの置き場。番兵の 1 段下なので、複数の worktree が継いだゲートでも
+# 試行回数はツリーごとに 1 組になる。
 state_dir_for() { # <armed-dir> <dir>
   printf '%s/wt/%s' "$1" "$(gate_worktree_key "$2")"
 }
 
-# The directory holding a given marker for this repository, found by the root recorded inside it --
-# or by the shared git directory, so a worktree finds the gate its main checkout armed.
+# このリポジトリの指定マーカーを持つディレクトリ。中に書かれたルートで探し、見つからなければ
+# 共有の git ディレクトリで探す（worktree がメインのチェックアウトのゲートを見つけられるように）。
 #
-# ACTIVE answers "is it armed". ROOT answers "whose was this" and outlives eviction, which is the
-# only reason `status` can tell an expired gate apart from a session that never armed anything.
+# ACTIVE は「掛かっているか」、ROOT は「誰のものだったか」に答え、ROOT は回収後も残る。
+# `status` が期限切れのゲートと一度も掛けなかったセッションを見分けられるのはこのため。
 find_marked() { # <marker-filename> <root>
   local marker="$1" root="$2" f armed common armed_common
   common="$(gate_common_dir "$root")"
@@ -204,8 +194,7 @@ find_marked() { # <marker-filename> <root>
     armed="$(cat "$f" 2>/dev/null)"
     [[ -n "$armed" ]] || continue
     [[ "$armed" == "$root" ]] && { dirname "$f"; return 0; }
-    # Only when the recorded path still resolves. If the repository moved, string equality above is
-    # the only claim we are entitled to make.
+    # 記録されたパスがまだ解決できる時だけ。リポジトリが移動していたら、上の文字列一致しか主張できない。
     if [[ -n "$common" && -d "$armed" ]]; then
       armed_common="$(gate_common_dir "$armed")"
       [[ -n "$armed_common" && "$armed_common" == "$common" ]] && { dirname "$f"; return 0; }
@@ -217,16 +206,15 @@ find_marked() { # <marker-filename> <root>
 find_armed() { find_marked ACTIVE "$1"; }
 find_ended() { find_marked ROOT   "$1"; }
 
-# How long a gate has been idle, in whole hours, for humans.
+# ゲートのアイドル時間を、人向けに時間単位で。
 idle_hours() { # <armed-dir>
   local s; s="$(gate_idle_seconds "$1")"
   [[ -n "$s" ]] || { printf 'unknown'; return; }
   printf '%sh' $(( s / 3600 ))
 }
 
-# Is there a profile for this repository? Arming one without a profile produces a gate that reports
-# "armed" and then passes every turn in silence -- the believing-you-are-protected state that
-# docs/decisions.md exists to prevent. Found by arming this repository, which had no profile.
+# このリポジトリのプロファイルはあるか。無いまま掛けると、「armed」と答えたうえで毎ターン黙って
+# 通すゲートになる。守られていると思い込む状態で、docs/decisions.md が防ぎたいもの。
 warn_if_no_profile() {
   local root="$1" remote profiles hit
   remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
@@ -236,7 +224,7 @@ warn_if_no_profile() {
   [[ -n "$profiles" && -d "$profiles" ]] || profiles="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/profiles"
 
   if [[ -z "$remote" ]]; then
-    echo "  warning: no git remote, so no profile can be matched -- the gate will pass silently."
+    echo "  warning: git remote が無く、プロファイルを照合できない。ゲートは黙って通す。"
     return
   fi
   hit="$(node -e '
@@ -247,8 +235,8 @@ warn_if_no_profile() {
         if (!f.endsWith(".json") || f.startsWith("_")) continue;
         try {
           const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-          // String or list of strings, any of which matches. Kept identical to the copy in
-          // hooks/dotagents-verify-gate.sh.
+          // 文字列か文字列のリストで、どれか 1 つが一致すればよい。
+          // hooks/dotagents-verify-gate.sh 側のコピーと同一に保つ。
           const pats = p?.match?.remote == null ? [] : [].concat(p.match.remote);
           if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) { console.log(f); break; }
         } catch {}
@@ -260,26 +248,26 @@ warn_if_no_profile() {
     echo "  profile: $hit"
   else
     echo
-    echo "  WARNING: no profile matches $remote"
-    echo "  The gate is armed but has no commands to run, so it will pass every turn in silence."
-    echo "  Write $profiles/<name>.json before relying on this. /da-verify will walk you through it."
+    echo "  WARNING: $remote に一致するプロファイルが無い"
+    echo "  ゲートは掛かったが実行するコマンドが無く、毎ターン黙って通す。"
+    echo "  頼る前に $profiles/<name>.json を書くこと。/da-verify が手順を案内する。"
   fi
 }
 
-# Surface a verdict left behind by whoever was here before, and move it aside so the gate can hold
-# again. Returns 0 when there was one, so the caller knows to reset the budget with it.
+# 前の誰かが残した verdict を示し、ゲートがまた止められるよう脇へ退ける。あれば 0 を返し、
+# 呼び出し側はそれを合図に試行回数をリセットする。
 report_prior_verdict() { # <dir holding VERDICT>
   local d="$1"
   [[ -f "$d/VERDICT" ]] || return 1
   mv -f "$d/VERDICT" "$d/VERDICT.prev" 2>/dev/null || return 1
   echo
-  echo "  NOTE: the gate here ended with a verdict rather than being disarmed:"
+  echo "  NOTE: ここのゲートは解除ではなく verdict で終わっている:"
   printf '    reason  %s\n' "$(sed -n 2p "$d/VERDICT.prev" 2>/dev/null)"
   printf '    check   %s\n' "$(sed -n 3p "$d/VERDICT.prev" 2>/dev/null)"
-  printf '    at      %s after %s attempt(s)\n' \
+  printf '    at      %s（%s 回試行後）\n' \
     "$(sed -n 1p "$d/VERDICT.prev" 2>/dev/null)" "$(sed -n 4p "$d/VERDICT.prev" 2>/dev/null)"
-  echo "  That work was NOT verified. Read $d/VERDICT.prev before treating it as done."
-  echo "  The attempt budget restarts now."
+  echo "  その作業は検証されていない。完了扱いにする前に $d/VERDICT.prev を読むこと。"
+  echo "  試行回数はここからやり直し。"
   return 0
 }
 
@@ -287,49 +275,48 @@ cmd_arm() {
   local root; root="$(repo_root "${1:-}")"
   local dir state
   if dir="$(find_armed "$root")"; then
-    # Already armed -- possibly by the main checkout of a worktree we are standing in. Do not reset
-    # anything, but make sure this working tree has somewhere to keep its own counters.
+    # 掛かっている（いま居る worktree のメインのチェックアウトが掛けた場合も含む）。何もリセット
+    # しないが、この作業ツリーのカウンタの置き場は用意する。
     state="$(state_dir_for "$dir" "$root")"
     mkdir -p "$state" 2>/dev/null || true
-    gate_trace "gate.sh" "$root" "arm requested; already armed"
+    gate_trace "gate.sh" "$root" "arm を要求されたが既に掛かっている"
     echo "already armed: $dir"
-    # Re-arming is the one code path a new session is guaranteed to reach, via /da-verify. So it is
-    # where a verdict left by the previous session has to surface -- and where the budget restarts,
-    # since a gate that gave up would otherwise never hold again however many times it was re-armed.
+    # 再度の arm は、新しいセッションが /da-verify 経由で必ず通る唯一の経路。前のセッションの
+    # verdict はここで示し、試行回数もここでやり直す。でないと諦めたゲートは何度掛け直しても止めない。
     report_prior_verdict "$state" && printf '{}\n' > "$state/attempts.json"
     warn_if_no_profile "$root"
     return 0
   fi
-  # The slug is a label, so two repositories with the same basename can want the same directory.
-  # Writing into one that already holds a sentinel would hijack another repository's gate.
+  # slug はただのラベルなので、basename が同じ 2 つのリポジトリが同じディレクトリを欲しがりうる。
+  # 番兵のあるディレクトリへ書くと、他のリポジトリのゲートを乗っ取る。
   local base n=0
   base="$GATE_DIR/$(slug_for "$root")"
   dir="$base"
-  # Reuse our own expired directory -- that is how a prior verdict gets echoed below -- but never one
-  # that is armed, and never one whose ROOT names a different repository.
+  # 自分の期限切れディレクトリは再利用する（下で前の verdict を示すため）。掛かっているもの、
+  # ROOT が別リポジトリを指すものは使わない。
   while [[ -e "$dir/ACTIVE" ]] \
      || { [[ -e "$dir/ROOT" ]] && [[ "$(cat "$dir/ROOT" 2>/dev/null)" != "$root" ]]; }; do
     n=$((n+1))
     dir="$base-$n"
   done
-  mkdir -p "$dir" || die "could not create $dir"
-  printf '%s' "$root" > "$dir/ACTIVE" || die "could not write the sentinel"
-  # ROOT is the same content, and is never removed. It is what lets `status` and `gc` report on a gate
-  # that is no longer armed, instead of falling back to a bare "not armed".
+  mkdir -p "$dir" || die "$dir を作れなかった"
+  printf '%s' "$root" > "$dir/ACTIVE" || die "番兵を書き込めなかった"
+  # ROOT は同じ中身で、消さない。`status` と `gc` が、掛かっていないゲートについて素の
+  # 「not armed」以上のことを答えられるのはこれがあるから。
   printf '%s' "$root" > "$dir/ROOT"
   gate_now > "$dir/ARMED_AT"
   gate_touch_heartbeat "$dir"
   state="$(state_dir_for "$dir" "$root")"
-  mkdir -p "$state" || die "could not create $state"
+  mkdir -p "$state" || die "$state を作れなかった"
   printf '{}\n' > "$state/attempts.json"
   : > "$state/delegated.json"
   gate_trace "gate.sh" "$root" "armed"
   echo "armed: $dir"
-  echo "  the turn will not end while $(basename "$root")'s gating checks fail"
-  echo "  worktrees of this repository inherit it, each with its own attempt count"
-  echo "  reclaimed automatically after $(( $(gate_ttl_seconds) / 3600 ))h with no turn ending here"
-  # Two places a verdict can be waiting: beside the sentinel if this gate was reclaimed for idleness,
-  # and beside this tree's counters if it gave up. Both mean the same thing to whoever is re-arming.
+  echo "  $(basename "$root") のゲートのチェックが失敗している間、ターンは終わらない"
+  echo "  このリポジトリの worktree も継ぐ。試行回数は worktree ごと"
+  echo "  ここでターンが終わらないまま $(( $(gate_ttl_seconds) / 3600 ))h 経つと自動で回収する"
+  # verdict の待ち場所は 2 つ。アイドルで回収されたなら番兵の隣、諦めたならこのツリーのカウンタの隣。
+  # 掛け直す人にとってはどちらも同じ意味。
   report_prior_verdict "$dir"   || true
   report_prior_verdict "$state" || true
   warn_if_no_profile "$root"
@@ -342,20 +329,18 @@ cmd_disarm() {
     echo "not armed"
     return 0
   fi
-  # Named paths only, never a glob: this runs under $HOME.
-  # A deliberate disarm is a clean end, so it leaves no verdict behind -- unlike eviction, which has
-  # to explain itself. That is the difference the three-state design exists to express.
+  # $HOME の下で動くので、glob を使わず名前で指定する。
+  # 意図した解除はきれいな終わりなので verdict を残さない。説明が要る回収との違いがここ。
   rm -f "$dir/ACTIVE" "$dir/ROOT" "$dir/ARMED_AT" "$dir/HEARTBEAT" "$dir/VERDICT" "$dir/VERDICT.prev"
   rm -rf "$dir/wt"
-  rm -f "$dir/attempts.json" "$dir/delegated.json"   # pre-worktree layout
+  rm -f "$dir/attempts.json" "$dir/delegated.json"   # worktree 対応前の配置
   rmdir "$dir" 2>/dev/null || true
-  gate_trace "gate.sh" "$root" "disarmed deliberately"
+  gate_trace "gate.sh" "$root" "意図して解除した"
   echo "disarmed: $dir"
 }
 
-# Reclaim every idle gate now, rather than waiting for some other repository's turn to end. For a
-# driver or a CI step that wants the sweep on demand. Prints what it reclaimed -- a sweep that says
-# nothing is indistinguishable from a sweep that found nothing.
+# アイドルのゲートを、他のリポジトリのターン終了を待たずにいま回収する。ドライバーや CI 向け。
+# 何を回収したかを出す。何も言わない掃除は、何も見つからなかった掃除と区別できない。
 cmd_gc() {
   local f dir idle root ttl found=0
   ttl="$(gate_ttl_seconds)"
@@ -364,41 +349,40 @@ cmd_gc() {
     dir="$(dirname "$f")"
     idle="$(gate_idle_seconds "$dir")"
     if [[ -z "$idle" ]]; then
-      # Armed by a version that kept no heartbeat. Start its clock rather than treat it as ancient.
+      # heartbeat を持たない版が掛けたもの。古いとみなさず、時計をここから動かす。
       gate_touch_heartbeat "$dir"
-      echo "clock started: $(cat "$f" 2>/dev/null) (no heartbeat recorded until now)"
+      echo "clock started: $(cat "$f" 2>/dev/null)（いままで heartbeat の記録なし）"
       found=1
       continue
     fi
     if (( idle > ttl )); then
       root="$(gate_expire "$dir" "$idle")"
-      gate_log_verdict "${root:-$dir}" expired "idle $(( idle / 3600 ))h, reclaimed by gc"
-      echo "reclaimed: ${root:-$dir} (idle $(( idle / 3600 ))h, ttl $(( ttl / 3600 ))h)"
+      gate_log_verdict "${root:-$dir}" expired "アイドル $(( idle / 3600 ))h、gc が回収"
+      echo "reclaimed: ${root:-$dir}（アイドル $(( idle / 3600 ))h、ttl $(( ttl / 3600 ))h）"
       found=1
     fi
   done
-  (( found )) || echo "nothing to reclaim (no gate idle beyond $(( ttl / 3600 ))h)"
+  (( found )) || echo "回収するものはない（$(( ttl / 3600 ))h を超えてアイドルのゲートは無い）"
 }
 
 cmd_record() {
   local check="${1:-}"
-  [[ -n "$check" ]] || die "record needs a check id"
+  [[ -n "$check" ]] || die "record にはチェック ID が要る"
   local root; root="$(repo_root "${2:-}")"
   local dir state
-  dir="$(find_armed "$root")" || die "not armed, so there is nothing to record against.
-Run 'gate.sh arm' first, or let /da-verify do it."
-  # A delegated result is evidence about one working tree, so it is recorded against this one.
+  dir="$(find_armed "$root")" || die "ゲートが掛かっておらず、記録する先が無い。
+先に 'gate.sh arm' を実行するか、/da-verify に任せること。"
+  # 委任の結果は 1 つの作業ツリーについての証拠なので、この作業ツリーに記録する。
   state="$(state_dir_for "$dir" "$root")"
-  mkdir -p "$state" || die "could not create $state"
-  # Appended as one JSON object per line; the hook greps for the id rather than parsing.
+  mkdir -p "$state" || die "$state を作れなかった"
+  # 1 行 1 JSON オブジェクトで追記する。hook はパースせず ID を grep する。
   printf '{"%s": "passed"}\n' "$check" >> "$state/delegated.json"
-  gate_trace "gate.sh" "$root" "recorded delegated check: $check"
+  gate_trace "gate.sh" "$root" "委任したチェックを記録した: $check"
   echo "recorded: $check"
 }
 
-# The one machine-readable surface. A driver that had to parse the prose above would break the first
-# time a sentence was reworded, and new exit codes would mean litigating what each one means -- so this
-# is JSON, built by node so the escaping is not ours to get wrong. Read-only, like `status` itself.
+# 唯一の機械向けの出力。上の文をパースするドライバーは言い回しを変えた途端に壊れるので JSON にする。
+# エスケープを間違えないよう node で組む。`status` と同じく読み取りのみ。
 cmd_status_json() {
   local root dir state ended
   root="$(repo_root "${1:-}")"
@@ -443,16 +427,15 @@ cmd_status() {
   local root; root="$(repo_root "${1:-}")"
   local dir state deleg attempts ended
   if ! dir="$(find_armed "$root")"; then
-    # Nothing armed. But "not armed" alone cannot be the whole answer: it reads identically whether
-    # this session never armed anything or a gate was reclaimed out from under an abandoned one.
-    # Reporting only, never evicting -- reading state must not be what opens a gate.
+    # 掛かっていない。ただし「not armed」だけでは、一度も掛けなかったのか、放置されたゲートが
+    # 回収されたのか区別できない。ここでは報告だけで回収しない。状態を読むことでゲートが開いてはならない。
     if ended="$(find_ended "$root")" && [[ -f "$ended/VERDICT" ]]; then
       echo "not armed  ($root)"
       echo "  ended    $(sed -n 2p "$ended/VERDICT" 2>/dev/null) at $(sed -n 1p "$ended/VERDICT" 2>/dev/null)"
       [[ "$(sed -n 3p "$ended/VERDICT" 2>/dev/null)" == "-" ]] \
         || echo "  check    $(sed -n 3p "$ended/VERDICT" 2>/dev/null)"
       echo "  verdict  $ended/VERDICT"
-      echo "  The work this gate was holding was NOT verified. Read the verdict before calling it done."
+      echo "  このゲートが止めていた作業は検証されていない。完了と言う前に verdict を読むこと。"
     else
       echo "not armed  ($root)"
     fi
@@ -461,62 +444,54 @@ cmd_status() {
   state="$(state_dir_for "$dir" "$root")"
   echo "armed      $dir"
   echo "  repo     $root"
-  echo "  idle     $(idle_hours "$dir") (reclaimed past $(( $(gate_ttl_seconds) / 3600 ))h)"
+  echo "  idle     $(idle_hours "$dir")（$(( $(gate_ttl_seconds) / 3600 ))h を超えると回収）"
   if [[ -f "$dir/VERDICT" ]]; then
-    echo "  GAVE UP  $(sed -n 2p "$dir/VERDICT" 2>/dev/null) on $(sed -n 3p "$dir/VERDICT" 2>/dev/null) after $(sed -n 4p "$dir/VERDICT" 2>/dev/null) attempts"
-    echo "           this gate no longer blocks; see $dir/VERDICT"
+    echo "  GAVE UP  $(sed -n 2p "$dir/VERDICT" 2>/dev/null)。$(sed -n 3p "$dir/VERDICT" 2>/dev/null) を $(sed -n 4p "$dir/VERDICT" 2>/dev/null) 回試して諦めた"
+    echo "           このゲートはもう止めない。$dir/VERDICT を参照"
   fi
   [[ "$(cat "$dir/ACTIVE" 2>/dev/null)" == "$root" ]] \
     || echo "  inherited from $(cat "$dir/ACTIVE" 2>/dev/null)"
-  # Pre-worktree layout kept the records beside the sentinel. Read them rather than lose a delegated
-  # result across the upgrade: losing one means re-asking a human, which is a worse default than
-  # reading a file we wrote ourselves one version ago.
+  # worktree 対応前の配置は記録を番兵の隣に置いていた。更新をまたいで委任の結果を失わないよう読む。
+  # 失えば人にもう一度頼むことになり、1 版前に自分で書いたファイルを読むより悪い。
   deleg="$state/delegated.json";     [[ -e "$deleg" ]]    || deleg="$dir/delegated.json"
   attempts="$state/attempts.json";   [[ -e "$attempts" ]] || attempts="$dir/attempts.json"
   if [[ -s "$deleg" ]]; then
     echo "  recorded $(tr '\n' ' ' < "$deleg")"
   else
-    echo "  recorded (nothing yet)"
+    echo "  recorded （まだ無い）"
   fi
   if [[ -s "$attempts" ]] && ! grep -qx '{}' "$attempts"; then
     echo "  attempts $(tr -d '\n ' < "$attempts")"
   fi
 }
 
-# Matched, not addressed by line number: adding a subcommand to the header above used to silently
-# push one out of the range and `gate.sh -h` stopped listing it.
-# Run the repository's gating checks now. Drives the Stop hook rather than reimplementing its loop:
-# there is one implementation of "what this repository checks and how", and no second copy to drift.
+# このリポジトリのゲートのチェックをいま実行する。hook のループを作り直さず、Stop hook を駆動する。
+# 「このリポジトリが何をどう検査するか」の実装を 1 つに保ち、ずれる 2 つ目のコピーを作らないため
+# （da-verify/SKILL.md が散文でループを書いていた頃、未追跡ファイルの扱いが hook とずれていた）。
 #
-# That mattered. da-verify/SKILL.md described the loop in prose and had already diverged -- it told the
-# model to use `git diff --name-only HEAD` while the hook also includes untracked files, deliberately,
-# because a turn that only adds new files produced an empty list and skipped the check entirely. The
-# skill would have skipped a check the gate runs.
-#
-# DOTAGENTS_GATE_DRY makes the hook resolve the profile, run the checks, report, and touch nothing:
-# no attempt counted, no verdict written, no heartbeat refreshed, and no sentinel required. Checking
-# your own work has to be free, or the attempt budget would depend on how often you looked.
+# DOTAGENTS_GATE_DRY を付けると、hook はプロファイルを解決し、チェックを実行し、報告して、何も
+# 変えない。試行回数も verdict も heartbeat も触らず、番兵も要らない。自分の作業の確認は無料で
+# なければならない。でないと試行回数が、どれだけ確認したかに左右される。
 cmd_verify() {
   local as_json=0
   [[ "${1:-}" == "--json" ]] && { as_json=1; shift; }
   local root; root="$(repo_root "${1:-}")"
 
-  # The copy in this repository, not the installed one. gate.sh ships with the repository and its job
-  # is to run these checks with this repository's logic; the installed copy can be older, and
-  # `setup.sh doctor` is what reports that gap. Preferring the installed copy meant `verify` silently
-  # exercised a version that predated the feature being tested -- which is how I found this.
+  # インストール済みではなく、このリポジトリのコピーを使う。インストール済みのほうは古いことがあり、
+  # その差は `setup.sh doctor` が報告する。インストール済みを優先すると、テスト中の機能より古い版を
+  # `verify` が黙って動かす。
   local hook; hook="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hooks/dotagents-verify-gate.sh"
-  [[ -f "$hook" ]] || die "cannot find hooks/dotagents-verify-gate.sh next to this script"
+  [[ -f "$hook" ]] || die "このスクリプトの隣に hooks/dotagents-verify-gate.sh が見つからない"
 
   local out err report rc=0
-  out="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
-  err="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
-  report="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp failed"
+  out="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp に失敗した"
+  err="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp に失敗した"
+  report="$(mktemp "${TMPDIR:-/tmp}/dotagents-verify.XXXXXX")" || die "mktemp に失敗した"
   # shellcheck disable=SC2064
   trap "rm -f '$out' '$err' '$report'" EXIT
 
-  # DOTAGENTS_GATE_REPORT asks the hook for a machine-readable record of what it did. Only `verify`
-  # sets it, so a turn-end run is byte-for-byte what it was.
+  # DOTAGENTS_GATE_REPORT は、hook に実行内容の機械向けの記録を求める。設定するのは `verify` だけ
+  # なので、ターン終了時の実行はバイト単位で変わらない。
   printf '{"cwd":"%s","hook_event_name":"Stop"}' "$root" \
     | DOTAGENTS_GATE_DRY=1 DOTAGENTS_GATE_REPORT="$report" bash "$hook" >"$out" 2>"$err" || rc=$?
 
@@ -526,15 +501,14 @@ cmd_verify() {
       const [outP, errP, rc, root, reportP] = process.argv.slice(1);
       const read = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return "" } };
       const detail = (read(outP) + read(errP)).trim();
-      // The hook prints "gate: <check id>" on the first line of a failure report.
+      // 失敗の報告では、hook が 1 行目に "gate: <check id>" を出す。
       const m = detail.match(/^gate:\s*(\S+)/m);
       const id = m && m[1] !== "all" && m[1] !== "nothing" ? m[1] : null;
       const kind = (detail.match(/^\s*kind\s*:\s*(\S+)/m) || [])[1] ?? null;
 
-      // The sidecar carries the facts this document used to leave to prose. FAIL CLOSED when it is
-      // missing or unreadable: `checked: null` and `ok: false`, never "assume it ran". An absent
-      // answer is "I could not tell", which is the fail-open this repository keeps naming. There is
-      // no version-skew case to be gentle about -- `verify` deliberately runs the IN-REPO hook.
+      // 散文に任せていた事実はサイドカーが運ぶ。無い・読めない時は閉じる側に倒す。
+      // `checked: null` と `ok: false` にし、「実行したとみなす」ことはしない。
+      // `verify` は意図してリポジトリ内の hook を動かすので、版のずれに配慮する場面は無い。
       let rep = null;
       try { rep = JSON.parse(read(reportP)) } catch {}
       const sane = rep && typeof rep === "object" && Number.isInteger(rep.ran);
@@ -557,6 +531,8 @@ cmd_verify() {
   return "$rc"
 }
 
+# 行番号ではなくパターンで拾う。行番号で拾うと、ヘッダーにサブコマンドを足した時に範囲から押し出され、
+# `gate.sh -h` が黙ってそれを載せなくなる。
 usage() { grep -E '^#   gate\.sh ' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [[ $# -gt 0 ]] || usage 1
@@ -569,5 +545,5 @@ case "$cmd" in
   gc)        cmd_gc ;;
   verify)    cmd_verify "${1:-}" "${2:-}" ;;
   -h|--help) usage ;;
-  *) die "unknown command: $cmd" ;;
+  *) die "不明なコマンド: $cmd" ;;
 esac

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "dotagents repository profile",
-  "description": "Per-repository verification config. Lives here rather than in the product repo so product repos stay unmodified. Resolved by matching the git remote of the working directory.",
+  "description": "リポジトリごとの検証設定。製品リポジトリを変更せずに済むよう、製品側ではなくここに置く。作業ディレクトリの git remote との照合で解決する。",
   "type": "object",
   "required": ["match", "checks"],
   "additionalProperties": false,
@@ -10,11 +10,11 @@
     "$comment": {},
     "match": {
       "type": "object",
-      "description": "How to recognise the repository this profile applies to.",
+      "description": "このプロファイルを当てるリポジトリの見分け方。",
       "additionalProperties": false,
       "properties": {
         "remote": {
-          "description": "Substring, or list of substrings any of which matches, tested against `git remote get-url origin`. 'owner/repo' pins one owner; '/repo' follows the repository through forks and through both URL forms (https and ssh). A list is for a repository reachable under several names.",
+          "description": "`git remote get-url origin` と照合する部分文字列、またはそのどれかに一致すればよい部分文字列の一覧。'owner/repo' は所有者を固定し、'/repo' はフォークと両方の URL 形式（https と ssh）にも追従する。一覧は複数の名前で届くリポジトリ用。",
           "oneOf": [
             { "type": "string", "minLength": 1 },
             { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
@@ -25,32 +25,32 @@
     },
     "cwd": {
       "type": "string",
-      "description": "Directory relative to the repo root where checks run. Omit to run at the root."
+      "description": "検査を実行する、リポジトリルートからの相対ディレクトリ。省略するとルートで実行する。"
     },
     "spec_system": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
-      "description": "How this repository records intent before code exists. A per-repository fact that the toolkit had nowhere to put: the routing lived as a parenthetical in README.md, which is never loaded at runtime, so nothing ever read it. Omit for a repository that records intent nowhere -- and then say so in the report rather than inventing a location for it.",
+      "description": "このリポジトリが、コードより前に意図をどこに記録するか。リポジトリごとの事実で、実行時に読まれる置き場所がほかに無い。意図をどこにも記録しないリポジトリでは省略し、場所をでっち上げずに報告でそう書く。",
       "properties": {
         "$comment": {},
         "kind": {
           "enum": ["openspec", "plans", "none"],
-          "description": "openspec: the repository has openspec/{specs,changes} and one change is a DIRECTORY -- proposal, design, tasks, plus spec deltas per capability. plans: one Markdown plan per change, the shape upstream writing-plans produces. none: intent is not recorded on disk here, so do not invent a convention for it."
+          "description": "openspec: openspec/{specs,changes} があり、1 つの change が 1 つのディレクトリ（proposal、design、tasks と、capability ごとの spec delta）。plans: change ごとに Markdown の計画を 1 つ（upstream の writing-plans が作る形）。none: ここでは意図をディスクに記録しないので、規約をでっち上げない。"
         },
         "root": {
           "type": "string",
-          "description": "Directory holding the artifacts, relative to the repo root. 'openspec' for openspec; for plans, wherever the plan files live."
+          "description": "成果物を置くディレクトリ（リポジトリルートからの相対）。openspec なら 'openspec'、plans なら計画ファイルの置き場所。"
         },
         "rules": {
           "type": "string",
-          "description": "File carrying the repository's OWN authoring rules, to be read before writing or reviewing anything here. For openspec that is 'openspec/config.yaml', which states the required headings, the normative vocabulary, and that a MODIFIED requirement is restated whole. Reviewing against generic dimensions while the repository has written its own down is the failure this field exists to stop."
+          "description": "リポジトリ**独自**の書き方のルールを持つファイル。ここで何かを書く・レビューする前に読む。openspec なら 'openspec/config.yaml'（必須の見出し、規範語彙、MODIFIED の要件は全文で書き直すこと、を定める）。リポジトリが自分のルールを書いているのに汎用の観点でレビューする失敗を防ぐための項目。"
         },
         "validate": {
           "type": "array",
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 },
-          "description": "Command that mechanically checks one change, as ARGV -- not a shell string. One element per argument; the element that is exactly '<id>' is replaced by the change id. Example: [\"pnpm\", \"openspec\", \"validate\", \"<id>\", \"--strict\"]. Argv rather than a string on purpose: a profile cannot then smuggle a pipeline, a ';', or a substitution past a reader, and the change id cannot escape into the command because it is its own element. An argv beginning with a shell (sh/bash/zsh) or containing '-c' defeats that and must be refused by whatever runs it. Run it and report its output as evidence BEFORE judging -- a spec whose validity is machine-checkable must not be reviewed by reading alone, which is the rule da-verify applies to code, applied to intent."
+          "description": "1 つの change を機械的に検査するコマンド。シェル文字列ではなく ARGV で書く。引数 1 つにつき 1 要素で、ちょうど '<id>' の要素が change id に置き換わる。例: [\"pnpm\", \"openspec\", \"validate\", \"<id>\", \"--strict\"]。argv にするのは、プロファイルにパイプライン・';'・置換を紛れ込ませず、change id を独立の要素にしてコマンドへ漏らさないため。シェル（sh/bash/zsh）で始まる argv や '-c' を含む argv はこれを台無しにするので、実行する側が拒否すること。判断より**前に**実行し、出力を根拠として報告する。機械で検査できる spec を読むだけでレビューしない（da-verify がコードに課すルールを意図に当てたもの）。"
         }
       }
     },
@@ -58,42 +58,42 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
-      "description": "Where this repository keeps architecture decision records, and what its own authoring rules are. The same kind of fact spec_system carries for intent, for decisions. Upstream ADR skills infer the location from the tree and fall back to docs/adr or docs/decisions, which lands a well-formed file in a directory nobody in the repository reads -- correct, and in the wrong place, which is the quiet kind of wrong. Omit for a repository that does not keep ADRs, and then say so rather than creating a directory for it.",
+      "description": "このリポジトリがアーキテクチャ決定記録（ADR）を置く場所と、独自の書き方のルール。spec_system が意図について持つのと同じ種類の事実を、判断について持つ。upstream の ADR スキルは置き場所をツリーから推測して docs/adr や docs/decisions に落ち、誰も読まないディレクトリに正しい形のファイルができる。ADR を持たないリポジトリでは省略し、ディレクトリを作らずにそう書く。",
       "properties": {
         "$comment": {},
         "kind": {
           "enum": ["colocated", "directory", "none"],
-          "description": "colocated: an ADR lives next to the code it governs. directory: all ADRs live under one root. none: this repository does not keep ADRs -- do not invent a location for it."
+          "description": "colocated: ADR は対象のコードの隣に置く。directory: ADR をすべて 1 つのルートの下に置く。none: このリポジトリは ADR を持たないので、置き場所をでっち上げない。"
         },
         "roots": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Directories an ADR may be written under, relative to the repo root. For colocated, the subtrees it is allowed in. Writing outside these is a precondition failure, not a judgement call."
+          "description": "ADR を書いてよいディレクトリ（リポジトリルートからの相対）。colocated では置いてよいサブツリー。この外に書くのは前提条件の違反で、判断の問題ではない。"
         },
         "pattern": {
           "type": "string",
-          "description": "Filename shape, with '<subject>' standing for the decision being recorded. Example: 'ADR.<subject>.md'. Match the existing files rather than introducing a second naming scheme beside them."
+          "description": "ファイル名の形。'<subject>' が記録する判断を表す。例: 'ADR.<subject>.md'。既存ファイルに合わせ、別の命名規則を並べない。"
         },
         "rules": {
           "type": "string",
-          "description": "File carrying the repository's OWN authoring rules for decisions, to be read before writing. Often the same file spec_system.rules names, because a repository that has written down how to record intent usually wrote down how to record decisions in the same place."
+          "description": "判断の書き方について、リポジトリ**独自**のルールを持つファイル。書く前に読む。spec_system.rules と同じファイルであることが多い。"
         }
       }
     },
     "max_attempts": {
       "type": "integer",
       "minimum": 1,
-      "description": "Consecutive failures of the same check before the gate stops blocking and records that it gave up. Default 3. Blocking forever is not a guardrail: the escalation it used to print told the agent to run /clear, which nothing running unattended can do. Giving up is recorded in a VERDICT file so it cannot be mistaken for a pass."
+      "description": "同じ検査が連続で何回失敗したら、ゲートがブロックをやめて諦めたことを記録するか。既定は 3。永久にブロックするのはガードレールではない（無人の実行は /clear できない）。諦めは VERDICT ファイルに記録するので、合格と取り違えない。"
     },
     "timeout_total": {
       "type": "integer",
       "minimum": 1,
-      "description": "Seconds the gate may spend on all checks in one turn end. Default 300. Not decoration: N checks times their individual timeouts can exceed the agent harness's own hook timeout, and being killed by THAT is the one failure the gate cannot observe -- the process exits with neither 0 nor 2, which is non-blocking, so a slow suite becomes a silent pass. The hook entry in templates/ declares a timeout strictly larger than this so our clock is always the one that fires. When the budget runs out the gate reports which checks it never started and blocks: an unrun gating check is not a pass."
+      "description": "1 回のターン終了で、ゲートが全検査に使ってよい秒数。既定は 300。検査数×個別のタイムアウトはハーネス側の hook タイムアウトを超えうる。そちらに殺されると 0 でも 2 でもない終了で非ブロック扱いになり、遅いスイートが黙って合格になる。templates/ の hook 項目はこれより厳密に大きいタイムアウトを宣言し、先に鳴るのが常にこちらの時計になるようにする。予算が尽きたら、開始しなかった検査を報告してブロックする。実行していないゲート検査は合格ではない。"
     },
     "forbidden": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Command substrings that must never be executed by an agent in this repository. Deploys, destroys, and anything that touches a live environment."
+      "description": "このリポジトリでエージェントが決して実行してはならないコマンドの部分文字列。デプロイ、破棄、稼働中の環境に触れるもの全般。"
     },
     "checks": {
       "type": "array",
@@ -117,42 +117,42 @@
           "id": { "type": "string" },
           "cmd": {
             "type": "string",
-            "description": "Shell command. `{files}` is replaced with the changed files when scope is 'changed'."
+            "description": "シェルコマンド。scope が 'changed' のとき、`{files}` が変更ファイルに置き換わる。"
           },
           "gate": {
             "type": "boolean",
-            "description": "True if failing this check must block completion."
+            "description": "真なら、この検査の失敗で完了をブロックする。"
           },
           "agent_may_run": {
             "type": "boolean",
-            "description": "False when the repository forbids the agent from running it, or when it needs resources or credentials the agent should not consume. Interactively the agent must ask the user to run it and wait for the output. UNATTENDED (scripts/loop.sh) there is nobody to ask and no number of rounds can satisfy it, so the driver records the check as deferred and proceeds -- naming it in the ledger, in the run's closing message and in the PR body, because a deferred gate is no more green than a released one. That means CI is the gate for these checks: the prohibition is on RUNNING them, not on shipping them verified. If the repository's CI does not run it either, there is nowhere to defer to -- set gate:false deliberately, or add it to CI."
+            "description": "リポジトリがエージェントの実行を禁じている場合、またはエージェントが使うべきでない資源や認証情報が要る場合に偽。対話中は、エージェントが利用者に実行を頼み、出力を待つ。無人（scripts/loop.sh）では頼む相手がおらず、何ラウンド回しても満たせないので、駆動系は検査を deferred として記録して進む。台帳・実行の締めのメッセージ・PR 本文にその名前を出す（deferred のゲートは緑ではない）。つまりこれらの検査のゲートは CI。禁止しているのは実行であって、検証済みで出すことではない。CI も実行しないなら委ねる先が無いので、意図して gate:false にするか CI に足すこと。"
           },
           "delegate_reason": {
             "type": "string",
-            "description": "Required when agent_may_run is false. Shown to the user so the request is not arbitrary."
+            "description": "agent_may_run が偽のとき必須。依頼が恣意的に見えないよう、利用者に示す。"
           },
           "scope": {
             "enum": ["all", "changed"],
-            "description": "'changed' narrows the command to files touched in the working tree."
+            "description": "'changed' は作業ツリーで触ったファイルにコマンドを絞る。"
           },
           "timeout": {
             "type": "integer",
             "minimum": 1,
-            "description": "Seconds this check may run before the gate kills it. Default 120. A timeout is treated as a malfunction of the gate rather than a finding about the code -- it blocks, and it is recorded as reason 'timeout' rather than 'red', because it says nothing about whether the code is correct. It counts toward max_attempts, or a genuinely hanging check would block every turn forever."
+            "description": "ゲートがこの検査を殺すまでの秒数。既定は 120。タイムアウトはコードについての所見ではなくゲートの不調として扱う。ブロックはするが、理由は 'red' ではなく 'timeout' と記録する（コードの正しさについて何も言っていないため）。max_attempts には数える。数えないと本当に固まる検査が毎ターン永久にブロックする。"
           },
           "mutates": {
             "type": "boolean",
-            "description": "True when running this check can rewrite the working tree -- an auto-fixer such as lint:fix or format:fix. The gate still runs it, but a run that changes the tree blocks instead of reporting green: the hook has just modified the files the agent had decided it was done with, and in a loop the next iteration would read a tree it did not write. Nothing is reverted; the next turn passes once there is nothing left to fix. A gate that repairs things quietly is a gate whose green cannot be trusted."
+            "description": "この検査の実行が作業ツリーを書き換えうるとき真（lint:fix や format:fix のような自動修正）。ゲートは実行するが、ツリーが変わったら緑ではなくブロックにする。エージェントが終えたつもりのファイルを hook が書き換えたことになり、ループの次の反復が自分の書いていないツリーを読むため。元には戻さない。直すものが無くなれば次のターンで通る。黙って直すゲートの緑は信用できない。"
           },
           "when": {
             "type": "string",
-            "description": "Human-readable condition for conditional checks. Only meaningful when gate is false. NOT a predicate -- nothing reads it at runtime. The executed mechanisms are `paths` (whether the check runs) and `{files}` in `cmd` (what it runs on)."
+            "description": "条件付き検査の、人が読むための条件。gate が偽のときだけ意味がある。述語では**ない**。実行時に誰も読まない。実際に効く仕組みは `paths`（検査を実行するか）と `cmd` 中の `{files}`（何に対して実行するか）。"
           },
           "paths": {
             "type": "array",
             "minItems": 1,
             "items": { "type": "string", "minLength": 1 },
-            "description": "WHETHER the check runs, orthogonal to `scope`, which is WHAT it runs on. Both together are normal and correct: \"only when scripts/ changed, and then over everything\" is `paths` plus `scope: all`. A schema rule forbidding that pair shipped here for one landing and was wrong -- it read `scope: all` as \"always runs\", which is not what scope means. Repo-root-relative prefixes or globs; a trailing /** is a prefix. The check runs only when at least one changed file matches. Omit to always run. ROOT-relative, not cwd-relative -- a profile with \"cwd\": \"pkg\" still writes \"pkg/src/**\"; getting that backwards matches nothing, which would skip the check every turn. Skips are named in `verify --json`'s `skipped` rather than vanishing, and if files changed that NO gating check claims, the gate BLOCKS with kind not_checked: unclaimed files are a hole in the profile, not a pass."
+            "description": "検査を実行する**かどうか**。`scope`（何に対して実行するか）とは直交する。両方の併用は普通で正しい。\"scripts/ が変わったときだけ、そのとき全体に対して\" は `paths` と `scope: all`。リポジトリルートからの接頭辞かグロブ。末尾の /** は接頭辞。変更ファイルのどれかが一致したときだけ実行する。省略すると常に実行。cwd ではなく**ルート**からの相対。\"cwd\": \"pkg\" のプロファイルでも \"pkg/src/**\" と書く。逆にすると何にも一致せず、毎ターン検査を飛ばす。飛ばした検査は `verify --json` の `skipped` に名前が出る。どのゲート検査も受け持たないファイルが変わったら、ゲートは kind not_checked でブロックする。受け持ちの無いファイルはプロファイルの穴で、合格ではない。"
           }
         }
       }

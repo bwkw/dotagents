@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// Merge only the keys our snippet declares into ~/.claude/settings.json, and record exactly what
-// we wrote so uninstall can take back precisely that much.
+// スニペットが宣言するキーだけを ~/.claude/settings.json へマージし、書いたものを正確に記録する。
+// uninstall はその記録の分だけを取り戻す。
 //
-// The file we are editing contains secrets that are not ours -- env.OTEL_EXPORTER_OTLP_HEADERS
-// carries a Datadog API key in plaintext. We never read, copy, or rewrite a value we did not
-// write ourselves. Keys absent from the snippet are untouched, including inside objects we do
-// merge into.
+// 編集対象には他人の秘密が入っている（env.OTEL_EXPORTER_OTLP_HEADERS は Datadog の API キーを平文で
+// 持つ）。自分で書いていない値は読まず、写さず、書き直さない。スニペットに無いキーは、マージ先の
+// オブジェクトの中でも触らない。
 //
-//   merge-settings.mjs <snippet> <target> <manifest>          merge and record
-//   merge-settings.mjs --revert <target> <manifest>           undo exactly what was recorded
-//   merge-settings.mjs --print-keys <snippet>                 list what a merge would touch
-//   merge-settings.mjs --cursor <snippet> <target> <manifest> same, for ~/.cursor/hooks.json
-//   merge-settings.mjs --revert-cursor <target> <manifest>    undo the Cursor side
+//   merge-settings.mjs <snippet> <target> <manifest>          マージして記録
+//   merge-settings.mjs --revert <target> <manifest>           記録した分だけを戻す
+//   merge-settings.mjs --print-keys <snippet>                 マージが触るキーの一覧
+//   merge-settings.mjs --cursor <snippet> <target> <manifest> 同じことを ~/.cursor/hooks.json に
+//   merge-settings.mjs --revert-cursor <target> <manifest>    Cursor 側を戻す
 //
-// Cursor's hooks.json has its own shape -- camelCase events, a flat `hooks` object, and entries of
-// { command, matcher } -- so it gets its own merge rather than being forced through Claude Code's.
+// Cursor の hooks.json は形が違う（camelCase のイベント、平らな `hooks`、{ command, matcher } の項目）
+// ので、Claude Code 用に押し込まず専用のマージを持つ。
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
@@ -30,7 +29,7 @@ const readJson = (p, fallback = {}) => {
   try {
     return JSON.parse(raw);
   } catch (e) {
-    console.error(`error: ${p} is not valid JSON -- refusing to touch it.\n  ${e.message}`);
+    console.error(`error: ${p} が正しい JSON ではない。触らずに中止する。\n  ${e.message}`);
     process.exit(1);
   }
 };
@@ -39,35 +38,31 @@ const writeJson = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n");
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-// A manifest record is ours when its command names one of our hooks -- the same test `dropOurs` below
-// applies to settings.json itself. Anything else on the record was put there by something we do not
-// own and has to survive: the manifest is what `uninstall` reads, so dropping a foreign entry would
-// make uninstall remove somebody else's hook.
+// command がこちらの hook を指す記録だけがこちらのもの（下の `dropOurs` と同じ判定）。それ以外は
+// 他人が置いたもので残す。uninstall はマニフェストを読むので、落とすと他人の hook を外してしまう。
 const keepForeignHooks = (records) =>
   (records ?? []).filter((r) => !/dotagents-/.test(r.command ?? ""));
 
 const HOME = process.env.HOME ?? "";
-// Whether an agent expands $HOME inside a hook command was never verified. An unexpanded path is a
-// command that does not exist, which is a hook that never starts, which is a guardrail that fails
-// open. Substitute here and stop depending on the answer.
+// エージェントが hook の command 内の $HOME を展開するかは未確認。展開されないと hook が起動せず、
+// ガードレールが開く側に倒れる。ここで置換して、その答えに依存しない。
 const resolveHome = (cmd) =>
   typeof cmd === "string" ? cmd.replace(/\$\{?HOME\}?/g, HOME).replace(/^~(?=\/)/, HOME) : cmd;
 
-// Drop hook entries this toolkit registered before, whatever spelling they used. Without this,
-// changing a command string (a literal $HOME that is now resolved, a renamed script) leaves the old
-// entry in place and both fire -- one of them pointing at nothing.
+// 以前に登録した hook 項目を、綴りを問わず落とす。落とさないと command を変えたとき（$HOME の解決、
+// スクリプトの改名）に旧項目が残り、何も指さない方も含めて両方が発火する。
 const dropOurs = (slots) =>
   (slots ?? [])
     .map((slot) => ({ ...slot, hooks: (slot.hooks ?? []).filter((h) => !/dotagents-/.test(h.command ?? "")) }))
     .filter((slot) => (slot.hooks ?? []).length > 0);
 
 /**
- * Deep-merge `src` into `dst` for plain-object and scalar values, recording each leaf path we set.
- * Hook events are handled separately because they are arrays that must be appended to, not replaced.
+ * プレーンオブジェクトとスカラーについて `src` を `dst` へ深くマージし、設定した葉のパスを記録する。
+ * hook のイベントは置き換えでなく追記すべき配列なので別に扱う。
  */
 function mergeLeaves(dst, src, recorded, prefix = "") {
   for (const [key, value] of Object.entries(src)) {
-    if (key.startsWith("$")) continue; // metadata in the snippet, not settings
+    if (key.startsWith("$")) continue; // スニペットのメタデータで、設定ではない
     const path = prefix ? `${prefix}.${key}` : key;
 
     if (isPlainObject(value)) {
@@ -76,10 +71,10 @@ function mergeLeaves(dst, src, recorded, prefix = "") {
       continue;
     }
 
-    // Leave an existing value alone unless it is one we previously wrote. Someone may have
-    // deliberately changed it, and clobbering that on every install is how tools get uninstalled.
+    // 以前こちらが書いた値でなければ既存の値は残す。意図して変えた人がいるかもしれず、install の
+    // たびに上書きするツールは外される。
     if (key in dst && dst[key] !== value && !recorded.previous.includes(path)) {
-      console.error(`  skipped ${path} -- already set to a different value (not ours to change)`);
+      console.error(`  スキップ ${path}: 既に別の値が入っている（こちらが変えるものではない）`);
       continue;
     }
 
@@ -89,14 +84,14 @@ function mergeLeaves(dst, src, recorded, prefix = "") {
 }
 
 /**
- * Append our hook commands to the matching event, keyed by command string so re-running install
- * is idempotent and so we never disturb hooks someone else registered (rtk, notify-stop, ...).
+ * こちらの hook command を該当イベントへ追記する。command 文字列で照合するので、install の再実行は
+ * 冪等で、他人が登録した hook（rtk、notify-stop など）も乱さない。
  */
 function mergeHooks(dst, src, recorded) {
   dst.hooks ??= {};
   for (const [event, matchers] of Object.entries(src)) {
     if (!HOOK_EVENTS.has(event)) {
-      console.error(`  skipped hooks.${event} -- not a known hook event`);
+      console.error(`  スキップ hooks.${event}: 既知の hook イベントではない`);
       continue;
     }
     dst.hooks[event] = dropOurs(dst.hooks[event]);
@@ -112,7 +107,7 @@ function mergeHooks(dst, src, recorded) {
 
       for (const hook of incoming.hooks ?? []) {
         const resolved = { ...hook, command: resolveHome(hook.command) };
-        if (slot.hooks.some((h) => h.command === resolved.command)) continue; // already present
+        if (slot.hooks.some((h) => h.command === resolved.command)) continue; // 既にある
         slot.hooks.push(resolved);
         recorded.hooks.push({ event, matcher, command: resolved.command });
       }
@@ -131,7 +126,7 @@ function deletePath(obj, path) {
   delete cur[last];
 }
 
-/** Drop containers that became empty once our keys were removed, so we leave no residue. */
+/** こちらのキーを消して空になった入れ物を落とし、痕跡を残さない。 */
 function pruneEmpty(obj, path) {
   const parts = path.split(".");
   parts.pop();
@@ -181,12 +176,11 @@ if (mode === "--cursor") {
   const added = [];
 
   for (const [event, entries] of Object.entries(snippet.hooks ?? {})) {
-    // Cursor's shape is a flat list of {command, matcher}, so ours are filtered directly.
+    // Cursor の形は {command, matcher} の平らな一覧なので、こちらの項目を直接ふるい落とす。
     target.hooks[event] = (target.hooks[event] ?? []).filter((h) => !/dotagents-/.test(h.command ?? ""));
     for (const entry of entries) {
       const resolved = { ...entry, command: resolveHome(entry.command) };
-      // Key on the command so re-running install is idempotent, and so hooks someone else
-      // registered here -- rtk, for one -- are never disturbed.
+      // command で照合する。install の再実行が冪等になり、他人の hook（rtk など）も乱さない。
       if (target.hooks[event].some((h) => h.command === resolved.command)) continue;
       target.hooks[event].push(resolved);
       added.push({ event, command: resolved.command });
@@ -195,11 +189,11 @@ if (mode === "--cursor") {
   }
 
   writeJson(targetPath, target);
-  // Replaced, not appended -- see the note on manifest.settingsHooks below.
+  // 追記ではなく置き換え。下の manifest.settingsHooks の注記を参照。
   manifest.cursorHooks = keepForeignHooks(manifest.cursorHooks).concat(added);
   writeJson(manifestPath, manifest);
 
-  for (const a of added) console.error(`  added cursor hooks.${a.event}: ${a.command}`);
+  for (const a of added) console.error(`  追加 cursor hooks.${a.event}: ${a.command}`);
   process.exit(0);
 }
 
@@ -224,7 +218,7 @@ if (mode === "--revert") {
   const [targetPath, manifestPath] = rest;
   const target = readJson(targetPath, null);
   const manifest = readJson(manifestPath);
-  if (!target) { console.error("nothing to revert -- target does not exist"); process.exit(0); }
+  if (!target) { console.error("戻すものが無い。対象が存在しない"); process.exit(0); }
 
   for (const path of manifest.settingsKeys ?? []) {
     deletePath(target, path);
@@ -237,7 +231,7 @@ if (mode === "--revert") {
     const slot = slots.find((m) => (m.matcher ?? "") === matcher);
     if (!slot) continue;
     slot.hooks = (slot.hooks ?? []).filter((h) => h.command !== command);
-    // Remove the matcher slot only if we emptied it; keep slots that still hold others' hooks.
+    // matcher の枠はこちらが空にしたときだけ消す。他人の hook が残る枠は残す。
     if (slot.hooks.length === 0) target.hooks[event] = slots.filter((m) => m !== slot);
     if (target.hooks[event]?.length === 0) delete target.hooks[event];
   }
@@ -247,7 +241,7 @@ if (mode === "--revert") {
   process.exit(0);
 }
 
-// default: merge
+// 既定: マージ
 const [snippetPath, targetPath, manifestPath] = [mode, ...rest];
 const snippet = readJson(snippetPath);
 const target = readJson(targetPath);
@@ -263,14 +257,11 @@ writeJson(targetPath, target);
 
 manifest.settingsKeys = [...new Set([...(manifest.settingsKeys ?? []), ...recorded.keys])];
 
-// Replaced, not appended. `dropOurs` above clears every spelling of our hooks out of settings.json
-// before rewriting them, so "what we just wrote" is the complete truth about what is installed --
-// but the manifest side only ever appended entries it had not seen, which meant an old spelling
-// (a literal $HOME from a version that did not resolve it, a renamed script) stayed on the record
-// forever. Measured: four records for two hooks. The manifest is the only thing `uninstall` has to
-// go on, so a stale entry is a request to remove something that is not there.
+// 追記ではなく置き換え。`dropOurs` が書き直し前にこちらの hook を綴りを問わず消すので、「いま書いた
+// もの」が導入状態のすべてになる。追記だと古い綴りが記録に残り続け、uninstall が存在しないものを
+// 外しにいく。
 manifest.settingsHooks = keepForeignHooks(manifest.settingsHooks).concat(recorded.hooks);
 writeJson(manifestPath, manifest);
 
-for (const k of recorded.keys) console.error(`  set ${k}`);
-for (const h of recorded.hooks) console.error(`  added hooks.${h.event}: ${h.command}`);
+for (const k of recorded.keys) console.error(`  設定 ${k}`);
+for (const h of recorded.hooks) console.error(`  追加 hooks.${h.event}: ${h.command}`);

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Tests for the Stop gate. Hermetic: a scratch git repo and a scratch profile, no real builds.
+# Stop ゲートのテスト。閉じた環境で動く: 使い捨ての git リポジトリとプロファイルだけで、実ビルドはしない。
 #
-# The gate is the one component that must fail *closed*, so its behaviour is asserted rather
-# than assumed. Every case below has been a real failure mode in some tool or other:
-# gates that fire when idle, gates that guess commands for repos they know nothing about,
-# gates that accept "I asked the user to run it" as evidence.
+# ゲートは閉じて失敗しなければならない唯一の部品なので、振る舞いを前提にせず断言する。
+# 下のケースはどれも実際に起きた失敗の形: アイドル中に発火する、知らないリポジトリのコマンドを
+# 推測する、「ユーザーに実行を頼んだ」を証拠として受け取る。
 
 set -uo pipefail
 
@@ -19,16 +18,15 @@ check() { # check <name> <expected-exit> <actual-exit>
   if [[ "$2" == "$3" ]]; then
     printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; pass=$((pass+1))
   else
-    printf '%s✗%s %s (expected exit %s, got %s)\n' "$c_red" "$c_off" "$1" "$2" "$3"; fail=$((fail+1))
+    printf '%s✗%s %s（期待した終了コード %s、実際は %s）\n' "$c_red" "$c_off" "$1" "$2" "$3"; fail=$((fail+1))
   fi
 }
 
-# The inline `&& { printf ...; pass=... } || { printf ...; fail=... }` pattern below predates these.
-# New assertions use ok/no; the existing ones are left alone rather than churned.
+# 下にある `&& { printf ...; pass=... } || { printf ...; fail=... }` の形は古い書き方。新しい断言は ok/no を使う。
 ok() { printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; pass=$((pass+1)); }
 no() { printf '%s✗%s %s\n' "$c_red"   "$c_off" "$1"; fail=$((fail+1)); }
 
-# --- scratch repo -----------------------------------------------------------
+# --- 使い捨てのリポジトリ -------------------------------------------------------
 REPO="$TMP/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
@@ -37,35 +35,30 @@ echo hello > "$REPO/a.txt"
 git -C "$REPO" add -A
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm init
 
-# --- scratch profiles -------------------------------------------------------
+# --- 使い捨てのプロファイル -----------------------------------------------------
 PROFILES="$TMP/profiles"
 mkdir -p "$PROFILES"
 write_profile() { cat > "$PROFILES/scratch.json"; }
 
 GATE="$TMP/gate"
 GATE_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gate.sh"
-# Arm through the real script. A hand-rolled helper here is what let the gate ship with nothing
-# in the repository able to arm it: the tests passed by simulating the mechanism they were meant
-# to exercise.
+# 本物のスクリプトで arm する。自作のヘルパーで真似ると、何も arm できないままテストだけが通る。
 arm()   { DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$REPO" >/dev/null; }
 disarm(){ DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$REPO" >/dev/null 2>&1 || true; rm -rf "$GATE"; }
 
-# trace() in the hook returns early unless $GATE_DIR exists, and several cases below `rm -rf "$GATE"`.
-# So an absent log means "nothing was traced", which is a legitimate answer, not an error.
+# hook の trace() は $GATE_DIR が無いと何もせず戻り、下のいくつかのケースは `rm -rf "$GATE"` する。
+# だからログが無いのは「何もトレースされていない」という正当な答えで、エラーではない。
 trace_has() { grep -q "$1" "$GATE/trace.log" 2>/dev/null; }
 
-# A linked worktree of $REPO. Detached rather than on a branch: the name is irrelevant to what these
-# cases test, and --detach has none to collide with a later case.
-mk_worktree() { # mk_worktree <name> -> prints the worktree path, or fails
+# $REPO のリンクされた worktree。ブランチ名は検査に関係なく、--detach なら後のケースと衝突しない。
+mk_worktree() { # mk_worktree <name> -> worktree のパスを出す。失敗なら非 0
   local p="$TMP/wt-$1"
   git -C "$REPO" worktree add -q --detach "$p" >/dev/null 2>&1 || return 1
   printf '%s' "$p"
 }
 
-# The armed directory whose ACTIVE names this repo. The slug is documented as never parsed, so these
-# tests must not derive it either -- they find it by content, the way the hook does. Nothing here
-# recomputes the worktree key: a test that re-implements the mechanism it is checking is how this
-# suite once passed while nothing in the repository could arm the gate at all.
+# ACTIVE がこのリポジトリを指す arm 済みディレクトリ。slug は解釈しない約束なので、テストも導出せず、
+# hook と同じく中身で探す。検査対象の仕組みをテストで再実装すると、壊れていても通ってしまう。
 gate_dir_for() { # gate_dir_for <repo>
   local want f
   want="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$1")"
@@ -84,8 +77,8 @@ invoke_at() { # invoke_at <dir> [extra-json-fields]
 
 invoke() { invoke_at "$REPO"; }
 
-# Cursor's stop hook sends {status, loop_count} and no cwd, so the hook falls back to $PWD.
-# It cannot block; it answers with {"followup_message": ...} on stdout.
+# Cursor の stop hook は {status, loop_count} だけで cwd を送らないので、hook は $PWD に頼る。
+# Cursor は止められないので、stdout に {"followup_message": ...} で答える。
 invoke_cursor() { # invoke_cursor [loop_count]
   printf '{"status":"completed","loop_count":%s}' "${1:-0}" \
     | (cd "$REPO" && DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
@@ -96,95 +89,94 @@ invoke_cursor() { # invoke_cursor [loop_count]
 echo "verify-gate"
 echo
 
-# 1. No sentinel: an unarmed session must never be interrupted, whatever the repo state.
+# 1. sentinel 無し: arm されていないセッションは、リポジトリの状態にかかわらず止めない。
 disarm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "always-fails", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "no sentinel armed -> does not fire" 0 "$(invoke)"
+check "sentinel が arm されていない -> 発火しない" 0 "$(invoke)"
 
-# 2. Armed and the check passes.
+# 2. arm 済みでチェックが通る。
 arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-check "armed, check passes -> allows finish" 0 "$(invoke)"
+check "arm 済み、チェックが通る -> 終了を許す" 0 "$(invoke)"
 
-# 3. Armed and the check fails: this is the whole point.
+# 3. arm 済みでチェックが落ちる。これが本題。
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "echo 'type error on line 4'; false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "armed, check fails -> blocks" 2 "$(invoke)"
+check "arm 済み、チェックが落ちる -> 止める" 2 "$(invoke)"
 grep -q "boom" "$TMP/stderr" && grep -q "type error on line 4" "$TMP/stderr" \
-  && { printf '%s✓%s   reports the failing check and its output\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   stderr lacks the check id or its output\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s   落ちたチェックとその出力を報告する\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   stderr にチェック ID か出力が無い\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# 4. Second consecutive failure escalates from "fix it" to "stop and clear".
+# 4. 2 回連続の失敗で「直せ」から「止めて /clear」に上がる。
 invoke >/dev/null
 grep -qi "clear" "$TMP/stderr" \
-  && { printf '%s✓%s   second failure escalates to /clear\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   second failure did not escalate\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s   2 回目の失敗で /clear に上がる\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   2 回目の失敗で上がらない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# 5. gate:false must not block, however loudly it fails.
+# 5. gate:false は、どれだけ落ちても止めない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "advisory", "cmd": "false", "gate": false, "agent_may_run": true } ] }
 JSON
-check "non-gating check fails -> still allows finish" 0 "$(invoke)"
+check "ゲート対象外のチェックが落ちる -> 終了を許す" 0 "$(invoke)"
 
-# 6. A repo with no profile: we have no basis for a command, so we must not invent one.
+# 6. プロファイルの無いリポジトリ: コマンドの根拠が無いので、でっち上げない。
 write_profile <<'JSON'
 { "match": { "remote": "somebody/else" },
   "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "no matching profile -> does not guess, allows finish" 0 "$(invoke)"
+check "一致するプロファイルが無い -> 推測せず終了を許す" 0 "$(invoke)"
 
-# 7. A delegated check with no recorded result must block, or "I asked the user" becomes an exit.
+# 7. 結果の記録が無い委任チェックは止める。でないと「ユーザーに頼んだ」が抜け道になる。
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "typecheck", "cmd": "true", "gate": true, "agent_may_run": false,
                 "delegate_reason": "needs 8GB of heap" } ] }
 JSON
-check "delegated check unconfirmed -> blocks" 2 "$(invoke)"
+check "委任チェックが未確認 -> 止める" 2 "$(invoke)"
 grep -q "8GB of heap" "$TMP/stderr" \
-  && { printf '%s✓%s   surfaces the delegation reason\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   delegation reason missing from stderr\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s   委任の理由を示す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   stderr に委任の理由が無い\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# 8. Once recorded, it stops blocking.
+# 8. 記録すれば止めなくなる。
 DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$REPO" >/dev/null
-check "delegated check confirmed -> allows finish" 0 "$(invoke)"
+check "委任チェックが確認済み -> 終了を許す" 0 "$(invoke)"
 
-# 9. {files} with nothing changed is a no-op, not a failure.
+# 9. 変更が無いときの {files} は何もしない。失敗ではない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "unit", "cmd": "test -n '{files}'", "gate": true,
                 "agent_may_run": true, "scope": "changed" } ] }
 JSON
-check "scope:changed with a clean tree -> skipped, allows finish" 0 "$(invoke)"
+check "scope:changed で作業ツリーがきれい -> 飛ばして終了を許す" 0 "$(invoke)"
 
-# 10. ...and runs once something has actually changed.
+# 10. ...実際に変更があれば実行する。
 echo modified >> "$REPO/a.txt"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "unit", "cmd": "echo files={files}; false", "gate": true,
                 "agent_may_run": true, "scope": "changed" } ] }
 JSON
-check "scope:changed with a dirty tree -> runs and can block" 2 "$(invoke)"
+check "scope:changed で作業ツリーに変更あり -> 実行し、止めうる" 2 "$(invoke)"
 grep -q "files=a.txt" "$TMP/stderr" \
-  && { printf '%s✓%s   substitutes the changed files\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   {files} not substituted (stderr: %s)\n' "$c_red" "$c_off" "$(tr '\n' ' ' <"$TMP/stderr")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   変更したファイルを差し込む\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   {files} が差し込まれていない（stderr: %s）\n' "$c_red" "$c_off" "$(tr '\n' ' ' <"$TMP/stderr")"; fail=$((fail+1)); }
 
 echo
-echo "verify-gate — fail-closed on malfunction"
+echo "verify-gate — 故障時は閉じて失敗する"
 echo
 
-# A repo whose path contains a space. Space-separated field passing truncated cwd here, git then
-# failed, and the gate opened -- with nothing printed.
+# パスに空白を含むリポジトリ。空白区切りでフィールドを渡すと cwd が切れ、git が落ち、ゲートが黙って開く。
 SPACED="$TMP/my project"
 mkdir -p "$SPACED"
 git -C "$SPACED" init -q
@@ -201,78 +193,75 @@ write_profile <<'JSON'
 JSON
 spaced_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$SPACED" \
   | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>/dev/null; echo $?)"
-check "a repo path containing a space -> still blocks" 2 "$spaced_exit"
+check "パスに空白を含むリポジトリ -> それでも止める" 2 "$spaced_exit"
 DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$SPACED" >/dev/null
 
-# node missing must block, not pass. Empty PATH plus an absolute bash.
+# node が無ければ通さず止める。PATH を絞り、bash は絶対パスで呼ぶ。
 rm -rf "$GATE"; arm
-# /usr/bin:/bin keeps cat, sed and git but not node, which lives under a package manager.
+# /usr/bin:/bin には cat・sed・git はあるが、パッケージマネージャー配下の node は無い。
 if PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
-  printf '%s!%s node is on /usr/bin:/bin here -- skipping the node-missing case\n' "$c_red" "$c_off"
+  printf '%s!%s この環境では node が /usr/bin:/bin にある -- node 不在のケースを飛ばす\n' "$c_red" "$c_off"
 else
   node_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
     | env PATH=/usr/bin:/bin DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
       /bin/bash "$HOOK" 2>/dev/null; echo $?)"
-  check "node unavailable -> blocks (does not fail open)" 2 "$node_exit"
+  check "node が使えない -> 止める（開いて失敗しない）" 2 "$node_exit"
 fi
 
-# A profiles directory that has gone missing (repo moved) must block.
+# プロファイルのディレクトリが消えた（リポジトリを移した）ら止める。
 moved_exit="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
   | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$TMP/gone" bash "$HOOK" 2>/dev/null; echo $?)"
-check "profiles directory missing -> blocks" 2 "$moved_exit"
+check "プロファイルのディレクトリが無い -> 止める" 2 "$moved_exit"
 
-# A malformed profile used to abort the search loop, hiding every profile after it in readdir
-# order -- so the gate opened for repositories whose profile was perfectly fine.
+# 壊れたプロファイルで探索が止まると、readdir 順で後ろのプロファイルが隠れ、正しいプロファイルのリポジトリでゲートが開く。
 rm -rf "$GATE"; arm
 printf '{ "match": { "remote": "x" }, "checks": [ ,,, ] }' > "$PROFILES/aaa-broken.json"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a malformed profile does not hide the one that matches" 2 "$(invoke)"
+check "壊れたプロファイルが、一致するプロファイルを隠さない" 2 "$(invoke)"
 
-# ...but when nothing matches and something is unparseable, we cannot claim to have checked.
+# ...ただし一致が無く、読めないものがあるなら、検査したとは言えない。
 write_profile <<'JSON'
 { "match": { "remote": "nobody/else" },
   "checks": [ { "id": "x", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-check "no match + a malformed profile -> blocks rather than assuming none applies" 2 "$(invoke)"
+check "一致なし + 壊れたプロファイル -> 該当なしと決めつけず止める" 2 "$(invoke)"
 grep -q 'aaa-broken.json' "$TMP/stderr" \
-  && { printf '%s✓%s   names the malformed file\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   did not name the malformed file\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s   壊れたファイルを名指す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   壊れたファイルを名指さない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 rm -f "$PROFILES/aaa-broken.json"
 
-# --- match.remote: owner-independent, and a list ----------------------------
-# `match.remote` used to be one substring, so it named exactly one owner. Every fork and every
-# re-clone under a different account therefore resolved NO profile, and the gate passed in silence --
-# on repositories whose profile was written precisely to gate them. The fake origin here is
-# git@github.com:example/scratch.git, so a profile naming only '/scratch' has to match it: that is
-# the spelling that survives a fork, and it covers the https URL form too.
+# --- match.remote: owner に依存せず、リストも取る ------------------------------
+# owner を含む部分文字列だけだと、fork や別アカウントでの clone でプロファイルが引けず、ゲートが黙って通る。
+# 偽の origin は git@github.com:example/scratch.git なので、'/scratch' だけのプロファイルが一致しなければ
+# ならない。fork でも残る書き方で、https の URL にも当たる。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "/scratch" },
   "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a profile naming the repo without an owner matches (fork-portable)" 2 "$(invoke)"
+check "owner 無しでリポジトリを名指すプロファイルが一致する（fork でも効く）" 2 "$(invoke)"
 
-# A list matches when any entry does -- for one repository reachable under several names.
+# リストはどれか 1 つが当たれば一致する。1 つのリポジトリが複数の名前で届く場合のため。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": ["nobody/else", "example/scratch"] },
   "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a list of remotes matches on any entry" 2 "$(invoke)"
+check "remote のリストはどれか 1 つで一致する" 2 "$(invoke)"
 
-# ...and the list must not match on nothing. Accepting an array by concatenating it into a string
-# would have made every list match every remote, which reads as a stricter gate and is a looser one.
+# ...そして何にも当たらないリストは一致しない。配列を文字列に連結して受けると、どのリストもどの remote にも
+# 当たり、厳しく見えて緩いゲートになる。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": ["nobody/else"] },
   "checks": [ { "id": "x", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a list that matches nothing resolves no profile" 0 "$(invoke)"
+check "何にも当たらないリストはプロファイルを引かない" 0 "$(invoke)"
 
-# A filename with shell metacharacters must not execute. Unquoted {files} + eval ran it.
+# シェルのメタ文字を含むファイル名を実行しない。引用なしの {files} と eval だと実行される。
 rm -rf "$GATE"; arm
 evil='a;touch pwned-by-filename;b.ts'
 : > "$REPO/$evil" 2>/dev/null || evil=""
@@ -284,12 +273,12 @@ if [[ -n "$evil" ]]; then
 JSON
   invoke >/dev/null
   [ ! -f "$REPO/pwned-by-filename" ] \
-    && { printf '%s✓%s a filename with metacharacters is not executed\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-    || { printf '%s✗%s INJECTION: the filename executed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+    && { printf '%s✓%s メタ文字を含むファイル名が実行されない\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+    || { printf '%s✗%s INJECTION: ファイル名が実行された\n' "$c_red" "$c_off"; fail=$((fail+1)); }
   rm -f "$REPO/$evil" "$REPO/pwned-by-filename"
 fi
 
-# An untracked new file must be checked, not skipped. This turn adds only new files.
+# 未追跡の新規ファイルも飛ばさず検査する。このターンは新規ファイルだけを足す。
 rm -rf "$GATE"; arm
 git -C "$REPO" checkout -q -- . 2>/dev/null || true
 echo 'brand new' > "$REPO/newfile.ts"
@@ -298,15 +287,14 @@ write_profile <<'JSON'
   "checks": [ { "id": "unit", "cmd": "echo files={files}; false", "gate": true,
                 "agent_may_run": true, "scope": "changed" } ] }
 JSON
-check "an untracked new file -> is checked, not skipped" 2 "$(invoke)"
+check "未追跡の新規ファイル -> 飛ばさず検査する" 2 "$(invoke)"
 grep -q 'newfile.ts' "$TMP/stderr" \
-  && { printf '%s✓%s   the new file reaches the command\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   new file missing from {files}\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s   新規ファイルがコマンドに届く\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   {files} に新規ファイルが無い\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 rm -f "$REPO/newfile.ts"
 
-# Cursor sends no cwd, and its process cwd is ~/.cursor rather than the workspace. With one
-# sentinel armed the gate must infer the repository instead of comparing against the wrong one --
-# without this it passed every Cursor turn in silence.
+# Cursor は cwd を送らず、プロセスの cwd はワークスペースではなく ~/.cursor。sentinel が 1 つなら、
+# 違うリポジトリと比べずに推定する。でないと Cursor の毎ターンを黙って通す。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -315,23 +303,23 @@ JSON
 noc="$(printf '{"status":"completed","loop_count":0}' \
   | (cd "$TMP" && DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
       bash "$HOOK" 2>/dev/null >"$TMP/stdout"); echo $?)"
-check "no cwd in payload, one armed -> infers the repo and applies the gate" 0 "$noc"
+check "payload に cwd 無し、arm は 1 つ -> リポジトリを推定してゲートを掛ける" 0 "$noc"
 grep -q followup_message "$TMP/stdout" \
-  && { printf '%s✓%s   still produces a follow-up rather than passing silently\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   passed silently (stdout: %s)\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   黙って通さず follow-up を出す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   黙って通した（stdout: %s）\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
 
-# Two armed and no cwd: guessing would check one repo and report against another.
+# arm が 2 つで cwd 無し: 推測すると、あるリポジトリを検査して別のリポジトリに報告してしまう。
 SECOND="$TMP/second"; mkdir -p "$SECOND"; git -C "$SECOND" init -q
 git -C "$SECOND" remote add origin git@github.com:example/second.git
 DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$SECOND" >/dev/null 2>&1 || true
 amb="$(printf '{"cwd":"","hook_event_name":"Stop"}' \
   | (cd "$TMP" && DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
       bash "$HOOK" 2>"$TMP/stderr"); echo $?)"
-check "no cwd, several armed -> blocks rather than guessing" 2 "$amb"
+check "cwd 無し、arm が複数 -> 推測せず止める" 2 "$amb"
 DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" disarm "$SECOND" >/dev/null 2>&1 || true
 
-# On re-entry (stop_hook_active) the gate must hand control back once, or the agent is trapped:
-# it cannot reach the user without ending a turn, and every turn is being blocked.
+# 再入（stop_hook_active）では一度制御を返す。でないとエージェントが閉じ込められる:
+# ターンを終えないとユーザーに届かず、どのターンも止められている。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -339,20 +327,19 @@ write_profile <<'JSON'
 JSON
 reentry="$(printf '{"cwd":"%s","hook_event_name":"Stop","stop_hook_active":true}' "$REPO" \
   | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr"; echo $?)"
-check "re-entry after a block -> releases once so the user is reachable" 0 "$reentry"
-grep -qi 'still failing' "$TMP/stderr" \
-  && { printf '%s✓%s   says the checks are still red while releasing\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   released without saying why\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+check "block の後の再入 -> ユーザーに届くよう一度解放する" 0 "$reentry"
+grep -qi 'まだ失敗している' "$TMP/stderr" \
+  && { printf '%s✓%s   解放しつつ、チェックがまだ赤だと言う\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   理由を言わずに解放した\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# ...and the release must reach the trace log. It is the release, not the block, that decides whether
-# a red turn ends -- so a trace that records only blocks is silent about the gate's most frequent and
-# most consequential event, and "nothing happened" cannot be told apart from "never ran".
-if trace_has 'RELEASED'; then ok "   the release is traced, not only the block"
-else no "   released without a trace line (trace: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 200))"; fi
-if trace_has 'boom'; then ok "   the trace names the check that was still red"
-else no "   the release trace does not name the failing check"; fi
+# ...そして解放はトレースに残す。赤のターンを終わらせるのは block ではなく解放なので、block だけを
+# 記録するトレースでは「何も起きなかった」と「一度も動かなかった」を区別できない。
+if trace_has 'RELEASED'; then ok "   block だけでなく解放もトレースされる"
+else no "   トレースの行なしで解放した（trace: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 200)）"; fi
+if trace_has 'boom'; then ok "   トレースがまだ赤のチェックを名指す"
+else no "   解放のトレースが失敗したチェックを名指さない"; fi
 
-# The block message must not teach the agent how to forge the delegated result.
+# block のメッセージで、委任の結果を偽造する方法をエージェントに教えない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -361,18 +348,15 @@ write_profile <<'JSON'
 JSON
 invoke >/dev/null
 grep -q 'delegated.json' "$TMP/stderr" \
-  && { printf '%s✗%s block message still hands out a way to forge the record\n' "$c_red" "$c_off"; fail=$((fail+1)); } \
-  || { printf '%s✓%s block message does not hand out a forgery recipe\n' "$c_green" "$c_off"; pass=$((pass+1)); }
+  && { printf '%s✗%s block のメッセージがまだ記録の偽造方法を渡している\n' "$c_red" "$c_off"; fail=$((fail+1)); } \
+  || { printf '%s✓%s block のメッセージが偽造の手順を渡さない\n' "$c_green" "$c_off"; pass=$((pass+1)); }
 
 echo
-echo "verify-gate — worktrees inherit the gate"
+echo "verify-gate — worktree はゲートを継ぐ"
 echo
 
-# `using-git-worktrees` is a shipped skill whose stated purpose is isolation before executing a plan,
-# so the moment work is serious enough to want a gate is the moment it moves into a worktree. Matching
-# the sentinel against the *toplevel* meant a gate armed in the main checkout answered
-# "armed elsewhere" for every one of them. Observed in the real trace log, not hypothetical:
-#   claude  .../<repo>/.worktrees/typecheck-perf  passed: armed elsewhere
+# ゲートが欲しいほどの作業は worktree に移る（`using-git-worktrees` スキルの目的がそれ）。sentinel を
+# toplevel と照合すると、メインの checkout で掛けたゲートがどの worktree にも「armed elsewhere」と答える。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -382,24 +366,22 @@ WT1="$(mk_worktree one)" || WT1=""
 WT2="$(mk_worktree two)" || WT2=""
 
 if [[ -z "$WT1" || -z "$WT2" ]]; then
-  no "could not create linked worktrees -- the worktree cases did NOT run"
+  no "リンクされた worktree を作れない -- worktree のケースは実行されていない"
 else
-  check "armed in the main checkout -> the gate holds a linked worktree" 2 "$(invoke_at "$WT1")"
+  check "メインの checkout で arm -> リンクされた worktree もゲートが止める" 2 "$(invoke_at "$WT1")"
 
-  # Inheriting the gate must not mean sharing its counters. Attempts belong to a working tree: two
-  # worktrees are two pieces of work, and carrying a count across them would escalate at a repo whose
-  # own first attempt had not happened yet.
-  invoke_at "$WT1" >/dev/null              # WT1 now at two consecutive failures
-  grep -qi '2 times' "$TMP/stderr" \
-    && ok "   a second failure in the same worktree escalates" \
-    || no "   second failure in the same worktree did not escalate"
-  invoke_at "$WT2" >/dev/null              # a different worktree, first failure
-  grep -qi '2 times' "$TMP/stderr" \
-    && no "   attempts leaked across worktrees (WT2 escalated on its first failure)" \
-    || ok "   attempts are per worktree, not shared across them"
+  # ゲートを継いでもカウンタは共有しない。試行回数は作業ツリーのもので、持ち越すとまだ 1 回目の
+  # worktree で段階が上がる。
+  invoke_at "$WT1" >/dev/null              # WT1 はこれで 2 回連続の失敗
+  grep -qi '2 回連続' "$TMP/stderr" \
+    && ok "   同じ worktree での 2 回目の失敗で段階が上がる" \
+    || no "   同じ worktree での 2 回目の失敗で段階が上がらない"
+  invoke_at "$WT2" >/dev/null              # 別の worktree で 1 回目の失敗
+  grep -qi '2 回連続' "$TMP/stderr" \
+    && no "   試行回数が worktree をまたいで漏れた（WT2 が 1 回目の失敗で上がった）" \
+    || ok "   試行回数は worktree ごとで、共有されない"
 
-  # A delegated record is evidence about one working tree. Honouring it everywhere would let a check
-  # confirmed in the main checkout wave through a worktree nobody ran it in.
+  # 委任の記録は 1 つの作業ツリーについての証拠。どこでも認めると、誰も実行していない worktree を通してしまう。
   rm -rf "$GATE"; arm
   write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -407,27 +389,23 @@ else
                 "delegate_reason": "needs 8GB of heap" } ] }
 JSON
   DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$REPO" >/dev/null
-  check "   a record in the main checkout does not satisfy a worktree" 2 "$(invoke_at "$WT1")"
-  check "   ...and still satisfies the checkout it was made in" 0 "$(invoke)"
+  check "   メインの checkout の記録では worktree を満たさない" 2 "$(invoke_at "$WT1")"
+  check "   ...記録した checkout は満たす" 0 "$(invoke)"
 
-  # gate.sh reaches the same conclusion as the hook. Two implementations that must agree forever is
-  # the coupling gate.sh's own header warns about, so it is asserted rather than assumed.
-  # Captured, not piped into grep. `armed` is the first line status prints, so `grep -q` matches and
-  # exits before gate.sh has finished writing -- gate.sh takes SIGPIPE, and under `pipefail` the
-  # pipeline reports 141 even though the assertion held. The older `| grep -q` cases below get away
-  # with it only because the string they look for is on the last line.
+  # gate.sh も hook と同じ結論になること。一致し続けなければならない 2 つの実装なので断言する。
+  # grep にパイプせず捕まえる。`armed` は status の 1 行目なので、`grep -q` が先に終わると gate.sh が
+  # SIGPIPE を受け、pipefail で 141 になる。下の古い `| grep -q` は探す文字列が最終行なので無事なだけ。
   wt_status="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$WT1" 2>&1)"
   grep -q '^armed' <<<"$wt_status" \
-    && ok "   gate.sh status sees the inherited gate from inside the worktree" \
-    || no "   gate.sh status reports not-armed inside a worktree of an armed repo: $(tr '\n' '|' <<<"$wt_status")"
+    && ok "   worktree の中から gate.sh status が継いだゲートを見る" \
+    || no "   arm 済みリポジトリの worktree の中で gate.sh status が not armed と言う: $(tr '\n' '|' <<<"$wt_status")"
 
-  # Recording from inside the worktree must land where the hook looks for it.
+  # worktree の中からの記録は、hook が探す場所に入る。
   DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" record typecheck "$WT1" >/dev/null 2>&1
-  check "   a record made in the worktree satisfies that worktree" 0 "$(invoke_at "$WT1")"
+  check "   worktree で作った記録はその worktree を満たす" 0 "$(invoke_at "$WT1")"
 fi
 
-# An unrelated repository must still be none of our business -- inheritance widens the gate to
-# worktrees of the armed repo, and to nothing else.
+# 無関係なリポジトリには関わらない。継ぐのは arm 済みリポジトリの worktree だけ。
 UNREL="$TMP/unrelated"; mkdir -p "$UNREL"; git -C "$UNREL" init -q
 git -C "$UNREL" remote add origin git@github.com:example/scratch.git
 echo z > "$UNREL/a.txt"; git -C "$UNREL" add -A
@@ -437,17 +415,14 @@ write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a different repository with the same remote -> still armed elsewhere" 0 "$(invoke_at "$UNREL")"
+check "同じ remote の別リポジトリ -> 変わらず armed elsewhere" 0 "$(invoke_at "$UNREL")"
 
 echo
-echo "verify-gate — {files} is relative to where the command runs"
+echo "verify-gate — {files} はコマンドを実行する場所からの相対パス"
 echo
 
-# {files} came from `git -C "$repo_root"`, so the paths were repo-root-relative -- but the command runs
-# in repo_root/<profile.cwd>. A profile setting "cwd": "v2" with "pnpm exec vitest run
-# {files}" got a changed file as `v2/src/foo.ts`, handed to a vitest already running inside
-# `v2/`. Depending on passWithNoTests that is either a permanent false failure or a vacuous pass.
-# No existing case combined cwd with {files}, which is why it survived.
+# コマンドは repo_root/<profile.cwd> で動くので、{files} も cwd からの相対にする。リポジトリルートからの
+# 相対だと、"cwd": "v2" の vitest に `v2/src/foo.ts` が渡り、偽の失敗か空振りの成功になる。
 rm -rf "$GATE"
 SUBREPO="$TMP/subrepo"; mkdir -p "$SUBREPO/pkg/src"
 git -C "$SUBREPO" init -q
@@ -463,51 +438,46 @@ cat > "$PROFILES/sub.json" <<'JSON'
   "checks": [ { "id": "unit", "cmd": "echo files={files}; false", "gate": true,
                 "agent_may_run": true, "scope": "changed" } ] }
 JSON
-check "a profile with cwd + scope:changed -> runs and can block" 2 "$(invoke_at "$SUBREPO")"
+check "cwd + scope:changed のプロファイル -> 実行し、止めうる" 2 "$(invoke_at "$SUBREPO")"
 grep -q 'files=src/a.ts' "$TMP/stderr" \
-  && ok "   the path is relative to cwd, so the runner in pkg/ can open it" \
-  || no "   wrong base directory: $(grep -o 'files=[^ ]*' "$TMP/stderr" | head -1)"
+  && ok "   パスが cwd からの相対なので、pkg/ のランナーが開ける" \
+  || no "   基点のディレクトリが違う: $(grep -o 'files=[^ ]*' "$TMP/stderr" | head -1)"
 rm -f "$PROFILES/sub.json"
 
 echo
-echo "verify-gate — a check that rewrites the tree cannot report green"
+echo "verify-gate — 作業ツリーを書き換えるチェックは緑を報告できない"
 echo
 
-# Real profiles commonly gate on `lint:fix` and `format:fix`, scope: all. So the
-# hook rewrites the working tree after the agent has decided it is done -- and if the fixer succeeds
-# the gate goes green, hiding the fact that it changed code. In a loop the next iteration then reads a
-# tree it did not write. The gate reports; it does not repair silently.
+# `lint:fix` や `format:fix` をゲートにすると、エージェントが終えた後に hook が作業ツリーを書き換え、
+# 成功すればコードを変えたことを隠して緑になる。ゲートは報告するもので、黙って直さない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "fixer", "cmd": "echo autofixed >> touched-by-the-gate.txt", "gate": true,
                 "agent_may_run": true, "mutates": true } ] }
 JSON
-check "a mutating check that changes the tree -> blocks instead of going green" 2 "$(invoke)"
-grep -qi 'changed the working tree' "$TMP/stderr" \
-  && ok "   says the gate itself changed files" \
-  || no "   silent about the modification: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+check "作業ツリーを変える mutating なチェック -> 緑にせず止める" 2 "$(invoke)"
+grep -qi '作業ツリーを変更した' "$TMP/stderr" \
+  && ok "   ゲート自身がファイルを変えたと言う" \
+  || no "   変更について何も言わない: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
 
-# ...and once there is nothing left to fix, it must get out of the way.
+# ...直すものが無くなれば邪魔をしない。
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "fixer", "cmd": "true", "gate": true, "agent_may_run": true, "mutates": true } ] }
 JSON
-check "   a mutating check that changes nothing -> passes" 0 "$(invoke)"
+check "   何も変えない mutating なチェック -> 通る" 0 "$(invoke)"
 rm -f "$REPO/touched-by-the-gate.txt"
 
 echo
-echo "verify-gate — a forbidden command is not run, even by the gate"
+echo "verify-gate — forbidden のコマンドはゲートでも実行しない"
 echo
 
-# `forbidden` was prose only. It appears in profiles/_schema.json, in the profiles, and in
-# da-verify/SKILL.md -- and nowhere in hooks/ or scripts/. The gate read the profile's `cmd` and
-# `eval`ed it. So a repository could declare `cdk deploy` forbidden and have the gate run it at the end
-# of every turn, which is the shape docs/mechanisms.md warns about: "a rule written in a skill is a
-# request, not a guarantee. Guardrails go in hooks."
+# `forbidden` を文書だけにすると、`cdk deploy` を禁じたリポジトリでもゲートが毎ターン実行しうる。
+# スキルに書いたルールは依頼で保証ではないので、hook で強制する。
 rm -rf "$GATE"; arm
-# Evidence is a side effect on disk, not a string in the report: the command text appears in the
-# ordinary failure detail too, so grepping stderr for it cannot distinguish "ran" from "was quoted".
+# 証拠は報告の文字列ではなくディスク上の副作用で取る。コマンド文は通常の失敗詳細にも出るので、
+# stderr を grep しても「実行した」と「引用した」を区別できない。
 rm -f "$TMP/forbidden-ran"
 cat > "$PROFILES/scratch.json" <<JSON
 { "match": { "remote": "example/scratch" },
@@ -515,101 +485,91 @@ cat > "$PROFILES/scratch.json" <<JSON
   "checks": [ { "id": "danger", "cmd": "touch $TMP/forbidden-ran; prisma migrate deploy",
                 "gate": true, "agent_may_run": true } ] }
 JSON
-check "a check whose cmd is forbidden -> blocks" 2 "$(invoke)"
+check "cmd が forbidden のチェック -> 止める" 2 "$(invoke)"
 [[ -e "$TMP/forbidden-ran" ]] \
-  && no "   the forbidden command was executed" \
-  || ok "   ...without running it"
-# Deliberately not grepping for the command text: it appears in the ordinary failure report too, so
-# that assertion passed before the fix existed. The word `forbidden` only appears if the gate declined.
+  && no "   forbidden のコマンドが実行された" \
+  || ok "   ...実行はしない"
+# コマンド文は通常の失敗報告にも出るので grep しない。`forbidden` の語はゲートが断った時にだけ出る。
 grep -qi 'forbidden' "$TMP/stderr" \
-  && ok "   ...and says it declined because the profile forbids it" \
-  || no "   reported a failed check, not a refusal: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
+  && ok "   ...プロファイルが禁じているので断ったと言う" \
+  || no "   拒否ではなく失敗したチェックとして報告した: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
 
-# A profile with no `forbidden` must behave exactly as before.
+# `forbidden` の無いプロファイルは今までどおりに動く。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-check "no forbidden list -> unaffected" 0 "$(invoke)"
+check "forbidden の一覧が無い -> 影響なし" 0 "$(invoke)"
 
-# And a substring that merely resembles one must not trip it -- the match is on the command, and a
-# check called `deploy-docs` is not `cdk deploy`.
+# 似ているだけの部分文字列では引っかからない。照合はコマンドに対してで、`deploy-docs` は `cdk deploy` ではない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "forbidden": [ "cdk deploy" ],
   "checks": [ { "id": "docs", "cmd": "echo deploying docs is fine", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a command that does not contain a forbidden phrase still runs" 0 "$(invoke)"
+check "forbidden の句を含まないコマンドは実行する" 0 "$(invoke)"
 
 echo
-echo "verify-gate — a subagent finishing is not the end of a turn"
+echo "verify-gate — サブエージェントの完了はターンの終わりではない"
 echo
 
-# Official docs: "For subagents, `Stop` hooks are automatically converted to `SubagentStop` since that
-# is the event that fires when a subagent completes." So this hook has been running at every subagent
-# completion all along -- da-review-all dispatches three layer subagents, which meant three extra full
-# runs of the gating suite per review, exit 2 *preventing a review subagent from stopping* because the
-# repo's tests were red, and three spurious increments of the attempt budget.
-#
-# The gate is about whether the user's turn may end. A subagent finishing is not that.
+# サブエージェントでは `Stop` hook が `SubagentStop` に変換される（公式ドキュメント）。放置すると
+# サブエージェントが完了するたびにゲートが走り、テストの赤でレビューのサブエージェントが止まれず、
+# 試行回数も無駄に減る。ゲートが見るのはユーザーのターンが終われるかどうかだけ。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "SubagentStop with a red check -> passes, does not block the subagent" 0 \
+check "赤のチェックで SubagentStop -> 通し、サブエージェントを止めない" 0 \
   "$(invoke_at "$REPO" '"hook_event_name":"SubagentStop"')"
-check "   a Stop payload carrying agent_id -> also passes" 0 \
+check "   agent_id を持つ Stop の payload -> これも通す" 0 \
   "$(invoke_at "$REPO" '"hook_event_name":"Stop","agent_id":"a1","agent_type":"x-review-backend"')"
 trace_has 'subagent' \
-  && ok "   and says so, so the trace does not look like a clean pass" \
-  || no "   passed silently: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 160)"
+  && ok "   そう書き残すので、トレースがきれいな pass に見えない" \
+  || no "   黙って通した: $(cat "$GATE/trace.log" 2>/dev/null | tr '\n' '|' | tail -c 160)"
 
-# The real turn end must still block, or the fix would have removed the gate.
-check "   the user's own turn end still blocks" 2 "$(invoke)"
+# 本物のターンの終わりは止め続ける。でないと修正でゲートを消したことになる。
+check "   ユーザー自身のターンの終わりは止める" 2 "$(invoke)"
 
-# A subagent stop must not spend the attempt budget either.
+# サブエージェントの停止で試行回数も減らさない。
 rm -rf "$GATE"; arm
 invoke_at "$REPO" '"hook_event_name":"SubagentStop"' >/dev/null
 invoke_at "$REPO" '"hook_event_name":"SubagentStop"' >/dev/null
 invoke >/dev/null
-grep -qi 'attempt 1 of' "$TMP/stderr" \
-  && ok "   subagent stops do not consume the attempt budget" \
-  || no "   the budget was spent by subagent stops: $(grep -o 'attempt [0-9] of [0-9]' "$TMP/stderr" | head -1)"
+grep -qi '試行 1 / ' "$TMP/stderr" \
+  && ok "   サブエージェントの停止で試行回数が減らない" \
+  || no "   サブエージェントの停止で試行回数が減った: $(grep -o '試行 [0-9] / [0-9]' "$TMP/stderr" | head -1)"
 
 echo
-echo "verify-gate — an unexpected crash must not read as permission to stop"
+echo "verify-gate — 予期しないクラッシュを止めてよい合図にしない"
 echo
 
-# Official docs: "Claude Code treats exit code 1 as a non-blocking error and proceeds, even though 1 is
-# the conventional Unix failure code." Only exit 2 blocks. This hook runs under `set -u`, so an unbound
-# variable exits 1 -- non-blocking -- and the turn ends with nothing checked. That class already bit
-# this repo once (a cwd containing a space made an arithmetic comparison exit 127).
+# Claude Code は終了コード 1 を止めないエラーとして扱い、止めるのは 2 だけ（公式ドキュメント）。
+# hook は `set -u` で動くので、未定義変数で 1 で終わると何も検査せずにターンが終わる。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-# Injected fault: a copy of the hook with an unbound variable reference partway through.
+# 注入する故障: 途中で未定義変数を参照する hook のコピー。
 CRASH="$TMP/crashing-hook.sh"
 sed 's|^payload="\$(cat <&3)"|payload="$(cat <\&3)"; : "$DOTAGENTS_DELIBERATELY_UNSET_FOR_TEST"|' \
   "$HOOK" > "$CRASH"
 crash_code="$(printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO" \
   | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$CRASH" 2>/dev/null; echo $?)"
 [[ "$crash_code" == "2" ]] \
-  && ok "an armed gate that crashes exits 2, not 1 -- only 2 blocks" \
-  || no "a crash exited $crash_code, which Claude Code treats as non-blocking: the turn ends unchecked"
+  && ok "arm 済みゲートがクラッシュすると 1 ではなく 2 で終わる -- 止めるのは 2 だけ" \
+  || no "クラッシュの終了コードが ${crash_code}。Claude Code は止めないので、ターンが未検査で終わる"
 
 echo
-echo "verify-gate — a killed check leaves nothing behind"
+echo "verify-gate — kill されたチェックは何も残さない"
 echo
 
-# The watchdog kills the subshell running `eval`, not its descendants. A check that backgrounds work --
-# `pnpm test` spawning node, a dev server, a docker run -- left it alive after the timeout, holding
-# ports and CPU for as long as it felt like. Written before the fix, because the fix moves the
-# {files} + eval execution boundary and this is what says the move was worth making.
+# watchdog が `eval` のサブシェルだけを kill すると、チェックがバックグラウンドに出した子（node、dev server、
+# docker run）がタイムアウト後も残り、ポートと CPU を握り続ける。
 rm -rf "$GATE"; arm
 rm -f "$TMP/orphan.pid"
 cat > "$PROFILES/scratch.json" <<JSON
@@ -621,25 +581,23 @@ JSON
 invoke >/dev/null
 orphan="$(cat "$TMP/orphan.pid" 2>/dev/null || true)"
 if [[ -z "$orphan" ]]; then
-  no "the probe never recorded a child pid -- the orphan case did NOT run"
+  no "プローブが子の pid を記録しない -- 孤児のケースは実行されていない"
 else
-  # A moment for the kill to propagate before deciding.
+  # 判定の前に、kill が伝わるのを少し待つ。
   sleep 1
   if kill -0 "$orphan" 2>/dev/null; then
-    no "a backgrounded child survived the timeout (pid $orphan) -- it holds ports and CPU after the gate gave up"
+    no "バックグラウンドの子がタイムアウト後も生きている（pid ${orphan}）-- ゲートが諦めた後もポートと CPU を握る"
     kill -9 "$orphan" 2>/dev/null || true
   else
-    ok "a backgrounded child is killed along with the check"
+    ok "バックグラウンドの子がチェックと一緒に kill される"
   fi
 fi
 
 echo
-echo "verify-gate — {files} is data, never code"
+echo "verify-gate — {files} はデータで、コードではない"
 echo
 
-# One assertion used to stand between `{files}` + eval and remote code execution by anything that can
-# write a filename into the work tree. Widened before the execution path moves, because that is the
-# boundary being moved.
+# `{files}` + eval は、作業ツリーにファイル名を書けるものによる任意コード実行と隣り合わせ。その境界を広く断言する。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -659,52 +617,49 @@ for evil in 'a;touch pwned-semi;b.ts' \
   : > "$REPO/$evil" 2>/dev/null && made=$((made+1))
 done
 if (( made == 0 )); then
-  no "could not create any adversarial filename -- the injection cases did NOT run"
+  no "攻撃用のファイル名を 1 つも作れない -- 注入のケースは実行されていない"
 else
   invoke >/dev/null
   hits="$(ls -1 "$REPO" 2>/dev/null | grep '^pwned-' | tr '\n' ' ' || true)"
   [[ -z "${hits// /}" ]] \
-    && ok "$made adversarial filenames reach the command as data ($(basename "$REPO") is clean)" \
-    || no "INJECTION: a filename executed -- $hits"
+    && ok "攻撃用のファイル名 ${made} 個がデータとしてコマンドに届く（$(basename "$REPO") はきれい）" \
+    || no "INJECTION: ファイル名が実行された -- $hits"
 fi
 rm -f "$REPO"/pwned-* 2>/dev/null || true
 git -C "$REPO" clean -qfd 2>/dev/null || true
 git -C "$REPO" checkout -q -- . 2>/dev/null || true
 
 echo
-echo "verify-gate — the gate owns its own clock"
+echo "verify-gate — ゲートは自分で時間を測る"
 echo
 
-# The most severe fail-open there was. Neither settings snippet declared a hook `timeout`, and nothing
-# bounded `eval "$cmd"`. A hook killed by the harness's own timeout exits with neither 0 nor 2, which
-# is non-blocking -- so a slow suite turned the gate into a silent no-op. And a frontend profile that
-# runs `typecheck` plus the full test suite does that at every single turn end.
+# ハーネスのタイムアウトで kill された hook は 0 でも 2 でもなく終わり、止めない。遅いスイートで
+# ゲートが黙って無効になるので、`eval "$cmd"` に自分で上限を掛ける。
 #
-# A timeout is a malfunction of the gate, not a finding about the code, so it blocks and is recorded
-# as its own reason. It also counts toward the bound: otherwise a genuinely hanging check would block
-# forever, which is the thing being fixed.
+# タイムアウトはコードの所見ではなくゲートの故障なので、止めて独自の理由で記録する。上限の回数にも
+# 数える。でないと本当に固まるチェックが永遠に止め続ける。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "max_attempts": 1,
   "checks": [ { "id": "hangs", "cmd": "sleep 30", "gate": true, "agent_may_run": true, "timeout": 1 } ] }
 JSON
-check "a check that outruns its timeout -> blocks, not passes" 2 "$(invoke)"
-grep -qi 'timed out' "$TMP/stderr" \
-  && ok "   says it timed out rather than reporting a failed check" \
-  || no "   does not mention the timeout: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+check "タイムアウトを超えるチェック -> 通さず止める" 2 "$(invoke)"
+grep -qi 'タイムアウトした' "$TMP/stderr" \
+  && ok "   失敗したチェックではなく、タイムアウトしたと言う" \
+  || no "   タイムアウトに触れていない: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
 verdict="$(find "$GATE" -name VERDICT | head -1)"
 [[ -n "$verdict" && "$(sed -n 2p "$verdict")" == "timeout" ]] \
-  && ok "   recorded as 'timeout', not as 'red' -- it says nothing about the code" \
-  || no "   wrong verdict reason: $(sed -n 2p "${verdict:-/dev/null}")"
+  && ok "   'red' ではなく 'timeout' で記録する -- コードについては何も言っていない" \
+  || no "   verdict の理由が違う: $(sed -n 2p "${verdict:-/dev/null}")"
 
-# A fast check must be unaffected. A watchdog that changed the normal path would be worse than none.
+# 速いチェックには影響しない。通常の経路を変える watchdog なら、無い方がまし。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "quick", "cmd": "true", "gate": true, "agent_may_run": true, "timeout": 30 } ] }
 JSON
-check "a check inside its timeout -> still passes" 0 "$(invoke)"
+check "タイムアウト内のチェック -> 通る" 0 "$(invoke)"
 
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
@@ -712,11 +667,10 @@ write_profile <<'JSON'
   "checks": [ { "id": "slow-but-fine", "cmd": "sleep 1; echo done", "gate": true,
                 "agent_may_run": true, "timeout": 30 } ] }
 JSON
-check "a check that takes a second but succeeds -> passes" 0 "$(invoke)"
+check "1 秒かかるが成功するチェック -> 通る" 0 "$(invoke)"
 
-# N checks x per-check timeout can exceed the harness ceiling, and exceeding THAT is the one failure
-# we cannot observe. So the gate stops starting checks once its own total budget is gone -- and an
-# unrun gating check is not a pass.
+# チェック数 x 個別のタイムアウトはハーネスの上限を超えうるが、それは観測できない失敗。だから全体の
+# 予算が尽きたら新しいチェックを始めない。実行していないゲートのチェックは pass ではない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -724,83 +678,76 @@ write_profile <<'JSON'
   "checks": [ { "id": "first",  "cmd": "sleep 2", "gate": true, "agent_may_run": true, "timeout": 30 },
               { "id": "second", "cmd": "true",    "gate": true, "agent_may_run": true, "timeout": 30 } ] }
 JSON
-check "the total budget running out -> blocks rather than reporting green" 2 "$(invoke)"
-grep -qi 'not run' "$TMP/stderr" \
-  && ok "   names what it never got to run" \
-  || no "   silent about the checks it skipped: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
+check "全体の予算が尽きる -> 緑を報告せず止める" 2 "$(invoke)"
+grep -qi '実行していない' "$TMP/stderr" \
+  && ok "   実行できなかったものを名指す" \
+  || no "   飛ばしたチェックについて何も言わない: $(tr '\n' '|' < "$TMP/stderr" | head -c 250)"
 grep -q 'second' "$TMP/stderr" \
-  && ok "   ...by check id" \
-  || no "   did not name the unrun check by id"
+  && ok "   ...チェック ID で" \
+  || no "   実行していないチェックを ID で名指さない"
 
 echo
-echo "verify-gate — blocking is bounded, and giving up is recorded"
+echo "verify-gate — 止める回数には上限があり、諦めたことは記録する"
 echo
 
-# `attempts >= 2` only ever escalated the *message*, and what it escalated to was "run /clear and
-# restart" -- an action no unattended loop can take. The gate blocked once per turn cycle forever,
-# which for a human is a nudge and for a loop is a wall with no door.
-#
-# So blocking is bounded. But silence would be a lie: the terminal state has to be a file that is
-# PRESENT, because if giving up only removed ACTIVE the next session's status would say "not armed",
-# which is indistinguishable from work nobody ever gated.
+# 無人ループは /clear できないので、上限なしに止め続けると出口の無い壁になる。だから止める回数に上限を
+# 置く。ただし黙って諦めると嘘になる。終端の状態は「存在する」ファイルにする。ACTIVE を消すだけだと
+# 次のセッションの status が not armed になり、誰もゲートを掛けなかった作業と区別できない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "echo 'still broken'; false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "attempt 1 of 3 -> blocks" 2 "$(invoke)"
-grep -qi 'attempt 1 of 3' "$TMP/stderr" \
-  && ok "   states the budget, so the agent is not thrashing blind" \
-  || no "   does not say which attempt this is: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
-check "attempt 2 of 3 -> still blocks" 2 "$(invoke)"
-check "attempt 3 of 3 -> blocks once more, and this is the last one" 2 "$(invoke)"
+check "試行 1 / 3 -> 止める" 2 "$(invoke)"
+grep -qi '試行 1 / 3' "$TMP/stderr" \
+  && ok "   上限を示すので、エージェントがやみくもに繰り返さない" \
+  || no "   何回目の試行か言わない: $(tr '\n' '|' < "$TMP/stderr" | head -c 200)"
+check "試行 2 / 3 -> まだ止める" 2 "$(invoke)"
+check "試行 3 / 3 -> もう一度止め、これが最後" 2 "$(invoke)"
 
-# The invocation that crosses the threshold must exit 2, not release. exit 2 is what feeds stderr to
-# the model; a non-blocking exit does not reliably. Releasing on the crossing turn would let the agent
-# stop without ever learning the gate gave up.
-grep -qi 'not verified' "$TMP/stderr" \
-  && ok "   the terminal message says the work is not verified" \
-  || no "   terminal message does not say the work is unverified: $(tr '\n' '|' < "$TMP/stderr" | head -c 300)"
+# 上限を越える呼び出しは解放せず 2 で終わる。stderr を確実にモデルへ渡すのは 2 だけで、ここで解放すると
+# エージェントはゲートが諦めたことを知らないまま止まる。
+grep -qi '検証されていない' "$TMP/stderr" \
+  && ok "   最後のメッセージが作業は検証されていないと言う" \
+  || no "   最後のメッセージが作業は未検証だと言わない: $(tr '\n' '|' < "$TMP/stderr" | head -c 300)"
 grep -qi '/clear' "$TMP/stderr" \
-  && no "   terminal message still tells an unattended loop to run /clear" \
-  || ok "   terminal message does not prescribe /clear, which is unreachable unattended"
+  && no "   最後のメッセージがまだ無人ループに /clear を指示している" \
+  || ok "   最後のメッセージが、無人では実行できない /clear を指示しない"
 
 verdict="$(find "$GATE" -name VERDICT | head -1)"
 [[ -n "$verdict" ]] \
-  && ok "   a VERDICT file is written" \
-  || no "   no VERDICT file anywhere under the gate dir"
+  && ok "   VERDICT ファイルが書かれる" \
+  || no "   ゲートのディレクトリのどこにも VERDICT ファイルが無い"
 if [[ -n "$verdict" ]]; then
   [[ "$(sed -n 2p "$verdict")" == "red" ]] \
-    && ok "   its reason is 'red' -- the check kept failing" \
-    || no "   wrong reason: $(sed -n 2p "$verdict")"
+    && ok "   理由は 'red' -- チェックが失敗し続けた" \
+    || no "   理由が違う: $(sed -n 2p "$verdict")"
   [[ "$(sed -n 3p "$verdict")" == "boom" ]] \
-    && ok "   it names the check" \
-    || no "   verdict does not name the check: $(sed -n 3p "$verdict")"
+    && ok "   チェックを名指す" \
+    || no "   verdict がチェックを名指さない: $(sed -n 3p "$verdict")"
 fi
 grep -q 'red' "$GATE/verdicts.log" 2>/dev/null \
-  && ok "   and it is appended to verdicts.log" \
-  || no "   nothing in verdicts.log"
+  && ok "   verdicts.log にも追記される" \
+  || no "   verdicts.log に何も無い"
 trace_has 'GAVE UP' \
-  && ok "   the give-up is traced" \
-  || no "   gave up without a trace line"
+  && ok "   諦めたことがトレースされる" \
+  || no "   トレースの行なしで諦めた"
 
-# From here the gate must stop blocking -- that is the whole point -- but it must not look green.
-check "after giving up -> stops blocking" 0 "$(invoke)"
-trace_has 'gave up earlier' \
-  && ok "   and the pass is textually distinct from 'all gating checks green'" \
-  || no "   a given-up pass is indistinguishable from a clean pass in the trace"
+# ここからゲートは止めるのをやめる（それが目的）が、緑に見えてはならない。
+check "諦めた後 -> 止めるのをやめる" 0 "$(invoke)"
+trace_has '回試して諦めている' \
+  && ok "   その pass は文面で 'all gating checks green' と区別できる" \
+  || no "   トレースで、諦めた後の pass がきれいな pass と区別できない"
 
-# Re-arming is the one code path a new session is guaranteed to reach, via /da-verify. So it is where
-# a prior verdict has to surface.
+# 新しいセッションが確実に通るのは /da-verify による arm し直しなので、前の verdict はそこで示す。
 arm_out="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" arm "$REPO" 2>&1)"
 grep -qi 'verdict' <<<"$arm_out" \
-  && ok "re-arming echoes the verdict the previous session left" \
-  || no "re-arming says nothing about the prior verdict: $(tr '\n' '|' <<<"$arm_out" | head -c 200)"
-check "   ...and the gate blocks again after re-arming" 2 "$(invoke)"
+  && ok "arm し直すと、前のセッションが残した verdict を示す" \
+  || no "arm し直しても前の verdict について何も言わない: $(tr '\n' '|' <<<"$arm_out" | head -c 200)"
+check "   ...arm し直した後はまた止める" 2 "$(invoke)"
 
-# A delegated check nobody confirms is the unattended case with no door at all: it blocked and never
-# counted. Bounded by the same budget, but recorded as a different finding -- "the human has not
-# confirmed" is not "the code is broken".
+# 誰も確認しない委任チェックも同じ上限で打ち切るが、別の所見として記録する。
+# 「人が確認していない」は「コードが壊れている」ではない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -808,21 +755,21 @@ write_profile <<'JSON'
                 "delegate_reason": "needs 8GB of heap" } ] }
 JSON
 invoke >/dev/null; invoke >/dev/null
-check "an unconfirmed delegated check is bounded too" 2 "$(invoke)"
-check "   ...and then stops blocking" 0 "$(invoke)"
+check "未確認の委任チェックにも上限がある" 2 "$(invoke)"
+check "   ...その後は止めるのをやめる" 0 "$(invoke)"
 verdict="$(find "$GATE" -name VERDICT | head -1)"
 [[ -n "$verdict" && "$(sed -n 2p "$verdict")" == "needs_human" ]] \
-  && ok "   recorded as needs_human, not as red" \
-  || no "   wrong reason for an unconfirmed delegated check: $(sed -n 2p "${verdict:-/dev/null}")"
+  && ok "   red ではなく needs_human で記録する" \
+  || no "   未確認の委任チェックの理由が違う: $(sed -n 2p "${verdict:-/dev/null}")"
 
-# The budget is configurable, because the tests need it short and a slow repo may want it longer.
+# 上限は設定できる。テストでは短く、遅いリポジトリでは長くしたいことがある。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "DOTAGENTS_GATE_MAX_ATTEMPTS=1 -> gives up on the first failure" 2 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
-check "   ...and stops blocking immediately after" 0 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
+check "DOTAGENTS_GATE_MAX_ATTEMPTS=1 -> 1 回目の失敗で諦める" 2 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
+check "   ...直後から止めるのをやめる" 0 "$(DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke)"
 
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
@@ -830,50 +777,44 @@ write_profile <<'JSON'
   "max_attempts": 1,
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "a profile may set max_attempts" 2 "$(invoke)"
-check "   ...and it is honoured" 0 "$(invoke)"
+check "プロファイルで max_attempts を設定できる" 2 "$(invoke)"
+check "   ...それが守られる" 0 "$(invoke)"
 
-# Giving up in one worktree must not release the gate for another. The counters are per worktree, so
-# the verdict has to be too, or one dead end would open the gate for every parallel piece of work.
+# ある worktree で諦めても、別の worktree のゲートは解放しない。カウンタが worktree ごとなので verdict もそう。
 if [[ -n "${WT1:-}" ]]; then
   rm -rf "$GATE"; arm
   write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-  DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke >/dev/null          # main checkout gives up
-  check "giving up in one working tree does not release another" 2 "$(invoke_at "$WT1")"
+  DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke >/dev/null          # メインの checkout が諦める
+  check "ある作業ツリーで諦めても、別のツリーは解放しない" 2 "$(invoke_at "$WT1")"
 fi
 
 echo
-echo "verify-gate — an idle gate is reclaimed"
+echo "verify-gate — アイドルのゲートは回収する"
 echo
 
-# Disarming was prose in da-verify/SKILL.md, so a session that ended without reaching step 6 left the
-# repository armed forever. The gate dir on the author's machine had exactly that: a sentinel from a
-# finished session, running five checks at every turn end for hours.
-#
-# Idle time, not time since arming. A TTL from arm would kill the thing being enabled -- a six-hour
-# unattended run would expire mid-flight and the gate would open in silence.
+# 解除が手順任せだと、途中で終わったセッションがリポジトリを arm したまま残す。
+# 測るのは arm からの時間ではなくアイドル時間。arm からの TTL だと、長い無人実行の途中で失効して黙って開く。
 NOW="$(date +%s)"
-LATER=$(( NOW + 13 * 3600 ))     # past the 12h default
+LATER=$(( NOW + 13 * 3600 ))     # 既定の 12h を過ぎる
 SOON=$(( NOW + 60 ))
 
-# The invariant that makes expiry structurally unable to fail open: no single invocation both expires
-# a sentinel and passes on the basis of that expiry. The only invocation that can expire gate G is one
-# that is not G's -- and that one was never the invocation G was protecting.
+# 失効が構造的に開いて失敗しないための不変条件: 1 回の呼び出しで sentinel を失効させ、その失効を根拠に
+# 通すことはしない。ゲート G を失効させられるのは G 以外の呼び出しだけで、それは G が守る呼び出しではない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
 ex_own="$(DOTAGENTS_GATE_NOW=$LATER invoke_at "$REPO")"
-check "the gate being enforced is never expired by its own invocation" 2 "$ex_own"
+check "強制中のゲートは自分の呼び出しでは失効しない" 2 "$ex_own"
 [[ -f "$(gate_dir_for "$REPO")/ACTIVE" ]] \
-  && ok "   ...and its sentinel is still there afterwards" \
-  || no "   the invocation expired the very gate it was enforcing"
+  && ok "   ...その後も sentinel が残っている" \
+  || no "   呼び出しが、自分で強制しているゲートを失効させた"
 
-# Enforcing it refreshes the heartbeat, which is what lets a long unattended run survive.
+# 強制するたびに heartbeat を更新する。これで長い無人実行が生き残る。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -882,97 +823,88 @@ JSON
 DOTAGENTS_GATE_NOW=$SOON invoke_at "$REPO" >/dev/null
 hb="$(cat "$(gate_dir_for "$REPO")/HEARTBEAT" 2>/dev/null || echo 0)"
 [[ "$hb" == "$SOON" ]] \
-  && ok "a turn that ends green refreshes the heartbeat" \
-  || no "heartbeat not refreshed (wanted $SOON, got $hb)"
+  && ok "緑で終わるターンが heartbeat を更新する" \
+  || no "heartbeat が更新されていない（期待は ${SOON}、実際は ${hb}）"
 
-# Another repository's turn end is the sweeper. It runs several times a minute across all sessions,
-# which is why no cron job is needed -- and a background process whose job is to un-arm guardrails
-# would be a fail-open machine that runs when nobody is watching.
+# 掃除役は別リポジトリのターンの終わり。全セッションで 1 分に何度も走るので cron は要らない。
+# ガードレールを外すのが仕事の常駐プロセスは、誰も見ていない時に開いて失敗する装置になる。
 rm -rf "$GATE"; arm
 STRANGER="$TMP/stranger"; mkdir -p "$STRANGER"; git -C "$STRANGER" init -q
 git -C "$STRANGER" remote add origin git@github.com:example/stranger.git
 echo s > "$STRANGER/a.txt"; git -C "$STRANGER" add -A
 git -C "$STRANGER" -c user.email=t@t -c user.name=t commit -qm init
 armed_dir="$(gate_dir_for "$REPO")"
-check "a stranger's turn end passes (it was never gated)" 0 "$(DOTAGENTS_GATE_NOW=$LATER invoke_at "$STRANGER")"
+check "無関係なリポジトリのターンの終わりは通る（ゲートは掛かっていない）" 0 "$(DOTAGENTS_GATE_NOW=$LATER invoke_at "$STRANGER")"
 [[ ! -f "$armed_dir/ACTIVE" ]] \
-  && ok "   ...and reclaims the idle sentinel it found on the way" \
-  || no "   the idle sentinel survived a sweep"
+  && ok "   ...途中で見つけたアイドルの sentinel を回収する" \
+  || no "   アイドルの sentinel が掃除で残った"
 trace_has 'expired' \
-  && ok "   the eviction is traced" \
-  || no "   evicted without a trace line"
+  && ok "   回収がトレースされる" \
+  || no "   トレースの行なしで回収した"
 [[ -s "$GATE/verdicts.log" ]] \
-  && ok "   and recorded in verdicts.log, which the trace trimmer does not touch" \
-  || no "   nothing written to verdicts.log"
+  && ok "   トレースの切り詰めが触れない verdicts.log にも記録される" \
+  || no "   verdicts.log に何も書かれていない"
 [[ -f "$armed_dir/ROOT" ]] \
-  && ok "   ROOT survives the eviction, so status can still say whose gate it was" \
-  || no "   ROOT is gone, so an expired gate is indistinguishable from a clean session"
+  && ok "   回収後も ROOT が残るので、status が誰のゲートだったかを言える" \
+  || no "   ROOT が消えたので、失効したゲートがきれいなセッションと区別できない"
 
-# A gate that has not been idle long enough must be left alone.
+# アイドルが十分に長くないゲートには触れない。
 rm -rf "$GATE"; arm
 armed_dir="$(gate_dir_for "$REPO")"
 DOTAGENTS_GATE_NOW=$SOON invoke_at "$STRANGER" >/dev/null
 [[ -f "$armed_dir/ACTIVE" ]] \
-  && ok "a gate inside its idle window is not reclaimed" \
-  || no "reclaimed a gate that was still fresh"
+  && ok "アイドルの猶予内のゲートは回収しない" \
+  || no "まだ新しいゲートを回収した"
 
-# A sentinel written by an older gate.sh has no heartbeat at all. Treating that as infinitely idle
-# would evict a gate somebody armed a minute ago, so it is backfilled instead: the upgrade migrates
-# itself, with no command for anyone to remember to run.
+# 古い gate.sh が書いた sentinel には heartbeat が無い。無限にアイドルと見なすと 1 分前のゲートも
+# 回収するので、代わりに埋める。更新は勝手に移行し、誰かが覚えて実行するコマンドは要らない。
 rm -rf "$GATE"; arm
 armed_dir="$(gate_dir_for "$REPO")"
 rm -f "$armed_dir/HEARTBEAT" "$armed_dir/ARMED_AT"
 DOTAGENTS_GATE_NOW=$LATER invoke_at "$STRANGER" >/dev/null
 if [[ -f "$armed_dir/ACTIVE" && "$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)" == "$LATER" ]]; then
-  ok "a pre-upgrade sentinel is given a heartbeat, not evicted"
+  ok "更新前の sentinel は回収されず heartbeat を与えられる"
 else
-  no "a pre-upgrade sentinel was evicted or left without a heartbeat"
+  no "更新前の sentinel が回収されたか、heartbeat の無いまま残った"
 fi
 
 echo
-echo "gate.sh — reclaiming and reporting"
+echo "gate.sh — 回収と報告"
 echo
 
-# status must never be the thing that opens a gate. Reading state is not a licence to change it.
+# status でゲートを開けてはならない。状態を読むことは変えてよい理由にならない。
 rm -rf "$GATE"; arm
 armed_dir="$(gate_dir_for "$REPO")"
 DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" >/dev/null 2>&1
 [[ -f "$armed_dir/ACTIVE" ]] \
-  && ok "status reports staleness without evicting" \
-  || no "status evicted the gate -- reading it was enough to open it"
+  && ok "status は回収せずに古さを報告する" \
+  || no "status がゲートを回収した -- 読むだけで開いてしまう"
 st="$(DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" 2>&1)"
 grep -qi 'idle' <<<"$st" \
-  && ok "   ...and says how long it has been idle" \
-  || no "   status does not mention idleness: $(tr '\n' '|' <<<"$st")"
+  && ok "   ...アイドル時間を言う" \
+  || no "   status がアイドルに触れていない: $(tr '\n' '|' <<<"$st")"
 
-# gc is the explicit path, for a driver or CI that wants the sweep without waiting for a turn to end.
+# gc は明示的な経路。ターンの終わりを待たずに掃除したいドライバーや CI 向け。
 gc_out="$(DOTAGENTS_GATE_NOW=$LATER DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" gc 2>&1)"
 [[ ! -f "$armed_dir/ACTIVE" ]] \
-  && ok "gc reclaims an idle gate" \
-  || no "gc left the idle gate armed"
+  && ok "gc がアイドルのゲートを回収する" \
+  || no "gc がアイドルのゲートを arm したまま残した"
 grep -q "$(basename "$REPO")" <<<"$gc_out" \
-  && ok "   ...and names what it reclaimed" \
-  || no "   gc was silent about what it did: $(tr '\n' '|' <<<"$gc_out")"
+  && ok "   ...回収したものを名指す" \
+  || no "   gc が何をしたか言わない: $(tr '\n' '|' <<<"$gc_out")"
 
-# After eviction, "not armed" alone would be indistinguishable from a session that never armed
-# anything. The whole point of keeping ROOT is that this question has an answer.
+# 回収後に not armed とだけ言うと、何も arm しなかったセッションと区別できない。ROOT を残すのはこれに答えるため。
 st="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status "$REPO" 2>&1)"
 grep -qi 'expired' <<<"$st" \
-  && ok "status explains that the gate expired rather than just 'not armed'" \
-  || no "status hides the expiry: $(tr '\n' '|' <<<"$st")"
+  && ok "status が 'not armed' だけでなく、ゲートが失効したと説明する" \
+  || no "status が失効を隠す: $(tr '\n' '|' <<<"$st")"
 
 echo
-echo "gate.sh verify — check without ending a turn, and without touching the gate"
+echo "gate.sh verify — ターンを終えず、ゲートにも触れずに検査する"
 echo
 
-# Until now the only way to run a repository's checks was to end a turn. So an agent could not verify
-# its own work mid-implementation, and da-verify re-implemented the hook's loop in prose -- which had
-# already drifted: the skill told the model to use `git diff --name-only HEAD` while the hook also
-# includes untracked files, deliberately, because "a turn that only adds new files produced an empty
-# list, which skipped the check entirely". The skill would skip a check the gate runs.
-#
-# So `verify` drives the hook rather than reimplementing it. One implementation, no second copy to
-# drift -- and nothing to delete later, which removes a planned one-way door.
+# 実装の途中で自分の作業を検査できるように、`verify` は hook を再実装せずに駆動する。実装が 1 つなら、
+# 2 つ目の写しがずれることもない。
 verify() { # verify [--json] [dir]
   DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
     bash "$GATE_SH" verify "$@" >"$TMP/vout" 2>"$TMP/verr"
@@ -984,12 +916,12 @@ write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-check "verify with everything green -> exit 0" 0 "$(verify "$REPO")"
+check "すべて緑で verify -> exit 0" 0 "$(verify "$REPO")"
 
-# The point of the whole thing: it works with no gate armed. Verifying is what you do *while* working.
+# 肝心な点: ゲートを arm していなくても動く。検査は作業の途中でするもの。
 [[ ! -e "$GATE" ]] || [[ -z "$(find "$GATE" -name ACTIVE 2>/dev/null)" ]] \
-  && ok "   ...with nothing armed, which is when you actually want it" \
-  || no "   verify armed something"
+  && ok "   ...何も arm されていない、実際に使いたい状態で" \
+  || no "   verify が何かを arm した"
 
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -997,32 +929,31 @@ write_profile <<'JSON'
 JSON
 vrc="$(verify "$REPO")"
 [[ "$vrc" != "0" ]] \
-  && ok "verify with a red check -> non-zero" \
-  || no "verify reported success on a red check"
+  && ok "赤のチェックで verify -> 非 0" \
+  || no "赤のチェックで verify が成功を報告した"
 grep -q 'boom' "$TMP/vout" "$TMP/verr" 2>/dev/null \
-  && ok "   ...and names the check" || no "   did not name the failing check"
+  && ok "   ...チェックを名指す" || no "   失敗したチェックを名指さない"
 grep -q 'the-real-failure' "$TMP/vout" "$TMP/verr" 2>/dev/null \
-  && ok "   ...and shows its output" || no "   did not show the check output"
+  && ok "   ...その出力を示す" || no "   チェックの出力を示さない"
 
-# It must not spend the gate's state. A self-check that consumed an attempt would make the budget
-# depend on how often you checked your own work, which is the opposite of encouraging it.
+# ゲートの状態を消費しない。自己検査で試行を使うと、上限が検査した回数に左右され、検査を妨げる。
 rm -rf "$GATE"; arm
 armed_dir="$(gate_dir_for "$REPO")"
 hb_before="$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)"
 verify "$REPO" >/dev/null
 att="$(find "$armed_dir" -name attempts.json | head -1)"
 [[ "$(tr -d ' \n' < "$att" 2>/dev/null)" == "{}" ]] \
-  && ok "verify does not consume an attempt" \
-  || no "verify spent the attempt budget: $(cat "$att" 2>/dev/null | tr -d '\n')"
+  && ok "verify が試行を消費しない" \
+  || no "verify が試行回数を使った: $(cat "$att" 2>/dev/null | tr -d '\n')"
 [[ -z "$(find "$armed_dir" -name VERDICT 2>/dev/null)" ]] \
-  && ok "   ...and writes no verdict" || no "   verify wrote a VERDICT"
+  && ok "   ...verdict を書かない" || no "   verify が VERDICT を書いた"
 [[ "$(cat "$armed_dir/HEARTBEAT" 2>/dev/null)" == "$hb_before" ]] \
-  && ok "   ...and does not refresh the heartbeat" \
-  || no "   verify refreshed the heartbeat, so checking your work would keep a stale gate alive"
+  && ok "   ...heartbeat を更新しない" \
+  || no "   verify が heartbeat を更新した -- 作業を検査するだけで古いゲートが生き延びる"
 [[ -f "$armed_dir/ACTIVE" ]] \
-  && ok "   ...and leaves the gate armed" || no "   verify disarmed the gate"
+  && ok "   ...ゲートを arm したまま残す" || no "   verify がゲートを解除した"
 
-# --json for a driver, same as status --json.
+# ドライバー向けの --json。status --json と同じ。
 rm -rf "$GATE"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1034,26 +965,23 @@ vj() { node -e '
     try { console.log(String(JSON.parse(s)[process.argv[1]])) } catch { console.log("parse-error") }
   });' "$1" < "$TMP/vout"; }
 [[ "$(vj ok)" == "false" ]] \
-  && ok "verify --json reports ok=false" || no "verify --json ok=$(vj ok) (raw: $(head -c 120 "$TMP/vout"))"
+  && ok "verify --json が ok=false を報告する" || no "verify --json ok=$(vj ok)（raw: $(head -c 120 "$TMP/vout")）"
 [[ "$(vj check)" == "boom" ]] \
-  && ok "   ...and names the check in a field, not in prose" || no "   check=$(vj check)"
+  && ok "   ...チェックを文ではなくフィールドで名指す" || no "   check=$(vj check)"
 
-# --- what the gate DID, as fields ------------------------------------------------
-# `ok: true` never meant "verified": a check that never executed reported the same thing as one that
-# passed, and the only way to tell them apart was to match the sentence "all gating checks green"
-# against "nothing blocking". scripts/loop.sh carried a comment calling that "the SECOND prose
-# coupling". These fields are what replaced it.
+# --- ゲートが何をしたかをフィールドで -----------------------------------------------
+# `ok: true` は「検証済み」ではない。実行しなかったチェックと通ったチェックを文面で見分けずに済むよう、
+# フィールドで出す。
 [[ "$(vj ran)" == "1" ]] \
-  && ok "   ...and reports how many gating checks actually ran" || no "   ran=$(vj ran), expected 1"
+  && ok "   ...実際に実行したゲートのチェック数を報告する" || no "   ran=$(vj ran)、期待は 1"
 [[ "$(vj checked)" == "true" ]] \
-  && ok "   ...and checked is true when one ran" || no "   checked=$(vj checked)"
+  && ok "   ...1 つ実行すれば checked が true" || no "   checked=$(vj checked)"
 [[ "$(vj profile)" == *"scratch"* || "$(vj profile)" == *".json" ]] \
-  && ok "   ...and names the resolved profile, so nothing greps for 'no profile matches'" \
+  && ok "   ...解決したプロファイルを名指すので、文面を grep しなくて済む" \
   || no "   profile=$(vj profile)"
 
-# A clean tree with only {files}-scoped gating checks. The check is SKIPPED, and this used to be
-# reported byte-identically to a real pass (docs/loops.md:546). Still non-blocking -- on a clean tree
-# there is genuinely nothing to check -- but it must no longer be indistinguishable.
+# きれいな作業ツリーで、ゲートのチェックが {files} 対象だけ。チェックは飛ばされる。止めはしない
+# （本当に検査するものが無い）が、本物の pass と区別できなければならない。
 rm -rf "$GATE"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1063,28 +991,25 @@ JSON
 git -C "$REPO" add -A >/dev/null 2>&1; git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm clean >/dev/null 2>&1
 verify --json "$REPO" >/dev/null
 [[ "$(vj ran)" == "0" ]] \
-  && ok "a clean tree runs no {files} check, and says ran=0" \
-  || no "   ran=$(vj ran) on a clean tree, expected 0"
+  && ok "きれいな作業ツリーでは {files} のチェックを実行せず、ran=0 と言う" \
+  || no "   きれいな作業ツリーで ran=$(vj ran)、期待は 0"
 [[ "$(vj checked)" == "false" ]] \
-  && ok "   ...so checked is false -- 'nothing ran' is not 'green'" || no "   checked=$(vj checked)"
+  && ok "   ...だから checked は false -- 「何も実行していない」は「緑」ではない" || no "   checked=$(vj checked)"
 node -e '
   let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     let o=null; try { o=JSON.parse(s) } catch {}
     const sk=(o&&o.skipped)||[];
     process.exit(sk.some(x=>x.id==="only-changed"&&x.reason==="no_files")?0:1);
   });' < "$TMP/vout" \
-  && ok "   ...and names the skipped check with its reason, instead of vanishing" \
-  || no "   skipped did not name only-changed:no_files (raw: $(head -c 200 "$TMP/vout"))"
+  && ok "   ...飛ばしたチェックを理由つきで名指し、消えない" \
+  || no "   skipped が only-changed:no_files を名指さない（raw: $(head -c 200 "$TMP/vout")）"
 
-# Fail closed. A missing or unreadable sidecar is "I could not tell", and this repository's own rule is
-# that an absent answer is never a yes. `verify` always writes the sidecar itself, so the shape that
-# needs pinning is the MERGE's reaction to a bad one -- asserted directly on the sanity test below
-# rather than through a contrived failure of the writer.
-# --- `paths`: a check runs only when it claims something that changed ------------
-# The two ways a test here could pass for the wrong reason, both closed by construction:
-#   1. the skipped check would have PASSED anyway -> so the skipped one is `exit 1`, which can only be
-#      green by not running
-#   2. nothing changed, so nothing ran for an unrelated reason -> so a real file is written first
+# 閉じて失敗する。sidecar が無い・読めないは「分からない」で、答えが無いことは yes ではない。`verify` は
+# sidecar を必ず自分で書くので、固定すべきは壊れた sidecar へのマージの反応。下の妥当性テストで直接断言する。
+# --- `paths`: 変更に該当するチェックだけを実行する -------------------------------
+# 間違った理由で通る 2 つの道を、作りで塞ぐ:
+#   1. 飛ばしたチェックがどのみち通る -> 飛ばす方は `exit 1` にし、実行しない時だけ緑になる
+#   2. 何も変わらず、別の理由で何も実行されない -> 先に本物のファイルを書く
 rm -rf "$GATE"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1096,21 +1021,21 @@ JSON
 mkdir -p "$REPO/docs"; printf 'x\n' > "$REPO/docs/x.md"
 rc="$(verify --json "$REPO")"
 [[ "$rc" == "0" ]] \
-  && ok "paths: a docs change does not run the src-only check (which would have failed)" \
-  || no "   verify exited $rc -- the src check ran, or something else blocked (raw: $(head -c 200 "$TMP/verr"))"
+  && ok "paths: docs の変更では src 専用のチェック（実行すれば失敗する）を実行しない" \
+  || no "   verify の終了コードが ${rc} -- src のチェックが実行されたか、別の何かが止めた（raw: $(head -c 200 "$TMP/verr")）"
 [[ "$(vj ran)" == "1" ]] \
-  && ok "   ...and exactly one check ran" || no "   ran=$(vj ran), expected 1"
+  && ok "   ...実行したチェックはちょうど 1 つ" || no "   ran=$(vj ran)、期待は 1"
 node -e '
   let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     let o=null; try { o=JSON.parse(s) } catch {}
     const sk=(o&&o.skipped)||[];
     process.exit(sk.some(x=>x.id==="needs-src"&&x.reason==="paths")?0:1);
   });' < "$TMP/vout" \
-  && ok "   ...and the skip is named with reason=paths, not silent" \
-  || no "   skipped did not name needs-src:paths (raw: $(head -c 200 "$TMP/vout"))"
+  && ok "   ...飛ばしたことを reason=paths で名指し、黙らない" \
+  || no "   skipped が needs-src:paths を名指さない（raw: $(head -c 200 "$TMP/vout")）"
 
-# Files changed and NO gating check claims them. The check here WOULD PASS if it ran, so a block cannot
-# be attributed to redness -- it can only mean "nothing was checked".
+# 変更したファイルに該当するゲートのチェックが無い。ここのチェックは実行すれば通るので、止まるなら
+# 赤のせいではなく「何も検査していない」ことだけが理由になる。
 rm -rf "$GATE"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1119,14 +1044,14 @@ write_profile <<'JSON'
 JSON
 rc="$(verify --json "$REPO")"
 [[ "$rc" != "0" ]] \
-  && ok "changed files that no check claims BLOCK, even though that check would have passed" \
-  || no "   verify exited 0 -- 'nothing ran' was reported as green, which is the whole failure"
+  && ok "どのチェックも該当しない変更ファイルは、チェックが通るはずでも止める" \
+  || no "   verify が 0 で終わった -- 「何も実行していない」が緑として報告された。これが防ぎたい失敗そのもの"
 [[ "$(vj kind)" == "not_checked" ]] \
-  && ok "   ...with kind=not_checked, which is not the same as red" || no "   kind=$(vj kind)"
+  && ok "   ...kind=not_checked で。これは red とは違う" || no "   kind=$(vj kind)"
 [[ "$(vj ran)" == "0" ]] \
-  && ok "   ...and ran=0 says so in a field" || no "   ran=$(vj ran)"
+  && ok "   ...ran=0 がフィールドでそう言う" || no "   ran=$(vj ran)"
 
-# Backwards compatibility: the same profile without `paths` runs and passes. One field, opposite result.
+# 後方互換: `paths` の無い同じプロファイルは実行して通る。フィールド 1 つで結果が逆になる。
 rm -rf "$GATE"
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1134,11 +1059,11 @@ write_profile <<'JSON'
 JSON
 rc="$(verify --json "$REPO")"
 [[ "$rc" == "0" && "$(vj ran)" == "1" ]] \
-  && ok "a check with no paths behaves exactly as before -- it always runs" \
-  || no "   exit=$rc ran=$(vj ran); the no-paths path regressed"
+  && ok "paths の無いチェックは今までどおり -- 常に実行する" \
+  || no "   exit=$rc ran=$(vj ran)。paths 無しの経路が退行した"
 
-# A clean tree with a `paths` check is the OTHER branch: nothing changed, so nothing to check, and the
-# Stop hook must not block turns that only read code.
+# `paths` のチェックがあり作業ツリーがきれいなのは別の分岐: 何も変えていないので検査するものが無く、
+# コードを読むだけのターンを Stop hook が止めてはならない。
 git -C "$REPO" add -A >/dev/null 2>&1
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm docs >/dev/null 2>&1
 rm -rf "$GATE"
@@ -1149,14 +1074,13 @@ write_profile <<'JSON'
 JSON
 rc="$(verify --json "$REPO")"
 [[ "$rc" == "0" ]] \
-  && ok "a clean tree with a paths check passes -- read-only turns are not blocked" \
-  || no "   verify exited $rc on a clean tree; the gate would get switched off"
+  && ok "paths のチェックでも作業ツリーがきれいなら通る -- 読むだけのターンは止めない" \
+  || no "   きれいな作業ツリーで verify の終了コードが ${rc}。これではゲートを切られる"
 [[ "$(vj changed_files)" == "0" ]] \
-  && ok "   ...and changed_files=0 distinguishes it from 'nothing was checked'" \
+  && ok "   ...changed_files=0 で「何も検査していない」と区別できる" \
   || no "   changed_files=$(vj changed_files)"
 
-# `paths` is ROOT-relative while `{files}` stays cwd-relative. Both halves in one case, because getting
-# either backwards is silent.
+# `paths` はルートからの相対、`{files}` は cwd からの相対。どちらを逆にしても黙って壊れるので 1 ケースで両方見る。
 rm -rf "$GATE"
 mkdir -p "$REPO/pkg/src"; printf 'a\n' > "$REPO/pkg/src/a.ts"; printf 'b\n' > "$REPO/other.txt"
 write_profile <<'JSON'
@@ -1165,33 +1089,29 @@ write_profile <<'JSON'
                 "agent_may_run": true, "scope": "changed", "paths": ["pkg/src/**"] } ] }
 JSON
 rc="$(verify --json "$REPO")"
-# Read from `detail` in the JSON, NOT from stderr: in --json mode gate.sh folds the hook's report into
-# the document and prints nothing on stderr. The first version of these two assertions grepped
-# $TMP/verr -- which is empty here, so the "no leak" one passed by finding nothing in nothing.
+# stderr ではなく JSON の `detail` から読む。--json では gate.sh が hook の報告を文書に畳み、stderr には
+# 何も出さない。stderr を見ると「漏れなし」の断言が空のファイルで空振りする。
 [[ "$rc" != "0" ]] && grep -q 'files=src/a.ts' "$TMP/vout" \
-  && ok "paths matches root-relative while {files} stays cwd-relative (files=src/a.ts)" \
-  || no "   expected files=src/a.ts (exit=$rc ran=$(vj ran) changed=$(vj changed_files) kind=$(vj kind))"
+  && ok "paths はルートからの相対で当たり、{files} は cwd からの相対のまま（files=src/a.ts）" \
+  || no "   期待は files=src/a.ts（exit=$rc ran=$(vj ran) changed=$(vj changed_files) kind=$(vj kind)）"
 grep -q 'other.txt' "$TMP/vout" \
-  && no "   {files} leaked a path outside the check's paths" \
-  || ok "   ...and {files} is the INTERSECTION -- other.txt was not handed to it"
+  && no "   {files} にチェックの paths の外のパスが漏れた" \
+  || ok "   ...{files} は共通部分 -- other.txt は渡されていない"
 git -C "$REPO" checkout -q -- . 2>/dev/null; rm -rf "$REPO/pkg" "$REPO/other.txt" "$REPO/docs"
 
 printf 'not json at all' > "$TMP/mangled"
 node -e '
-  // The exact merge gate.sh performs, against a mangled sidecar: ok must be forced false and the
-  // fields must be null rather than optimistic.
+  // gate.sh と同じマージを壊れた sidecar に当てる。ok は false に強制し、フィールドは楽観せず null にする。
   const fs=require("fs");
   let rep=null; try { rep=JSON.parse(fs.readFileSync(process.argv[1],"utf8")) } catch {}
   const sane = rep && typeof rep === "object" && Number.isInteger(rep.ran);
   process.exit(sane ? 1 : 0);
 ' "$TMP/mangled" \
-  && ok "an unparseable sidecar is not treated as sane, so verify --json forces ok=false" \
-  || no "a mangled sidecar passed the sanity test"
+  && ok "読めない sidecar を妥当と見なさないので、verify --json は ok=false に強制する" \
+  || no "壊れた sidecar が妥当性テストを通った"
 
-# The gate's own control variables must not reach the check. Found by running `gate.sh verify` against
-# this repository: DOTAGENTS_GATE_DRY=1 was inherited by ./scripts/test-verify-gate.sh, which then ran
-# every one of its hook invocations in dry mode, so verifying the repo reported its own gate suite as
-# failing. A check is repository code, not gate internals.
+# ゲート自身の制御変数をチェックに渡さない。渡すと、このテストが DOTAGENTS_GATE_DRY=1 を継いで hook を
+# すべて dry で呼び、自分のスイートを失敗と報告する。チェックはリポジトリのコードで、ゲートの内部ではない。
 rm -rf "$GATE"
 cat > "$PROFILES/scratch.json" <<JSON
 { "match": { "remote": "example/scratch" },
@@ -1202,15 +1122,14 @@ JSON
 rm -f "$TMP/leaked"
 DOTAGENTS_GATE_NOW=1 verify "$REPO" >/dev/null
 [[ ! -s "$TMP/leaked" ]] \
-  && ok "the gate's control variables do not reach the check" \
-  || no "leaked into the check: $(tr '\n' ' ' < "$TMP/leaked")"
+  && ok "ゲートの制御変数がチェックに届かない" \
+  || no "チェックに漏れた: $(tr '\n' ' ' < "$TMP/leaked")"
 
 echo
-echo "gate.sh — the machine-readable surface"
+echo "gate.sh — 機械が読む出力"
 echo
 
-# One surface a driver may parse. Prose gets reworded; new exit codes mean litigating what each one
-# means. Read-only, like `status` itself -- reading state must never be what changes it.
+# ドライバーが解釈してよい唯一の出力。文面は言い換えられるので頼らない。`status` と同じく読み取り専用。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1226,16 +1145,16 @@ jf() { node -e '
     catch { console.log("parse-error"); }
   });' "$1" <<<"$js"; }
 [[ "$(jf armed)" == "true" ]] \
-  && ok "status --json reports armed" \
-  || no "status --json armed=$(jf armed) (raw: $(head -c 120 <<<"$js"))"
-[[ "$(jf gave_up)" == "false" ]] && ok "   gave_up is false while it is still holding" \
+  && ok "status --json が armed を報告する" \
+  || no "status --json armed=$(jf armed)（raw: $(head -c 120 <<<"$js")）"
+[[ "$(jf gave_up)" == "false" ]] && ok "   止めている間は gave_up が false" \
                                  || no "   gave_up=$(jf gave_up)"
-grep -q typecheck <<<"$(jf recorded)" && ok "   the delegated record is listed" \
+grep -q typecheck <<<"$(jf recorded)" && ok "   委任の記録が並ぶ" \
                                       || no "   recorded=$(jf recorded)"
-[[ "$(jf ttl_seconds)" == "43200" ]] && ok "   the reclaim window is stated, not implied" \
+[[ "$(jf ttl_seconds)" == "43200" ]] && ok "   回収までの猶予が暗黙ではなく明示される" \
                                      || no "   ttl_seconds=$(jf ttl_seconds)"
 
-# ...and after giving up, a driver can see that without reading any prose.
+# ...諦めた後も、ドライバーは文面を読まずにそれが分かる。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1243,49 +1162,49 @@ write_profile <<'JSON'
 JSON
 DOTAGENTS_GATE_MAX_ATTEMPTS=1 invoke >/dev/null
 js="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status --json "$REPO" 2>/dev/null)"
-[[ "$(jf gave_up)" == "true" ]] && ok "status --json reports the give-up" \
-                                || no "   gave_up=$(jf gave_up) after the gate gave up"
-[[ "$(jf verdict.reason)" == "red" ]] && ok "   ...with the reason" \
+[[ "$(jf gave_up)" == "true" ]] && ok "status --json が諦めたことを報告する" \
+                                || no "   ゲートが諦めた後で gave_up=$(jf gave_up)"
+[[ "$(jf verdict.reason)" == "red" ]] && ok "   ...理由つきで" \
                                       || no "   verdict.reason=$(jf verdict.reason)"
-[[ "$(jf verdict.check)" == "boom" ]] && ok "   ...and the check" \
+[[ "$(jf verdict.check)" == "boom" ]] && ok "   ...チェックも" \
                                       || no "   verdict.check=$(jf verdict.check)"
 
-# Not armed at all must still be valid JSON, or a driver has to special-case it.
+# arm されていなくても正しい JSON を返す。でないとドライバーが特別扱いを要する。
 disarm
 js="$(DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" status --json "$REPO" 2>/dev/null)"
-[[ "$(jf armed)" == "false" ]] && ok "an unarmed repo still answers with valid JSON" \
-                               || no "   armed=$(jf armed) (raw: $(head -c 120 <<<"$js"))"
+[[ "$(jf armed)" == "false" ]] && ok "arm されていないリポジトリも正しい JSON で答える" \
+                               || no "   armed=$(jf armed)（raw: $(head -c 120 <<<"$js")）"
 
 echo
-echo "gate.sh — the arming mechanism"
+echo "gate.sh — arm の仕組み"
 echo
 
 g() { DOTAGENTS_GATE_DIR="$GATE" bash "$GATE_SH" "$@"; }
 
 rm -rf "$GATE"
 g status "$REPO" 2>/dev/null | grep -q '^not armed' \
-  && { printf '%s✓%s reports not-armed before anything is armed\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s status did not report not-armed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s 何も arm する前は not armed と報告する\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s status が not armed と報告しない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 g arm "$REPO" >/dev/null
-# The sentinel must carry the repo root, which is what decouples it from any slug derivation.
+# sentinel はリポジトリのルートを持つ。これで slug の導出から切り離される。
 sentinel="$(find "$GATE" -name ACTIVE | head -1)"
 [ -n "$sentinel" ] && [ "$(cat "$sentinel")" = "$(git -C "$REPO" rev-parse --show-toplevel)" ] \
-  && { printf '%s✓%s the sentinel records the repository root\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s sentinel missing or does not hold the repo root\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s sentinel がリポジトリのルートを記録する\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s sentinel が無いか、リポジトリのルートを持っていない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# Arming twice must not create a second directory to reason about.
+# 2 回 arm しても 2 つ目のディレクトリを作らない。
 g arm "$REPO" >/dev/null
 [ "$(find "$GATE" -name ACTIVE | wc -l | tr -d ' ')" = "1" ] \
-  && { printf '%s✓%s arming twice is idempotent\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s arming twice produced multiple sentinels\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s 2 回 arm しても冪等\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s 2 回 arm すると sentinel が複数できた\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 g record typecheck "$REPO" >/dev/null
 g status "$REPO" | grep -q typecheck \
-  && { printf '%s✓%s record lands where status can see it\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s recorded check not visible to status\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s record が status から見える場所に入る\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s 記録したチェックが status から見えない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# A gate armed for another repository must not hold this one.
+# 別のリポジトリに掛けたゲートは、このリポジトリを止めない。
 OTHER="$TMP/other"; mkdir -p "$OTHER"; git -C "$OTHER" init -q
 git -C "$OTHER" remote add origin git@github.com:example/other.git
 g arm "$OTHER" >/dev/null
@@ -1293,16 +1212,16 @@ write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "false", "gate": true, "agent_may_run": true } ] }
 JSON
-g disarm "$REPO" >/dev/null    # only the other repo stays armed
-check "armed for another repo only -> does not hold this one" 0 "$(invoke)"
+g disarm "$REPO" >/dev/null    # 別のリポジトリだけが arm のまま
+check "別のリポジトリだけが arm -> このリポジトリは止めない" 0 "$(invoke)"
 
 g disarm "$OTHER" >/dev/null
 g status "$REPO" | grep -q '^not armed' \
-  && { printf '%s✓%s disarm removes the sentinel\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s disarm left the gate armed\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+  && { printf '%s✓%s disarm が sentinel を消す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s disarm してもゲートが arm のまま\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
 echo
-echo "verify-gate — Cursor dialect"
+echo "verify-gate — Cursor の方言"
 echo
 
 json_field() { node -e '
@@ -1311,42 +1230,42 @@ json_field() { node -e '
     catch { console.log("") }
   });' "$1" < "$TMP/stdout"; }
 
-# 11. Cursor cannot be blocked, so a failure must still exit 0 -- but carry a followup_message.
+# 11. Cursor は止められないので、失敗でも exit 0。ただし followup_message を載せる。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "boom", "cmd": "echo 'type error'; false", "gate": true, "agent_may_run": true } ] }
 JSON
-check "cursor: failing check -> exit 0 (cannot block)" 0 "$(invoke_cursor 0)"
+check "cursor: チェックが落ちる -> exit 0（止められない）" 0 "$(invoke_cursor 0)"
 msg="$(json_field followup_message)"
 [ -n "$msg" ] && grep -q "boom" <<<"$msg" \
-  && { printf '%s✓%s   emits a followup_message naming the check\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   no usable followup_message (stdout: %s)\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   チェックを名指す followup_message を出す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   使える followup_message が無い（stdout: %s）\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
 
-# The injected message arrives as a user message. Without attribution the agent cannot tell it from
-# the human, and may treat a hook's demand as the user's intent.
+# 差し込んだメッセージはユーザーのメッセージとして届く。出どころを書かないと、エージェントは hook の要求を
+# ユーザーの意図と取り違える。
 msg="$(json_field followup_message)"
-grep -q 'dotagents' <<<"$msg" && grep -qi 'user did not write this' <<<"$msg" \
-  && { printf '%s✓%s   the follow-up says it is automated, not the user\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   follow-up is indistinguishable from a user message\n' "$c_red" "$c_off"; fail=$((fail+1)); }
+grep -q 'dotagents' <<<"$msg" && grep -qi 'ユーザーが書いたものではな' <<<"$msg" \
+  && { printf '%s✓%s   follow-up がユーザーではなく自動のものだと言う\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   follow-up がユーザーのメッセージと区別できない\n' "$c_red" "$c_off"; fail=$((fail+1)); }
 
-# 12. Nothing may go to stderr on the Cursor path -- Cursor reads stdout, and stray stderr is noise.
+# 12. Cursor の経路では stderr に何も出さない。Cursor は stdout を読み、stderr は雑音になる。
 [ ! -s "$TMP/stderr" ] \
-  && { printf '%s✓%s   writes nothing to stderr\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   wrote to stderr: %s\n' "$c_red" "$c_off" "$(head -1 "$TMP/stderr")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   stderr に何も書かない\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   stderr に書いた: %s\n' "$c_red" "$c_off" "$(head -1 "$TMP/stderr")"; fail=$((fail+1)); }
 
-# 13. Passing check -> valid empty JSON, so Cursor does not treat it as a malformed response.
+# 13. チェックが通る -> 正しい空の JSON。Cursor が不正な応答と見なさないように。
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
   "checks": [ { "id": "ok", "cmd": "true", "gate": true, "agent_may_run": true } ] }
 JSON
-check "cursor: passing check -> exit 0" 0 "$(invoke_cursor 0)"
+check "cursor: チェックが通る -> exit 0" 0 "$(invoke_cursor 0)"
 [ "$(cat "$TMP/stdout")" = "{}" ] \
-  && { printf '%s✓%s   emits {} rather than an empty body\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   expected {}, got: %s\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   空の本文ではなく {} を出す\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   期待は {}、実際は: %s\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
 
-# 14. Cursor caps its own follow-up loop at 5. Stop feeding it before that, or the gate silently
-#     consumes the whole budget and the user sees an agent that will not settle.
+# 14. Cursor は follow-up のループを 5 回で打ち切る。その前に差し込みをやめる。でないとゲートが上限を
+#     使い切り、エージェントがいつまでも落ち着かない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'
 { "match": { "remote": "example/scratch" },
@@ -1354,15 +1273,15 @@ write_profile <<'JSON'
 JSON
 invoke_cursor 3 >/dev/null
 [ "$(cat "$TMP/stdout")" = "{}" ] \
-  && { printf '%s✓%s   stops injecting once loop_count reaches 3\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
-  || { printf '%s✗%s   still injecting at loop_count=3: %s\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
+  && { printf '%s✓%s   loop_count が 3 に達したら差し込みをやめる\n' "$c_green" "$c_off"; pass=$((pass+1)); } \
+  || { printf '%s✗%s   loop_count=3 でまだ差し込んでいる: %s\n' "$c_red" "$c_off" "$(cat "$TMP/stdout")"; fail=$((fail+1)); }
 
-# 15. Unarmed sessions stay untouched on this path too.
+# 15. この経路でも、arm されていないセッションには触れない。
 disarm
-check "cursor: no sentinel armed -> does not fire" 0 "$(invoke_cursor 0)"
+check "cursor: sentinel が arm されていない -> 発火しない" 0 "$(invoke_cursor 0)"
 
 echo
 if (( fail )); then
-  printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1
+  printf '%s成功 %d 件、失敗 %d 件%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1
 fi
-printf '%s✓ %d passed%s\n' "$c_green" "$pass" "$c_off"
+printf '%s✓ 成功 %d 件%s\n' "$c_green" "$pass" "$c_off"

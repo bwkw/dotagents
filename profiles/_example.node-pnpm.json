@@ -1,23 +1,17 @@
 {
   "$schema": "./_schema.json",
   "$comment": [
-    "A worked example for the commonest shape: one Node package at the repository root, pnpm scripts.",
-    "COPY IT, do not edit it in place -- the underscore prefix is load-bearing. Both the gate hook and",
-    "gate.sh skip files starting with '_', so nothing here can ever gate a real repository by accident.",
-    "That is also why it is safe to ship: an example profile that could match would be a set of",
-    "commands chosen by somebody else running at your turn end.",
+    "いちばんよくある形の実例: リポジトリのルートに Node のパッケージが 1 つ、pnpm のスクリプト。",
+    "コピーして使い、ここを直接編集しないこと。接頭辞の '_' には意味がある。ゲートの hook も gate.sh も '_' で始まるファイルを読み飛ばすので、これが実リポジトリを誤ってゲートすることは無い。",
+    "配っても安全なのもそのため。一致しうる例は、他人が選んだコマンドがターン終了のたびに走ることになる。",
     "",
-    "To use it:",
+    "使い方:",
     "  cp profiles/_example.node-pnpm.json profiles/<your-repo>.json",
-    "  then set match.remote, and replace the commands with the ones your repository actually has.",
+    "  そのうえで match.remote を設定し、コマンドをリポジトリに実際にあるものへ置き換える。",
     "",
-    "Everything below is only a plausible default. A check that names a script your package.json does",
-    "not have fails every turn, which teaches you to ignore the gate -- the one outcome worse than",
-    "having no gate. /da-verify walks through authoring this, and reference/profile-authoring.md in",
-    "that skill explains each field.",
+    "以下はもっともらしい既定値にすぎない。package.json に無いスクリプトを呼ぶ検査は毎ターン落ち、ゲートを無視する癖がつく（ゲートが無いより悪い）。/da-verify が作成を案内し、同スキルの reference/profile-authoring.md が各項目を説明する。",
     "",
-    "match.remote is spelled without an owner on purpose, so the profile follows the repository into",
-    "forks and clones. Pin it to 'owner/repo' instead when two repositories share a name."
+    "match.remote は意図して所有者を書かず、フォークとクローンに追従させる。同名のリポジトリが 2 つあるときは 'owner/repo' に固定する。"
   ],
   "match": {
     "remote": "/your-repo"

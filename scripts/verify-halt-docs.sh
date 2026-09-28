@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
-# The halt reasons in `scripts/loop.sh` and the tables in `docs/loops.md` must be the same set.
+# `scripts/loop.sh` の halt 理由と `docs/loops.md` の表は、同じ集合でなければならない。
 #
 #   scripts/verify-halt-docs.sh
 #
-# Written because they were NOT the same set, silently, for seven values: the driver stopped a run with
-# `ci_pending` or `isolate_round_failed` and the table a human is sent to did not have the row. Nothing
-# failed -- a table cannot be out of date in a way a linter notices, unless a linter looks. The landing
-# that added the seven rows fixed the symptom; this file is what makes the next `halt` unable to repeat it.
+# 実際に 7 値ぶん黙ってずれていた（駆動系が `ci_pending` や `isolate_round_failed` で止めても、人を送る先の表に
+# 行が無い）。表が古くなっても linter が見なければ誰も気づかないので、次の `halt` が同じことを繰り返せないように
+# するのがこのファイル。
 #
-# Three assertions, because there are three ways the two can disagree:
+# 2 つがずれる方向は 3 つあるので、主張も 3 つ:
 #
-#   1. Nothing the driver can emit is missing from the tables. This is the one that was broken.
-#   2. No row describes something the driver cannot emit. `review_cap` is exactly that today -- kept on
-#      purpose, because old ledger rows still carry it -- so the exception is DECLARED as data rather
-#      than tolerated, and the declaration is checked against reality too.
-#   3. The reasons that never reach the ledger are marked as such. `halt()` writes stderr and sets HALT;
-#      only `record()`'s fifth argument puts a value in the ledger's `halt_reason`. Four reasons stop a
-#      run without ever being recorded, so a reader who takes the heading literally goes to the ledger
-#      and finds nothing. A new one of those must say so in the table, not be discovered later.
+#   1. 駆動系が出せるもので表に無いものが無い。壊れていたのはこれ。
+#   2. 駆動系が出せないものを説明する行が無い。今の `review_cap` がまさにそれ（台帳の古い行が持っているので
+#      わざと残している）なので、例外は黙認せずデータとして*宣言*し、その宣言も現実と照合する。
+#   3. 台帳に届かない理由には、そう印が付いている。`halt()` は stderr に書いて HALT を設定するだけで、台帳の
+#      `halt_reason` に値を入れるのは `record()` の第 5 引数だけ。記録されずに run を止める理由があり、見出しを
+#      文字どおり読んだ人は台帳を見に行って何も見つけない。新しくそうなるものは、後で見つかるのではなく表に書く。
 #
-# The declarations live on marker lines in `docs/loops.md` -- the pattern `AGENTS.md` invariant 7 uses:
-# the list is data in one place, and this script drives its behaviour from it. Removing a marker is not
-# a way to pass; a missing marker is an error.
+# 宣言は `docs/loops.md` のマーカー行に置く（`AGENTS.md` invariant 7 と同じ形: 一覧はデータとして 1 か所にあり、
+# このスクリプトはそれで振る舞いを決める）。マーカーを消しても通らない。マーカーが無ければエラー。
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,12 +30,12 @@ err() { printf '\033[31m✗\033[0m %s\n' "$*"; fails=$((fails + 1)); }
 ok() { printf '\033[32m✓\033[0m %s\n' "$*"; }
 
 for f in "$LOOP" "$DOC"; do
-  [[ -f "$f" ]] || { err "$f is missing"; exit 1; }
+  [[ -f "$f" ]] || { err "$f が無い"; exit 1; }
 done
 
-# --- what the driver can emit ------------------------------------------------------------------
-# Comment lines are excluded: this file's own prose names half of these values, and so do loop.sh's
-# comments. A grep that counts a comment is the failure mode this whole script exists to prevent.
+# --- 駆動系が出せるもの ------------------------------------------------------------------
+# コメント行は除く。このファイルの地の文も loop.sh のコメントもこれらの値の半分を名指ししていて、コメントを
+# 数える grep こそ、このスクリプトが防ぎたい失敗の形。
 node -e '
   const fs = require("fs");
   const lines = fs.readFileSync(process.argv[1], "utf8").split("\n").filter((l) => !/^\s*#/.test(l));
@@ -49,7 +45,7 @@ node -e '
   const stderrOnly = [...emitted].filter((r) => !halted.has(r)).sort();
   const all = [...new Set([...halted, ...emitted])].sort();
   process.stdout.write(JSON.stringify({ all, stderrOnly }));
-' "$LOOP" > /tmp/.halt-sets.$$ || { err "could not read the halt reasons out of $LOOP"; exit 1; }
+' "$LOOP" > /tmp/.halt-sets.$$ || { err "$LOOP から halt 理由を読み出せなかった"; exit 1; }
 
 read -r ALL STDERR_ONLY < <(node -e '
   const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -57,20 +53,17 @@ read -r ALL STDERR_ONLY < <(node -e '
 ' "/tmp/.halt-sets.$$")
 rm -f "/tmp/.halt-sets.$$"
 
-# --- what the tables document -----------------------------------------------------------------
-# Scoped to the tables that a `dotagents:halt-table` marker introduces, and NOT to every table row in
-# the file. The first attempt read `^| \`name\`` across the whole document and reported six phantom
-# reasons -- `size`, `unverified`, `claude` -- which are rows of other tables entirely. A check that
-# cries wolf gets deleted, so the scope is declared rather than guessed. The first cell can hold more
-# than one reason (`one_way` / `pr_cap` share a row), and every name in it counts: taking only the first
-# reported `pr_cap` as undocumented when its row was right there.
+# --- 表が記述しているもの -----------------------------------------------------------------
+# `dotagents:halt-table` マーカーが導く表だけに絞り、ファイル中のすべての表の行は見ない。文書全体で
+# `^| \`name\`` を読むと、別の表の行（`size`、`unverified`、`claude`）を幻の理由として報告した。狼少年のチェックは
+# 消されるので、範囲は推測せず宣言する。最初のセルには理由が複数入りうる（`one_way` / `pr_cap` が 1 行を共有）ので、
+# その中の名前はすべて数える。
 DOCUMENTED="$(node -e '
   const fs = require("fs");
   const lines = fs.readFileSync(process.argv[1], "utf8").split("\n");
   const names = new Set();
-  // `pending` exists because the marker and the table are separated by a blank line in Markdown, and
-  // treating that blank line as the end of the table found zero rows while reporting every reason as
-  // undocumented -- a check that fails loudly for the wrong reason is still a broken check.
+  // `pending` は、Markdown ではマーカーと表の間に空行が入るため。その空行を表の終わりと読むと行が 0 件になり、
+  // すべての理由を未記述と報告する —— 間違った理由で大声を出すチェックも、壊れたチェック。
   let inTable = false, pending = false;
   for (const line of lines) {
     if (line.includes("dotagents:halt-table")) { pending = true; continue; }
@@ -86,9 +79,9 @@ DOCUMENTED="$(node -e '
   }
   process.stdout.write([...names].sort().join(","));
 ' "$DOC")"
-[[ -n "$DOCUMENTED" ]] || err "no table in $DOC is marked with '<!-- dotagents:halt-table -->' -- with no scope declared, this check has nothing to compare against"
+[[ -n "$DOCUMENTED" ]] || err "$DOC に '<!-- dotagents:halt-table -->' の印が付いた表が無い —— 範囲が宣言されていないので、このチェックには比べる相手が無い"
 
-marker() { # <marker-name> -- the declared list, or the empty string when the line is absent
+marker() { # <marker-name> -- 宣言された一覧。行が無ければ空文字列
   grep -oE "<!-- dotagents:$1[^>]*-->" "$DOC" | head -1 \
     | sed -E "s/<!-- dotagents:$1 *//; s/ *-->//" | tr -s ' ' ',' | sed 's/^,//; s/,$//'
 }
@@ -97,12 +90,12 @@ STDERR_LINE="$(grep -c "dotagents:halt-stderr-only" "$DOC")"
 HISTORICAL="$(marker halt-historical)"
 DECLARED_STDERR="$(marker halt-stderr-only)"
 
-# The markers are load-bearing: with the line gone, assertions 2 and 3 would compare against nothing
-# and print a green tick. `AGENTS.md` invariant 7 records the same trap being sprung for real.
-(( HISTORICAL_LINE >= 1 )) || err "$DOC has no '<!-- dotagents:halt-historical ... -->' line -- without it, a row for a reason the driver can no longer emit passes unnoticed"
-(( STDERR_LINE >= 1 )) || err "$DOC has no '<!-- dotagents:halt-stderr-only ... -->' line -- without it, a reason that never reaches the ledger is documented as one that does"
+# マーカーは効いている: 行が無いと主張 2 と 3 は何とも比べずに緑のチェックを出す。`AGENTS.md` invariant 7 に、
+# 同じ罠に実際に掛かった記録がある。
+(( HISTORICAL_LINE >= 1 )) || err "$DOC に '<!-- dotagents:halt-historical ... -->' の行が無い —— 無いと、駆動系がもう出せない理由の行が気づかれずに通る"
+(( STDERR_LINE >= 1 )) || err "$DOC に '<!-- dotagents:halt-stderr-only ... -->' の行が無い —— 無いと、台帳に届かない理由が届くものとして記述される"
 
-list_diff() { # <csv-a> <csv-b> -> members of a that are not in b
+list_diff() { # <csv-a> <csv-b> -> a にあって b に無いもの
   node -e '
     const a = (process.argv[1] || "").split(",").filter((x) => x && x !== "-");
     const b = new Set((process.argv[2] || "").split(",").filter(Boolean));
@@ -110,48 +103,47 @@ list_diff() { # <csv-a> <csv-b> -> members of a that are not in b
   ' "$1" "$2"
 }
 
-# 1. Nothing the driver can emit is undocumented.
+# 1. 駆動系が出せるもので、記述されていないものが無い。
 missing="$(list_diff "$ALL" "$DOCUMENTED")"
 if [[ -z "$missing" ]]; then
-  ok "every halt reason the driver can emit has a row in $DOC"
+  ok "駆動系が出せる halt 理由はすべて $DOC に行がある"
 else
-  err "these halt reasons have no row in $DOC: $missing"
+  err "次の halt 理由は $DOC に行が無い: $missing"
 fi
 
-# 2. No row invents a reason -- except the ones declared as kept for the ledger's old rows.
+# 2. 理由をでっち上げる行が無い —— 台帳の古い行のために残すと宣言したものを除く。
 phantom="$(list_diff "$DOCUMENTED" "$ALL,$HISTORICAL")"
 if [[ -z "$phantom" ]]; then
-  ok "no row describes a stop the driver cannot produce (declared historical: ${HISTORICAL:-none})"
+  ok "駆動系が出せない停止を説明する行は無い（historical と宣言: ${HISTORICAL:-なし}）"
 else
-  err "these rows describe reasons $LOOP never emits, and are not declared historical: $phantom"
+  err "次の行は $LOOP が決して出さない理由を説明していて、historical とも宣言されていない: $phantom"
 fi
 
-# 2b. And the declaration is checked against reality: a reason that came BACK must lose the exception,
-#     or the table would keep telling a reader it cannot happen while it can.
+# 2b. 宣言も現実と照合する: *戻ってきた*理由は例外から外さないと、起きうるのに起きないと表が言い続ける。
 stale_historical="$(node -e '
   const declared = (process.argv[1] || "").split(",").filter(Boolean);
   const all = new Set((process.argv[2] || "").split(",").filter(Boolean));
   process.stdout.write(declared.filter((x) => all.has(x)).join(" "));
 ' "$HISTORICAL" "$ALL")"
 if [[ -z "$stale_historical" ]]; then
-  ok "the historical declaration still describes reasons that cannot happen"
+  ok "historical の宣言は、今も起きえない理由だけを記述している"
 else
-  err "declared historical, but $LOOP emits them again: $stale_historical"
+  err "historical と宣言されているが、$LOOP がまた出している: $stale_historical"
 fi
 
-# 3. The reasons that stop a run without reaching the ledger are exactly the declared ones.
+# 3. 台帳に届かずに run を止める理由は、宣言されたものとちょうど一致する。
 if [[ "$(list_diff "$STDERR_ONLY" "$DECLARED_STDERR")" == "" \
    && "$(list_diff "$DECLARED_STDERR" "$STDERR_ONLY")" == "" ]]; then
-  ok "the reasons that never reach the ledger are declared and accurate (${STDERR_ONLY//,/ })"
+  ok "台帳に届かない理由は宣言されていて、正確（${STDERR_ONLY//,/ }）"
 else
-  err "the ledger-less reasons and the declaration disagree.
-    $LOOP halts without recording: ${STDERR_ONLY//,/ }
-    $DOC declares:                 ${DECLARED_STDERR//,/ }"
+  err "台帳に届かない理由と宣言が食い違っている。
+    $LOOP が記録せずに止めるもの: ${STDERR_ONLY//,/ }
+    $DOC の宣言:                   ${DECLARED_STDERR//,/ }"
 fi
 
 echo
 if (( fails )); then
-  printf '\033[31m%d failed\033[0m\n' "$fails"
+  printf '\033[31m%d 件失敗\033[0m\n' "$fails"
   exit 1
 fi
-printf '\033[32m✓ %s and %s agree on every halt reason\033[0m\n' "$LOOP" "$DOC"
+printf '\033[32m✓ %s と %s は、すべての halt 理由で一致している\033[0m\n' "$LOOP" "$DOC"

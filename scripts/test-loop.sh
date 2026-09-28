@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# Behaviour of the loop driver: the state machine only.
+# ループ駆動系の振る舞い。検査するのは状態機械だけ。
 #
-# `claude` and `gh` are stubbed on PATH. The gate is NOT stubbed -- a hermetic profile with one
-# trivial check (`test -f GREEN`) is used instead, so the driver is exercised against the real
-# gate.sh and the real hook. Stubbing the gate would have meant testing the driver against a second
-# implementation of the thing it exists to read, which is the failure this repository keeps finding.
+# `claude` と `gh` は PATH 上のスタブ。ゲートはスタブにしない。自明なチェックが 1 つ（`test -f GREEN`）の
+# 密閉した profile を使い、本物の gate.sh と本物の hook に対して駆動系を動かす。ゲートをスタブにすると、
+# 駆動系が読むはずのものの 2 つ目の実装に対してテストすることになる。
 #
-# What is deliberately NOT asserted here: anything about what the real `claude` does. Whether a Stop
-# hook fires at the end of a `claude -p` turn, whether a slash command reaches a skill carrying
-# disable-model-invocation, and whether da-review-all can satisfy its mandatory Canvas step headless
-# are all unmeasured -- see docs/loops.md. The driver is written so that neither answer changes its
-# behaviour: it aborts a landing on the gate's VERDICT *or* on its own round cap, and records which
-# one fired. These tests cover both branches; the first real run is what says which one is live.
+# 本物の `claude` の振る舞い（`claude -p` の終わりに Stop hook が発火するか、disable-model-invocation 付きの
+# スキルに slash command が届くか、da-review-all が headless で Canvas の手順を満たせるか）はここでは検査しない
+# （未計測。docs/loops.md を参照）。駆動系はどちらの答えでも振る舞いが変わらないように書いてあり、ゲートの
+# VERDICT でも自前の周の上限でも landing を打ち切り、どちらが効いたかを記録する。ここでは両方の分岐を検査する。
 
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOOP="$REPO/scripts/loop.sh"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/dotagents-test-loop.XXXXXX")" || { echo "mktemp failed" >&2; exit 1; }
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/dotagents-test-loop.XXXXXX")" || { echo "mktemp に失敗した" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 pass=0; fail=0
@@ -27,32 +24,25 @@ ok() { printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; pass=$((pass+1)); }
 no() { printf '%s✗%s %s\n' "$c_red" "$c_off" "$1"; fail=$((fail+1)); }
 detail() { [[ -n "${1:-}" ]] && printf '%s    %s%s\n' "$c_dim" "$1" "$c_off"; }
 
-# --- the stubs ---------------------------------------------------------------
-# Responses are scripted per phase (see the stub below), so a test declares "the first review returns
-# this" rather than "the third claude call returns this". The stub also appends its argv to a log, which
-# is how "the driver never passed --bare" and "the driver typed /da-verify" are asserted rather than
-# assumed.
+# --- スタブ ------------------------------------------------------------------
+# 応答は phase ごとに用意する（下のスタブを参照）。テストは「3 回目の claude 呼び出し」ではなく「最初の
+# review がこれを返す」と宣言する。スタブは argv もログに追記し、「--bare を渡していない」「/da-verify を
+# 打った」をそこで検査する。
 BIN="$TMP/bin"; mkdir -p "$BIN"
 cat > "$BIN/claude" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_CLAUDE_LOG"
-# One argument per line, so ADJACENCY is checkable. `$*` above flattens, and the tool grant contains
-# spaces (`Bash(git diff:*)`), which makes "what came directly before the prompt" unanswerable there.
-# That distinction is not cosmetic: `--allowedTools` is VARIADIC in the real CLI, so a prompt sitting
-# directly after it is eaten as another tool name and `claude` dies with "Input must be provided".
+# 隣接を確かめられるよう、1 引数 1 行でも残す。`$*` は平らにしてしまい、ツールの許可にはスペースが入る
+# （`Bash(git diff:*)`）。本物の CLI の `--allowedTools` は可変長なので、直後に置いたプロンプトは
+# ツール名として食われ、`claude` は "Input must be provided" で死ぬ。
 printf '%s\n' "$@" >> "$FAKE_CLAUDE_ARGV"
 printf -- '---\n' >> "$FAKE_CLAUDE_ARGV"
 
-# Responses are keyed by PHASE, not by call index. An earlier version numbered them 1,2,3... in call
-# order, which coupled every fixture to how many times the driver happens to invoke claude: adding one
-# call (`/da-verify`) silently shifted every response by one, and a shifted fixture does not fail
-# loudly -- the stub returns nothing, the driver reads cost 0 and no structured output, and tests pass
-# for no reason. Keying on the prompt makes a fixture mean what it says.
-# The PROMPT's first line decides the phase, not the whole argv. Matching anywhere in "$*" bit twice:
-# the executing-plans prompt deliberately contains "/test-driven-development" (the only thing that
-# guarantees TDD under it), and the triage prompt carries "/da-review-all" and "/find-bugs" as section
-# headers over the reports it is handed. Both were misread as the phase they merely mention. The prompt
-# is always the last argument and always starts with the command, so that is what gets matched.
+# 応答は呼び出し順ではなく phase で引く。順番で引くと、駆動系が呼び出しを 1 つ足しただけで全 fixture が
+# ずれ、ずれた fixture は空を返して黙って通ってしまう。
+# phase はプロンプトの 1 行目で決める（argv 全体ではない）。executing-plans のプロンプトは
+# "/test-driven-development" を含み、triage のプロンプトは "/da-review-all" と "/find-bugs" を見出しに
+# 持つので、全体で当てると言及しているだけの phase と取り違える。プロンプトは常に最後の引数。
 prompt="${!#}"
 first="${prompt%%$'\n'*}"
 phase=other
@@ -68,16 +58,14 @@ case "$first" in
   */da-fix-plan*)             phase=triage ;;
   */receiving-code-review*)   phase=fix ;;
   */da-pr-describe*)          phase=pr ;;
-  "Write one reply per review comment"*) phase=reply ;;
+  "PR #"*"のレビューコメントそれぞれに"*) phase=reply ;;
 esac
 
-# `/da-verify` is the only thing that arms the gate (AGENTS.md invariant 2), so the stub does what the
-# real skill's Step 0 does. Without this the gate is never armed in these tests, and the VERDICT cases
-# would be exercising an unarmed gate -- a state the driver never actually meets.
+# ゲートを arm するのは `/da-verify` だけ（AGENTS.md の不変条件 2）なので、スタブは本物のスキルの Step 0 と
+# 同じことをする。しないと、VERDICT のケースが駆動系の実際には出会わない未 arm のゲートを検査することになる。
 [[ "$phase" == "verify" ]] && { bash "$DOTAGENTS_REPO/scripts/gate.sh" arm "$PWD" >/dev/null 2>&1 || true; }
-# Likewise the worktree skill actually creates one, because the driver finds the result by reading
-# `git worktree list` rather than by trusting the reply. A stub that only answered would leave the
-# driver correctly reporting "no worktree appeared" and the test would prove nothing.
+# 同様に worktree のスキルは実際に作る。駆動系は返答ではなく `git worktree list` で結果を探すので、
+# 答えるだけのスタブでは何も証明できない。
 if [[ "$phase" == "worktree" && ! -f "$FAKE_CLAUDE_DIR/no-worktree" ]]; then
   git worktree add -q "$PWD/.worktrees/loop" -b loop-wt >/dev/null 2>&1 || true
 fi
@@ -87,30 +75,25 @@ n=1
 printf '%s' "$((n+1))" > "$FAKE_CLAUDE_DIR/$phase.counter"
 
 resp="$FAKE_CLAUDE_DIR/$phase.$n.json"
-# `execplan` and `implement` are the same ROLE -- round 1 of implementation -- and which one the driver
-# types depends only on the tier. A fixture that says "the first implementation round returns this"
-# should not have to know the tier, so execplan falls back to the implement fixtures. The tests that
-# assert the distinction check the phase counters directly.
+# `execplan` と `implement` は同じ役割（実装の 1 周目）で、どちらを打つかは tier だけで決まる。fixture が
+# tier を知らずに済むよう、execplan は implement の fixture に落ちる。区別はテストが phase の counter で確かめる。
 if [[ ! -f "$resp" && "$phase" == "execplan" ]]; then
   resp="$FAKE_CLAUDE_DIR/implement.$n.json"
   [[ -f "$FAKE_CLAUDE_DIR/implement.$n.sh" && ! -f "$FAKE_CLAUDE_DIR/execplan.$n.sh" ]] \
     && bash "$FAKE_CLAUDE_DIR/implement.$n.sh"
 fi
 [[ -f "$resp" ]] || resp="$FAKE_CLAUDE_DIR/$phase.json"
-# A response may carry a side effect -- the edits a real round would have made. A per-phase default
-# covers "every round of this phase does the same thing", which the round-cap case needs: a round that
-# changes NOTHING is a different failure (round_changed_nothing) from one that changes something and
-# stays red, and the cap case is about the latter.
+# 応答は副作用（本物の周がしたはずの編集）を持てる。phase ごとの既定は「この phase の周はすべて同じことを
+# する」を表し、周の上限のケースで要る。何も変えない周（round_changed_nothing）は、変えたのに赤のままの周とは
+# 別の失敗だから。
 if [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.sh" ]]; then bash "$FAKE_CLAUDE_DIR/$phase.$n.sh"
 elif [[ -f "$FAKE_CLAUDE_DIR/$phase.sh" ]]; then bash "$FAKE_CLAUDE_DIR/$phase.sh"; fi
-# A round can be made to hang. Measured against the real CLI: `--json-schema` with a FILE PATH hangs
-# forever instead of erroring, so "the round never returns" is a real state, not a hypothetical.
+# 周を固まらせられる。本物の CLI は `--json-schema` にファイルパスを渡すとエラーにならず固まるので、
+# 「周が返らない」は実在する状態。
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.sleep" ]] && sleep "$(cat "$FAKE_CLAUDE_DIR/$phase.$n.sleep")"
 code=0
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.exit" ]] && code=$(cat "$FAKE_CLAUDE_DIR/$phase.$n.exit")
-# A real round says WHY it failed on stderr, and the driver used to send that to /dev/null -- which is
-# why the 10th run's errored implement round could not be re-diagnosed afterwards. The stub can now
-# produce it, so "is stderr kept?" is answerable by a test rather than by reading the redirect.
+# 本物の周は失敗の理由を stderr に書く。スタブもそれを出せるので、「stderr を残すか」をテストで確かめられる。
 [[ -f "$FAKE_CLAUDE_DIR/$phase.$n.err" ]] && cat "$FAKE_CLAUDE_DIR/$phase.$n.err" >&2
 cat "$resp" 2>/dev/null
 exit "$code"
@@ -126,12 +109,10 @@ case "$1 ${2:-}" in
     [[ -f "$FAKE_GH_DIR/stack" ]] || exit 1
     printf '{"layers":[]}\n' ;;
   "stack init")
-    # The real `gh stack init` takes the branches as POSITIONAL arguments and, given none, tries to ask:
-    # "interactive input required; provide branch names as arguments". Headless, that is a hard failure.
-    # This stub used to accept `stack init` with flags alone, so the suite was green against a call the
-    # real extension rejects -- the stacked-PR path could never have worked unattended, and nothing here
-    # could say so. A stub that accepts what the real tool refuses is not a test, it is a second bug.
-    shift 2   # drop "stack" and "init"; what remains is flags and branch names
+    # 本物の `gh stack init` はブランチを位置引数で取り、無ければ対話で聞こうとして headless では失敗する
+    # （"interactive input required; provide branch names as arguments"）。本物が拒むものを受け付ける
+    # スタブはテストではなく 2 つ目のバグなので、同じく拒む。
+    shift 2   # "stack" と "init" を落とす。残りはフラグとブランチ名
     branches=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -143,22 +124,17 @@ case "$1 ${2:-}" in
     [[ -n "${branches// /}" ]] || { printf 'interactive input required; provide branch names as arguments\n' >&2; exit 1; }
     : > "$FAKE_GH_DIR/stack" ;;
   "stack add")
-    # The real extension creates and checks out the new layer branch; the driver commits onto it, so
-    # the stub has to actually move HEAD or every layer after the first would commit to the wrong branch.
+    # 本物の拡張は新しい層のブランチを作って checkout する。駆動系はそこへ commit するので、スタブも
+    # HEAD を動かさないと 2 層目以降が違うブランチに commit される。
     shift 2; git checkout -q -b "${1:-layer}" 2>/dev/null ;;
   "stack push")
-    # A REAL push to the fixture's bare remote. It used to be a no-op, and this file already argues the
-    # opposite for `stack submit`: a driver whose push is stubbed is a driver whose push is untested.
-    # The stale-ref rejection below only exists at the git level, so a no-op could never show it.
-    # `--force-with-lease`, because that is what makes the real failure possible: the lease is checked
-    # against the local remote-tracking ref, so a STALE one rejects the push with "stale info" even
-    # though the remote is fine. A plain push cannot produce it, and a stub that cannot produce it
-    # cannot test the fix.
+    # fixture の bare remote への本物の push。push をスタブにした駆動系は push が未検査の駆動系。
+    # `--force-with-lease` にするのは、lease がローカルの remote-tracking ref に対して確かめられ、古い ref だと
+    # remote が無事でも "stale info" で拒まれるという本物の失敗を起こせるようにするため。
     git push --force-with-lease -q origin HEAD 2>/dev/null || exit 1 ;;
   "stack submit")
-    # The real extension prints a URL when it CREATES the PR and prose when it does not:
-    # "PR #45 for <branch> is up to date". Both are success. The fixture switches to the second shape,
-    # which is what caught the driver scraping stdout for a URL.
+    # 本物の拡張は PR を作ったときは URL を、作らなかったときは文を出す（"PR #45 for <branch> is up to date"）。
+    # どちらも成功。fixture は 2 つ目の形に切り替えられ、stdout から URL を拾う駆動系をこれで捕まえた。
     if [[ -f "$FAKE_GH_DIR/submit-no-url" ]]; then
       printf 'Checking stack state...\nPR #7 for some-branch is up to date\n'
     else
@@ -170,20 +146,18 @@ case "$1 ${2:-}" in
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
   "pr checks")
-    # --json asks for STATES. The driver must decide from them, not from the exit code: `gh` documents
-    # exit 1 as "failed for any reason", which lumps a real failure together with "no checks exist yet".
-    # The driver asks with `--jq .[].state`, so what comes back is one STATE PER LINE. The fixture holds
-    # exactly that (an empty file = this PR reports no checks), because a stub that returns raw JSON here
-    # would hand the driver a string that is not any state -- which its own "unknown is not green" rule
-    # then correctly reads as red, failing every case for the wrong reason.
+    # --json は状態を聞く。駆動系は exit code ではなく状態で判断しなければならない（`gh` の exit 1 は
+    # 「何らかの理由で失敗」で、本物の失敗と「まだチェックが無い」をまとめてしまう）。
+    # 駆動系は `--jq .[].state` で聞くので、返るのは 1 行 1 状態。fixture もその形（空ファイル = この PR は
+    # チェックを報告しない）。生の JSON を返すと、駆動系の「未知は緑ではない」規則で赤と読まれ、全ケースが
+    # 間違った理由で落ちる。
     if [[ "$*" == *--json* ]]; then
       if [[ -f "$FAKE_GH_DIR/checks-states" ]]; then cat "$FAKE_GH_DIR/checks-states"
       else printf 'SUCCESS\n'; fi
       exit 0
     fi
-    # Exit codes match the real thing: 0 all green, 1 something failed, 8 still running. Scripted per
-    # call so "red, then green after a fix" is expressible -- one file per attempt, falling back to a
-    # default, exactly like the claude stub.
+    # exit code は本物と同じ: 0 すべて緑、1 何かが失敗、8 まだ走っている。「赤、修正後に緑」を書けるよう、
+    # claude のスタブと同じく試行ごとのファイルと既定のファイルで用意する。
     c=1
     [[ -f "$FAKE_GH_DIR/checks.counter" ]] && c=$(cat "$FAKE_GH_DIR/checks.counter")
     printf '%s' "$((c+1))" > "$FAKE_GH_DIR/checks.counter"
@@ -192,8 +166,8 @@ case "$1 ${2:-}" in
     if [[ -f "$f" ]]; then cat "$f.out" 2>/dev/null; exit "$(cat "$f")"; fi
     printf 'all checks passing\n'; exit 0 ;;
   "api "*)
-    # Reads return the fixture; writes are only logged. The log is what the tests assert on, because
-    # "the driver posted a reply" and "the driver resolved a thread" have to be distinguishable.
+    # 読み取りは fixture を返し、書き込みはログに残すだけ。「返信を投稿した」と「スレッドを resolve した」を
+    # 区別するため、テストはログで検査する。
     case "$*" in
       *--method\ POST*|*-X\ POST*) exit 0 ;;
       *graphql*) exit 0 ;;
@@ -206,9 +180,9 @@ exit 0
 STUB
 chmod +x "$BIN/claude" "$BIN/gh"
 
-# --- fixtures ----------------------------------------------------------------
+# --- fixture -----------------------------------------------------------------
 CASE=0
-setup() { # -> exports REPO_DIR, GATE, PROFILES, LOOPDIR, FAKE_* for one case
+setup() { # -> 1 ケース分の REPO_DIR, GATE, PROFILES, LOOPDIR, FAKE_* を export する
   CASE=$((CASE+1))
   local root="$TMP/case$CASE"
   REPO_DIR="$root/repo"; GATE="$root/gate"; PROFILES="$root/profiles"; LOOPDIR="$root/loop"
@@ -218,16 +192,13 @@ setup() { # -> exports REPO_DIR, GATE, PROFILES, LOOPDIR, FAKE_* for one case
   mkdir -p "$REPO_DIR" "$GATE" "$PROFILES" "$LOOPDIR" "$FAKE_CLAUDE_DIR" "$FAKE_GH_DIR"
   : > "$FAKE_CLAUDE_LOG"; : > "$FAKE_GH_LOG"; : > "$FAKE_CLAUDE_ARGV"
   export FAKE_CLAUDE_DIR FAKE_GH_DIR FAKE_CLAUDE_LOG FAKE_GH_LOG FAKE_CLAUDE_ARGV
-  # A real bare remote, not a fictional URL: the PR phase pushes, and a driver whose push is stubbed
-  # is a driver whose push is untested. The directory is named so the profile's `match.remote`
-  # substring still finds it.
+  # 架空の URL ではなく本物の bare remote。PR の phase は push するので。ディレクトリ名は profile の
+  # `match.remote` の部分文字列に当たるようにしてある。
   git init -q --bare "$root/dotagents-loop-probe.git"
   git -C "$REPO_DIR" init -q
-  # A real checkout has an author identity, and the driver's own `git commit` inherits it -- the loop
-  # commits AS YOU. Setting it per-fixture rather than passing -c on the fixture's own commits: the -c
-  # form hid the fact that the repository had no identity at all, so `commit_landing` worked here and
-  # failed on CI with "could not commit landing 1". A test that only passes where the machine already
-  # has state is not a test of the driver.
+  # 本物のチェックアウトには author がいて、駆動系の `git commit` はそれを引き継ぐ（ループはあなたとして
+  # commit する）。fixture ごとに設定する。-c で渡すと identity の無いリポジトリが隠れ、ここでは通って
+  # CI で "could not commit landing 1" になった。
   git -C "$REPO_DIR" config user.email loop@test
   git -C "$REPO_DIR" config user.name "loop test"
   git -C "$REPO_DIR" remote add origin "$root/dotagents-loop-probe.git"
@@ -247,13 +218,10 @@ JSON
 
 commit_in_repo() { git -C "$REPO_DIR" -c user.email=t@t -c user.name=t commit -qm "$1"; }
 
-# A measurement as /da-investigate would return it, wrapped the way `claude -p --output-format json`
-# wraps structured output.
+# /da-investigate が返す計測を、`claude -p --output-format json` が構造化出力を包む形で。
 measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-csv] [unverified_claims]
-  # The two trailing arguments are optional, so every existing fixture keeps meaning what it said.
-  # `layer-names-csv` matters because the driver now picks the review skill by the recorded layer NAME:
-  # a fixture with generic "layer0" must keep landing on the dispatcher, and that is asserted below
-  # rather than assumed.
+  # 末尾 2 つは省略可なので、既存の fixture の意味は変わらない。駆動系はレビューのスキルを記録した層の名前で
+  # 選ぶので `layer-names-csv` が要る。汎用の "layer0" の fixture は dispatcher に落ちるはずで、それは下で検査する。
   local files="$1" layers="$2" oneway="$3" risk="$4" unconf="$5" names="${6:-}" claims="${7:-0}"
   node -e '
     const [f, l, o, r, u] = process.argv.slice(1, 6).map(Number);
@@ -270,8 +238,7 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-c
       },
     }));
   ' "$files" "$layers" "$oneway" "$risk" "$unconf" "$names" "$claims" > "$FAKE_CLAUDE_DIR/investigate.1.json"
-  # Every phase gets a benign default, so a test only writes the responses it actually cares about and
-  # an unscripted phase does not silently return an empty body.
+  # 全 phase に無害な既定を置く。テストは気にする応答だけを書けばよく、用意していない phase が黙って空を返さない。
   local p
   for p in worktree verify implement execplan debug review findbugs fix pr other; do
     printf '{"total_cost_usd":0.01,"num_turns":1,"result":"ok"}' > "$FAKE_CLAUDE_DIR/$p.json"
@@ -280,13 +247,10 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-c
     > "$FAKE_CLAUDE_DIR/triage.json"
 }
 
-# A round as a given phase would return it. Keyed by phase and occurrence, never by call order.
-# EVERY fixture helper lives in this block, and that is the point rather than tidiness. Bash defines a
-# function when the definition is *executed*, so a helper declared beside the tests that introduced it is
-# an undefined command for every case above it -- which returns empty and writes no fixture, and the
-# assertion then fails against a driver that was doing the right thing all along. That trap was hit
-# twice here: once with `round_budget`, once with `truncated`. Both times the implementation was correct
-# and the test was lying. Add new helpers HERE, never next to the case that needs them.
+# ある phase の周が返すもの。phase と出現回数で引き、呼び出し順では引かない。
+# fixture のヘルパーはすべてこのブロックに置く。bash は定義を*実行した*時点で関数を定義するので、使うテストの
+# そばに置いたヘルパーは、それより上のケースでは未定義のコマンドになり、空を返して fixture を書かず、正しい
+# 駆動系に対してテストが落ちる（`round_budget` と `truncated` で 2 度踏んだ）。新しいヘルパーはここに足すこと。
 respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [unverified]
   node -e '
     const [c, t, fn, nd, dc, uv] = process.argv.slice(1);
@@ -297,7 +261,7 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [u
     process.stdout.write(JSON.stringify(o));
   ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
-green_pr() { # the common fixture: a landing that reaches a PR
+green_pr() { # よく使う fixture: PR まで届く landing
   measurement 6 1 0 0 0; runloop size "r"
   respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
   respond review 1 0.30 7
@@ -305,27 +269,25 @@ green_pr() { # the common fixture: a landing that reaches a PR
   respond pr 1 0.10 3
 }
 
-truncated() { # <phase> <n> <subtype> -- a round that stopped early: exit 0, partial `result`
+truncated() { # <phase> <n> <subtype> -- 早く止まった周: exit 0、`result` は部分的
   printf '{"total_cost_usd":0.30,"num_turns":50,"subtype":"%s","result":"partial report"}' "$3" \
     > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
-errored() { # <phase> <n> -- a round that ERRORED: is_error true, subtype "success", exit 1.
-  # Measured on the 10th run: the implement round came back like this at $1.2784895 / 24 turns and the
-  # driver called it "cut off at its ceiling (subtype: success)", then advised raising a ceiling that
-  # does not exist for that phase.
+errored() { # <phase> <n> -- エラーになった周: is_error true、subtype "success"、exit 1
+  # 10 回目の run で実測した形。駆動系はこれを「天井で打ち切られた（subtype: success）」と呼び、その phase に
+  # 存在しない天井を上げるよう勧めた。
   printf '{"total_cost_usd":0.30,"num_turns":24,"subtype":"success","is_error":true,"result":"partial"}' \
     > "$FAKE_CLAUDE_DIR/$1.$2.json"
   printf '%s\n' 1 > "$FAKE_CLAUDE_DIR/$1.$2.exit"
-  printf '%s\n' "${3:-}" > "$FAKE_CLAUDE_DIR/$1.$2.err"   # what a real round would say on stderr
+  printf '%s\n' "${3:-}" > "$FAKE_CLAUDE_DIR/$1.$2.err"   # 本物の周が stderr に書くもの
 }
 side_effect() { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sh"; }   # <phase> <n> <shell>
-side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>, every round
+side_effect_all() { printf '%s\n' "$2" > "$FAKE_CLAUDE_DIR/$1.sh"; }   # <phase> <shell>。毎周
 fails_with()  { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.exit"; } # <phase> <n> <exit-code>
 hangs_for()   { printf '%s\n' "$3" > "$FAKE_CLAUDE_DIR/$1.$2.sleep"; } # <phase> <n> <seconds>
 
-runloop() { # <args...> -> stdout+stderr in $OUT, status in $RC
-  # The CI waits are seconds in production and must be ~nothing here, or every case that reaches the CI
-  # phase costs the suite its grace window in real time.
+runloop() { # <args...> -> stdout+stderr を $OUT に、終了ステータスを $RC に
+  # CI の待ちは本番では秒単位だが、ここではほぼゼロにする。でないと CI の phase に届くケースごとに猶予の分だけ実時間がかかる。
   OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" \
     DOTAGENTS_LOOP_CI_WAIT="${DOTAGENTS_LOOP_CI_WAIT:-20}" DOTAGENTS_LOOP_CI_GRACE="${DOTAGENTS_LOOP_CI_GRACE:-5}" \
     DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
@@ -333,18 +295,14 @@ runloop() { # <args...> -> stdout+stderr in $OUT, status in $RC
   RC=$?
 }
 
-# Defined up here with the other helpers, not down beside the ceiling tests that introduced it. Bash
-# defines a function when the definition is *executed*, so a helper declared halfway down the file is an
-# undefined command for every case above it -- which returns empty, and an assertion on empty reads as
-# "the driver did not pass a ceiling". That is exactly how the /find-bugs case first failed: the driver
-# was correct and the helper did not exist yet.
-round_budget() { # <phase-marker> -> the --max-budget-usd value on that phase's call, empty when absent
+# 他のヘルパーと同じくここで定義する（上の respond の注記と同じ理由）。
+round_budget() { # <phase-marker> -> その phase の呼び出しの --max-budget-usd の値。無ければ空
   grep -- "$1" "$FAKE_CLAUDE_LOG" | grep -- '--max-budget-usd' \
     | sed -E 's/.*--max-budget-usd[[:space:]]+([0-9.]+).*/\1/' | head -1
 }
 
 ledger() { cat "$LOOPDIR/ledger.jsonl" 2>/dev/null; }
-ledger_field() { # <jq-ish path via node> -> last line's field
+ledger_field() { # <node で辿るパス> -> 最終行のフィールド
   ledger | node -e '
     let last = null;
     require("readline").createInterface({input: process.stdin})
@@ -358,7 +316,7 @@ ledger_field() { # <jq-ish path via node> -> last line's field
   ' "$1"
 }
 
-echo "loop driver"
+echo "ループ駆動系"
 echo
 
 # ---------------------------------------------------------------- usage
@@ -366,15 +324,15 @@ setup
 runloop
 [[ $RC -eq 0 ]] && grep -q 'loop\.sh size' <<<"$OUT" && grep -q 'loop\.sh run' <<<"$OUT" \
   && grep -q 'loop\.sh report' <<<"$OUT" \
-  && ok "no arguments prints usage naming every subcommand" \
-  || { no "no arguments did not print a usage listing every subcommand (exit $RC)"; detail "$OUT"; }
+  && ok "引数なしで、すべてのサブコマンドを挙げた usage を出す" \
+  || { no "引数なしで、すべてのサブコマンドを挙げた usage が出なかった（exit ${RC}）"; detail "$OUT"; }
 
 runloop --help
 [[ $RC -eq 0 ]] && grep -q 'loop\.sh size' <<<"$OUT" \
-  && ok "--help prints the same usage" || no "--help did not print usage (exit $RC)"
+  && ok "--help も同じ usage を出す" || no "--help で usage が出なかった（exit ${RC}）"
 
-# ---------------------------------------------------------------- tier arithmetic
-# The boundaries, from the table in docs/loops.md. Each is one measurement through `size`.
+# ---------------------------------------------------------------- tier の計算
+# 境界は docs/loops.md の表から。1 つずつ `size` で計測する。
 tier_case() { # <label> <expected> <files> <layers> <oneway> <risk> <unconfirmed>
   local label="$1" want="$2"; shift 2
   setup
@@ -383,76 +341,60 @@ tier_case() { # <label> <expected> <files> <layers> <oneway> <risk> <unconfirmed
   if [[ $RC -eq 0 ]] && grep -qE "tier[[:space:]]+$want\b" <<<"$OUT"; then
     ok "$label -> $want"
   else
-    no "$label should be $want (exit $RC)"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
+    no "$label は ${want} のはず（exit ${RC}）"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
   fi
 }
-# The four rungs, at every boundary. The file counts tripled because the old ladder put a five-file
-# change in the same rung as a fifteen-file one, and the owner's own reading of real changes is that
-# ten files is still small. `>30` closes the top rather than "~50": a threshold written at 50 would
-# leave 31-49 falling through to M silently.
-tier_case "5 files, 1 layer, nothing else"     XS  5  1 0 0 0
-tier_case "6 files crosses into S"              S  6  1 0 0 0
-tier_case "10 files is still S"                 S 10  1 0 0 0
-tier_case "11 files crosses into M"             M 11  1 0 0 0
-tier_case "30 files is still M"                 M 30  1 0 0 0
-tier_case "31 files crosses into L"             L 31  1 0 0 0
-tier_case "2 layers is M"                       M  3  2 0 0 0
-tier_case "3 layers is L"                       L  3  3 0 0 0
-tier_case "one one-way door forces L"           L  1  1 1 0 0
+# 4 段を、すべての境界で。10 ファイルはまだ小さい、というのが実際の変更を読んだ持ち主の判断。上端は "~50" ではなく
+# `>30` で閉じる（50 と書くと 31〜49 が黙って M に落ちる）。
+tier_case "5 ファイル、1 層、他は無し"          XS  5  1 0 0 0
+tier_case "6 ファイルで S に入る"               S  6  1 0 0 0
+tier_case "10 ファイルはまだ S"                 S 10  1 0 0 0
+tier_case "11 ファイルで M に入る"              M 11  1 0 0 0
+tier_case "30 ファイルはまだ M"                 M 30  1 0 0 0
+tier_case "31 ファイルで L に入る"              L 31  1 0 0 0
+tier_case "2 層は M"                            M  3  2 0 0 0
+tier_case "3 層は L"                            L  3  3 0 0 0
+tier_case "一方通行の扉が 1 つで L"             L  1  1 1 0 0
 
-# --- what `risk_surfaces` and `unconfirmed` are worth, revised --------------------
-# These two used to force L, and the ladder collapsed: on a real product repository almost every
-# backend change touches authorization, and /da-investigate names something under `unconfirmed`
-# essentially always, so **everything was L** and nothing could run unattended. Two separate errors:
+# --- `risk_surfaces` と `unconfirmed` の重み（見直し後） -------------------------
+# この 2 つはかつて L を強制し、実際のリポジトリではほぼすべてが L になって無人で回せなかった。
 #
-#   `risk_surfaces` was CHARGED TWICE. It already buys the second reviewer at loop.sh:900 --
-#   /find-bugs runs only when it is non-zero. Making the same signal also force the full attended
-#   design phase pays for one measurement with two different budgets.
+#   `risk_surfaces` は 2 重に課金されていた。すでに 2 本目のレビュア（/find-bugs）を買っているので、同じ信号で
+#   有人の設計フェーズまで強制するのは、1 つの計測に 2 つの予算を払うことになる。
 #
-#   `unconfirmed` means "the size measurement is not reliable". That is a reason not to run
-#   unattended; it is NOT evidence that the change is wide or irreversible, which is what L buys a
-#   human for. Its own field definition was already fixed once (#35) to permit an empty list, and it
-#   still returned 9 for a one-file docs edit -- so the threshold, not only the definition, was wrong.
+#   `unconfirmed` は「この計測は当てにならない」という意味。無人で回さない理由にはなるが、変更が広い・取り返せない
+#   という証拠ではない（L が人を買うのはそのため）。
 #
-# `one_way` keeps forcing L, and that one is not up for revision: an irreversible step is exactly the
-# thing a human must see before it ships.
-tier_case "a risk surface alone is M, not L"    M  1  1 0 1 0
-# CHANGED with the XS rung: the floor moves from M to S. `unconfirmed > 0` means "this measurement may
-# be wrong", which is a reason not to drop the fix machinery -- and it is NOT evidence the change is wide,
-# which is what M buys a human for. Left at M, /da-investigate names something essentially always, so XS
-# would be unreachable in practice and the docs edit that motivated the whole rung would stay at M and
-# buy nothing. Same two-axis argument as risk_surfaces, one rung lower.
-tier_case "one unconfirmed item floors at S"    S  1  1 0 0 1
-tier_case "risk and unconfirmed together, M"    M  1  1 0 3 4
-tier_case "one-way still outranks both"         L  1  1 1 1 1
+# `one_way` は L を強制したまま。取り返せない一歩こそ、出る前に人が見るべきもの。
+tier_case "リスク面だけなら M で、L ではない"   M  1  1 0 1 0
+# XS の段の追加で変えた: 下限は M から S へ。`unconfirmed > 0` は修正の仕組みを外さない理由にはなるが、変更が
+# 広い証拠ではない。M のままだと /da-investigate はほぼ必ず何かを挙げるので、XS には実際には届かない。
+tier_case "未確認が 1 件なら下限は S"           S  1  1 0 0 1
+tier_case "リスクと未確認が両方なら M"          M  1  1 0 3 4
+tier_case "一方通行は両方より強い"              L  1  1 1 1 1
 
-# `unverified_claims` is the other half of the split: things the REQUEST asserts that could not be
-# confirmed. It is recorded and printed because it tells you the request needs fixing, but it must not
-# move the tier -- conflating it with `unconfirmed` is what put a one-file docs edit in L.
+# `unverified_claims` は切り分けのもう半分: *依頼文*が主張していて確かめられなかったこと。依頼文を直す必要を
+# 示すので記録して出すが、tier は動かさない（`unconfirmed` と混ぜたことが 1 ファイルの docs 修正を L にした）。
 setup
 measurement 6 1 0 0 0 "" 9
 runloop size "a request making nine claims"
 if [[ $RC -eq 0 ]] && grep -qE 'tier[[:space:]]+S\b' <<<"$OUT"; then
-  ok "nine unverified request claims do not move the tier (S)"
+  ok "依頼文の未確認の主張が 9 件あっても tier は動かない（S）"
 else
-  no "unverified_claims moved the tier (exit $RC)"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
+  no "unverified_claims が tier を動かした（exit ${RC}）"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 [[ "$(ledger_field unverified_claims)" == "9" ]] \
-  && ok "and the count is recorded, so the request can be fixed" \
-  || no "unverified_claims was not recorded (got '$(ledger_field unverified_claims)')"
+  && ok "件数は記録されるので、依頼文を直せる" \
+  || no "unverified_claims が記録されていない（得た値: '$(ledger_field unverified_claims)'）"
 
-# The tier rule above is right and stays. What broke on the first real run is the OTHER half of it:
-# `unconfirmed > 0` only means "a human should look" if `unconfirmed` means "something that could make
-# this bigger than it looks". The first live measurement returned 21 unconfirmed items for a one-file
-# docs edit and it was classified L -- correctly, by a rule fed a field that meant something else.
-# /da-investigate's job is to name what it could not confirm, so it will essentially always name
-# something, and tier S was therefore unreachable in practice. The fix is the field's definition, not
-# the threshold, so what is asserted is that the driver ships that definition: an empty list has to be
-# stated as a correct and expected answer, or the measurer pads it and every change is L forever.
-if grep -q 'an empty list is the' scripts/loop.sh && grep -q 'NOT everything you failed to look at' scripts/loop.sh; then
-  ok "the size prompt scopes unconfirmed to what changes the size, and permits an empty list"
+# `unconfirmed > 0` が「人が見るべき」を意味するのは、`unconfirmed` が「見た目より大きくしうるもの」を指すときだけ。
+# 最初の実測では 1 ファイルの docs 修正に未確認が 21 件付いて L になった。直すのは閾値ではなく項目の定義なので、
+# 駆動系がその定義を送っていることを検査する。空の一覧を正しく、よくある答えとして書いておかないと、計測役が
+# 水増しして何もかも L になる。
+if grep -q '空が正しく、よくある答え' scripts/loop.sh && grep -q '見られなかったものすべて、では' scripts/loop.sh; then
+  ok "size のプロンプトは unconfirmed を規模を変えるものに絞り、空の一覧を認めている"
 else
-  no "the size prompt does not permit an empty unconfirmed list -- tier S is unreachable, everything is L"
+  no "size のプロンプトが空の unconfirmed を認めていない。tier S に届かず、何もかも L になる"
 fi
 
 setup
@@ -460,79 +402,67 @@ measurement 6 1 0 0 0
 runloop size "a request"
 grep -q 'structured_output' "$FAKE_CLAUDE_LOG" >/dev/null 2>&1
 grep -q -- '--bare' "$FAKE_CLAUDE_LOG" \
-  && no "the driver passed --bare, which disables the hooks and skills the loop is built on" \
-  || ok "the driver never passes --bare"
+  && no "駆動系が --bare を渡した。ループの土台である hook とスキルが無効になる" \
+  || ok "駆動系は --bare を渡さない"
 grep -q -- '--dangerously-skip-permissions' "$FAKE_CLAUDE_LOG" \
-  && no "the driver passed --dangerously-skip-permissions" \
-  || ok "the driver never passes --dangerously-skip-permissions"
+  && no "駆動系が --dangerously-skip-permissions を渡した" \
+  || ok "駆動系は --dangerously-skip-permissions を渡さない"
 grep -q -- '--output-format json' "$FAKE_CLAUDE_LOG" \
-  && ok "the driver asks for --output-format json, so cost is recorded" \
-  || no "the driver did not request --output-format json -- nothing would measure cost"
+  && ok "駆動系は --output-format json を求めるので、コストが記録される" \
+  || no "駆動系が --output-format json を求めていない。コストを測るものが無い"
 
-# `size` must record its verdict, because `run` reads it back rather than re-deciding.
+# `run` は判断をやり直さず読み返すので、`size` は判断を記録しなければならない。
 [[ "$(ledger_field 'tier')" == "S" ]] \
-  && ok "size records its tier in the ledger" \
-  || no "size did not record its tier (got '$(ledger_field 'tier')')"
+  && ok "size は tier を台帳に記録する" \
+  || no "size が tier を記録していない（得た値: '$(ledger_field 'tier')'）"
 
-# The same distinction on the way in: `size` must refuse when no measurement arrived, rather than
-# reading five absent fields as five zeroes and calling an unmeasured change tier S.
+# 入口でも同じ区別: 計測が届かなかったとき、`size` は欠けた 5 項目を 0 と読んで tier S と呼ばず、断らなければならない。
 setup
 printf '{"total_cost_usd":0.01,"num_turns":1,"result":"I looked around a bit"}' > "$FAKE_CLAUDE_DIR/investigate.1.json"
 runloop size "a request"
-[[ $RC -ne 0 ]] && grep -qi 'no measurement came back' <<<"$OUT" \
-  && ok "size refuses when the measurement is missing, instead of defaulting to tier S" \
-  || { no "size accepted a reply with no measurement (exit $RC)"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"; }
-# "null" is what the reader prints when no line matched at all, so it counts as absent here.
+[[ $RC -ne 0 ]] && grep -q '計測が返ってこなかった' <<<"$OUT" \
+  && ok "計測が無いと size は断り、tier S に倒さない" \
+  || { no "size が計測の無い返答を受け入れた（exit ${RC}）"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"; }
+# "null" は一致する行が無いときに読み手が出すもので、ここでは欠けているのと同じ扱い。
 case "$(ledger_field 'tier')" in
-  ''|null) ok "and it records no tier, so run still has nothing to read" ;;
-  *)       no "size recorded tier '$(ledger_field 'tier')' from a reply that contained no measurement" ;;
+  ''|null) ok "tier も記録しないので、run が読むものは無いまま" ;;
+  *)       no "計測を含まない返答から size が tier '$(ledger_field 'tier')' を記録した" ;;
 esac
 
-# ---------------------------------------------------------------- the tier ladder is answered
-# THE SAFETY NET FOR ADDING A RUNG. Seven sites used to compare the tier letter and each meant something
-# different; `[[ "$tier" != "S" ]]` is true for a tier that does not exist yet and quietly demands a
-# landing plan that will never be written. This repository's record says adding a tier "broke three
-# places silently" -- so the ladder is declared on a marker line and every predicate must answer every
-# tier on it.
+# ---------------------------------------------------------------- tier の段にすべての述語が答える
+# 段を足すときの安全網。`[[ "$tier" != "S" ]]` のような比較は、まだ無い tier に対して真になり、書かれることの無い
+# landing plan を黙って要求する。そこで段はマーカー行で宣言し、どの述語もその上のすべての tier に答えることにする。
 #
-# Written while the ladder was still S/M/L, precisely so that it would go RED when a rung was added and
-# a predicate was not extended. A test that arrives with the feature it guards proves nothing about the
-# moment the feature lands.
-#
-# **IT FIRED.** Adding XS took 61 assertions red, and the one place not armed was a decision the test
-# could not see: the lean review budgets were an inline `case` rather than a named predicate, so the
-# by-name scan walked straight past it. That is now `tier_gets_lean_budgets`. The lesson generalises past
-# this file: **a decision the tests cannot enumerate is a decision that gets forgotten exactly once per
-# new tier.**
+# 段が S/M/L のうちに書き、段を足して述語を広げ忘れたら赤になるようにしてある。XS を足したとき実際に 61 件が
+# 赤になった。検出できなかった 1 箇所は名前の付いた述語ではなく inline の `case` だったレビュー予算で、今は
+# `tier_gets_lean_budgets`。テストが列挙できない判断は、新しい tier のたびに一度ずつ忘れられる。
 ladder_tiers()     { sed -n 's/^# dotagents:tier-ladder //p' "$LOOP" | head -1; }
 tier_predicates()  { grep -oE '^tier_[a-z_]+\(\)|^review_may_skip_dispatcher\(\)' "$LOOP" \
                        | sed 's/()//' | grep -v '^tier_die$'; }
 
 marker="$(ladder_tiers)"
 [[ -n "$marker" ]] \
-  && ok "the ladder is declared on a dotagents:tier-ladder marker ($marker)" \
-  || no "no dotagents:tier-ladder marker in loop.sh -- removing it removes this whole check"
+  && ok "段は dotagents:tier-ladder マーカーで宣言されている（${marker}）" \
+  || no "loop.sh に dotagents:tier-ladder マーカーが無い。消すとこの検査ごと消える"
 
 preds="$(tier_predicates)"
 [[ -n "$preds" ]] \
-  && ok "the tier predicates are discoverable by name ($(wc -w <<<"$preds" | tr -d ' ') of them)" \
-  || no "found no tier predicates to check"
+  && ok "tier の述語を名前で見つけられる（$(wc -w <<<"$preds" | tr -d ' ') 個）" \
+  || no "検査する tier の述語が見つからない"
 
-# Every (tier x predicate) pair must answer without dying. Detected by the MESSAGE, not the exit code:
-# `die` exits 1 (loop.sh:176) and so does a legitimate "no", so a code-based check reads a fall-through
-# as an answer. That was the first version of this test and it would have passed on a broken predicate.
-# The predicates are EXTRACTED, never sourced. `source "$LOOP"` runs loop.sh's top-level dispatcher,
-# which inherits this script's positional parameters -- so sourcing it to ask a pure question can start a
-# real `run`. The first version of this helper did exactly that and hung the suite for ten minutes.
+# (tier x 述語) のすべての組が、死なずに答えなければならない。終了コードではなくメッセージで判定する
+# （`die` も正当な「いいえ」も exit 1 なので、コードで見ると素通りを答えと読む）。
+# 述語は source せず抜き出す。`source "$LOOP"` は loop.sh の最上位の dispatcher をこのスクリプトの位置引数で
+# 走らせ、本物の `run` を始めうる（最初の版はそれでスイートを 10 分固まらせた）。
 tier_defs="$TMP/tier-defs.sh"
 { printf 'die() { printf "loop: %%s\\n" "$1" >&2; exit 1; }\n'
   sed -n '/^tier_die() {/,/^}/p' "$LOOP"
   grep -E '^(tier_[a-z_]+|review_may_skip_dispatcher)\(\) *\{ case' "$LOOP"
 } > "$tier_defs"
-tier_answer() { # <predicate> <tier> -> prints "died" or "answered"
+tier_answer() { # <predicate> <tier> -> "died" か "answered" を出す
   local err
   err="$( ( . "$tier_defs"; "$1" "$2" >/dev/null ) 2>&1 )"
-  case "$err" in *"unknown tier"*) printf died ;; *) printf answered ;; esac
+  case "$err" in *"未知の tier"*) printf died ;; *) printf answered ;; esac
 }
 unanswered=""
 for _t in $marker; do
@@ -541,52 +471,48 @@ for _t in $marker; do
   done
 done
 [[ -z "$unanswered" ]] \
-  && ok "every predicate answers every declared tier" \
-  || no "these (predicate, tier) pairs fall through:$unanswered"
+  && ok "どの述語も、宣言されたすべての tier に答える" \
+  || no "次の (述語, tier) の組が素通りする:$unanswered"
 
-# ...and the fall-through must be fatal rather than plausible. A predicate whose default returns 0 or 1
-# is the bug this section exists to prevent: it would answer a tier nobody thought about.
+# 素通りは、もっともらしい答えではなく致命的でなければならない。既定で 0 か 1 を返す述語は、誰も考えていない
+# tier に答えてしまう。
 silent=""
 for _p in $preds; do
   grep -A 1 "^$_p()" "$LOOP" | grep -q 'tier_die' || silent="$silent $_p"
 done
 [[ -z "$silent" ]] \
-  && ok "and an unknown tier is fatal in every predicate, not merely plausible" \
-  || no "these predicates have a silent default:$silent"
+  && ok "未知の tier はどの述語でも致命的で、もっともらしい答えにはならない" \
+  || no "次の述語に黙った既定がある:$silent"
 
-# A tier that is NOT on the ladder must die, proving the net is live rather than vacuous. This probe used
-# to name XS, and it FLIPPED when XS was added -- which is exactly what it was for: the loop above then
-# began requiring an XS arm in every predicate, and found the one place it was missing (the review
-# budgets, which were an inline `case` the name-based discovery could not see). The probe now names a
-# rung nobody has proposed, so it keeps testing the net rather than the last rung added.
+# 段に無い tier は死ななければならない。網が空ではなく効いている証拠。以前は XS を名指していて、XS を足した
+# ときに反転した（それが目的だった）。今は誰も提案していない段を名指すので、最後に足した段ではなく網を検査し続ける。
 [[ "$(tier_answer tier_needs_landing_plan XXL)" == "died" ]] \
-  && ok "an undeclared tier (XXL) is refused -- the net is live, not vacuous" \
-  || no "tier_needs_landing_plan answered XXL, which is not on the ladder"
+  && ok "宣言されていない tier（XXL）は断られる。網は空ではなく効いている" \
+  || no "tier_needs_landing_plan が段に無い XXL に答えた"
 
-# ---------------------------------------------------------------- run preconditions
+# ---------------------------------------------------------------- run の前提条件
 setup
 runloop run
-[[ $RC -ne 0 ]] && grep -qi 'no size recorded' <<<"$OUT" \
-  && ok "run refuses when size was never taken" \
-  || { no "run did not refuse without a recorded size (exit $RC)"; detail "$OUT"; }
+[[ $RC -ne 0 ]] && grep -q 'size の記録が無い' <<<"$OUT" \
+  && ok "size を一度も取っていないと run は断る" \
+  || { no "size の記録が無いのに run が断らなかった（exit ${RC}）"; detail "$OUT"; }
 
 setup; measurement 6 1 0 0 0; runloop size "r"
 printf 'dirty\n' > "$REPO_DIR/dirty.txt"
 runloop run
-[[ $RC -ne 0 ]] && grep -qi 'not clean' <<<"$OUT" \
-  && ok "run refuses on a dirty working tree" \
-  || { no "run did not refuse on a dirty tree (exit $RC)"; detail "$OUT"; }
+[[ $RC -ne 0 ]] && grep -q 'きれいでない' <<<"$OUT" \
+  && ok "作業ツリーが汚れていると run は断る" \
+  || { no "汚れたツリーで run が断らなかった（exit ${RC}）"; detail "$OUT"; }
 
-# Only when the work would actually land on it. With isolation the run moves to its own branch, so
-# being on main when you type the command is no longer the problem it was -- but working IN PLACE on
-# main still is, and that is the case pinned here.
+# 作業が実際に main に載るときだけ。隔離すれば run は自分のブランチに移るので、main でコマンドを打つこと自体は
+# 問題ではない。問題はその場で main の上で作業することで、ここではそれを固定する。
 setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 git -C "$REPO_DIR" checkout -q main
 runloop run
-[[ $RC -ne 0 ]] && grep -qi 'default branch' <<<"$OUT" \
-  && ok "run refuses to work in place on the default branch" \
-  || { no "run did not refuse on the default branch without isolation (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -ne 0 ]] && grep -q 'デフォルトブランチ' <<<"$OUT" \
+  && ok "デフォルトブランチの上でその場で作業することを run は断る" \
+  || { no "隔離なしのデフォルトブランチで run が断らなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
 setup; measurement 6 1 0 0 0; runloop size "r"
 git -C "$REPO_DIR" checkout -q main
@@ -594,38 +520,37 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 runloop run
 [[ $RC -eq 0 ]] \
-  && ok "starting on the default branch is fine once the work is isolated onto its own" \
-  || { no "an isolated run refused because the command was typed on main (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "作業が自分のブランチに隔離されれば、デフォルトブランチから始めてよい" \
+  || { no "main でコマンドを打っただけで、隔離された run が断った（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# Tier M and L must not start unattended without a plan a human committed.
+# tier M と L は、人が commit した plan なしに無人で始めてはならない。
 setup; measurement 11 1 0 0 0; runloop size "r"
 runloop run
 [[ $RC -ne 0 ]] && grep -qi 'landing plan' <<<"$OUT" \
-  && ok "tier M refuses to run without a landing plan" \
-  || { no "tier M ran without a landing plan (exit $RC)"; detail "$OUT"; }
+  && ok "tier M は landing plan なしでは run を断る" \
+  || { no "tier M が landing plan なしで走った（exit ${RC}）"; detail "$OUT"; }
 
-# A plan that is merely present but untracked leaves the tree dirty, so the clean-tree precondition
-# reaches it first. That is a correct refusal, and it is what the common case actually hits.
+# あるだけで追跡されていない plan はツリーを汚すので、きれいなツリーの前提条件が先に当たる。これは正しい拒否で、
+# よくあるケースが実際に当たるのはこちら。
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 runloop run plan.md
 [[ $RC -ne 0 ]] \
-  && ok "an untracked landing plan does not start a run" \
-  || { no "run started with an untracked landing plan (exit $RC)"; detail "$OUT"; }
+  && ok "追跡されていない landing plan では run が始まらない" \
+  || { no "追跡されていない landing plan で run が始まった（exit ${RC}）"; detail "$OUT"; }
 
-# The plan-is-committed check on its own, reached by making the tree clean while the plan stays
-# untracked -- a gitignored plan is the one way those two conditions come apart, and without this
-# case the check would be unreachable and could rot green.
+# plan が commit 済みかの検査だけを、plan を追跡させないままツリーをきれいにして当てる。gitignore した plan が
+# 2 つの条件を切り離す唯一の方法で、このケースが無いと検査に届かず、緑のまま腐りうる。
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf 'plan.md\n' > "$REPO_DIR/.gitignore"
 git -C "$REPO_DIR" add .gitignore; commit_in_repo ignore
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 runloop run plan.md
-[[ $RC -ne 0 ]] && grep -qi 'not committed' <<<"$OUT" \
-  && ok "an uncommitted landing plan is not an approved one, even with a clean tree" \
-  || { no "run accepted an uncommitted landing plan (exit $RC)"; detail "$OUT"; }
+[[ $RC -ne 0 ]] && grep -q 'commit されていない。' <<<"$OUT" \
+  && ok "ツリーがきれいでも、commit されていない landing plan は承認されたものではない" \
+  || { no "commit されていない landing plan を run が受け入れた（exit ${RC}）"; detail "$OUT"; }
 
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
@@ -634,104 +559,96 @@ git -C "$REPO_DIR" add plan.md; commit_in_repo plan
 printf '\n| 2 | snuck in later | ? | yes |\n' >> "$REPO_DIR/plan.md"
 runloop run plan.md
 [[ $RC -ne 0 ]] \
-  && ok "a landing plan edited after the commit does not start a run" \
-  || { no "run accepted a plan modified after its commit (exit $RC)"; detail "$OUT"; }
+  && ok "commit の後に編集した landing plan では run が始まらない" \
+  || { no "commit の後に変更した plan を run が受け入れた（exit ${RC}）"; detail "$OUT"; }
 
-# ---------------------------------------------------------------- the loop, green path
+# ---------------------------------------------------------------- ループ、緑の経路
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
-respond triage 1 0.05 2 0 0 3           # nothing to fix now
+respond triage 1 0.05 2 0 0 3           # 今すぐ直すものは無い
 respond pr 1 0.10 3
 runloop run
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "a green landing with nothing to fix reaches a PR"
+  ok "直すものの無い緑の landing は PR に届く"
 else
-  no "a green landing did not reach a PR (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
+  no "緑の landing が PR に届かなかった（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
 fi
-# `gh stack submit` creates drafts unless told otherwise, and the drafts are not what is wanted here:
-# these PRs have already been through the gate and a review pass, so they are ready for a human.
+# `gh stack submit` は指定しないと draft を作る。ここの PR はゲートとレビューを通っていて、人が読める状態なので draft は要らない。
 grep -q 'stack submit.*--open' "$FAKE_GH_LOG" \
-  && ok "PRs are submitted --open (ready for review), not left as drafts" \
-  || no "the stack was not submitted with --open"
+  && ok "PR は draft のままではなく --open（レビュー待ち）で出す" \
+  || no "stack が --open で提出されていない"
 grep -q -- '--draft' "$FAKE_GH_LOG" \
-  && no "the driver passed --draft" || ok "the driver never passes --draft"
+  && no "駆動系が --draft を渡した" || ok "駆動系は --draft を渡さない"
 grep -q 'stack init' "$FAKE_GH_LOG" \
-  && ok "the run establishes a stack rather than a lone branch" \
-  || no "no stack was initialised -- landings would collide on one branch"
-# `gh stack init` takes its branches positionally. The driver shipped `gh stack init -b main` and nothing
-# else, which headless returns "interactive input required" for -- so the stacked-PR path halted at the
-# first landing on the first real run, before implementing anything. The branch name must be an argument.
+  && ok "run は単独のブランチではなく stack を作る" \
+  || no "stack が初期化されていない。landing が 1 本のブランチでぶつかる"
+# `gh stack init` はブランチを位置引数で取る。フラグだけだと headless では "interactive input required" になり、
+# 最初の実 run では何も実装しないうちに最初の landing で止まった。ブランチ名は引数でなければならない。
 grep -E 'stack init .*[^-] ?[A-Za-z0-9]' "$FAKE_GH_LOG" | grep -qvE 'stack init( +--?[a-z-]+( +[^ ]+)?)* *$' \
-  && ok "stack init names the branch positionally, which is the only non-interactive form" \
-  || { no "stack init was called with flags only -- the real extension demands interactive input and fails"
+  && ok "stack init はブランチを位置引数で名指す（対話なしで使える唯一の形）" \
+  || { no "stack init がフラグだけで呼ばれた。本物の拡張は対話の入力を求めて失敗する"
        detail "$(grep 'stack init' "$FAKE_GH_LOG" | head -1)"; }
 
-# --- the driver types the skills; it does not reach past them -----------------
-# The whole premise is that this is a person's keystrokes with the person automated away. Where a skill
-# owns a step, the driver types the skill. Reaching for the underlying tool instead is how the first
-# version ended up calling `gate.sh arm` directly -- and then AGENTS.md invariant 2 got reworded to
-# permit it, which is bending the invariant to fit the code.
+# --- 駆動系はスキルを打つ。スキルの先に手を伸ばさない ---------------------------
+# 前提は、これが人のキー入力から人を自動化で抜いたものだということ。スキルが持つ手順では、駆動系はスキルを打つ。
+# 下のツールに直接手を伸ばすと、最初の版のように `gate.sh arm` を直接呼び、不変条件のほうをコードに合わせて曲げることになる。
 grep -q '/da-verify' "$FAKE_CLAUDE_LOG" \
-  && ok "the driver types /da-verify rather than arming the gate itself" \
-  || no "the driver never typed /da-verify -- something else armed the gate, or nothing did"
+  && ok "駆動系は自分でゲートを arm せず /da-verify を打つ" \
+  || no "駆動系が /da-verify を打っていない。別の何かがゲートを arm したか、何もしていない"
 grep -nE '"\$GATE_SH"[[:space:]]+arm|gate\.sh[[:space:]]+arm' "$LOOP" \
   | grep -qv '^[0-9]*:[[:space:]]*#' \
-  && no "loop.sh calls gate.sh arm directly -- invariant 2 says da-verify is the only thing that does" \
-  || ok "loop.sh never calls gate.sh arm directly"
-# Checked in the source, anchored to the start of the prompt. Grepping the call log would pass on the
-# prose version too -- "Use /test-driven-development: ..." contains the string without invoking it, and
-# a skill named but not invoked is a skill not applied.
+  && no "loop.sh が gate.sh arm を直接呼んでいる。不変条件 2 では、それをするのは da-verify だけ" \
+  || ok "loop.sh は gate.sh arm を直接呼ばない"
+# ソースで、プロンプトの先頭に固定して確かめる。呼び出しログを grep すると、スキルを名前で挙げるだけの文でも
+# 通ってしまう。名前を挙げただけのスキルは適用されていない。
 grep -q 'claude_round "/test-driven-development' "$LOOP" \
-  && ok "the implement phase opens by typing /test-driven-development, not by describing it" \
-  || no "the implement prompt does not begin with /test-driven-development -- naming a skill is not invoking it"
-# Integration-first is a standing preference, and it has to travel in the PROMPT rather than in AGENTS.md:
-# the driver runs against product repositories, whose agents never read this repository's AGENTS.md.
-# A preference recorded only here is a preference the unattended rounds never hear.
-# A fixed window after the invocation, not a sed range ending in `^"$`: these prompts close with the
-# quote at the end of a content line, so that range never terminates where it looks like it does.
+  && ok "implement の phase は /test-driven-development を打って始まり、説明で済ませない" \
+  || no "implement のプロンプトが /test-driven-development で始まっていない。スキルの名前を挙げても呼んだことにはならない"
+# 統合テスト優先は常設の方針で、AGENTS.md ではなくプロンプトで運ばなければならない。駆動系が走るプロダクトの
+# リポジトリのエージェントは、このリポジトリの AGENTS.md を読まない。
+# `^"$` で終わる sed の範囲ではなく、呼び出しの後の固定の窓で見る。プロンプトは内容行の末尾で引用符を閉じるので、その範囲は見た目の場所で終わらない。
 for p in 'test-driven-development' 'executing-plans'; do
   awk -v pat="claude_round \"/$p" 'index($0,pat){n=25} n{print; n--}' "$LOOP" | grep -qiE 'INTEGRATION' \
-    && ok "the $p prompt asks for integration-level tests" \
-    || no "the $p prompt says nothing about integration tests -- the preference stops at this repo's AGENTS.md"
+    && ok "${p} のプロンプトは統合レベルのテストを求める" \
+    || no "${p} のプロンプトが統合テストに触れていない。方針がこのリポジトリの AGENTS.md で止まっている"
 done
 grep -q 'claude_round "/systematic-debugging' "$LOOP" \
-  && ok "a repeatedly red check switches to /systematic-debugging" \
-  || no "nothing types /systematic-debugging -- a red gate just gets more TDD rounds, which is the patching da-verify says to stop"
+  && ok "赤が続くチェックでは /systematic-debugging に切り替わる" \
+  || no "/systematic-debugging を打つものが無い。赤いゲートが TDD の周を重ねるだけになる（da-verify が止めろと言う継ぎ当て）"
 grep -q 'claude_round "/receiving-code-review' "$LOOP" \
-  && ok "the fix round goes through /receiving-code-review rather than applying findings blindly" \
-  || no "nothing types /receiving-code-review -- fix-plan items get implemented without being evaluated"
+  && ok "修正の周は所見を鵜呑みにせず /receiving-code-review を通る" \
+  || no "/receiving-code-review を打つものが無い。fix-plan の項目が評価されずに実装される"
 grep -q '/using-git-worktrees' "$FAKE_CLAUDE_LOG" \
-  && ok "the run isolates itself by typing /using-git-worktrees" \
-  || no "nothing types /using-git-worktrees -- the loop edits and commits in whatever checkout it was started from"
+  && ok "run は /using-git-worktrees を打って自分を隔離する" \
+  || no "/using-git-worktrees を打つものが無い。ループは起動したチェックアウトでそのまま編集し commit する"
 grep -nE 'git[[:space:]]+worktree[[:space:]]+add' "$LOOP" \
   | grep -qv '^[0-9]*:[[:space:]]*#' \
-  && no "loop.sh calls git worktree add directly -- the skill carries the submodule guard, the check-ignore verification and the baseline check" \
-  || ok "loop.sh does not reimplement worktree creation"
+  && no "loop.sh が git worktree add を直接呼んでいる。submodule の防御、check-ignore の確認、基準のチェックはスキルが持っている" \
+  || ok "loop.sh は worktree の作成を作り直していない"
 grep -q '/da-review-all' "$FAKE_CLAUDE_LOG" \
-  && ok "review goes through /da-review-all, the repository's single review entry" \
-  || no "the driver did not type /da-review-all"
+  && ok "レビューはこのリポジトリの唯一のレビュー入口 /da-review-all を通る" \
+  || no "駆動系が /da-review-all を打っていない"
 grep -q '/da-fix-plan' "$FAKE_CLAUDE_LOG" \
-  && ok "triage goes through /da-fix-plan, which owns the stop condition" \
-  || no "the driver did not type /da-fix-plan"
+  && ok "triage は、停止条件を持つ /da-fix-plan を通る" \
+  || no "駆動系が /da-fix-plan を打っていない"
 grep -q '/da-pr-describe' "$FAKE_CLAUDE_LOG" \
-  && ok "the PR body is written by /da-pr-describe, not by the driver" \
-  || no "the driver did not type /da-pr-describe"
+  && ok "PR 本文は駆動系ではなく /da-pr-describe が書く" \
+  || no "駆動系が /da-pr-describe を打っていない"
 
-# The driver has to work when the skill legitimately declines to create one -- the skill itself
-# sanctions working in place on a sandbox permission error or a declined consent. Continuing is correct;
-# continuing while claiming isolation would not be.
+# スキルが正当に作成を断ったときも駆動系は動かなければならない（サンドボックスの権限エラーや同意の拒否では、
+# スキル自身がその場で作業することを認めている）。続けるのは正しいが、隔離したと言いながら続けるのは正しくない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 runloop run
-[[ $RC -eq 0 ]] && grep -qi 'in place' <<<"$OUT" \
-  && ok "when no worktree appears the run continues in place and says so" \
-  || { no "a run without isolation did not say it was working in place (exit $RC)"; detail "$(head -6 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -eq 0 ]] && grep -q 'その場で作業する' <<<"$OUT" \
+  && ok "worktree が現れなければ、run はその場で続け、そう言う" \
+  || { no "隔離なしの run が、その場で作業していると言わなかった（exit ${RC}）"; detail "$(head -6 <<<"$OUT" | tr '\n' ' ')"; }
 
-# Already isolated: the skill's own Step 0 says do not create another, and the driver must not ask for
-# one either. `git rev-parse --git-dir != --git-common-dir` is what makes a linked worktree detectable.
+# すでに隔離済み: スキルの Step 0 はもう 1 つ作るなと言い、駆動系も求めてはならない。linked worktree は
+# `git rev-parse --git-dir != --git-common-dir` で見分けられる。
 setup; measurement 6 1 0 0 0
 git -C "$REPO_DIR" worktree add -q "$REPO_DIR/.worktrees/pre" -b pre >/dev/null 2>&1
 WT="$REPO_DIR/.worktrees/pre"
@@ -742,164 +659,148 @@ respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 OUT="$(cd "$WT" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" \
   DOTAGENTS_PROFILES="$PROFILES" DOTAGENTS_REPO="$REPO" NO_COLOR=1 bash "$LOOP" run 2>&1)"; RC=$?
 grep -q '/using-git-worktrees' "$FAKE_CLAUDE_LOG" \
-  && no "the driver asked for a worktree while already inside one" \
-  || ok "already inside a linked worktree, the driver does not create another"
+  && no "すでに worktree の中にいるのに、駆動系が worktree を求めた" \
+  || ok "すでに linked worktree の中なら、駆動系はもう 1 つ作らない"
 
-# size and run must agree on which repository this is even across worktrees, or `run` cannot find the
-# tier that `size` recorded in the main checkout. The gate solves this by keying repository identity on
-# the shared git dir; the ledger does the same.
+# worktree をまたいでも size と run はどのリポジトリかで一致しなければならない。でないと、main のチェックアウトで
+# `size` が記録した tier を `run` が見つけられない。ゲートは共有の git dir でリポジトリを識別しており、台帳も同じ。
 setup; measurement 6 1 0 0 0; runloop size "r"
 git -C "$REPO_DIR" worktree add -q "$REPO_DIR/.worktrees/other" -b other >/dev/null 2>&1
 tier_seen="$(cd "$REPO_DIR/.worktrees/other" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" \
   DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" DOTAGENTS_REPO="$REPO" NO_COLOR=1 \
   bash "$LOOP" status 2>&1 | grep -o 'tier [SML]' | head -1)"
 [[ "$tier_seen" == "tier S" ]] \
-  && ok "a size taken in the main checkout is visible from a linked worktree" \
-  || no "the tier was invisible from a worktree (saw '$tier_seen') -- run would refuse work that was already sized"
+  && ok "main のチェックアウトで取った size は linked worktree からも見える" \
+  || no "worktree から tier が見えなかった（見えたもの: '${tier_seen}'）。size 済みの作業を run が断ることになる"
 
-# Swept from the source, not from a call log: `git add -A` would only show up in a log on the run that
-# happened to stage something, and the property wanted is that the construct is not there at all.
-# Comments are excluded, because loop.sh names the construct in order to say it is forbidden -- a
-# sweep that matches its own pattern reports a failure that is not there, which check.sh:56 already
-# records happening for real, and which this line did on its first run.
+# 呼び出しログではなくソースを掃く。`git add -A` はたまたま何かを stage した run のログにしか出ず、求めるのは
+# その構文がそもそも無いこと。loop.sh は禁止を述べるためにこの構文を名指すので、コメントは除く（除かないと
+# 自分のパターンに当たって、無い失敗を報告する）。
 grep -nE 'git[^|;]*add[[:space:]]+(-A|--all|\.)' "$LOOP" \
   | grep -qv '^[0-9]*:[[:space:]]*#' \
-  && no "loop.sh contains git add -A/--all/. -- it must stage named paths only" \
-  || ok "loop.sh stages named paths, never git add -A"
+  && no "loop.sh が git add -A/--all/. を含んでいる。stage するのは名指したパスだけでなければならない" \
+  || ok "loop.sh は名指したパスを stage し、git add -A は使わない"
 
-# No profile means no gate, and `gate.sh verify` reports ok:true in that case -- so a driver that
-# trusts `ok` alone treats "nothing was checked" as green. This is the fail-open the whole design is
-# against, so it is asserted rather than assumed.
+# profile が無ければゲートも無く、そのとき `gate.sh verify` は ok:true を返す。`ok` だけを信じる駆動系は
+# 「何も確かめていない」を緑と扱う。設計全体が防ごうとしている fail-open なので、検査する。
 setup; measurement 6 1 0 0 0
 rm -f "$PROFILES/probe.json"
 runloop size "r"
 runloop run
-[[ $RC -ne 0 ]] && grep -qi 'no profile' <<<"$OUT" \
-  && ok "run refuses when no profile matches -- an unchecked repo is not a green one" \
-  || { no "run proceeded with no profile, so nothing was verifying it (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -ne 0 ]] && grep -q 'profile が無い' <<<"$OUT" \
+  && ok "一致する profile が無いと run は断る。確かめていないリポジトリは緑ではない" \
+  || { no "profile が無いまま run が進み、何も検証していなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# --- the default round cap ---------------------------------------------------
-# 6 was a dead number. The gate's `max_attempts` is 3 and `attempts` rises by TWO per turn -- one for the
-# block, one for the re-entry release -- so a check that keeps failing gets a VERDICT after about two
-# rounds, and `gate_gave_up` halts the landing then. The driver's own cap was therefore unreachable in
-# exactly the case a cap exists for, and reachable only when *different* checks fail on successive
-# rounds. A cap you cannot hit is not a cap; it is a number that reads like one.
+# --- 周の上限の既定 -----------------------------------------------------------
+# ゲートの `max_attempts` は 3 で、`attempts` は 1 手番で 2 つ増える（ブロックで 1、再入の解放で 1）。失敗し続ける
+# チェックは約 2 周で VERDICT になり、`gate_gave_up` がそこで landing を止める。既定を 6 にすると、上限が要る
+# まさにそのケースで届かない。届かない上限は上限ではない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
 side_effect_all debug 'date >> churn.txt'
 respond debug 1 0.10 3
-runloop run                                  # no --max-rounds: the default is what is under test
+runloop run                                  # --max-rounds なし: 検査対象は既定値
 impl_n=$(( $(cat "$FAKE_CLAUDE_DIR/implement.counter" 2>/dev/null || echo 1) - 1 ))
 debug_n=$(( $(cat "$FAKE_CLAUDE_DIR/debug.counter" 2>/dev/null || echo 1) - 1 ))
 if [[ $(( impl_n + debug_n )) -eq 3 ]]; then
-  ok "the default round cap is 3 implementation rounds (1 implement + 2 debug)"
+  ok "周の上限の既定は実装 3 周（implement 1 + debug 2）"
 else
-  no "the default cap spent $(( impl_n + debug_n )) rounds ($impl_n implement, $debug_n debug), not 3"
+  no "既定の上限で $(( impl_n + debug_n )) 周使った（implement ${impl_n}、debug ${debug_n}）。3 ではない"
 fi
 
-# ---------------------------------------------------------------- red path, round cap
+# ---------------------------------------------------------------- 赤の経路、周の上限
 setup; measurement 6 1 0 0 0; runloop size "r"
-# Each round changes something and still leaves the check red -- otherwise round_changed_nothing fires
-# first, which is a different finding.
+# 毎周何かを変えて、それでもチェックは赤のまま。何も変えないと round_changed_nothing が先に出て、別の所見になる。
 respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
 side_effect_all debug 'date >> churn.txt'
 respond debug 1 0.10 3
 runloop run --max-rounds 3
 [[ $RC -ne 0 ]] && grep -qi 'round_cap\|round cap' <<<"$OUT" \
-  && ok "a check that stays red halts at the round cap" \
-  || { no "a permanently red check did not halt at the cap (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "赤のままのチェックは周の上限で止まる" \
+  || { no "ずっと赤いチェックが上限で止まらなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'halt_reason')" == "round_cap" ]] \
-  && ok "the ledger records round_cap as the reason it stopped" \
-  || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not round_cap"
-grep -q 'stack submit' "$FAKE_GH_LOG" && no "a halted landing still opened a PR" || ok "a halted landing opens no PR"
-# The run reports which check was red before it started, and then never used that answer again --
-# STARTED_GREEN was assigned, printed, and read by nothing. On the first real run that line was the only
-# way to know the loop had inherited a red installer suite rather than broken it, and it was one dim
-# line thirty lines above the halt. Attribution belongs where the loop gives up, not where it starts.
-grep -qi 'already red before' <<<"$OUT" \
-  && ok "the halt says the check was already red before the run, so an inherited failure is not misread" \
-  || no "the halt does not distinguish a check this run broke from one it inherited"
+  && ok "台帳は止まった理由として round_cap を記録する" \
+  || no "台帳の halt_reason が '$(ledger_field 'halt_reason')' で、round_cap ではない"
+grep -q 'stack submit' "$FAKE_GH_LOG" && no "止まった landing が PR を開いた" || ok "止まった landing は PR を開かない"
+# 開始前にどのチェックが赤だったかは、ループが諦める場所で言わなければならない。開始時の薄い 1 行だけでは、
+# ループが赤いスイートを引き継いだのか壊したのかが分からない。
+grep -q 'すでに赤かった' <<<"$OUT" \
+  && ok "halt は、チェックが run の前から赤かったと言う。引き継いだ失敗を読み違えない" \
+  || no "halt が、この run が壊したチェックと引き継いだチェックを区別していない"
 
-# The switch, observed rather than read out of the source: round 1 writes code, and every round after a
-# red gate hands over to root-cause work. Counted, because "it appeared once" would also be true if the
-# driver typed it and then went back to piling on TDD rounds.
+# 切り替えをソースではなく観察で確かめる: 1 周目はコードを書き、赤いゲートの後の周はすべて根本原因の作業に渡す。
+# 「1 回出た」だけでは、打った後に TDD の周へ戻っても真になるので数える。
 [[ "$(grep -c 'test-driven-development' "$FAKE_CLAUDE_LOG")" -eq 1 ]] \
-  && ok "/test-driven-development is typed exactly once -- round 1 only" \
-  || no "/test-driven-development was typed $(grep -c 'test-driven-development' "$FAKE_CLAUDE_LOG") times; a red check should not buy another TDD round"
+  && ok "/test-driven-development はちょうど 1 回、1 周目だけ打たれる" \
+  || no "/test-driven-development が $(grep -c 'test-driven-development' "$FAKE_CLAUDE_LOG") 回打たれた。赤いチェックで TDD の周を買い足してはいけない"
 [[ "$(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG")" -ge 2 ]] \
-  && ok "every round after the first red gate is /systematic-debugging" \
-  || no "only $(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG") debugging round(s) across the cap"
+  && ok "最初に赤くなった後の周はすべて /systematic-debugging" \
+  || no "上限までに debug の周が $(grep -c 'systematic-debugging' "$FAKE_CLAUDE_LOG") 回しかない"
 
-# And the other direction, which is the half that makes the first one mean anything: a check that was
-# GREEN when the run started and is red at the cap was broken BY this run, and saying "already red" there
-# would be a lie that reads like exoneration. An unconditional sentence passes the assertion above.
+# 逆向きも。run の開始時に緑で、上限の時点で赤いチェックはこの run が壊したもので、「すでに赤かった」と言えば
+# 免罪に読める嘘になる。無条件の文なら上の検査は通ってしまう。
 setup; measurement 6 1 0 0 0; runloop size "r"
-: > "$FAKE_CLAUDE_DIR/no-worktree"        # keep the gate in REPO_DIR so the fixture can stage it green
-: > "$REPO_DIR/GREEN"                     # `test -f GREEN` -- green before the first round
+: > "$FAKE_CLAUDE_DIR/no-worktree"        # fixture が緑で stage できるよう、ゲートを REPO_DIR に置いておく
+: > "$REPO_DIR/GREEN"                     # `test -f GREEN` -- 1 周目の前は緑
 git -C "$REPO_DIR" add -A >/dev/null 2>&1
 git -C "$REPO_DIR" commit -qm "green before the run" >/dev/null 2>&1
 respond implement 1 0.10 3; side_effect_all implement 'rm -f GREEN; date >> churn.txt'
 respond debug 1 0.10 3; side_effect_all debug 'date >> churn.txt'
 runloop run --max-rounds 2
-grep -qi 'already red before' <<<"$OUT" \
-  && no "the halt claimed an inherited failure for a check this run broke -- the sentence is unconditional" \
-  || ok "a check the run broke itself is not excused as inherited"
+grep -q 'すでに赤かった' <<<"$OUT" \
+  && no "この run が壊したチェックについて、halt が引き継いだ失敗だと言った。文が無条件になっている" \
+  || ok "run が自分で壊したチェックは、引き継いだものとして免罪されない"
 
-# ---------------------------------------------------------------- the gate gave up
-# The state dir is deterministic: <gate>/<basename of repo root>/wt/main. Named here rather than read
-# back from `status --json`, because the run has to be the thing that arms the gate.
+# ---------------------------------------------------------------- ゲートが諦めた
+# 状態ディレクトリは決まっている: <gate>/<リポジトリのルートの basename>/wt/main。ゲートを arm するのは run で
+# なければならないので、`status --json` から読まずここで名指す。
 plant_verdict() { printf 'mkdir -p "%s/repo/wt/main" && printf "2026-08-11T00:00:00Z\\nred\\nprobe-gate\\n3\\n1\\nclaude\\ntest -f GREEN\\n" > "%s/repo/wt/main/VERDICT"\n' "$GATE" "$GATE"; }
 
-# A verdict that already exists when `run` starts must stop it. `gate.sh arm` moves VERDICT to
-# VERDICT.prev and restarts the attempt budget, so a driver that armed first would erase exactly the
-# record that says the previous work was never verified.
-# The gate has to be genuinely armed for its state dir to exist -- planting the file under an
-# unarmed gate makes `status` report gave_up:false, the run proceeds, and `arm` consumes the verdict
-# while printing a NOTE that contains the word "verdict". A looser assertion here matched that NOTE
-# and passed for the wrong reason; the on-disk check below is what caught it.
+# `run` の開始時に verdict がすでにあれば止めなければならない。`gate.sh arm` は VERDICT を VERDICT.prev に移して
+# 試行の予算をやり直すので、先に arm する駆動系は、前の作業が検証されていないという記録そのものを消す。
+# 状態ディレクトリができるよう、ゲートは本当に arm しておく必要がある（未 arm のまま置くと `status` が
+# gave_up:false を返し、run が進み、`arm` が verdict を消費する）。下のディスク上の確認がそれを捕まえた。
 setup; measurement 6 1 0 0 0; runloop size "r"
 ( cd "$REPO_DIR" && DOTAGENTS_GATE_DIR="$GATE" bash "$REPO/scripts/gate.sh" arm >/dev/null 2>&1 )
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 printf '2026-08-11T00:00:00Z\nred\nprobe-gate\n3\n1\nclaude\ntest -f GREEN\n' > "$GATE/repo/wt/main/VERDICT"
 respond implement 1 0.10 3
 runloop run
-[[ $RC -ne 0 ]] && grep -q 'ended in a verdict, not a pass' <<<"$OUT" \
-  && ok "a verdict left from a previous run refuses to start another, rather than being armed away" \
-  || { no "run started on top of an existing verdict (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -ne 0 ]] && grep -q '合格ではなく verdict で終わっている' <<<"$OUT" \
+  && ok "前の run が残した verdict があると、arm で消さずに次の run を断る" \
+  || { no "既存の verdict の上で run が始まった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 [[ -f "$GATE/repo/wt/main/VERDICT" ]] \
-  && ok "the verdict is still on disk afterwards -- refusing did not consume the evidence" \
-  || no "the verdict was erased by a run that refused to start"
+  && ok "その後も verdict はディスクに残っている。断っても証拠は消費されない" \
+  || no "開始を断った run が verdict を消した"
 
-# A verdict appearing mid-landing, which is the case the gate actually produces.
+# landing の途中で verdict が現れる。ゲートが実際に生むのはこのケース。
 setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.10 3; side_effect implement 1 "$(plant_verdict)"
 runloop run --max-rounds 5
 [[ $RC -ne 0 ]] && grep -qi 'gave_up\|gave up' <<<"$OUT" \
-  && ok "a VERDICT written mid-landing aborts it instead of reading as green" \
-  || { no "a mid-landing VERDICT did not abort (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "landing の途中で書かれた VERDICT は、緑と読まれず landing を打ち切る" \
+  || { no "landing の途中の VERDICT で打ち切られなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'halt_reason')" == "gave_up" ]] \
-  && ok "the ledger distinguishes gave_up from round_cap" \
-  || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not gave_up"
+  && ok "台帳は gave_up を round_cap と区別する" \
+  || no "台帳の halt_reason が '$(ledger_field 'halt_reason')' で、gave_up ではない"
 
-# ---------------------------------------------------------------- scorer immutability
+# ---------------------------------------------------------------- 採点するものは変えられない
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.10 3
 side_effect implement 1 'mkdir -p profiles && printf "{}" > profiles/loosened.json && touch GREEN'
 runloop run
 [[ $RC -ne 0 ]] && grep -qi 'scorer' <<<"$OUT" \
-  && ok "a round that edits the scorer aborts the landing" \
-  || { no "a round edited profiles/ and was not stopped (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
-grep -q 'stack submit' "$FAKE_GH_LOG" && no "a scorer-touching landing opened a PR" || ok "a scorer-touching landing opens no PR"
+  && ok "採点するものを編集した周は landing を打ち切る" \
+  || { no "周が profiles/ を編集したのに止まらなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+grep -q 'stack submit' "$FAKE_GH_LOG" && no "採点するものに触れた landing が PR を開いた" || ok "採点するものに触れた landing は PR を開かない"
 [[ "$(ledger_field 'halt_reason')" == "scorer_touched" ]] \
-  && ok "and the ledger names the scorer as the reason" \
-  || no "the scorer-touching landing recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "台帳も理由として採点するもの（scorer_touched）を挙げる" \
+  || no "採点するものに触れた landing が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
-# Moving a guarded file OUT of a guarded location, rather than editing it in place. `git status
-# --porcelain -z` reports a rename as two NUL-separated fields -- the new path, then the old one, with
-# no " -> " between them. A parser that strips a 3-character status prefix from every field mangles the
-# old path, and the loop can then rename the gate out of the way without being stopped: the new path is
-# not guarded, and the old path no longer matches anything.
+# 守られたファイルを、その場で編集するのではなく守られた場所の外へ移す。`git status --porcelain -z` は rename を
+# NUL 区切りの 2 項目（新しいパス、古いパス。間に " -> " は無い）で報告する。全項目から 3 文字の状態の接頭部を
+# 削るパーサは古いパスを壊し、ループはゲートを止められずに脇へ rename できてしまう。
 setup; measurement 6 1 0 0 0; runloop size "r"
 mkdir -p "$REPO_DIR/scripts"; printf 'gate\n' > "$REPO_DIR/scripts/gate.sh"
 git -C "$REPO_DIR" add scripts/gate.sh; commit_in_repo "add a guarded file"
@@ -907,73 +808,66 @@ respond implement 1 0.10 3
 side_effect implement 1 'git mv scripts/gate.sh gate-old.sh && touch GREEN'
 runloop run
 [[ "$(ledger_field 'halt_reason')" == "scorer_touched" ]] \
-  && ok "renaming a guarded file out of a guarded path is caught, not just editing it in place" \
-  || { no "a round renamed scripts/gate.sh away and was not stopped (halt_reason '$(ledger_field 'halt_reason')')"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "守られたファイルを守られたパスの外へ rename しても捕まる。その場の編集だけではない" \
+  || { no "周が scripts/gate.sh を rename で逃がしたのに止まらなかった（halt_reason '$(ledger_field 'halt_reason')'）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# ---------------------------------------------------------------- triage exits
+# ---------------------------------------------------------------- triage の出口
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
-respond triage 1 0.05 2 0 1 0           # one finding needs a human decision
+respond triage 1 0.05 2 0 1 0           # 所見 1 件が人の判断を要する
 runloop run
 [[ $RC -ne 0 ]] && grep -qi 'needs_decision' <<<"$OUT" \
-  && ok "a finding that needs a decision halts immediately" \
-  || { no "needs_decision did not halt the loop (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
-grep -q 'stack submit' "$FAKE_GH_LOG" && no "needs_decision still opened a PR" || ok "needs_decision opens no PR"
+  && ok "判断が要る所見があれば、すぐに止まる" \
+  || { no "needs_decision でループが止まらなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+grep -q 'stack submit' "$FAKE_GH_LOG" && no "needs_decision なのに PR を開いた" || ok "needs_decision では PR を開かない"
 
-setup; measurement 11 1 0 0 0; runloop size "r"        # 6 files -> tier M, which still gets two rounds
+setup; measurement 11 1 0 0 0; runloop size "r"        # 11 ファイル -> tier M。まだ 2 周ある
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
-respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 to fix
-respond fix    1 0.20 4                                    # the fix round
-respond review 2 0.30 7; respond triage 2 0.05 2 1 0 1     # review 2: still 1
+respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 直すもの 2 件
+respond fix    1 0.20 4                                    # 修正の周
+respond review 2 0.30 7; respond triage 2 0.05 2 1 0 1     # review 2: まだ 1 件
 respond fix    2 0.20 4
 respond pr     1 0.10 3
 runloop run plan.md
-# CHANGED DELIBERATELY, not silenced. This used to assert `review_cap` -- that the loop HALTS with the
-# second review's findings unfixed. That reading of the cap made tier S unable to reach a PR at all
-# (`REVIEW_ROUNDS_LEAN=1` meant the fix round was never reachable), so the cap now governs how many times
-# we REVIEW, and the last review's fixes are applied and gate-verified before it stops reviewing.
-# What must still hold is the thing the cap was for: no THIRD review is bought.
+# 意図して変えた（黙らせたのではない）。以前は `review_cap`、つまり 2 回目のレビューの所見を直さずに止まることを
+# 検査していた。その読み方では tier S が PR に届かなかったので、上限はレビューする回数を決め、最後のレビューの
+# 修正は適用してゲートで確かめてからレビューをやめる。変わらず守るのは、3 回目のレビューを買わないこと。
 rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
 [[ "$rounds" -eq 2 ]] \
-  && ok "tier M: two reviews and no third -- the cap still bites where it costs" \
-  || no "tier M ran $rounds review rounds, not 2"
+  && ok "tier M: レビューは 2 回で 3 回目は無い。上限はコストのかかるところで効く" \
+  || no "tier M のレビューの周が ${rounds} 回で、2 回ではない"
 grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG" | grep -q '^2$' \
-  && ok "and both rounds' findings were applied, including the last one's" \
-  || no "the second review's findings were left unapplied ($(grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG") fix round(s))"
+  && ok "両方の周の所見が、最後の周の分も含めて適用された" \
+  || no "2 回目のレビューの所見が適用されずに残った（修正の周 $(grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG") 回）"
 
-# A review round is NOT one skill: it is /da-review-all plus a /da-fix-plan triage, and the first real
-# landing measured that pair at $5.64 + $2.08 -- against $1.30 for the implementation it was reviewing.
-# Two rounds is therefore a ~$15 ceiling on a change that tier S already decided was small enough to skip
-# the design phase for. The second round is where that ceiling lives, so tier S does not buy one.
-# Measured on that landing: the review had ALREADY self-scaled to the bottom fan-out tier ("inline, no
-# find subagents"), so this is not depth being cut -- depth was already minimal. It is the worst case.
-setup; measurement 6 1 0 0 0; runloop size "r"        # 1 file -> tier S
+# レビューの 1 周は 1 つのスキルではなく /da-review-all と /da-fix-plan の triage の組で、最初の実 landing では
+# 実装 $1.30 に対して $5.64 + $2.08 かかった。2 周だと、tier S が設計フェーズを飛ばせるほど小さいと決めた変更に
+# ~$15 の天井になる。その天井は 2 周目にあるので、tier S は 2 周目を買わない。
+setup; measurement 6 1 0 0 0; runloop size "r"        # 6 ファイル -> tier S
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
-respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: 2 still to fix
+respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: まだ直すもの 2 件
 respond fix    1 0.20 4
-respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0     # would pass, if it were ever reached
+respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0     # 届けば通るが、届かない
 runloop run
-# Anchored to the END of the line, and every other spelling of this is wrong -- this file's own header
-# says so and it still caught me twice. The triage prompt QUOTES "=== /da-review-all の所見 ===" as a
-# section header, so a bare grep double-counts. Anchoring to the line START fails because the stub logs
-# the whole argv, so every line begins with the flags. Excluding lines that mention da-fix-plan fails
-# because the stub logs `$*`, and a multi-line prompt becomes MULTIPLE log lines -- the quoted header is
-# a line of its own with no da-fix-plan on it. The invocation is the only line ENDING in the skill name.
+# 行の*末尾*に固定する。他の書き方はすべて間違い。triage のプロンプトは "=== /da-review-all の所見 ===" を見出しとして
+# 引用するので、素の grep は二重に数える。スタブは argv 全体を記録するので行頭の固定は失敗し、`$*` を記録するので
+# 複数行のプロンプトは複数のログ行になり、da-fix-plan を含む行を除いても引用された見出しの行が残る。
+# スキル名で*終わる*行は呼び出しだけ。
 rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
 [[ "$rounds" -eq 1 ]] \
-  && ok "tier S buys exactly one review round -- the second is the \$15 ceiling, not more correctness" \
-  || no "tier S ran $rounds review rounds; S skips the design phase, so it must not pay the L review bill"
-# Also changed deliberately: open findings are no longer SHIPPED UNFIXED, which is what halting here
-# actually meant. They are fixed, gate-verified, and the PR body is told they were not re-reviewed.
+  && ok "tier S が買うレビューはちょうど 1 周。2 周目は正しさではなく \$15 の天井" \
+  || no "tier S のレビューが ${rounds} 周走った。S は設計フェーズを飛ばすので、L のレビュー代を払ってはいけない"
+# これも意図して変えた: 未解決の所見を直さずに出すこと（ここで止まることの実際の意味）はもうしない。直して
+# ゲートで確かめ、再レビューしていないことを PR 本文に伝える。
 grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
-  && ok "and its findings are applied with the PR told they were not re-reviewed" \
-  || no "tier S shipped or dropped its findings without saying which"
+  && ok "所見は適用され、再レビューしていないことが PR に伝わる" \
+  || no "tier S が所見を出したか捨てたかを言わずに済ませた"
 
-# ---------------------------------------------------------------- one-way doors and the draft cap
+# ---------------------------------------------------------------- 一方通行の扉と draft の上限
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | yes |\n' \
   > "$REPO_DIR/plan.md"
@@ -982,32 +876,30 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 runloop run plan.md
 grep -q 'stack submit' "$FAKE_GH_LOG" \
-  && no "a one-way landing opened a PR" \
-  || ok "a one-way landing stops short of a PR and hands over to a human"
-# "nothing was submitted" is true of every early halt too, so the reason is pinned. Without this the
-# assertion above passes when the landing died of something unrelated.
+  && no "一方通行の landing が PR を開いた" \
+  || ok "一方通行の landing は PR の手前で止まり、人に渡す"
+# 「何も提出していない」はどの早期停止でも真なので、理由を固定する。でないと別の理由で死んでも上が通る。
 [[ "$(ledger_field 'halt_reason')" == "one_way" ]] \
-  && ok "and it stopped because it was one-way, not because something else broke" \
-  || no "one-way landing recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "止まったのは一方通行だからで、別の何かが壊れたからではない" \
+  || no "一方通行の landing が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
 setup; measurement 6 1 0 0 0; runloop size "r"
-# Head branch names, not PR numbers: the cap counts branches belonging to this stack, so that PRs the
-# human opened by hand do not trip a cap meant to bound the loop's own output.
-: > "$FAKE_CLAUDE_DIR/no-worktree"     # the cap matches head branches from this checkout
+# PR 番号ではなく head ブランチ名。上限はこの stack のブランチを数えるので、人が手で開いた PR には当たらない。
+: > "$FAKE_CLAUDE_DIR/no-worktree"     # 上限はこのチェックアウトの head ブランチに当てる
 printf 'work\nwork-2\nwork-3\nwork-4\nwork-5\n' > "$FAKE_GH_DIR/pr-list"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 runloop run
 grep -q 'stack submit' "$FAKE_GH_LOG" \
-  && no "another PR was submitted while the cap's worth were already open" \
-  || ok "the open-PR cap stops the loop outrunning the reviewer"
+  && no "上限の本数がすでに開いているのに、PR をもう 1 本提出した" \
+  || ok "開いた PR の上限で、ループがレビュアを追い越さない"
 [[ "$(ledger_field 'halt_reason')" == "pr_cap" ]] \
-  && ok "and it stopped because of the cap, not because something else broke" \
-  || no "the capped landing recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "止まったのは上限のためで、別の何かが壊れたからではない" \
+  || no "上限に当たった landing が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
-# ---------------------------------------------------------------- stacking, and its precondition
-# Landings are inherently a stack: landing 2 builds on landing 1. The first version of this driver used
-# one branch for the whole run, so a second landing's PR would have collided with the first's.
+# ---------------------------------------------------------------- stack とその前提条件
+# landing は本質的に stack で、landing 2 は landing 1 の上に積む。run 全体で 1 本のブランチを使うと、2 つ目の
+# landing の PR が 1 つ目とぶつかる。
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | first | probe-gate | no |\n| 2 | second | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
@@ -1015,24 +907,21 @@ git -C "$REPO_DIR" add plan.md; commit_in_repo plan
 # landing 1
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
-# landing 2 -- the second occurrence of each phase, so the fixture says which landing it belongs to
+# landing 2 -- 各 phase の 2 回目。fixture がどの landing のものかを示す
 respond implement 2 0.20 5; side_effect implement 2 'printf b > b.txt'
 respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0; respond pr 2 0.10 3
 runloop run plan.md
 [[ "$(grep -c 'stack add' "$FAKE_GH_LOG")" -ge 1 ]] \
-  && ok "landing 2 gets its own layer via gh stack add, not the same branch as landing 1" \
-  || { no "no layer was added for the second landing -- both would target one branch"; detail "$(tr '\n' ';' < "$FAKE_GH_LOG")"; }
+  && ok "landing 2 は landing 1 と同じブランチではなく、gh stack add で自分の層を得る" \
+  || { no "2 つ目の landing に層が足されていない。両方が 1 本のブランチを狙う"; detail "$(tr '\n' ';' < "$FAKE_GH_LOG")"; }
 [[ "$(grep -c 'stack submit' "$FAKE_GH_LOG")" -ge 2 ]] \
-  && ok "each landing is submitted as it completes, so review can start on the lower layer" \
-  || no "the stack was submitted $(grep -c 'stack submit' "$FAKE_GH_LOG") time(s) for 2 landings"
+  && ok "landing は終わるたびに提出されるので、下の層からレビューを始められる" \
+  || no "landing 2 件に対して stack の提出が $(grep -c 'stack submit' "$FAKE_GH_LOG") 回"
 
-# A REAL plan file, which is the shape every fixture above avoided: a title that says "Landing plan",
-# prose, ANOTHER table before the 🧱 one. `parse_plan` set inTable on the first line matching
-# /Landing plan/i -- the title on line 1 -- and then locked onto the first table it found after it. The
-# first landing came out numbered "主張" with "確認方法" as its content, and `gh stack add` was asked for
-# a layer by that name. Measured on the first plan this driver was ever handed that it did not generate:
-# the design-review output people actually copy has headings and evidence tables around the 🧱 one.
-# The header row is what `landing_plans()` already uses to identify a plan; parsing must use the same.
+# 本物の plan ファイルの形: "Landing plan" と言うタイトル、文章、🧱 の表の前の*別の*表。`parse_plan` は
+# /Landing plan/i に当たる最初の行（1 行目のタイトル）で inTable を立て、その後の最初の表に食いついたので、最初の
+# landing が「主張」という番号で「確認方法」を内容として出てきた。設計レビューの出力を人が写すと、🧱 の表の周りに
+# 見出しや根拠の表が付く。plan の識別には `landing_plans()` がすでに見出し行を使っており、パースも同じものを使う。
 setup; measurement 11 1 0 0 0; runloop size "r"
 { printf '# 🧱 Landing plan -- the title mentions it, deliberately\n\n'
   printf 'Some prose about why.\n\n'
@@ -1045,61 +934,55 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run plan.md
 grep -q 'landing 1: the real one' <<<"$OUT" \
-  && ok "a plan with an evidence table above the 🧱 one still parses the 🧱 one" \
-  || { no "the wrong table was parsed as the landing list"; detail "$(grep -m1 'landing' <<<"$OUT")"; }
+  && ok "🧱 の表の上に根拠の表がある plan でも、🧱 の表をパースする" \
+  || { no "違う表が landing の一覧としてパースされた"; detail "$(grep -m1 'landing' <<<"$OUT")"; }
 grep -qE 'landing (主張|確認方法)' <<<"$OUT" \
-  && no "a row from the evidence table was treated as a landing" \
-  || ok "and no row from the other table became a landing"
+  && no "根拠の表の行が landing として扱われた" \
+  || ok "別の表の行は landing にならない"
 
-# The extension is a hard dependency. Falling back to `gh pr create` would silently produce an
-# unstacked PR -- a different shape of output than the one asked for, with nothing saying so.
+# 拡張は必須の依存。`gh pr create` に倒すと、頼まれたのとは違う形の、stack でない PR が黙ってできる。
 setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_GH_DIR/no-stack-ext"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0
 runloop run
 [[ $RC -ne 0 ]] && grep -q 'gh extension install github/gh-stack' <<<"$OUT" \
-  && ok "a missing gh-stack extension refuses with the install command, rather than silently unstacking" \
-  || { no "a missing gh-stack extension did not stop the run (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "gh-stack 拡張が無ければ、黙って stack を外さずインストールのコマンド付きで断る" \
+  || { no "gh-stack 拡張が無いのに run が止まらなかった（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# A triage round that comes back with no structured output at all. This is not hypothetical: the flag
-# that asks for schema-conforming output is unverified (see the header), so if its name is wrong EVERY
-# triage round returns nothing. Defaulting the counts to 0 would read as "the review found nothing to
-# fix" and submit a PR that was never triaged -- and the ledger would record fix_now:0, which is
-# indistinguishable from a clean review. Absence has to halt.
+# 構造化出力をまったく返さない triage の周。構造化出力を求めるフラグは未検証（冒頭を参照）で、名前が違えば
+# すべての triage の周が何も返さない。件数を 0 に倒すと「直すものは無い」と読んで triage していない PR を出し、
+# 台帳にはきれいなレビューと区別できない fix_now:0 が残る。無いなら止まらなければならない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
-respond triage 1 0.05 2          # no fix_now argument -> the response carries no structured_output
+respond triage 1 0.05 2          # fix_now の引数なし -> 応答に structured_output が無い
 runloop run
 [[ $RC -ne 0 ]] \
-  && ok "a triage round with no structured output halts instead of reading as 'nothing to fix'" \
-  || { no "an unreadable triage was treated as a clean review (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "構造化出力の無い triage の周は、「直すもの無し」と読まずに止まる" \
+  || { no "読めない triage がきれいなレビューとして扱われた（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -q 'stack submit' "$FAKE_GH_LOG" \
-  && no "a PR was submitted on the back of a triage that returned nothing" \
-  || ok "no PR is submitted when the triage could not be read"
+  && no "何も返さなかった triage を根拠に PR が提出された" \
+  || ok "triage を読めなければ PR は提出しない"
 [[ "$(ledger_field 'halt_reason')" == "triage_unreadable" ]] \
-  && ok "the ledger says the triage was unreadable, not that there was nothing to fix" \
-  || no "ledger halt_reason was '$(ledger_field 'halt_reason')', not triage_unreadable"
+  && ok "台帳は、直すものが無かったではなく triage を読めなかったと言う" \
+  || no "台帳の halt_reason が '$(ledger_field 'halt_reason')' で、triage_unreadable ではない"
 
 # ================================================================ fix plan 2026-08-11
-# Each case below corresponds to a numbered item in docs/fix-plans/2026-08-11-loop-driver.md.
+# 以下の各ケースは docs/fix-plans/2026-08-11-loop-driver.md の番号付きの項目に対応する。
 
-# #3 -- "clean" and "I could not tell" are the same answer from `changed_paths`, and all four consumers
-# take the benign branch. Simulated by pointing GIT_DIR at something that is not a git directory, which
-# is what an index.lock, a dubious-ownership refusal or a cwd outside a work tree look like from here.
+# #3 -- `changed_paths` にとって「きれい」と「分からなかった」は同じ答えで、4 つの利用側がすべて無害な分岐を取っていた。
+# GIT_DIR を git ディレクトリでないものに向けて再現する（index.lock、dubious-ownership の拒否、ワークツリー外の cwd はここからはこう見える）。
 setup; measurement 6 1 0 0 0; runloop size "r"
 OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" GIT_DIR=/nonexistent-git-dir \
   DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" \
   DOTAGENTS_REPO="$REPO" NO_COLOR=1 bash "$LOOP" run 2>&1)"; RC=$?
-[[ $RC -ne 0 ]] && grep -qi 'could not read the working tree' <<<"$OUT" \
-  && ok "#3 an unreadable working tree refuses, rather than reading as clean" \
-  || { no "#3 an unreadable tree was treated as clean (exit $RC)"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -ne 0 ]] && grep -q '作業ツリーを読めなかった' <<<"$OUT" \
+  && ok "#3 読めない作業ツリーは、きれいと読まずに断る" \
+  || { no "#3 読めないツリーがきれいとして扱われた（exit ${RC}）"; detail "$(head -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# #1 -- the vacuous green. A profile whose only gating check is `{files}`-scoped is SKIPPED when the tree
-# is clean, and the hook then exits 0 saying "nothing blocking". `verify --json` reports ok:true for
-# that, so the driver cannot tell it from a real pass. This shape was never exercised: the hermetic
-# profile above is scope:all.
+# #1 -- 空の緑。gating チェックが `{files}` スコープだけの profile は、ツリーがきれいだと飛ばされ、hook は
+# "nothing blocking" で exit 0 する。`verify --json` はそれを ok:true と報告するので、駆動系は本物の合格と区別できない。
 setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
@@ -1109,67 +992,63 @@ cat > "$PROFILES/probe.json" <<'JSON'
 JSON
 runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
-respond implement 1 0.20 5      # changes nothing at all, so the tree stays clean
+respond implement 1 0.20 5      # 何も変えないので、ツリーはきれいなまま
 runloop run
-# The gate cannot be asked whether anything ran -- verified by hand: on a clean tree with a
-# `{files}`-only profile, `verify --json` returns ok:true, check:null and detail "all gating checks
-# green", identical to a real pass. So the driver's defence is that a round which changed nothing has
-# not earned the green, and that is what is asserted here.
+# 何かが走ったかをゲートには聞けない（手で確認済み: きれいなツリーと `{files}` だけの profile では、`verify --json` は
+# 本物の合格と同じ ok:true、check:null、"all gating checks green" を返す）。駆動系の防御は、何も変えなかった周は
+# 緑に値しないということで、それを検査する。
 [[ $RC -ne 0 ]] && grep -q 'round_changed_nothing' <<<"$OUT" \
-  && ok "#1 a round that changed nothing does not count as verified" \
-  || { no "#1 a run where no check executed was treated as verified (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "#1 何も変えなかった周は、検証済みに数えない" \
+  || { no "#1 チェックが 1 つも実行されなかった run が検証済みとして扱われた（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'halt_reason')" == "round_changed_nothing" ]] \
-  && ok "#1 and the ledger names it, so the report does not show a phantom pass" \
-  || no "#1 ledger halt_reason was '$(ledger_field 'halt_reason')'"
+  && ok "#1 台帳もそれを名指すので、report に幻の合格が出ない" \
+  || no "#1 台帳の halt_reason が '$(ledger_field 'halt_reason')'"
 grep -q 'stack submit' "$FAKE_GH_LOG" \
-  && no "#1 a PR was submitted although no gating check ever ran" \
-  || ok "#1 no PR is submitted when no check ran"
+  && no "#1 gating チェックが一度も走っていないのに PR が提出された" \
+  || ok "#1 チェックが走らなければ PR は提出しない"
 
-# #2 -- post_round only looked at exit 143, so an API error, a rate limit or a rejected flag left the
-# round's failure invisible and the loop carried on.
+# #2 -- post_round は exit 143 しか見ていなかったので、API エラー、rate limit、拒否されたフラグで周が失敗しても
+# 見えず、ループが続いた。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; fails_with implement 1 1
 runloop run
 [[ "$(ledger_field 'halt_reason')" == "round_failed" ]] \
-  && ok "#2 a round that exits non-zero halts instead of being ignored" \
-  || no "#2 a failed round recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "#2 0 以外で終わった周は、無視されずに止まる" \
+  || no "#2 失敗した周が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
-# #4 -- tier S skipped every landing-plan validation, but still parsed a plan path if one was passed.
+# #4 -- tier S は landing plan の検証をすべて飛ばすのに、plan のパスを渡されるとパースはしていた。
 setup; measurement 6 1 0 0 0; runloop size "r"     # tier S
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | snuck in | ? | no |\n' \
   > "$REPO_DIR/plan.md"
 printf 'plan.md\n' > "$REPO_DIR/.gitignore"
 git -C "$REPO_DIR" add .gitignore; commit_in_repo ignore
 runloop run plan.md
-[[ $RC -ne 0 ]] && grep -qi 'not committed' <<<"$OUT" \
-  && ok "#4 an uncommitted plan is refused even at tier S" \
-  || { no "#4 tier S ran an uncommitted landing plan (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+[[ $RC -ne 0 ]] && grep -q 'commit されていない。' <<<"$OUT" \
+  && ok "#4 tier S でも、commit されていない plan は断る" \
+  || { no "#4 tier S が commit されていない landing plan で走った（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# #6 -- STACK_BASE_BRANCH was only set on the `gh stack init` path, so on the resume path (a stack
-# already exists, which is the expected state after any halt) the layer names compounded and the
-# open-PR cap counted against the wrong branch.
+# #6 -- STACK_BASE_BRANCH は `gh stack init` の経路でしか設定されず、再開の経路（stack がすでにある。どの停止の後も
+# 想定される状態）では層の名前が積み重なり、開いた PR の上限が違うブランチを数えた。
 setup; measurement 11 1 0 0 0; runloop size "r"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | one | probe-gate | no |\n| 2 | two | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
-: > "$FAKE_GH_DIR/stack"        # a stack already exists -> the short-circuit path
+: > "$FAKE_GH_DIR/stack"        # stack がすでにある -> 近道の経路
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 respond implement 2 0.20 5; side_effect implement 2 'printf b > b.txt'
 respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0; respond pr 2 0.10 3
 runloop run plan.md
-# The negative assertion needs a companion: "no compounded name appeared" is also true when no layer
-# was ever added, which would make this pass while testing nothing.
+# 否定の検査には相棒が要る。「積み重なった名前が出なかった」は層が一度も足されなくても真なので。
 [[ "$(grep -c 'stack add' "$FAKE_GH_LOG")" -ge 1 ]] \
-  && ok "#6 a layer was added on the resume path, so the naming assertion below means something" \
-  || { no "#6 no layer was added at all -- the compounding assertion would be vacuous"; detail "$(tr '\n' ';' < "$FAKE_GH_LOG")"; }
+  && ok "#6 再開の経路で層が足されたので、下の名前の検査に意味がある" \
+  || { no "#6 層が 1 つも足されていない。積み重なりの検査が空になる"; detail "$(tr '\n' ';' < "$FAKE_GH_LOG")"; }
 grep -qE 'stack add .*-2-3' "$FAKE_GH_LOG" \
-  && no "#6 layer names compounded (<branch>-2-3) on the resume path" \
-  || ok "#6 layer names do not compound when the stack already exists"
+  && no "#6 再開の経路で層の名前が積み重なった（<branch>-2-3）" \
+  || ok "#6 stack がすでにあっても層の名前は積み重ならない"
 
-# #7 -- `--budget-usd` with its value omitted spun forever, because `shift 2` with one argument left
-# shifts nothing and does not abort under `set -uo pipefail`. A hang is the one outcome this repository
-# has a whole suite about.
+# #7 -- 値を省いた `--budget-usd` は永久に回った。引数が 1 つしか残っていない `shift 2` は何も shift せず、
+# `set -uo pipefail` でも止まらないため。
 setup
 ( cd "$REPO_DIR" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGENTS_GATE_DIR="$GATE" \
   DOTAGENTS_PROFILES="$PROFILES" DOTAGENTS_REPO="$REPO" NO_COLOR=1 \
@@ -1183,12 +1062,11 @@ done
 if kill -0 "$hang_pid" 2>/dev/null; then kill -KILL "$hang_pid" 2>/dev/null; hang=1; fi
 wait "$hang_pid" 2>/dev/null
 [[ $hang -eq 0 ]] \
-  && ok "#7 an option with a missing value terminates instead of spinning" \
-  || no "#7 'run --budget-usd' with no value did not terminate"
+  && ok "#7 値の無いオプションは回り続けずに終わる" \
+  || no "#7 値の無い 'run --budget-usd' が終わらなかった"
 
-# #10 -- `record` hand-built its JSON, so a check id containing a quote made the whole ledger line
-# unparseable. The line that vanishes is the one carrying halt_reason, so the report would say
-# "halted nothing" about a landing that halted.
+# #10 -- `record` は JSON を手で組んでいたので、引用符を含むチェック id で台帳の行全体がパースできなくなった。
+# 消えるのは halt_reason を持つ行なので、止まった landing について report が「止まったものなし」と言う。
 setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
@@ -1206,24 +1084,22 @@ if ledger | node -e '
       .on("line", (l) => { if (!l.trim()) return; n++; try { JSON.parse(l) } catch { bad++ } })
       .on("close", () => process.exit(bad || n === 0 ? 1 : 0));
   '; then
-  ok "#10 a check id containing a quote still produces parseable ledger lines"
+  ok "#10 引用符を含むチェック id でも、台帳の行はパースできる"
 else
-  no "#10 a quote in a check id broke the ledger line that carries halt_reason"
+  no "#10 チェック id の引用符で、halt_reason を持つ台帳の行が壊れた"
 fi
 
-# The schema is passed INLINE, not as a file path. Measured against claude 2.1.148: `--json-schema`
-# takes the schema as a string, and handing it a path does not error -- it hangs forever. Every phase
-# that asks for structured output (size, triage) would have hung on first real use.
+# スキーマはファイルパスではなく inline で渡す。claude 2.1.148 で実測: `--json-schema` はスキーマを文字列で取り、
+# パスを渡すとエラーにならず永久に固まる。構造化出力を求める phase（size、triage）は、最初の実使用で固まっていた。
 setup; measurement 6 1 0 0 0; runloop size "r"
 grep -qE -- '--json-schema[[:space:]]+\{' "$FAKE_CLAUDE_LOG" \
-  && ok "the schema is passed inline as JSON, not as a file path" \
-  || { no "--json-schema was not followed by inline JSON -- a path argument hangs the CLI"; detail "$(head -1 "$FAKE_CLAUDE_LOG" | head -c 160)"; }
+  && ok "スキーマはファイルパスではなく inline の JSON で渡す" \
+  || { no "--json-schema の後が inline の JSON ではない。パスの引数だと CLI が固まる"; detail "$(head -1 "$FAKE_CLAUDE_LOG" | head -c 160)"; }
 grep -qE -- '--json-schema[[:space:]]+/' "$FAKE_CLAUDE_LOG" \
-  && no "--json-schema was handed a path, which hangs instead of failing" \
-  || ok "no path is ever passed to --json-schema"
+  && no "--json-schema にパスが渡された。失敗せずに固まる" \
+  || ok "--json-schema にパスを渡すことは無い"
 
-# A round that never returns. Neither the round cap, the budget, nor the gate can stop a hang, and this
-# repository keeps a whole suite about not hanging -- so the driver owns a deadline.
+# 返らない周。周の上限も予算もゲートも固まりは止められないので、駆動系が期限を持つ。
 setup; measurement 6 1 0 0 0; runloop size "r"
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.10 3; hangs_for implement 1 30
@@ -1233,20 +1109,19 @@ OUT="$(cd "$REPO_DIR" && PATH="$BIN:$PATH" DOTAGENTS_LOOP_DIR="$LOOPDIR" DOTAGEN
   NO_COLOR=1 bash "$LOOP" run 2>&1)"; RC=$?
 elapsed=$(( $(date +%s) - started ))
 [[ $RC -ne 0 && $elapsed -lt 25 ]] \
-  && ok "a round that never returns is killed by the driver's deadline (${elapsed}s)" \
-  || { no "a hanging round was not bounded (exit $RC after ${elapsed}s)"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "返らない周は、駆動系の期限で kill される（${elapsed}s）" \
+  || { no "固まった周に限りが無かった（${elapsed}s 後に exit ${RC}）"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'halt_reason')" == "round_timeout" ]] \
-  && ok "and the ledger says it timed out, not that it failed or did nothing" \
-  || no "the hanging round recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "台帳は、失敗した・何もしなかったではなく、タイムアウトしたと言う" \
+  || no "固まった周が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
-# ================================================================ checks only a human could run
-# `agent_may_run: false` means the repository forbids the AGENT from running it -- dresscode-backend's
-# typecheck needs 8 GB of heap and its own skill says never run it. Interactively /da-verify asks the
-# user and waits. Unattended there is nobody to ask, and more rounds cannot satisfy it either, so the
-# driver has to tell `needs_human` apart from `red`.
+# ================================================================ 人にしか走らせられないチェック
+# `agent_may_run: false` は、このリポジトリがエージェントに実行を禁じているという意味（例: 8 GB のヒープが要る
+# typecheck）。対話なら /da-verify がユーザーに聞いて待つが、無人では聞く相手がおらず、周を足しても満たせない。
+# だから駆動系は `needs_human` を `red` と区別しなければならない。
 
 setup; measurement 6 1 0 0 0
-# One check the agent may run (green), one it may not.
+# エージェントが走らせてよいチェック（緑）が 1 つ、走らせてはいけないものが 1 つ。
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
   "checks": [
@@ -1262,25 +1137,25 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run
 [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
-  && ok "a check only a human could run does not stop the loop -- it is deferred, not waited on" \
-  || { no "the loop halted on a needs_human check (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "人にしか走らせられないチェックでループは止まらない。待たずに先送りする" \
+  || { no "needs_human のチェックでループが止まった（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'halt_reason')" != "round_cap" ]] \
-  && ok "and it did not burn the round cap on something no round can fix" \
-  || no "it spent every round on a check the agent is not allowed to run"
+  && ok "どの周にも直せないものに、周の上限を使い切らなかった" \
+  || no "エージェントが走らせてはいけないチェックに、すべての周を使った"
 
-# The deferral has to be loud in three places, or the loop quietly ships work whose local verification
-# was incomplete. A released gate is not a green gate; neither is a deferred one.
+# 先送りは 3 箇所ではっきり言わなければならない。でないと、ローカルの検証が不完全な作業をループが黙って出す。
+# 解放されたゲートは緑ではなく、先送りしたゲートも緑ではない。
 grep -q 'probe-heavy' <<<"$OUT" \
-  && ok "the run says which check it did not verify" \
-  || { no "the deferred check is not named in the output"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "run は、どのチェックを検証しなかったかを言う" \
+  || { no "先送りしたチェックが出力で名指されていない"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
 ledger | grep -q 'probe-heavy' \
-  && ok "the ledger records it, so report can show it later" \
-  || no "the ledger does not record the deferred check"
+  && ok "台帳が記録するので、後で report に出せる" \
+  || no "台帳が先送りしたチェックを記録していない"
 grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" && grep -q 'probe-heavy' "$FAKE_CLAUDE_LOG" \
-  && ok "and /da-pr-describe is told, so the PR body can say it is CI's job" \
-  || no "the PR body would not mention that a check was never run locally"
+  && ok "/da-pr-describe にも伝わるので、PR 本文で CI の仕事だと言える" \
+  || no "ローカルで一度も走らなかったチェックに、PR 本文が触れない"
 
-# A check the agent MAY run and that fails is still red. Deferral must not swallow real failures.
+# エージェントが走らせてよいチェックが失敗すれば、それは赤のまま。先送りが本物の失敗を飲み込んではならない。
 setup; measurement 6 1 0 0 0
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
@@ -1297,14 +1172,14 @@ respond implement 1 0.10 3; side_effect_all implement 'date >> churn.txt'
 side_effect_all debug 'date >> churn.txt'; respond debug 1 0.10 3
 runloop run --max-rounds 2
 [[ $RC -ne 0 ]] \
-  && ok "a red check the agent CAN run still stops the loop -- deferral does not swallow it" \
-  || { no "deferral made a genuinely red check look green (exit $RC)"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "エージェントが走らせられる赤いチェックは、今もループを止める。先送りが飲み込まない" \
+  || { no "先送りのせいで、本当に赤いチェックが緑に見えた（exit ${RC}）"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 
-# ================================================================ the single entry point
-# `loop.sh "<request>"` is the only thing anyone should have to remember. Typing it repeatedly advances
-# one step: size if unsized, hand over if the design phase is yours, run when there is something to run.
+# ================================================================ 単一の入口
+# 覚えておくのは `loop.sh "<request>"` だけでよい。打つたびに 1 歩進む: 未測定なら size、設計フェーズが人の番なら
+# 引き渡し、走らせるものがあれば run。
 
-# Unsized + small -> it sizes and goes straight on to running.
+# 未測定 + 小さい -> size してそのまま run に進む。
 setup
 measurement 6 1 0 0 0
 : > "$FAKE_CLAUDE_DIR/no-worktree"
@@ -1312,36 +1187,31 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop "usage に design を1行足す"
 [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
-  && ok "one entry point: an unsized small change is sized and run in one command" \
-  || { no "the single entry point did not carry a tier-S change through (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "単一の入口: 未測定の小さな変更は、1 コマンドで size して run する" \
+  || { no "単一の入口が tier S の変更を最後まで運ばなかった（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 [[ "$(ledger_field 'phase')" != "size" ]] \
-  && ok "and it did not stop after sizing" || no "it sized and stopped"
+  && ok "size の後で止まらない" || no "size して止まった"
 
-# Unsized + large -> it sizes, then hands the design phase over. Not an error: it advanced as far as it
-# could, and the next step belongs to a human.
+# 未測定 + 大きい -> size し、設計フェーズを引き渡す。エラーではない。進めるところまで進み、次の手番は人のもの。
 setup; measurement 20 3 1 1 1
 runloop "大きいこと"
 [[ $RC -eq 0 ]] \
-  && ok "a large change exits 0 -- handing over is not a failure" \
-  || { no "handing the design phase over exited $RC"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "大きな変更は exit 0。引き渡しは失敗ではない" \
+  || { no "設計フェーズの引き渡しが exit ${RC} で終わった"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -qE 'あなたの手番|your turn' <<<"$OUT" \
-  && ok "and it says plainly that it is your turn" \
-  || { no "it did not say whose turn it is"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "あなたの手番だとはっきり言う" \
+  || { no "誰の手番かを言わなかった"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
 for want in grilling da-spec da-design-review; do
-  grep -q "$want" <<<"$OUT" && ok "  names /$want" || no "  omitted /$want"
+  grep -q "$want" <<<"$OUT" && ok "  /${want} を名指す" || no "  /${want} が抜けている"
 done
-# And it must NOT name the wrapper. `/grill-me` was a seven-line skill whose entire body was
-# "Run a `/grilling` session." -- printing the wrapper sends you through a hop that adds nothing and
-# can dangle, which is exactly how it spent three months executing nothing. Asserted as an absence
-# because the positive assertion above cannot see it: "grill-me" does not contain "grilling", so both
-# names could be printed and every green tick would still be green.
+# ラッパーを名指してはならない。`/grill-me` は本文が "Run a `/grilling` session." だけのスキルで、名指すと何も
+# 足さず宙に浮きうる経由を通らせる。"grill-me" は "grilling" を含まないので、上の肯定の検査では見えない。無いことを検査する。
 grep -q 'grill-me' <<<"$OUT" \
-  && no "  still names the removed /grill-me wrapper" \
-  || ok "  names no wrapper -- /grilling is the skill"
-grep -q 'stack submit' "$FAKE_GH_LOG" && no "it opened a PR without a design phase" || ok "and opens nothing"
+  && no "  削除した /grill-me ラッパーをまだ名指している" \
+  || ok "  ラッパーを名指さない。スキルは /grilling"
+grep -q 'stack submit' "$FAKE_GH_LOG" && no "設計フェーズなしで PR を開いた" || ok "何も開かない"
 
-# Same command again, now that a landing plan is committed -> it finds the plan itself and runs.
-# Nobody should have to remember the path.
+# landing plan を commit した後で同じコマンドをもう一度 -> plan を自分で見つけて run する。パスを覚える必要は無い。
 mkdir -p "$REPO_DIR/docs/plans"
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/docs/plans/thing.md"
@@ -1350,12 +1220,11 @@ respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop "大きいこと"
 [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" \
-  && ok "the same command finds the committed landing plan and runs it" \
-  || { no "it did not pick up the committed plan (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "同じコマンドが commit 済みの landing plan を見つけて run する" \
+  || { no "commit 済みの plan を拾わなかった（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 
-# Two candidate plans -> it refuses rather than guessing which one you meant.
-# Same request both times, or the second call re-measures (a changed request must re-size) and consumes
-# an investigate response the fixture did not script.
+# 候補の plan が 2 つ -> どちらのつもりかを推測せずに断る。
+# 依頼文は両方で同じにする。変わると 2 回目の呼び出しが測り直し、fixture が用意していない investigate の応答を消費する。
 setup; measurement 20 3 0 0 0; runloop size "大きいこと"
 mkdir -p "$REPO_DIR/docs/plans"
 for n in one two; do
@@ -1365,67 +1234,63 @@ done
 git -C "$REPO_DIR" add docs/plans; commit_in_repo plans
 runloop "大きいこと"
 [[ $RC -ne 0 ]] && grep -q 'docs/plans/one.md' <<<"$OUT" && grep -q 'docs/plans/two.md' <<<"$OUT" \
-  && ok "two candidate plans are listed rather than one being guessed at" \
-  || { no "it did not refuse on an ambiguous plan (exit $RC)"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "候補の plan が 2 つなら、1 つを推測せず両方を挙げる" \
+  || { no "曖昧な plan で断らなかった（exit ${RC}）"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 
-# ================================================================ the all-skills flow
+# ================================================================ 全スキルの流れ
 
-# `loop.sh design` must never prompt: test-non-interactive.sh asserts there is no interactive path, and
-# the design phase is attended, so the temptation to ask is exactly here.
+# `loop.sh design` は決して入力を求めてはならない（test-non-interactive.sh が対話の経路が無いことを検査する）。
+# 設計フェーズは有人なので、聞きたくなるのはまさにここ。
 setup; measurement 6 1 0 0 0; runloop size "r"
 runloop design
-[[ $RC -eq 0 ]] && ok "design exits 0" || { no "design exited $RC"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
-# "design does not prompt" is NOT asserted here. test-non-interactive.sh already sweeps every
-# scripts/*.sh for terminal reads and runs `loop.sh design` with stdin closed, so a second copy of that
-# rule here would be two implementations of one check -- and the first version of it literally contained
-# the forbidden pattern as a string, which made that suite report this file as an offender.
+[[ $RC -eq 0 ]] && ok "design は exit 0" || { no "design が exit ${RC} で終わった"; detail "$(tail -2 <<<"$OUT" | tr '\n' ' ')"; }
+# 「design は入力を求めない」はここでは検査しない。test-non-interactive.sh がすでに scripts/*.sh の端末読みを掃き、
+# stdin を閉じて `loop.sh design` を走らせている。ここに写すと 1 つの検査に 2 つの実装ができる。
 
-# Tier decides the sequence, and the tiers differ in DEPTH of human involvement, not in whether one is
-# present. S has no design phase at all.
+# tier が手順を決める。tier の違いは人が関わる深さで、関わるかどうかではない。S には設計フェーズがまったく無い。
 setup; measurement 6 1 0 0 0; runloop size "r"      # S
 runloop design
 grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
-  && ok "design at tier S says there is no design phase" \
-  || { no "tier S design did not say the phase is empty"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "tier S の design は、設計フェーズが無いと言う" \
+  || { no "tier S の design が、フェーズが空だと言わなかった"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"; }
 
 setup; measurement 20 3 1 1 1; runloop size "r"     # L
 runloop design
 for want in grilling da-spec da-design-review; do
   grep -q "$want" <<<"$OUT" \
-    && ok "design at tier L names /$want" \
-    || no "design at tier L omitted /$want"
+    && ok "tier L の design は /${want} を名指す" \
+    || no "tier L の design で /${want} が抜けている"
 done
 grep -q 'grill-me' <<<"$OUT" \
-  && no "design at tier L still names the removed /grill-me wrapper" \
-  || ok "design at tier L names no wrapper"
+  && no "tier L の design が、削除した /grill-me ラッパーをまだ名指している" \
+  || ok "tier L の design はラッパーを名指さない"
 
-# The three stages that leave nothing on disk must be reported as uncheckable rather than shown green.
+# ディスクに何も残さない 3 段階は、緑に見せず検査できないと報告しなければならない。
 grep -qiE 'cannot be checked|検査でき' <<<"$OUT" \
-  && ok "design states which stages it cannot verify" \
-  || { no "design did not say anything is unverifiable -- it would read as all-clear"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "design は、どの段階を検証できないかを述べる" \
+  || { no "design が検証できないものに何も触れなかった。問題なしと読まれる"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
 
-# The one artifact with a strong signal: writing-plans' file carries a mandatory header.
-setup; measurement 20 3 0 0 0; runloop size "r"     # L via layers/files
+# 強い信号を持つ唯一の成果物: writing-plans のファイルには必須の見出しがある。
+setup; measurement 20 3 0 0 0; runloop size "r"     # 層・ファイル数で L
 mkdir -p "$REPO_DIR/docs/superpowers/plans"
 printf '# Thing Implementation Plan\n\n**Goal:** x\n**Architecture:** y\n\n## Global Constraints\n\n- [ ] step one\n' \
   > "$REPO_DIR/docs/superpowers/plans/2026-08-11-thing.md"
 runloop design
 grep -q '2026-08-11-thing.md' <<<"$OUT" \
-  && ok "design finds the plan file writing-plans left behind" \
-  || { no "design did not report the plan file"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "design は writing-plans が残した plan ファイルを見つける" \
+  || { no "design が plan ファイルを報告しなかった"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
 
-# A file at that path WITHOUT the mandatory header is not a plan -- writing-plans requires the header,
-# so accepting any .md there would let an empty file satisfy the gate.
+# そのパスにあっても必須の見出しの無いファイルは plan ではない。どんな .md でも受け入れると、空のファイルでゲートを満たせてしまう。
 setup; measurement 20 3 0 0 0; runloop size "r"
 mkdir -p "$REPO_DIR/docs/superpowers/plans"
 printf 'just some notes\n' > "$REPO_DIR/docs/superpowers/plans/2026-08-11-notes.md"
 runloop design
 grep -qiE 'header|見出し|not a plan' <<<"$OUT" \
-  && ok "a file without the mandatory header is not accepted as a plan" \
-  || { no "design accepted a headerless file as a plan"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "必須の見出しの無いファイルは plan として受け入れない" \
+  || { no "design が見出しの無いファイルを plan として受け入れた"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
 
-# implement splits by tier. M/L have a committed plan, so /executing-plans is the right skill; S has no
-# plan at all, so it types /test-driven-development.
+# implement は tier で分かれる。M/L には commit 済みの plan があるので /executing-plans、S には plan が無いので
+# /test-driven-development を打つ。
 setup; measurement 11 1 0 0 0; runloop size "r"       # M
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
@@ -1434,17 +1299,16 @@ respond execplan 1 0.20 5; side_effect execplan 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run plan.md
 grep -q '/executing-plans' "$FAKE_CLAUDE_LOG" \
-  && ok "tier M implements through /executing-plans" \
-  || { no "tier M did not type /executing-plans"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
-# The executing-plans prompt MENTIONS /test-driven-development on purpose -- that mention is the only
-# thing guaranteeing TDD, since executing-plans delegates to whatever the plan's steps say. So the
-# assertion is that the TDD phase never RAN, not that the string is absent.
+  && ok "tier M は /executing-plans で実装する" \
+  || { no "tier M が /executing-plans を打たなかった"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+# executing-plans のプロンプトは意図して /test-driven-development に*言及*する。executing-plans は plan の手順に
+# 任せるので、その言及だけが TDD を保証する。だから検査するのは文字列が無いことではなく、TDD の phase が走らなかったこと。
 [[ ! -f "$FAKE_CLAUDE_DIR/implement.counter" ]] \
-  && ok "and the TDD phase never ran -- one implement skill per round" \
-  || no "tier M ran both /executing-plans and the /test-driven-development phase"
-grep -q 'executing-plans.*\n*.*test-driven-development\|Use /test-driven-development' "$FAKE_CLAUDE_LOG" \
-  && ok "the executing-plans prompt states TDD per step, which is the only guarantee of it" \
-  || no "the executing-plans prompt does not require TDD -- executing-plans alone does not imply it"
+  && ok "TDD の phase は走らなかった。1 周に implement のスキルは 1 つ" \
+  || no "tier M が /executing-plans と /test-driven-development の phase の両方を走らせた"
+grep -q 'executing-plans.*\n*.*test-driven-development\|各ステップで /test-driven-development を使う' "$FAKE_CLAUDE_LOG" \
+  && ok "executing-plans のプロンプトはステップごとの TDD を述べる。それが TDD の唯一の保証" \
+  || no "executing-plans のプロンプトが TDD を求めていない。executing-plans だけでは TDD にならない"
 
 setup; measurement 6 1 0 0 0; runloop size "r"       # S
 : > "$FAKE_CLAUDE_DIR/no-worktree"
@@ -1452,14 +1316,13 @@ respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run
 grep -q '/test-driven-development' "$FAKE_CLAUDE_LOG" \
-  && ok "tier S implements through /test-driven-development (there is no plan to execute)" \
-  || no "tier S did not type /test-driven-development"
+  && ok "tier S は /test-driven-development で実装する（実行する plan が無い）" \
+  || no "tier S が /test-driven-development を打たなかった"
 grep -q '/executing-plans' "$FAKE_CLAUDE_LOG" \
-  && no "tier S typed /executing-plans with no plan file" || ok "and not /executing-plans"
+  && no "tier S が plan ファイル無しで /executing-plans を打った" || ok "/executing-plans は打たない"
 
-# The second reviewer is metered on risk, and its FULL report reaches triage. Counts alone would buy
-# zero coverage, which is the entire reason for a differently-built second reviewer.
-setup; measurement 3 1 0 2 0; runloop size "r"       # risk_surfaces = 2 -> M (it forced L until the revision above)
+# 2 本目のレビュアはリスクで配分し、その報告の*全文*が triage に届く。件数だけでは、別の作りの 2 本目を置く理由である網羅が何も買えない。
+setup; measurement 3 1 0 2 0; runloop size "r"       # risk_surfaces = 2 -> M
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
 git -C "$REPO_DIR" add plan.md; commit_in_repo plan
@@ -1469,108 +1332,94 @@ respond findbugs 1 0.40 6
 respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run plan.md
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
-  && ok "a landing touching a risk surface gets the second reviewer" \
-  || { no "no second reviewer on a risk surface"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "リスク面に触れる landing には 2 本目のレビュアが付く" \
+  || { no "リスク面に 2 本目のレビュアが付かなかった"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -q 'da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second reviewer' "$FAKE_CLAUDE_LOG" \
-  && ok "and its report text is handed to /da-fix-plan, not just a count" \
-  || no "the second reviewer's findings never reached triage"
-# Bounding this became necessary the moment `risk_surfaces` stopped forcing L: the signal that buys the
-# second reviewer no longer also sends the change to an attended design phase, so /find-bugs now runs
-# UNATTENDED on landings that previously never reached the review phase without a human. A third
-# unbounded review skill in that path is how a tier that is supposed to cost less costs more.
+  && ok "その報告の本文が、件数だけでなく /da-fix-plan に渡る" \
+  || no "2 本目のレビュアの所見が triage に届かなかった"
+# `risk_surfaces` が L を強制しなくなったので、/find-bugs は以前は人なしでレビューに届かなかった landing で無人で
+# 走る。そこに上限の無い 3 本目のレビューを置くと、安いはずの tier が高くつく。
 [[ -n "$(round_budget '/find-bugs')" ]] \
-  && ok "the second reviewer carries a ceiling too (\$$(round_budget '/find-bugs'))" \
-  || no "/find-bugs was unbounded -- and lowering risk_surfaces to M is what put it on the unattended path"
+  && ok "2 本目のレビュアにも天井がある（\$$(round_budget '/find-bugs')）" \
+  || no "/find-bugs に上限が無い。risk_surfaces を M に下げたことで無人の経路に載っている"
 
-setup; measurement 6 1 0 0 0; runloop size "r"       # no risk surface
+setup; measurement 6 1 0 0 0; runloop size "r"       # リスク面なし
 : > "$FAKE_CLAUDE_DIR/no-worktree"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 0; respond pr 1 0.10 3
 runloop run
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
-  && no "the second reviewer ran with no risk surface -- review is where the cost is" \
-  || ok "no risk surface, no second reviewer"
-
-# --- "no checks yet" is not "CI failed" -------------------------------------------
-# `gh` documents exit 1 as "failed for any reason". `gh pr checks` adds 8 for pending, so the driver read
-# {0 -> green, 8 -> wait, everything else -> RED} and thereby called all of these a failing CI:
-#   * a check genuinely failed
-#   * **the checks do not exist yet**, which is the normal state for the seconds after a push
-#   * authentication failed (exit 4)
-#
-# Measured on the seventh run: the push created workflow run 32007290138, the driver looked before GitHub
-# had registered it, read "red", and spent $1.71 / 41 turns on /systematic-debugging for a failure that
-# did not exist. The round correctly changed nothing, and `ci_fix_changed_nothing` stopped the landing —
-# a guard catching the consequence of a misread, one phase downstream of the misread.
-#
-# The cure is to stop inferring from the exit code and read the states.
+  && no "リスク面が無いのに 2 本目のレビュアが走った。コストがかかるのはレビュー" \
+  || ok "リスク面が無ければ 2 本目のレビュアも無い"
+# --- 「まだチェックが無い」は「CI が失敗した」ではない ----------------------------
+# `gh` の exit 1 は「何らかの理由で失敗」。`gh pr checks` は pending に 8 を足すので、駆動系は
+# {0 -> 緑, 8 -> 待つ, それ以外 -> 赤} と読み、次のすべてを CI の失敗と呼んでいた:
+#   * チェックが本当に失敗した
+#   * **チェックがまだ存在しない**（push 直後の数秒は普通この状態）
+#   * 認証が失敗した（exit 4）
+# 7 回目の run では、GitHub が登録する前に見て「赤」と読み、存在しない失敗に /systematic-debugging を買った。
+# 直し方は、exit code からの推測をやめて状態を読むこと。
 setup; green_pr
-: > "$FAKE_GH_DIR/checks-states"                  # registered nothing yet
+: > "$FAKE_GH_DIR/checks-states"                  # まだ何も登録されていない
 runloop run
-# Asserted on the SENTENCE only the state-reading path can produce. "not ci_red" alone was too weak:
-# the old exit-code path also reached green here, so the test passed either way.
-grep -qi 'no checks' <<<"$OUT" \
-  && ok "an empty check list is reported as 'no checks at all', not as a red CI" \
-  || { no "no checks yet was not distinguished (halt=$(ledger_field halt_reason))"
+# 状態を読む経路だけが出せる*文*で検査する。「ci_red でない」だけでは弱く、古い exit code の経路でもここは緑に届いた。
+grep -q 'チェックを 1 つも報告しない' <<<"$OUT" \
+  && ok "空のチェック一覧は、赤い CI ではなく「チェックが 1 つも無い」と報告される" \
+  || { no "「まだチェックが無い」が区別されなかった（halt=$(ledger_field halt_reason)）"
        detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 grep -q '報告されるチェックが1つもありません' "$FAKE_CLAUDE_LOG" \
-  && ok "and the PR body is told, because 'nothing ran' is not a pass" \
-  || no "the PR body was not told that no checks exist"
+  && ok "PR 本文にも伝わる。「何も走らなかった」は合格ではない" \
+  || no "チェックが無いことが PR 本文に伝わっていない"
 grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
-  && no "a debugging round was spent on a CI failure that does not exist" \
-  || ok "and no debugging round is bought for it"
+  && no "存在しない CI の失敗に debug の周を使った" \
+  || ok "そのために debug の周を買わない"
 
-# A genuine failure state still stops it.
+# 本物の失敗の状態では、今も止まる。
 setup; green_pr
 printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
 respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
 runloop run
 grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
-  && ok "a FAILURE state still buys a debugging round" \
-  || no "a real CI failure was ignored"
+  && ok "FAILURE の状態では今も debug の周を買う" \
+  || no "本物の CI の失敗が無視された"
 
-# --- XS drops the fix machinery, and must not drop the review with it -------------
-# XS exists because a five-file docs edit does not need triage, a fix round and a second five-minute
-# gate run. What it must NOT drop is the record: `REVIEW_REPORT` is a shell variable in a process that
-# exits, and the only thing that used to persist a review was /da-fix-plan writing docs/fix-plans/. With
-# triage gone the sole copy would be an argument to /da-pr-describe -- whose ceiling overrun does NOT
-# halt. PR opens, describe is cut off, review gone. The eighth unattended run died on exactly a ceiling
-# overrun, so that is measured rather than imagined.
-setup; measurement 3 1 0 0 0; runloop size "r"        # 3 files -> XS
+# --- XS は修正の仕組みを外すが、レビューまで外してはならない ---------------------------
+# XS があるのは、5 ファイルの docs 修正に triage・修正の周・5 分のゲート 2 回目が要らないから。外してはならないのは
+# 記録。`REVIEW_REPORT` は終わるプロセスのシェル変数で、レビューを残すのは docs/fix-plans/ を書く /da-fix-plan だけ
+# だった。triage が無いと唯一の写しは /da-pr-describe への引数になり、その天井超過は止まらない（PR は開き、describe が
+# 打ち切られ、レビューが消える）。8 回目の無人 run はまさに天井超過で死んだ。
+setup; measurement 3 1 0 0 0; runloop size "r"        # 3 ファイル -> XS
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond pr 1 0.10 3
 runloop run
 [[ "$(ledger_field tier 2>/dev/null)" == "" ]] || true
 grep -qE -- '/da-review-all$|/x-review-' "$FAKE_CLAUDE_LOG" \
-  && ok "XS still reviews -- nothing ships unreviewed" \
-  || no "XS skipped the review entirely"
+  && ok "XS もレビューする。レビューなしで出るものは無い" \
+  || no "XS がレビューを丸ごと飛ばした"
 grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" \
-  && no "XS ran triage, which is the thing it exists to drop" \
-  || ok "   ...and does not run /da-fix-plan"
+  && no "XS が triage を走らせた。外すために XS がある" \
+  || ok "   .../da-fix-plan は走らせない"
 grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
-  && no "XS ran a fix round" || ok "   ...nor a fix round"
+  && no "XS が修正の周を走らせた" || ok "   ...修正の周も走らせない"
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "   ...and reaches a PR without them"
+  ok "   ...それらなしで PR に届く"
 else
-  no "XS did not reach a PR (exit $RC, halt=$(ledger_field halt_reason))"
+  no "XS が PR に届かなかった（exit ${RC}、halt=$(ledger_field halt_reason)）"
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
-# The three things that make the trade survivable, each asserted separately because each can be dropped
-# on its own without the others noticing.
+# この取引を持ちこたえさせる 3 つ。どれも他に気づかれずに単独で落ちうるので、別々に検査する。
 ls "$LOOPDIR/reviews/" >/dev/null 2>&1 && [[ -n "$(ls -A "$LOOPDIR/reviews/" 2>/dev/null)" ]] \
-  && ok "   ...and the review is written to disk, so a cut-off describe cannot lose it" \
-  || no "the review was never persisted -- a truncated describe round would erase it"
+  && ok "   ...レビューはディスクに書かれるので、打ち切られた describe が失わせることはない" \
+  || no "レビューが一度も保存されていない。打ち切られた describe の周が消してしまう"
 grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
-  && ok "   ...and the PR body is told the findings are untriaged" \
-  || no "the PR body was not told that nothing triaged the findings"
+  && ok "   ...所見が triage されていないことが PR 本文に伝わる" \
+  || no "所見を何も triage していないことが PR 本文に伝わっていない"
 [[ "$(ledger | grep -c 'advanced-untriaged')" -ge 1 ]] \
-  && ok "   ...and the ledger says untriaged, not merely advanced" \
-  || no "the ledger cannot tell a clean review from an untriaged one"
-# Two rows for ONE review round. The round's money belongs to the row that consumed it, and the second
-# row must bill nothing -- `report`'s `cost by phase` sums `cost_usd`, so a repeated figure counts the
-# same spend twice. Measured on the first end-to-end run: `advanced` and `advanced-untriaged` both
-# carried $1.93 / 26 turns for a single round.
+  && ok "   ...台帳は advanced だけでなく untriaged と言う" \
+  || no "台帳できれいなレビューと triage していないレビューを区別できない"
+# 1 回のレビューの周に 2 行。周のお金はそれを使った行のもので、2 行目は何も請求してはならない（`report` の
+# `cost by phase` は `cost_usd` を合計するので、同じ数字が 2 回あると同じ支出を 2 回数える）。
 if [[ "$(ledger | node -e '
   let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     const rows=s.split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
@@ -1578,13 +1427,13 @@ if [[ "$(ledger | node -e '
     const unt=rows.find((r)=>r.outcome==="advanced-untriaged");
     process.stdout.write(!adv||!unt ? "missing"
       : (Number(adv.cost_usd) > 0 && Number(unt.cost_usd) === 0 && Number(unt.turns) === 0 ? "once" : "twice"))})')" == "once" ]]; then
-  ok "   ...and the round is billed once: the untriaged row carries no cost of its own"
+  ok "   ...周の請求は 1 回。untriaged の行は自分のコストを持たない"
 else
-  no "one review round is billed on two rows, so cost-by-phase counts it twice"
+  no "1 回のレビューの周が 2 行で請求され、cost by phase が 2 回数える"
 fi
 
-# S keeps everything XS drops. Same fixture, one more file.
-setup; measurement 6 1 0 0 0; runloop size "r"        # 6 files -> S
+# S は XS が外すものをすべて持つ。同じ fixture で 1 ファイル多いだけ。
+setup; measurement 6 1 0 0 0; runloop size "r"        # 6 ファイル -> S
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 1 0 0 0
@@ -1592,20 +1441,16 @@ respond fix 1 0.10 3; side_effect fix 1 'date >> f.txt'
 respond pr 1 0.10 3
 runloop run
 grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
-  && ok "S still triages and applies fixes -- one file more than XS, opposite behaviour" \
-  || no "S lost the fix machinery too (exit $RC, halt=$(ledger_field halt_reason))"
+  && ok "S は今も triage して修正を適用する。XS より 1 ファイル多いだけで振る舞いは逆" \
+  || no "S も修正の仕組みを失った（exit ${RC}、halt=$(ledger_field halt_reason)）"
 grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
-  && no "S claimed to be untriaged" || ok "   ...and does not claim to be untriaged"
+  && no "S が triage していないと言った" || ok "   ...triage していないとは言わない"
 
-# --- a paths profile must survive commit_landing ----------------------------------
-# THE RISK THIS LANDING IS MOST LIKELY TO SHIP. `commit_landing` runs mid-landing, before review, and
-# the gate's changed set is computed against a base. If that base is HEAD, the verify that follows the
-# FIX round sees only the fix's delta -- the implementation is already committed and therefore
-# invisible -- so every check whose paths matched the implementation becomes "not applicable", nothing
-# runs, and `gate-nothing-ran` blocks a landing that was fine.
-#
-# Invisible on a `scope: all` profile, which is every other fixture in this file. So the fixture has to
-# be a paths profile that goes all the way through the fix round, or nothing here tests the base at all.
+# --- paths の profile は commit_landing を越えて生き残らなければならない ------------------------
+# この landing が最も出しやすいリスク。`commit_landing` は landing の途中、レビューの前に走り、ゲートの変更集合は
+# 基点に対して計算される。基点が HEAD だと、修正の周の後の verify には修正の差分しか見えず（実装はもう commit 済み）、
+# 実装に paths が当たっていたチェックはすべて「該当なし」になり、何も走らず、`gate-nothing-ran` が問題の無い
+# landing を止める。`scope: all` の profile では見えないので、fixture は修正の周まで通る paths の profile にする。
 setup; measurement 6 1 0 0 0; runloop size "r"
 cat > "$PROFILES/probe.json" <<'JSON'
 { "match": { "remote": "dotagents-loop-probe" },
@@ -1613,9 +1458,8 @@ cat > "$PROFILES/probe.json" <<'JSON'
                 "agent_may_run": true, "paths": ["docs/**"], "timeout": 10 } ],
   "timeout_total": 60 }
 JSON
-# The implementation touches docs/ (so the check claims it). The FIX round touches something else, which
-# is what makes a HEAD-relative base wrong: after commit_landing, docs/ is committed and only the fix's
-# file is "changed".
+# 実装は docs/ に触れる（チェックが引き受ける）。修正の周は別のものに触れるので、HEAD 基準の基点だと間違う:
+# commit_landing の後、docs/ は commit 済みで、「変更」は修正のファイルだけになる。
 respond implement 1 0.20 5; side_effect implement 1 'mkdir -p docs && touch GREEN docs/x.md'
 respond review 1 0.30 7
 respond triage 1 0.05 2 1 0 0 0
@@ -1623,133 +1467,114 @@ respond fix 1 0.10 3; side_effect fix 1 'printf y > note.txt'
 respond pr 1 0.10 3
 runloop run
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "a paths profile survives the post-fix verify (the landing base is pinned, not HEAD)"
+  ok "paths の profile が修正後の verify を越えて生き残る（landing の基点は HEAD ではなく固定）"
 else
-  no "a paths landing died after commit_landing (exit $RC, halt=$(ledger_field halt_reason))"
+  no "paths の landing が commit_landing の後で死んだ（exit ${RC}、halt=$(ledger_field halt_reason)）"
   detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
 fi
-grep -q 'gate diffs against' <<<"$OUT" \
-  && ok "   ...and the run says which base it pinned" \
-  || no "   the run never reported pinning a diff base"
+grep -q 'に対して差分を取る' <<<"$OUT" \
+  && ok "   ...run はどの基点に固定したかを言う" \
+  || no "   run が差分の基点を固定したと報告していない"
 
-# --- a stale remote-tracking ref must not block the push --------------------------
-# GitHub deletes the head branch when a PR merges, so after the loop's first landing merges,
-# `refs/remotes/origin/<branch>` survives locally pointing at something gone. git then refuses:
+# --- 古い remote-tracking ref で push が止まってはならない --------------------------
+# GitHub は PR が merge されると head ブランチを消すので、最初の landing の merge 後、`refs/remotes/origin/<branch>`
+# は消えたものを指したままローカルに残る。すると git は拒む:
 #
 #   ! [rejected] worktree-unattended-run -> worktree-unattended-run (stale info)
 #
-# Measured: the sixth run spent $7.84 over 2h13m, applied four review fixes, and died at `gh stack push`.
-# **Any repository with auto-delete-branch hits this on its second landing.**
+# **auto-delete-branch を使うリポジトリは、2 つ目の landing で必ずこれに当たる。**
 setup; green_pr
-# The shape exactly: the branch was pushed, the remote deleted it (auto-delete-branch on merge), and the
-# local remote-tracking ref survives pointing at a commit that ref no longer names. The lease check then
-# compares against something the remote cannot confirm.
+# 形はそのまま: ブランチは push され、remote が消し（merge 時の auto-delete-branch）、ローカルの remote-tracking ref は
+# 残る。lease の確認は remote が確かめられないものと比べることになる。
 git -C "$REPO_DIR" branch -f loop-wt HEAD
 git -C "$REPO_DIR" push -q origin loop-wt
-git -C "$REPO_DIR" -c core.hooksPath=/dev/null push -q origin --delete loop-wt   # remote deletes it...
-git -C "$REPO_DIR" update-ref refs/remotes/origin/loop-wt "$(git -C "$REPO_DIR" rev-parse HEAD)"  # ...ref stays
+git -C "$REPO_DIR" -c core.hooksPath=/dev/null push -q origin --delete loop-wt   # remote が消す...
+git -C "$REPO_DIR" update-ref refs/remotes/origin/loop-wt "$(git -C "$REPO_DIR" rev-parse HEAD)"  # ...ref は残る
 git -C "$REPO_DIR" branch -D loop-wt
 runloop run
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "a stale remote-tracking ref is pruned rather than halting the landing"
+  ok "古い remote-tracking ref は、landing を止めずに prune される"
 else
-  no "a stale ref stopped the landing (exit $RC, halt=$(ledger_field halt_reason))"
+  no "古い ref が landing を止めた（exit ${RC}、halt=$(ledger_field halt_reason)）"
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 
-# --- the ledger must not understate what happened outside it ----------------------
-# `gh stack submit` opens the PR, and only then do CI, the comments and the description run. The `pr`
-# row was written after ALL of them, so any halt downstream left the ledger with no `pr` row at all --
-# and `report` leads with `reached PR 0 (0%)` plus "acceptance is under 50%, the loop is handing review
-# work back to you". Measured: the seventh run halted at `ci_fix_changed_nothing` with a real PR open
-# on GitHub, and the ledger counted zero.
-#
-# Same disease as the `pr_failed` bug one function below: the ledger saying something untrue about the
-# outward world. Reaching a PR and finishing one are different facts and need different rows.
+# --- 台帳は、外で起きたことを少なく言ってはならない ----------------------
+# `gh stack submit` が PR を開き、その後に CI、コメント、説明が走る。`pr` の行はそれらすべての後に書かれていたので、
+# 下流で止まると台帳に `pr` の行がまったく無く、`report` は `reached PR 0 (0%)` で始まった。7 回目の run は
+# 本物の PR を開いたまま `ci_fix_changed_nothing` で止まり、台帳は 0 と数えた。
+# PR に届くことと PR を終えることは別の事実で、別の行が要る。
 setup; green_pr
 printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint fail\n' > "$FAKE_GH_DIR/checks.out"
-respond debug 1 0.10 3      # the CI fix round changes nothing -> halts, as it should
+respond debug 1 0.10 3      # CI 修正の周は何も変えない -> 想定どおり止まる
 runloop run
 [[ "$(ledger 2>/dev/null | grep -c '"outcome":"pr-reached"')" -ge 1 ]] \
-  && ok "a PR that was opened is recorded as opened, even when a later phase halts" \
-  || no "the landing opened a PR and the ledger has no row for it"
-# Read from --json, not from the prose. The prose form was a FALSE GREEN: it passed with the fix
-# removed, so it was asserting nothing. Verified by deleting the record line and re-running -- the row
-# assertion above went red and this one did not. `reached_pr` is a number in the JSON and cannot be
-# matched by accident.
+  && ok "開いた PR は、後の phase が止まっても開いたと記録される" \
+  || no "landing は PR を開いたのに、台帳にその行が無い"
+# 文ではなく --json から読む。文の形は偽の緑だった（修正を外しても通った）。`reached_pr` は JSON の数値なので偶然には当たらない。
 runloop report --json
 if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   try{process.exit(JSON.parse(s).reached_pr === 1 ? 0 : 1)}catch{process.exit(1)}})' <<<"$OUT"; then
-  ok "and report counts it as reached rather than leading with 0%"
+  ok "report はそれを届いたと数え、0% で始めない"
 else
-  no "report still says the PR was not reached"; detail "$(head -c 160 <<<"$OUT")"
+  no "report がまだ PR に届かなかったと言う"; detail "$(head -c 160 <<<"$OUT")"
 fi
 
-# The row is a FACT, not a round: no `claude` round produced it, so it must bill nothing. `record`
-# writes the round globals (`cost_usd` / `turns`), which still hold the PREVIOUS round's numbers, and
-# `report`'s `cost by phase` sums exactly that field. Measured on the first end-to-end run: the
-# `pr-reached` row carried the review round's $1.93 / 26 turns, and `report` said `pr $5.27` with
-# $1.93 of review money inside it. **The PR that fixed one ledger lie shipped another one.**
+# この行は周ではなく*事実*で、どの `claude` の周も生んでいないので何も請求してはならない。`record` は周の大域変数
+# （`cost_usd` / `turns`）を書き、そこには*前の*周の数字が残っていて、`report` の `cost by phase` はまさにそれを合計する。
 if [[ "$(ledger | node -e '
   let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     const rows=s.split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
     const r=rows.find((r)=>r.outcome==="pr-reached");
     process.stdout.write(r ? String(Number(r.cost_usd)) + "/" + String(Number(r.turns)) : "no-row")})')" == "0/0" ]]; then
-  ok "the pr-reached row bills nothing -- it is a fact, not a round"
+  ok "pr-reached の行は何も請求しない。周ではなく事実"
 else
-  no "the pr-reached row carries the previous round's cost, so cost-by-phase bills pr for review"
+  no "pr-reached の行が前の周のコストを持ち、cost by phase がレビューの分を pr に請求する"
   detail "$(ledger | grep -o '\"outcome\":\"pr-reached\".*' | head -c 120)"
 fi
 
-# It must not count a landing that never got a PR at all.
+# PR をまったく得なかった landing を数えてはならない。
 setup; green_pr
 : > "$FAKE_GH_DIR/submit-no-url"; : > "$FAKE_GH_DIR/no-pr"
 runloop run
 runloop report --json
 if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   try{process.exit(JSON.parse(s).reached_pr === 0 ? 0 : 1)}catch{process.exit(1)}})' <<<"$OUT"; then
-  ok "and a landing with no PR is still not counted"
+  ok "PR の無い landing は、やはり数えない"
 else
-  no "report counted a PR that never existed"; detail "$(head -c 160 <<<"$OUT")"
+  no "report が存在しない PR を数えた"; detail "$(head -c 160 <<<"$OUT")"
 fi
 
-# --- a PR that exists is not a PR that failed -------------------------------------
-# `gh stack submit` prints a URL when it creates the PR and prose when the PR is already current:
-# "PR #45 for <branch> is up to date". The driver scraped stdout for a URL and called the second shape
-# `pr_failed` -- **for a PR that was open the whole time**. Measured on the fifth run: PR #45 sat open
-# on the real repository while the landing halted, so CI, the comments and the description never ran
-# and the PR kept an auto-generated title with no body.
-#
-# Same disease this repo already names twice about the gate: coupling to another tool's PROSE.
+# --- 存在する PR は失敗した PR ではない -------------------------------------
+# `gh stack submit` は PR を作ると URL を、PR がすでに最新なら文を出す（"PR #45 for <branch> is up to date"）。駆動系は
+# stdout から URL を拾い、2 つ目の形を `pr_failed` と呼んだ。**ずっと開いていた PR について**。その結果、CI・コメント・
+# 説明が走らず、PR は自動生成のタイトルと空の本文のままだった。原因は他のツールの*文*に結合していたこと。
 setup; green_pr
 : > "$FAKE_GH_DIR/submit-no-url"
 runloop run
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "a submit that prints no URL is resolved through gh pr view, not called a failure"
+  ok "URL を出さない submit は、失敗と呼ばず gh pr view で解決する"
 else
-  no "submit without a URL was treated as a failure (exit $RC, halt=$(ledger_field halt_reason))"
+  no "URL の無い submit が失敗として扱われた（exit ${RC}、halt=$(ledger_field halt_reason)）"
 fi
 grep -q '^pr view' "$FAKE_GH_LOG" \
-  && ok "and the driver asks GitHub for the PR rather than scraping stdout" \
-  || no "the driver never asked gh pr view -- it is still parsing prose"
+  && ok "駆動系は stdout を拾わず、GitHub に PR を聞く" \
+  || no "駆動系が gh pr view に聞いていない。まだ文をパースしている"
 
-# When there genuinely is no PR, it still fails. The fallback must not invent success.
+# 本当に PR が無いときは、今も失敗する。代わりの経路が成功をでっち上げてはならない。
 setup; green_pr
 : > "$FAKE_GH_DIR/submit-no-url"; : > "$FAKE_GH_DIR/no-pr"
 runloop run
 [[ "$(ledger_field halt_reason)" == "pr_failed" ]] \
-  && ok "and a genuinely missing PR is still pr_failed" \
-  || no "no PR exists yet the driver carried on (halt=$(ledger_field halt_reason))"
+  && ok "本当に無い PR は、今も pr_failed" \
+  || no "PR が無いのに駆動系が続けた（halt=$(ledger_field halt_reason)）"
 
-# --- the last review's fixes get applied ------------------------------------------
-# Fourth instance of the shape. `REVIEW_ROUNDS_LEAN=1` capped COST, but the loop checked the cap BEFORE
-# applying the fixes, so at tier S a single Fix-now finding halted the landing with the fix never
-# attempted -- /receiving-code-review was unreachable there. Measured: the first landing to get past
-# triage stopped on `fix_now=1`, one mechanical edit short of a PR.
-#
-# What the cap should govern is how many times we REVIEW, not whether the last review's findings get
-# acted on. Applying is cheap and the gate re-verifies it; buying another review is the expensive thing.
-setup; measurement 6 1 0 0 0; runloop size "r"      # tier S -> exactly 1 review round
+# --- 最後のレビューの修正は適用される ------------------------------------------
+# `REVIEW_ROUNDS_LEAN=1` はコストの上限だったが、ループは修正を適用する*前*に上限を確かめていたので、tier S では
+# Fix now の所見が 1 件あるだけで修正を試さずに止まった（/receiving-code-review に届かなかった）。
+# 上限が決めるべきはレビューする回数で、最後のレビューの所見に手を付けるかどうかではない。適用は安く、ゲートが
+# 検証し直す。高いのはレビューを買い足すこと。
+setup; measurement 6 1 0 0 0; runloop size "r"      # tier S -> レビューはちょうど 1 周
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 1 0 0 0                      # fix_now 1
@@ -1757,40 +1582,35 @@ respond fix 1 0.10 3; side_effect fix 1 'date >> applied.txt'
 respond pr 1 0.10 3
 runloop run
 grep -q '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
-  && ok "tier S applies the single review round's fixes instead of halting on them" \
-  || { no "the fix round never ran -- a one-line finding still blocks the landing"
+  && ok "tier S は 1 周だけのレビューの修正を、止まらずに適用する" \
+  || { no "修正の周が走らなかった。1 行の所見がまだ landing を止めている"
        detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "and the landing reaches a PR"
+  ok "landing は PR に届く"
 else
-  no "the landing still did not reach a PR (exit $RC, halt=$(ledger_field halt_reason))"
+  no "landing がまだ PR に届かない（exit ${RC}、halt=$(ledger_field halt_reason)）"
 fi
-# The honesty half: those fixes were gate-verified but never re-reviewed, and the reader must be told.
+# 正直さの半分: その修正はゲートで検証したが再レビューしていない。読む人に伝えなければならない。
 grep -q '再レビューされていません' "$FAKE_CLAUDE_LOG" \
-  && ok "and the PR body is told the fixes were not re-reviewed" \
-  || no "fixes applied after the last review reach the PR with nothing said about it"
+  && ok "修正が再レビューされていないことが PR 本文に伝わる" \
+  || no "最後のレビューの後に適用した修正が、何の断りも無く PR に届く"
 
-# A decision still outranks everything -- it stops before any fix is attempted.
+# 判断は今もすべてに優先する。修正を試す前に止まる。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
-respond triage 1 0.05 2 1 1 0 0                      # fix_now 1 AND needs_decision 1
+respond triage 1 0.05 2 1 1 0 0                      # fix_now 1 かつ needs_decision 1
 runloop run
 [[ "$(ledger_field halt_reason)" == "needs_decision" ]] \
-  && ok "a decision still halts before any fix is applied" \
-  || no "needs_decision was overtaken by the fix path (halt=$(ledger_field halt_reason))"
+  && ok "判断が要れば、修正を適用する前に止まる" \
+  || no "needs_decision が修正の経路に追い越された（halt=$(ledger_field halt_reason)）"
 
-# --- "could not verify" is not "needs a decision" ---------------------------------
-# The third instance of one shape. `needs_decision > 0` halted the run unconditionally -- and
-# finding-discipline REQUIRES the review to file anything it could not confirm as 👤, exempt from the
-# confidence threshold. So a review that did its job honestly almost always produces one, and the halt
-# was close to tautological. Measured: the first landing to reach triage stopped here with 0 defects,
-# 3 🧭 and 1 👤 -- nothing was wrong with the code at all.
-#
-# Same disease as `unconfirmed > 0` forcing tier L, same cure: the field mixed two things.
-#   "a human must decide this"  -> still halts. The loop must not guess a judgement call.
-#   "I could not verify this"   -> does NOT halt. It rides into the PR body as a caveat, exactly the way
-#                                  GATE_DEFERRED already does for checks the agent may not run.
+# --- 「確かめられなかった」は「判断が要る」ではない ---------------------------------
+# `needs_decision > 0` は無条件に run を止めていたが、finding-discipline はレビューに、確認できなかったものを確信度の
+# 閾値の外で 👤 として出すよう*求める*。正直に仕事をしたレビューはほぼ必ず 1 件出すので、この停止はほぼ同語反復だった
+# （欠陥 0、🧭 3、👤 1 で止まった実例がある）。`unconfirmed > 0` が tier L を強制したのと同じ病で、項目が 2 つのものを混ぜていた。
+#   「人がこれを決めなければならない」 -> 今も止まる。ループが判断を推測してはならない。
+#   「これを確かめられなかった」       -> 止まらない。GATE_DEFERRED と同じく、断り書きとして PR 本文に載る。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
@@ -1798,32 +1618,29 @@ respond triage 1 0.05 2 0 0 0 3      # fix_now 0, needs_decision 0, decline 0, u
 respond pr 1 0.10 3
 runloop run
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
-  ok "3 unverified findings do not stop the landing -- they are a caveat, not a decision"
+  ok "確かめられなかった所見 3 件で landing は止まらない。判断ではなく断り書き"
 else
-  no "unverified findings halted the run (exit $RC, halt=$(ledger_field halt_reason))"
+  no "確かめられなかった所見で run が止まった（exit ${RC}、halt=$(ledger_field halt_reason)）"
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
-# ...and they must reach the reader. A caveat nobody is told is the same as no caveat.
-# Asserted on the PROMPT THE DRIVER ACTUALLY SENT, not on the source: grepping loop.sh near
-# /da-pr-describe for "未検証" passes on the GATE_DEFERRED text that was already there, which is a
-# different caveat about a different thing. The count has to appear in the describe call itself.
-# Searched across the WHOLE log, not on the line that carries `/da-pr-describe`. The stub logs `$*`, so
-# a multi-line prompt lands as many lines and only its first one holds the command -- the same trap this
-# file's header warns about, walked into twice more today.
+# 読む人に届かなければならない。誰にも伝わらない断り書きは、断り書きが無いのと同じ。
+# ソースではなく*駆動系が実際に送ったプロンプト*で検査する（loop.sh の /da-pr-describe 付近で「未検証」を grep すると、
+# 別のことについての GATE_DEFERRED の文で通ってしまう）。スタブは `$*` を記録し、複数行のプロンプトは多くの行になって
+# 1 行目にしかコマンドが無いので、`/da-pr-describe` の行ではなくログ全体を探す。
 grep -q '確認できなかった (unverified) 所見が 3 件' "$FAKE_CLAUDE_LOG" \
-  && ok "and the describe round is handed the unverified count" \
-  || { no "the unverified findings never reached the PR body -- silently dropped"
-       detail "$(grep -c 'unverified' "$FAKE_CLAUDE_LOG") line(s) mention unverified at all"; }
+  && ok "describe の周に、確かめられなかった件数が渡る" \
+  || { no "確かめられなかった所見が PR 本文に届かなかった。黙って捨てられた"
+       detail "unverified に触れる行は全部で $(grep -c 'unverified' "$FAKE_CLAUDE_LOG") 行"; }
 
-# A real decision still stops everything, budget remaining or not.
+# 本物の判断は、予算が残っていてもいなくても、今もすべてを止める。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 2 0 0      # needs_decision 2
 runloop run
 [[ "$(ledger_field halt_reason)" == "needs_decision" ]] \
-  && ok "a genuine decision still halts the landing" \
-  || no "needs_decision no longer halts (halt=$(ledger_field halt_reason)) -- the split went too far"
+  && ok "本物の判断は今も landing を止める" \
+  || no "needs_decision でもう止まらない（halt=$(ledger_field halt_reason)）。切り分けが行き過ぎた"
 
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
@@ -1832,54 +1649,51 @@ respond triage 1 0.05 2 0 0 0 4
 respond pr 1 0.10 3
 runloop run
 [[ "$(ledger 2>/dev/null | grep -c '"unverified":4')" -ge 1 ]] \
-  && ok "the ledger records the unverified count, so report can show it" \
-  || no "unverified was not recorded in the ledger"
+  && ok "台帳は確かめられなかった件数を記録するので、report に出せる" \
+  || no "unverified が台帳に記録されていない"
 
-# ---------------------------------------------------------------- after the PR is open
-# The loop used to end at `gh stack submit`. Everything below is the half that was missing: the CI the
-# PR triggers, the comments a human leaves on it, and the description -- which now comes LAST, so the
-# body describes what actually happened rather than what was true one minute after opening.
+# ---------------------------------------------------------------- PR が開いた後
+# PR が起こす CI、人が残すコメント、そして説明。説明は*最後*に来るので、本文は開いた 1 分後に真だったことではなく、実際に起きたことを書く。
 
 setup; green_pr; runloop run
 grep -q 'pr checks' "$FAKE_GH_LOG" \
-  && ok "the driver checks CI after opening the PR" \
-  || no "CI is never looked at -- the loop still ends at submit"
+  && ok "駆動系は PR を開いた後に CI を確かめる" \
+  || no "CI を一度も見ない。ループはまだ submit で終わっている"
 
-# Order is the point of this landing: the description is written after CI and comments have settled.
+# 順序がこの landing の要: 説明は CI とコメントが落ち着いた後に書く。
 setup; green_pr; runloop run
 if [[ -n "$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)" ]]; then
   ci_line=$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)
   desc_line=$(grep -n 'da-pr-describe' "$FAKE_CLAUDE_LOG" | head -1 | cut -d: -f1)
-  # Different logs, so compare by wall order: the gh log gets the checks call before the claude log
-  # gets the describe call only if describe moved last. Assert on the driver's own ordering instead.
+  # ログが別なので時刻順では比べられない。代わりに駆動系自身の順序で検査する。
   grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" \
-    && ok "the description round still runs" || no "the description round vanished"
+    && ok "説明の周は今も走る" || no "説明の周が消えた"
 fi
 awk '/pr checks/{ci=1} /da-pr-describe/{if(!ci) bad=1} END{exit bad?1:0}' \
   <(cat "$FAKE_GH_LOG" "$FAKE_CLAUDE_LOG") >/dev/null 2>&1 || true
 
-# A red CI is fixed and re-checked, not reported and abandoned.
+# 赤い CI は報告して放置せず、直して確かめ直す。
 setup; green_pr
 printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
 printf '1' > "$FAKE_GH_DIR/checks.1"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.1.out"
 respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
 runloop run
 grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
-  && ok "a red CI gets a debugging round, not a shrug" \
-  || { no "a red CI produced no fix attempt"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "赤い CI には、肩をすくめずに debug の周を充てる" \
+  || { no "赤い CI で修正の試みが無かった"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 
-# ...but not forever. CI that stays red is a human's problem, and the ledger has to name it.
+# ...ただし永遠にではない。赤いままの CI は人の問題で、台帳がそれを名指さなければならない。
 setup; green_pr
 printf 'FAILURE\n' > "$FAKE_GH_DIR/checks-states"
 printf '1' > "$FAKE_GH_DIR/checks"; printf 'lint  fail\n' > "$FAKE_GH_DIR/checks.out"
 respond debug 1 0.10 3; side_effect_all debug 'date >> ci-fix.txt'
 runloop run
 [[ "$(ledger_field halt_reason)" == "ci_red" ]] \
-  && ok "CI that stays red halts as ci_red rather than looping" \
-  || no "a permanently red CI did not halt as ci_red (halt=$(ledger_field halt_reason))"
+  && ok "赤いままの CI は、回り続けず ci_red で止まる" \
+  || no "ずっと赤い CI が ci_red で止まらなかった（halt=$(ledger_field halt_reason)）"
 
-# Human comments: addressed, then replied to. NEVER resolved -- resolving is a claim about someone
-# else's satisfaction, and it is the one thing this phase is not allowed to do.
+# 人のコメント: 対応し、返信する。resolve は決してしない。resolve は他人が満足したという主張で、この phase が
+# してはならない唯一のこと。
 setup; green_pr
 printf '[{"id":11,"path":"a.txt","line":1,"body":"this looks wrong","user":{"login":"human"}}]' \
   > "$FAKE_GH_DIR/pr-comments"
@@ -1888,36 +1702,36 @@ node -e 'process.stdout.write(JSON.stringify({total_cost_usd:0.05,num_turns:2,re
   structured_output:{replies:[{comment_id:11,body:"直しました"}]}}))' > "$FAKE_CLAUDE_DIR/reply.1.json"
 runloop run
 grep -q '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
-  && ok "a PR comment is taken to /receiving-code-review, not implemented on sight" \
-  || { no "PR comments were never addressed"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
+  && ok "PR のコメントは、見てすぐ実装せず /receiving-code-review に持っていく" \
+  || { no "PR のコメントに一度も対応していない"; detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"; }
 grep -qE 'api .*(comments/11/replies|replies)' "$FAKE_GH_LOG" \
-  && ok "and a reply is posted to the thread" \
-  || { no "no reply was posted"; detail "$(grep api "$FAKE_GH_LOG" | head -3 | tr '\n' ' ')"; }
+  && ok "スレッドに返信を投稿する" \
+  || { no "返信が投稿されていない"; detail "$(grep api "$FAKE_GH_LOG" | head -3 | tr '\n' ' ')"; }
 if grep -qiE 'resolveReviewThread|graphql' "$FAKE_GH_LOG"; then
-  no "the driver resolved a review thread -- that is the human's call, and option A says reply only"
+  no "駆動系がレビューのスレッドを resolve した。それは人の判断で、方針 A は返信だけ"
 else
-  ok "and nothing is resolved -- replying is the driver's limit"
+  ok "何も resolve しない。駆動系にできるのは返信まで"
 fi
 
-# The cheap path stays cheap: a green CI with no comments buys no extra rounds.
+# 安い経路は安いまま: 緑の CI でコメントが無ければ、追加の周は買わない。
 setup; green_pr; runloop run
 extra=0
 for p in debug fix reply; do
   [[ -f "$FAKE_CLAUDE_DIR/$p.counter" ]] && extra=$(( extra + $(cat "$FAKE_CLAUDE_DIR/$p.counter") - 1 ))
 done
 [[ "$extra" -eq 0 ]] \
-  && ok "green CI and no comments cost no extra rounds" \
-  || no "a clean PR still spent $extra extra round(s) after opening"
+  && ok "緑の CI でコメントが無ければ、追加の周のコストは 0" \
+  || no "きれいな PR なのに、開いた後に追加の周を ${extra} 回使った"
 
-# ---------------------------------------------------------------- interruption
+# ---------------------------------------------------------------- 中断
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0 0; fails_with implement 1 143
 runloop run
 [[ "$(ledger_field 'halt_reason')" == "interrupted" ]] \
-  && ok "exit 143 is recorded as interrupted, not as a failure" \
-  || no "exit 143 recorded halt_reason '$(ledger_field 'halt_reason')'"
+  && ok "exit 143 は失敗ではなく interrupted として記録される" \
+  || no "exit 143 が halt_reason '$(ledger_field 'halt_reason')' を記録した"
 
-# ---------------------------------------------------------------- the ledger itself
+# ---------------------------------------------------------------- 台帳そのもの
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 2; respond pr 1 0.10 3
@@ -1931,34 +1745,29 @@ if ledger | node -e '
         } catch { bad++ } })
       .on("close", () => process.exit(bad || n === 0 ? 1 : 0));
   '; then
-  ok "every ledger line is valid JSON carrying ts, repo, branch and phase"
+  ok "台帳のどの行も、ts・repo・branch・phase を持つ正しい JSON"
 else
-  no "the ledger contains malformed or fieldless lines"; detail "$(ledger | tail -2 | tr '\n' ' ')"
+  no "台帳に壊れた行か項目の無い行がある"; detail "$(ledger | tail -2 | tr '\n' ' ')"
 fi
 
-# The whole point of the phase field: cost has to be attributable, because the review side can be
-# the overwhelming majority of it.
+# phase の項目の目的: コストの出どころが分からなければならない。レビュー側が大半を占めうるので。
 if runloop report; [[ $RC -eq 0 ]] && grep -qi 'cost by phase' <<<"$OUT"; then
-  ok "report splits cost by phase"
+  ok "report はコストを phase ごとに分ける"
 else
-  no "report did not split cost by phase (exit $RC)"; detail "$(head -8 <<<"$OUT" | tr '\n' ' ')"
+  no "report がコストを phase ごとに分けなかった（exit ${RC}）"; detail "$(head -8 <<<"$OUT" | tr '\n' ' ')"
 fi
 if grep -qi 'cost per accepted' <<<"$OUT"; then
-  ok "report states cost per accepted landing"
+  ok "report は採用された landing 1 件あたりのコストを述べる"
 else
-  no "report omitted cost per accepted landing"
+  no "report が採用された landing 1 件あたりのコストを省いた"
 fi
 
-# ---------------------------------------------------------------- the cost ceiling
-# Review is where the money goes, and until this section existed nothing bounded a single round. Two
-# measured landings both recorded `num_turns: 50` for /da-review-all while every other phase in the same
-# ledger sat between 5 and 20 -- $5.64 and $6.19, against $1.30 and $1.50 for the implementations they
-# were reviewing. Whether 50 is a ceiling in the CLI or a coincidence is UNCONFIRMED; what is confirmed is
-# that the driver could not have told the difference, because it reads only total_cost_usd and num_turns.
-#
-# This build of `claude` has no --max-turns. It has --max-budget-usd, which is the better lever anyway:
-# it bounds the thing being complained about, and the harness enforces it rather than the prompt.
-setup; measurement 6 1 0 0 0; runloop size "r"        # 1 file, 0 layers -> tier S
+# ---------------------------------------------------------------- コストの天井
+# お金がかかるのはレビューで、1 周を縛るものは何も無かった。実測した 2 つの landing では、同じ台帳の他の phase が
+# 5〜20 ターンなのに /da-review-all だけが `num_turns: 50` を記録した（$5.64 と $6.19。実装は $1.30 と $1.50）。
+# この `claude` には --max-turns が無い。--max-budget-usd はあり、そちらのほうがよい: 問題そのものを縛り、プロンプト
+# ではなくハーネスが強制する。
+setup; measurement 6 1 0 0 0; runloop size "r"        # 6 ファイル、1 層 -> tier S
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
@@ -1966,12 +1775,12 @@ respond pr 1 0.10 3
 runloop run
 s_budget="$(round_budget '/da-review-all')"
 [[ -n "$s_budget" ]] \
-  && ok "a review round carries a --max-budget-usd ceiling (tier S: \$$s_budget)" \
-  || { no "the review round had no cost ceiling -- one round is unbounded"
+  && ok "レビューの周は --max-budget-usd の天井を持つ（tier S: \$${s_budget}）" \
+  || { no "レビューの周に天井が無い。1 周に限りが無い"
        detail "$(grep -o '^[^ ]* [^ ]* [^ ]*' "$FAKE_CLAUDE_LOG" | head -3 | tr '\n' ' ')"; }
 
-# Tier M, not L: L hands the turn back for the design phase and never reaches review in one `run`, so a
-# tier L fixture measures nothing here. M is the lowest tier above S that runs start to finish.
+# L ではなく tier M: L は設計フェーズのために手番を返し、1 回の `run` ではレビューに届かないので、ここでは何も測れない。
+# M は S より上で最後まで走る最も低い tier。
 setup; measurement 11 1 0 0 0; runloop size "r"        # M
 printf '### 🧱 Landing plan\n| # | What lands | What gates it | One-way? |\n|---|---|---|---|\n| 1 | a | probe-gate | no |\n' \
   > "$REPO_DIR/plan.md"
@@ -1983,9 +1792,9 @@ respond pr 1 0.10 3
 runloop run plan.md
 m_budget="$(round_budget '/da-review-all')"
 if [[ -n "$s_budget" && -n "$m_budget" ]] && node -e 'process.exit(Number(process.argv[1]) < Number(process.argv[2]) ? 0 : 1)' "$s_budget" "$m_budget"; then
-  ok "the review ceiling is tier-scaled (S \$$s_budget < M \$$m_budget)"
+  ok "レビューの天井は tier で変わる（S \$${s_budget} < M \$${m_budget}）"
 else
-  no "the review ceiling does not scale with tier (S '$s_budget' vs M '$m_budget')"
+  no "レビューの天井が tier で変わらない（S '${s_budget}'、M '${m_budget}'）"
 fi
 
 setup; measurement 6 1 0 0 0; runloop size "r"
@@ -1996,14 +1805,12 @@ respond pr 1 0.10 3
 runloop run
 t_budget="$(round_budget '/da-fix-plan')"
 [[ -n "$t_budget" ]] \
-  && ok "the triage round carries a ceiling too (tier S: \$$t_budget)" \
-  || no "triage was unbounded -- it measured \$2.08 and \$1.90 for counting buckets on an 11-line diff"
+  && ok "triage の周にも天井がある（tier S: \$${t_budget}）" \
+  || no "triage に上限が無い。11 行の差分でバケットを数えるのに \$2.08 と \$1.90 かかった"
 
-# --- one layer at tier S skips the dispatcher entirely ---------------------------
-# /da-review-all costs a cold read of its own 12 KB body plus a classification pass, to then print
-# "no cross-layer impact" and hand the report straight through. When `size` already recorded exactly one
-# layer and it is one of the three the toolkit has a skill for, the dispatcher is buying nothing: type
-# the layer skill. This is the LAST structural cost left in the bottom tier after the brief.
+# --- tier S で層が 1 つなら dispatcher を丸ごと飛ばす ---------------------------
+# /da-review-all は自分の 12 KB の本文を読み、分類をしてから "no cross-layer impact" と出して報告をそのまま渡す。
+# `size` が層をちょうど 1 つ記録していて、それがツールキットにスキルのある 3 つのどれかなら、dispatcher は何も買わない。層のスキルを打つ。
 setup; measurement 6 1 0 0 0 "backend"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
@@ -2011,42 +1818,36 @@ respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run
 if grep -q -- '/x-review-backend$' "$FAKE_CLAUDE_LOG" && ! grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG"; then
-  ok "tier S with one known layer types /x-review-backend, not the dispatcher"
+  ok "既知の層が 1 つの tier S は、dispatcher ではなく /x-review-backend を打つ"
 else
-  no "the dispatcher still ran for a single-layer tier S change"
+  no "層が 1 つの tier S の変更で、まだ dispatcher が走った"
   detail "$(grep -oE '/(da-review-all|x-review-[a-z]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
 fi
 
-# The fallback is the part that must not be clever. A layer name the toolkit has no skill for, or more
-# than one layer, or none at all, all go back to the dispatcher -- guessing which skill to type would
-# review a layer with the wrong checklist and report it as covered.
+# 代わりの経路は賢くしてはならない。スキルの無い層の名前、2 つ以上の層、層なしは、すべて dispatcher に戻る。
+# どのスキルを打つか推測すると、違うチェックリストで層をレビューして、網羅したと報告することになる。
 setup; measurement 6 1 0 0 0 "mobile"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
 grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
-  && ok "an unrecognised layer name falls back to the dispatcher" \
-  || { no "an unknown layer did not fall back -- something guessed a skill name"
+  && ok "知らない層の名前は dispatcher に戻る" \
+  || { no "未知の層で dispatcher に戻らなかった。何かがスキル名を推測した"
        detail "$(grep -oE '/(da-review-all|x-review-[a-z-]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"; }
 
-setup; measurement 6 0 0 0 0; runloop size "r"    # docs-only: zero layers
+setup; measurement 6 0 0 0 0; runloop size "r"    # docs だけ: 層は 0
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
 grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
-  && ok "a change with no layer at all still gets the dispatcher" \
-  || no "a zero-layer change reached no reviewer at all"
+  && ok "層がまったく無い変更も dispatcher に回る" \
+  || no "層が 0 の変更がどのレビュアにも届かなかった"
 
-# --- the prompt must survive the flags --------------------------------------------
-# `--allowedTools` is VARIADIC (`<tools...>`). A prompt placed directly after it is consumed as one more
-# tool name, and `claude` exits 1 with "Input must be provided either through stdin or as a prompt
-# argument" -- before spending a token, so the ledger shows $0 and 0 turns and the phase looks like it
-# declined rather than like it never ran.
-#
-# It only bit the rounds with NO --max-budget-usd, because that flag happened to terminate the list:
-# size/review/triage/pr worked, isolate/verify/implement/debug/fix did not. The suite could not see it,
-# because the stub is a bash script that takes argv as given -- variadic parsing exists only in the real
-# CLI. So what is asserted is the ORDERING PROPERTY that makes the parse safe.
+# --- プロンプトはフラグを越えて生き残らなければならない --------------------------------------------
+# `--allowedTools` は可変長（`<tools...>`）。直後に置いたプロンプトはツール名の 1 つとして食われ、`claude` はトークンを
+# 使う前に exit 1 する（"Input must be provided either through stdin or as a prompt argument"）。台帳は $0・0 ターンで、
+# phase は走らなかったのではなく断ったように見える。スタブは argv をそのまま取る bash なので可変長のパースは本物の CLI
+# にしか無く、スイートでは見えない。そこで、パースを安全にする*並び順の性質*を検査する。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
@@ -2059,79 +1860,73 @@ bad_calls=$(node -e '
     const a = c.split("\n").filter(x => x.length);
     const i = a.indexOf("--allowedTools");
     if (i === -1) continue;
-    // The prompt is the final argument. Safe only when something else stands between it and the
-    // variadic list: the value, then at least one more flag.
-    if (i + 2 >= a.length) { bad++; continue; }          // value is the prompt, or nothing follows
-    if (!a[i + 2].startsWith("--")) bad++;               // the prompt sits directly after the value
+    // プロンプトは最後の引数。可変長の一覧との間に、値とさらに 1 つ以上のフラグが挟まっているときだけ安全。
+    if (i + 2 >= a.length) { bad++; continue; }          // 値がプロンプトか、後に何も無い
+    if (!a[i + 2].startsWith("--")) bad++;               // プロンプトが値の直後にある
   }
   process.stdout.write(String(bad));
 ' "$FAKE_CLAUDE_ARGV")
 [[ "$bad_calls" == "0" ]] \
-  && ok "no round leaves its prompt directly after the variadic --allowedTools" \
-  || no "$bad_calls round(s) would have their prompt eaten as a tool name -- claude exits 1 before spending anything"
+  && ok "可変長の --allowedTools の直後にプロンプトを置く周は無い" \
+  || no "${bad_calls} 回の周でプロンプトがツール名として食われる。claude は何も使う前に exit 1 する"
 
-# --- every round may READ the repository, and may not write to it -----------------
-# Measured, not assumed: `claude --print --permission-mode acceptEdits` cannot run git in this
-# environment -- `git status --short` came back "requires approval", and headless there is nobody to
-# approve. /da-review-all's Step 1 IS `git diff`, so the review phase never established its scope; the
-# 50 turns and $6.19 were retries against a permission wall, not depth.
+# --- どの周もリポジトリを*読める*が、書けない -----------------
+# 実測: `claude --print --permission-mode acceptEdits` はこの環境で git を走らせられない（`git status --short` が
+# "requires approval" を返し、headless では承認する人がいない）。/da-review-all の Step 1 は `git diff` なので、
+# レビューの phase は範囲を決められず、50 ターンと $6.19 は深さではなく権限の壁への再試行だった。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
 grep -q -- '--allowedTools' "$FAKE_CLAUDE_LOG" \
-  && ok "rounds are granted tools explicitly, so git is not denied headless" \
-  || no "no --allowedTools was passed -- the review still cannot read the diff"
+  && ok "周にはツールを明示的に許可するので、headless で git を拒まれない" \
+  || no "--allowedTools が渡されていない。レビューはまだ差分を読めない"
 grep -q 'git diff' "$FAKE_CLAUDE_LOG" \
-  && ok "and the grant includes git diff, which is what Step 1 needs" \
-  || no "the grant does not include git diff"
-# A command-rewriting PreToolUse hook runs BEFORE the permission match, so on a machine whose hook turns
-# `git status` into `rtk git status` the bare pattern matches nothing -- and an unmatched pattern is
-# indistinguishable from no grant at all. Measured: Bash(git status:*) denied, Bash(rtk git status:*) ran.
-# Both forms ship, because the toolkit also has to work where no such hook exists.
+  && ok "許可には Step 1 が要る git diff が入っている" \
+  || no "許可に git diff が入っていない"
+# コマンドを書き換える PreToolUse hook は権限の照合より*前*に走るので、`git status` を `rtk git status` に変える
+# 機械では素のパターンは何にも当たらず、許可が無いのと区別できない。そうした hook の無い環境でも動くよう、両方の形を出す。
 grep -q 'rtk git diff' "$FAKE_CLAUDE_LOG" \
-  && ok "and the rewritten form too, so a command-rewriting hook does not silently void the grant" \
-  || no "only the bare form is granted -- on a machine with a rewriting hook that is a no-op"
-# The grant is read-only BY ENUMERATION. `Bash(git:*)` would hand an unattended round `git push`,
-# `git reset --hard` and `git branch -D` in order to let it run `git diff`.
+  && ok "書き換え後の形も許可するので、コマンドを書き換える hook が許可を黙って無効にしない" \
+  || no "素の形しか許可していない。書き換える hook のある機械では何の効果も無い"
+# 許可は*列挙で*読み取り専用にする。`Bash(git:*)` だと、`git diff` を走らせるために無人の周へ `git push`、
+# `git reset --hard`、`git branch -D` まで渡すことになる。
 if grep -qE 'Bash\(git:\*\)|git push|git reset|git branch -D|git clean' "$FAKE_CLAUDE_LOG"; then
-  no "the tool grant reaches beyond read-only git"
+  no "ツールの許可が読み取り専用の git を越えている"
   detail "$(grep -oE 'Bash\([^)]*\)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
 else
-  ok "the grant names read-only git subcommands only -- no push, reset, branch -D or clean"
+  ok "許可は読み取り専用の git サブコマンドだけを名指す。push、reset、branch -D、clean は無い"
 fi
 
-# --- the rounds that never reach post_round ---------------------------------------
-# Truncation detection lives in post_round, and four claude_round calls do not go through it: size,
-# worktree, pr and verify. Two of those four verify their own effect afterwards -- the worktree phase
-# reads `git worktree list`, the verify phase reads the gate -- so a cut-off round there surfaces as the
-# observable failure it caused. The other two are blind, and each is blind in its own way.
+# --- post_round に届かない周 ---------------------------------------
+# 打ち切りの検出は post_round にあり、4 つの claude_round（size、worktree、pr、verify）はそこを通らない。worktree は
+# `git worktree list` を、verify はゲートを後で読むので、打ち切られればそれが起こした目に見える失敗として出る。
+# 残りの 2 つはそれぞれ別の形で見えない。
 setup
 measurement 6 1 0 0 0
 runloop size "r"
 [[ -n "$(round_budget '/da-investigate')" ]] \
-  && ok "the size round carries a ceiling (\$$(round_budget '/da-investigate'))" \
-  || no "size was unbounded -- measured at \$1.53-\$1.98 a go, three times in one session"
+  && ok "size の周は天井を持つ（\$$(round_budget '/da-investigate')）" \
+  || no "size に上限が無い。1 回 \$1.53〜\$1.98 と実測し、1 セッションで 3 回走った"
 
-# A cut-off size round returns no structured output, which is indistinguishable from the schema flag
-# being wrong -- and that is exactly what the driver used to report. A misdiagnosis sends you to check
-# the CLI when the answer is "raise the ceiling".
+# 打ち切られた size の周は構造化出力を返さず、スキーマのフラグが違うのと区別できない。駆動系はかつてそう報告し、
+# 答えが「天井を上げる」なのに CLI を確かめに行かせた。
 setup
 printf '{"total_cost_usd":0.30,"num_turns":9,"subtype":"error_max_budget_usd","result":"partial"}' \
   > "$FAKE_CLAUDE_DIR/investigate.1.json"
 runloop size "r"
 if [[ $RC -ne 0 ]] && grep -qiE 'truncat|打ち切|ceiling|天井' <<<"$OUT"; then
-  ok "a cut-off size round says it was cut off, not that the schema flag is wrong"
+  ok "打ち切られた size の周は、スキーマのフラグが違うではなく打ち切られたと言う"
 else
-  no "a truncated size round was misdiagnosed (exit $RC)"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"
+  no "打ち切られた size の周の診断を誤った（exit ${RC}）"; detail "$(head -4 <<<"$OUT" | tr '\n' ' ')"
 fi
 grep -qi 'json-schema' <<<"$OUT" \
-  && no "and it still blamed --json-schema, which is the wrong thing to go and check" \
-  || ok "and it does not send you to check the CLI flag"
+  && no "それでも --json-schema のせいにした。確かめに行く先が違う" \
+  || ok "CLI のフラグを確かめに行かせない"
 
-# The PR phase is the one place where halting cannot undo what happened: `gh stack submit` has already
-# opened the PR by the time the body is written. So a cut-off /da-pr-describe leaves a REAL PR carrying
-# a half-written description, recorded `opened-pr` -- the "looks done, isn't" shape. It must be said.
+# PR の phase は、止まっても起きたことを取り消せない唯一の場所: 本文を書く時点で `gh stack submit` はもう PR を
+# 開いている。打ち切られた /da-pr-describe は書きかけの説明の*本物の* PR を残し、`opened-pr` と記録される
+# （「終わって見えて、終わっていない」形）。言わなければならない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7
@@ -2139,28 +1934,25 @@ respond triage 1 0.05 2 0 0 3
 truncated pr 1 error_max_budget_usd
 runloop run
 if grep -qiE 'partial|部分|途中|truncat|打ち切' <<<"$OUT"; then
-  ok "a cut-off PR description is reported, not recorded as a finished one"
+  ok "打ち切られた PR の説明は報告され、書き終えたものとして記録されない"
 else
-  no "the PR body was truncated and nothing said so"; detail "$(tail -5 <<<"$OUT" | tr '\n' ' ')"
+  no "PR 本文が打ち切られたのに、何も言わなかった"; detail "$(tail -5 <<<"$OUT" | tr '\n' ' ')"
 fi
 [[ "$(ledger_field outcome)" != "opened-pr" ]] \
-  && ok "and the ledger distinguishes it from a clean opened-pr" \
-  || no "the ledger recorded a partial-bodied PR as a plain opened-pr"
-# ...and it still counts as having reached a PR. The landing's CODE went through the gate and the
-# review; what was cut off is prose. Scoring it as not-reached would report the loop as failing to land
-# work it did land, for a documentation defect that already has its own ledger row.
+  && ok "台帳は、きれいな opened-pr と区別する" \
+  || no "台帳が本文の部分的な PR を素の opened-pr として記録した"
+# ...それでも PR に届いたと数える。landing の*コード*はゲートとレビューを通り、打ち切られたのは文。届かなかったと
+# 数えると、実際に landing した作業をループが landing し損ねたと報告することになる。
 if runloop report; grep -qE 'reached PR +1' <<<"$OUT"; then
-  ok "and it still counts as having reached a PR (the code landed; the prose did not finish)"
+  ok "それでも PR に届いたと数える（コードは landing し、文が書き終わらなかった）"
 else
-  no "a partial-bodied PR was scored as not having reached a PR"
+  no "本文の部分的な PR が、PR に届かなかったと数えられた"
   detail "$(grep -i 'reached PR' <<<"$OUT" | head -1)"
 fi
 
-# --- the review round must not be able to eat the run ----------------------------
-# Read out of the source, because this is a relationship between chosen numbers rather than a behaviour:
-# review + triage + findbugs can all fire on ONE landing, and the two measured runs both died on
-# `budget` at triage with the PR one step away. If the review round's own ceilings sum above the run
-# budget, that outcome is not a surprise -- it is arithmetic.
+# --- レビューの周に run を食い尽くさせてはならない ----------------------------
+# 振る舞いではなく選んだ数字どうしの関係なのでソースから読む。1 つの landing で review・triage・findbugs が全部走りうる。
+# レビューの周の天井の合計が run の予算を超えていれば、triage で `budget` が尽きるのは驚きではなく算数。
 loop_const() { grep -E "^$1=" "$LOOP" | head -1 | sed -E "s/^$1=([0-9.]+).*/\1/"; }
 s_total="$(node -e 'process.stdout.write(String(
   Number(process.argv[1]) + Number(process.argv[2]) + Number(process.argv[3])))' \
@@ -2168,131 +1960,117 @@ s_total="$(node -e 'process.stdout.write(String(
 run_budget="$(loop_const BUDGET_USD)"
 if node -e 'process.exit(Number(process.argv[1]) > 0 && Number(process.argv[1]) < Number(process.argv[2]) / 2 ? 0 : 1)' \
      "$s_total" "$run_budget"; then
-  ok "a tier S review round is capped at \$$s_total, under half the \$$run_budget run budget"
+  ok "tier S のレビューの周の上限は \$${s_total} で、run の予算 \$${run_budget} の半分未満"
 else
-  no "the tier S review ceilings sum to \$$s_total against a \$$run_budget run budget -- one landing's review can starve the run"
+  no "tier S のレビューの天井の合計が \$${s_total} で、run の予算は \$${run_budget}。1 つの landing のレビューが run を干上がらせうる"
 fi
 
-# --- a ceiling overrun exits NON-ZERO, so `truncated` has to be checked first -----
-# Measured: `claude --max-budget-usd 0.02 ...` returns **exit 1** with subtype error_max_budget_usd and
-# is_error true. `post_round` checked the exit code before the truncation, so the budget case -- the exact
-# case `truncated` was built for -- reported `round_failed`: "the review round exited 1. Nothing is
-# claimed about what it did." True, and useless. The specific reason ("cut off at its ceiling; raise it or
-# make the round cheaper") existed and was unreachable.
-#
-# The eighth run died this way at $2.07 against a $2.00 ceiling.
+# --- 天井超過は 0 以外で終わるので、`truncated` を先に確かめなければならない -----
+# 実測: `claude --max-budget-usd 0.02 ...` は subtype error_max_budget_usd・is_error true で **exit 1** を返す。
+# `post_round` が打ち切りより先に exit code を見ていたので、予算のケース（`truncated` を作った目的そのもの）が
+# `round_failed` と報告され、具体的な理由（天井で打ち切られた。上げるか周を安くする）に届かなかった。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_budget_usd
-fails_with review 1 1                       # ...and the process exits 1, as the real CLI does
+fails_with review 1 1                       # ...本物の CLI と同じく、プロセスは exit 1
 runloop run
 [[ "$(ledger_field halt_reason)" == "truncated" ]] \
-  && ok "a ceiling overrun halts as truncated even though the process exited 1" \
-  || no "the exit code masked the truncation (halt=$(ledger_field halt_reason))"
+  && ok "天井超過は、プロセスが exit 1 でも truncated で止まる" \
+  || no "exit code が打ち切りを隠した（halt=$(ledger_field halt_reason)）"
 grep -qiE 'ceiling|天井' <<<"$OUT" \
-  && ok "and the message names the ceiling, which is the actionable part" \
-  || no "the halt message does not mention the ceiling"
+  && ok "メッセージは、手の打ちどころである天井を名指す" \
+  || no "halt のメッセージが天井に触れていない"
 
-# The two reasons that must still outrank it, because they are more specific about what happened.
-# --- an error is not a ceiling, and must not be reported as one ------------------
-# `is_error: true` with `subtype: "success"` is a real shape: the 10th run's implement round returned it
-# at $1.2784895 / 24 turns. Detection is deny-by-default and that is right -- but the halt NAMED it
-# "cut off at its ceiling (subtype: success)" and advised "raise that round's ceiling", and **implement
-# has no ceiling**: there is no BUDGET_ROUND_IMPLEMENT. A wrong reason pointing at a knob that does not
-# exist is worse than no reason, and the ledger recorded `truncated`, which is false.
+# それでも打ち切りより優先すべき 2 つの理由。起きたことについてより具体的なので。
+# --- エラーは天井ではなく、天井として報告してはならない ------------------
+# `subtype: "success"` で `is_error: true` は実在する形（10 回目の run の implement の周）。拒否を既定にした検出は正しいが、
+# halt はそれを「天井で打ち切られた」と呼び「その周の天井を上げる」よう勧めた。**implement には天井が無い**
+# （BUDGET_ROUND_IMPLEMENT は存在しない）。存在しないつまみを指す間違った理由は、理由が無いより悪い。
 setup; measurement 6 1 0 0 0; runloop size "r"
 errored implement 1
 runloop run
 [[ "$(ledger_field halt_reason)" == "round_errored" ]] \
-  && ok "an errored round is not recorded as truncated" \
-  || no "an error was filed as a ceiling overrun (halt=$(ledger_field halt_reason))"
+  && ok "エラーになった周は truncated として記録されない" \
+  || no "エラーが天井超過として記録された（halt=$(ledger_field halt_reason)）"
 grep -qiE 'ceiling|天井' <<<"$OUT" \
-  && no "the message still points at a ceiling that this phase does not have" \
-  || ok "and the message does not point at a ceiling"
+  && no "メッセージがまだ、この phase に無い天井を指している" \
+  || ok "メッセージは天井を指さない"
 
-# ---- the round's own output has to still exist for "read the round's output" to be an instruction ----
-# The 10th run's implement round errored and NOTHING said why: stdout went to a mktemp that was rm'd,
-# and stderr went to /dev/null. The halt message told a human to read output that had been deleted.
-# LOOP_DIR is outside the repository ($HOME/.claude/.dotagents-loop), so keeping it there cannot dirty
-# the tree -- a file written inside the checkout would look like a round that edited something.
+# ---- 「周の出力を読め」が指示として成り立つには、その出力が残っていなければならない ----
+# 10 回目の run の implement の周はエラーになり、理由を何も言わなかった（stdout は rm された mktemp へ、stderr は
+# /dev/null へ）。LOOP_DIR はリポジトリの外（$HOME/.claude/.dotagents-loop）なので、そこに残してもツリーは汚れない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 errored implement 1 "auth error: OAuth token has expired"
 runloop run
 saved="$(grep -rl 'is_error' "$LOOPDIR/rounds" 2>/dev/null | head -1)"
 [[ -n "$saved" ]] \
-  && ok "the round's raw JSON outlives the round" \
-  || no "nothing under \$LOOP_DIR/rounds holds the round's own output -- it is still being deleted"
+  && ok "周の生の JSON は周の後も残る" \
+  || no "\$LOOP_DIR/rounds の下に周の出力が無い。まだ消されている"
 grep -rq 'OAuth token has expired' "$LOOPDIR/rounds" 2>/dev/null \
-  && ok "and its stderr, which is where a round says why it failed" \
-  || no "stderr is still going to /dev/null -- the one place the reason was"
+  && ok "周が失敗の理由を言う場所である stderr も残る" \
+  || no "stderr がまだ /dev/null に行っている。理由があった唯一の場所"
 grep -q "$LOOPDIR/rounds" <<<"$OUT" \
-  && ok "and the halt message says where to look" \
-  || no "the message says to read the round's output without saying where it is"
+  && ok "halt のメッセージがどこを見ればよいかを言う" \
+  || no "メッセージが周の出力を読めと言いながら、どこにあるかを言わない"
 
-# The same shape in the size round, which DOES have a ceiling -- the advice is still wrong, because
-# raising a budget does not fix a round that errored.
-setup; errored investigate 1   # the size round measures with /da-investigate: that is the fixture name
+# size の周でも同じ形。size には天井があるが、エラーになった周は予算を上げても直らないので、助言はやはり間違い。
+setup; errored investigate 1   # size の周は /da-investigate で測るので、fixture の名前はこれ
 runloop size "r"
 grep -qiE 'BUDGET_ROUND_SIZE' <<<"$OUT" \
-  && no "an errored size round was told to raise its budget" \
-  || ok "an errored size round is not told to raise its budget"
+  && no "エラーになった size の周に、予算を上げろと言った" \
+  || ok "エラーになった size の周に、予算を上げろとは言わない"
 
-# Deny-by-default is preserved for ceilings this CLI does not have yet: `error_max_*` keeps the ceiling
-# reading, so a future ceiling subtype is still named as one rather than demoted to a generic error.
+# この CLI にまだ無い天井でも拒否を既定にしたまま: `error_max_*` は天井として読むので、将来の天井の subtype も
+# 一般のエラーに格下げされず、天井として名指される。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_tokens
 fails_with review 1 1
 runloop run
 [[ "$(ledger_field halt_reason)" == "truncated" ]] \
-  && ok "an error_max_* subtype this build has never seen still reads as a ceiling" \
-  || no "a future ceiling subtype was demoted (halt=$(ledger_field halt_reason))"
+  && ok "このビルドが知らない error_max_* の subtype も天井として読む" \
+  || no "将来の天井の subtype が格下げされた（halt=$(ledger_field halt_reason)）"
 
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; fails_with implement 1 143
 runloop run
 [[ "$(ledger_field halt_reason)" == "interrupted" ]] \
-  && ok "SIGTERM still outranks truncation" \
-  || no "interrupted was masked (halt=$(ledger_field halt_reason))"
+  && ok "SIGTERM は今も打ち切りより優先する" \
+  || no "interrupted が隠された（halt=$(ledger_field halt_reason)）"
 
-# --- a round that ended at a ceiling is not a round that finished ----------------
-# The failure this prevents: `claude -p` returns exit 0 with a partial `result` when it stops early, so a
-# truncated review was recorded `outcome: advanced` and its half-written report was handed to triage as
-# though it were a finished one. Nothing downstream could tell, and 🔎 in the report would not say so
-# either -- the model does not know it was cut off.
+# --- 天井で終わった周は、終えた周ではない ----------------
+# `claude -p` は早く止まると部分的な `result` で exit 0 を返すので、打ち切られたレビューが `outcome: advanced` と
+# 記録され、書きかけの報告が完成品として triage に渡っていた。モデルは自分が打ち切られたことを知らないので、報告の 🔎 も何も言わない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_max_budget_usd
 respond triage 1 0.05 2 0 0 3
 runloop run
 if [[ "$(ledger_field outcome)" != "advanced" ]] && grep -qiE 'truncat|cut off|ceiling|打ち切' <<<"$OUT"; then
-  ok "a review that stopped at its ceiling halts instead of recording 'advanced'"
+  ok "天井で止まったレビューは、'advanced' と記録せずに止まる"
 else
-  no "a truncated review was recorded as a finished one (outcome=$(ledger_field outcome))"
+  no "打ち切られたレビューが完了したものとして記録された（outcome=$(ledger_field outcome)）"
   detail "$(tail -4 <<<"$OUT" | tr '\n' ' ')"
 fi
 [[ "$(ledger_field halt_reason)" == "truncated" ]] \
-  && ok "the ledger names the halt 'truncated', so report can count it" \
-  || no "halt_reason was '$(ledger_field halt_reason)', not 'truncated'"
+  && ok "台帳は halt を 'truncated' と名指すので、report で数えられる" \
+  || no "halt_reason が '$(ledger_field halt_reason)' で、'truncated' ではない"
 
-# An unknown subtype must read as failure, not as success. New CLI versions add subtypes; a driver that
-# allowlists the ones it knows and treats the rest as fine will silently start accepting truncated rounds
-# the day one is added. Absence still means success -- every fixture here and some builds omit the field.
-#
-# Asserted on halt_reason, not on `outcome != advanced`. The first version of this check read the LAST
-# ledger line, which on a run that completes is the PR phase (`opened-pr`) -- so it passed while the
-# driver was doing exactly the wrong thing, and passed for the same reason in both truncation cases.
+# 未知の subtype は成功ではなく失敗と読まなければならない。CLI の新しい版は subtype を足すので、知っているものだけを
+# 許可リストにして残りを問題なしと扱う駆動系は、足された日から打ち切られた周を黙って受け入れる。項目が無いことは
+# 今も成功を意味する（ここの fixture はすべて、また一部のビルドも項目を省く）。
+# `outcome != advanced` ではなく halt_reason で検査する。台帳の*最後*の行は、完走した run では PR の phase
+# （`opened-pr`）になるので、そちらで見ると駆動系が間違っていても通る。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 truncated review 1 error_something_invented_later
 respond triage 1 0.05 2 0 0 3
 runloop run
-# The LABEL changed when ceilings and errors were split: an invented subtype is not a ceiling, so it
-# reads as `round_errored`. What must not change is that it FAILS CLOSED -- and the row read is still
-# the one this comment warns about. `error_max_*` keeping the ceiling reading is asserted separately.
+# 天井とエラーを分けたときにラベルが変わった: でっち上げの subtype は天井ではないので `round_errored` と読む。
+# 変えてはならないのは閉じた側に倒れること。`error_max_*` が天井として読まれることは別に検査している。
 [[ "$(ledger_field halt_reason)" == "round_errored" ]] \
-  && ok "an unrecognised subtype fails closed rather than passing as success" \
-  || no "an unknown subtype passed as a successful round (halt_reason=$(ledger_field halt_reason)) -- the allowlist is inverted"
+  && ok "認識できない subtype は、成功として通さず閉じた側に倒れる" \
+  || no "未知の subtype が成功した周として通った（halt_reason=$(ledger_field halt_reason)）。許可リストが逆になっている"
 
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
@@ -2302,20 +2080,17 @@ respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run
 if [[ "$RC" -eq 0 ]] && grep -q 'pull/7' <<<"$OUT" && [[ "$(ledger_field halt_reason)" != "truncated" ]]; then
-  ok "subtype:success is not mistaken for a truncation"
+  ok "subtype:success を打ち切りと取り違えない"
 else
-  no "an explicitly successful round was rejected (exit $RC, halt=$(ledger_field halt_reason))"
+  no "はっきり成功した周が拒まれた（exit ${RC}、halt=$(ledger_field halt_reason)）"
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 
-# ------------------------------------------------- report says how much of the total is counted twice
-# The rows written before `consume_round_numbers` kept a round's numbers on a second row, and the ledger
-# is append-only by design (the assertion below is what keeps it that way), so those figures cannot be
-# corrected -- only qualified. Detected by the symptom rather than by a date: the row does not carry the
-# version of `loop.sh` that wrote it. Measured on the real ledger when this went in: $8.30 across 6 rows,
-# three of them from before the change that added the newest one, which is why the caveat is phrased as
-# a property of the data and not of one commit.
-setup; measurement 1 0 0 0 0; runloop size "r"     # one genuine row, to borrow the repo key from
+# ------------------------------------------------- report は合計のうち二重に数えた額を言う
+# `consume_round_numbers` より前に書かれた行は、周の数字を 2 行目にも持っていた。台帳は設計上追記のみ（下の検査が
+# それを保つ）なので、その数字は直せず、断り書きを付けるしかない。行は書いた `loop.sh` の版を持たないので、日付では
+# なく症状で見つける。断り書きが 1 つの commit ではなくデータの性質として書いてあるのはそのため。
+setup; measurement 1 0 0 0 0; runloop size "r"     # repo のキーを借りるための本物の行を 1 つ
 KEY="$(ledger_field repo)"
 node -e '
   const fs = require("fs");
@@ -2325,9 +2100,9 @@ node -e '
     outcome, halt_reason: null, cost_usd: cost, turns,
   });
   fs.appendFileSync(file, [
-    row("review", "advanced", 1.93, 26),            // the round that actually cost the money
-    row("pr", "pr-reached", 1.93, 26),              // the same numbers again, on a row with no round
-    row("implement", "advanced", 0.5, 4),           // a different round: must NOT be counted as a repeat
+    row("review", "advanced", 1.93, 26),            // 実際にお金を使った周
+    row("pr", "pr-reached", 1.93, 26),              // 同じ数字をもう一度。周の無い行に
+    row("implement", "advanced", 0.5, 4),           // 別の周: 重複として数えてはならない
   ].join("\n") + "\n");
 ' "$LOOPDIR/ledger.jsonl" "$KEY"
 runloop report --json
@@ -2335,23 +2110,23 @@ if node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   try { const j = JSON.parse(s);
     process.exit(j.double_counted_rows === 1 && Math.abs(j.double_counted_usd - 1.93) < 0.001 ? 0 : 1)
   } catch { process.exit(1) }})' <<<"$OUT"; then
-  ok "report counts the repeated figures and leaves the distinct round alone"
+  ok "report は繰り返された数字を数え、別の周には手を付けない"
 else
-  no "report did not identify the double-counted row"; detail "$(head -c 200 <<<"$OUT")"
+  no "report が二重に数えた行を特定しなかった"; detail "$(head -c 200 <<<"$OUT")"
 fi
 runloop report
-grep -q "counted twice" <<<"$OUT" \
-  && ok "   ...and says so in the human output, next to the totals it qualifies" \
-  || no "the human report shows overstated totals with nothing saying they are overstated"
+grep -q "二重に数えられている" <<<"$OUT" \
+  && ok "   ...人向けの出力でも、断り書きの対象の合計のそばでそう言う" \
+  || no "人向けの report が、水増しされた合計を何の断りも無く出している"
 
-# And a ledger with no repeats must say nothing: a caveat that is always printed is furniture.
+# 重複の無い台帳では何も言ってはならない。いつも出る断り書きは飾りでしかない。
 setup; measurement 1 0 0 0 0; runloop size "r"
 runloop report
-grep -q "counted twice" <<<"$OUT" \
-  && no "report warns about double counting on a ledger that has none" \
-  || ok "and a ledger with no repeated figures gets no caveat"
+grep -q "二重に数えられている" <<<"$OUT" \
+  && no "重複の無い台帳で、report が二重計上を警告した" \
+  || ok "重複した数字の無い台帳には断り書きが付かない"
 
-# ---------------------------------------------------------------- the ledger is never trimmed
+# ---------------------------------------------------------------- 台帳は決して切り詰めない
 setup
 node -e '
   const fs = require("fs");
@@ -2362,11 +2137,11 @@ node -e '
 measurement 6 1 0 0 0; runloop size "r"
 lines="$(wc -l < "$LOOPDIR/ledger.jsonl" | tr -d ' ')"
 [[ "$lines" -gt 400 ]] \
-  && ok "the ledger is append-only and never trimmed ($lines lines)" \
-  || no "the ledger lost lines (400 planted, $lines left) -- trace.log self-trims, this must not"
+  && ok "台帳は追記のみで、決して切り詰めない（${lines} 行）" \
+  || no "台帳の行が減った（400 行置いて ${lines} 行残った）。trace.log は自分で切り詰めるが、台帳はしてはならない"
 
 echo
 if (( fail )); then
-  printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1
+  printf '%s成功 %d 件、失敗 %d 件%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1
 fi
-printf '%s✓ %d passed%s\n' "$c_green" "$pass" "$c_off"
+printf '%s✓ 成功 %d 件%s\n' "$c_green" "$pass" "$c_off"

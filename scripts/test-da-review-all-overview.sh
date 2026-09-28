@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Ensures da-review-all still produces the standalone one-page overview, in whichever container the
-# host supports. This replaces test-da-review-all-canvas.sh: the step used to be Cursor-only and
-# named Canvas, which made it a silent no-op in Claude Code — the run said "Canvas unavailable" and
-# shipped no page at all. The container is now chosen per host; the six sections are not.
+# da-review-all が、ホストが持つ入れ物で単独の 1 枚の概要ページを出し続けることを確かめる。
+# 入れ物はホストごとに選び、6 つの節は変えない。入れ物を 1 つに決め打つと、無いホストで黙って何も出なくなる。
 
 set -euo pipefail
 
@@ -13,26 +11,26 @@ REFERENCE="$REPO/skills/da-review-all/reference/overview-artifact.md"
 require() {
   local file="$1" pattern="$2" explanation="$3"
   if ! grep -qF "$pattern" "$file"; then
-    printf 'missing required da-review-all overview instruction: %s\n' "$explanation" >&2
+    printf 'da-review-all の概要ページの指示が欠けている: %s\n' "$explanation" >&2
     exit 1
   fi
 }
 
-# The step exists in the skill and points at the reference.
-require "$SKILL" "## Step 5. 1 枚の概要ページ" "dedicated overview output step"
-require "$SKILL" "overview-artifact.md" "required overview content reference"
-require "$SKILL" "Claude Code では Artifact、Cursor では Canvas" "host-dependent container"
+# スキルにその段階があり、参照ファイルを指している。
+require "$SKILL" "## Step 5. 1 枚の概要ページ" "概要を出す専用の段階"
+require "$SKILL" "overview-artifact.md" "概要の中身を定める参照ファイル"
+require "$SKILL" "Claude Code では Artifact、Cursor では Canvas" "ホストごとの入れ物"
 
-# Every container is named, so no host silently produces nothing.
-require "$REFERENCE" "Claude Code" "Claude Code container named"
-require "$REFERENCE" "Cursor" "Cursor container named"
-require "$REFERENCE" "どちらも無い場合" "fallback when neither exists"
+# どの入れ物も名前が出ていて、黙って何も出さないホストが無い。
+require "$REFERENCE" "Claude Code" "Claude Code の入れ物"
+require "$REFERENCE" "Cursor" "Cursor の入れ物"
+require "$REFERENCE" "どちらも無い場合" "どちらも無い時の代わり"
 
-# The page is about the change, and carries the honesty rows the layer reports no longer print.
-require "$REFERENCE" "何ができるようになったか" "what the change enables"
-require "$REFERENCE" "既存との関係" "relationship to what already exists"
-require "$REFERENCE" "決まっていないこと" "the decisions sweep lands on the page"
-require "$REFERENCE" "🔎" "what was read versus assumed"
-require "$REFERENCE" "🔬" "what was excluded, so the selection stays auditable"
+# ページは変更についてのもので、層の報告から外した正直さの行を載せる。
+require "$REFERENCE" "何ができるようになったか" "変更で何ができるようになったか"
+require "$REFERENCE" "既存との関係" "既存のものとの関係"
+require "$REFERENCE" "決まっていないこと" "決まっていないことの洗い出しがページに載る"
+require "$REFERENCE" "🔎" "読んだものと推測したものの区別"
+require "$REFERENCE" "🔬" "除外したもの（選び方を後から検証できるように）"
 
-printf '✓ da-review-all requires a one-page overview in this host'"'"'s container\n'
+printf '✓ da-review-all はこのホストの入れ物で 1 枚の概要ページを求める\n'

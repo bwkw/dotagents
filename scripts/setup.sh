@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
-# dotagents installer.
+# dotagents のインストーラ。
 #
-#   install [--dry-run] [--no-opinions]     link skills, copy hooks, merge settings, and remove
-#                                          anything we installed that the repo no longer ships
+#   install [--dry-run] [--no-opinions]     スキルのリンク、hook のコピー、settings のマージ、
+#                                          リポジトリが配らなくなった導入物の削除
 #
-#     --no-opinions    merge the mechanism (`hooks`) only, and skip the keys the settings template
-#                      lists in $opinionKeys: verbose telemetry, and the skillOverrides that quiet
-#                      bundled and plugin skills.
+#     --no-opinions    機構（`hooks`）だけをマージし、settings テンプレートの $opinionKeys にある
+#                      キー（詳細テレメトリ、同梱・プラグインのスキルを黙らせる skillOverrides）を省く。
+#                      利用者は作者一人なので既定で有効。同梱スキルに手を出したくない機械でだけ使う。
+#   status                                  何が入っていて最新か
+#   doctor                                  ずれと故障の診断
+#   uninstall [--dry-run]                   入れたものだけを正確に外す
 #
-#                      These are ON by default because this toolkit has one user, and that user
-#                      wrote them. They were opt-in for a while, on the theory that installing a
-#                      verification gate is not consent to changing how other skills behave -- true
-#                      for a stranger, and the stranger does not exist. What the flag actually did
-#                      was make the author retype it on every machine. Use --no-opinions on a
-#                      machine where the bundled skills should be left alone.
-#   status                                  what is installed and whether it is current
-#   doctor                                  diagnose drift and breakage
-#   uninstall [--dry-run]                   remove exactly what we installed
-#
-# Skills are symlinked so edits take effect immediately.
-# Hooks are copied, because a dangling hook symlink exits 127 and Claude Code treats that as
-# non-blocking -- the guardrail would open rather than close. See docs/decisions.md.
+# スキルはシンボリックリンクにする。編集がすぐ効くため。
+# hook はコピーにする。宙に浮いた hook のリンクは 127 で終わり、Claude Code はそれを非ブロックと
+# 扱うので、ガードレールが閉じずに開く。docs/decisions.md を参照。
 
 set -euo pipefail
 
@@ -30,26 +23,23 @@ AGENTS_SKILLS="$HOME/.agents/skills"
 CLAUDE_SKILLS="$HOME/.claude/skills"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CLAUDE_HOOKS="$HOME/.claude/hooks"
-# Linked into BOTH agent directories. The comment here used to say "Cursor reads ~/.claude/agents/ as
-# well as its own, so one link covers both" -- that is not in Cursor's documentation, which names
-# .cursor/agents/ for a project and ~/.cursor/agents/ for global definitions. And ~/.cursor/agents/ was
-# empty on this machine, so both subagents were simply absent in Cursor while the README claimed they
-# existed everywhere. An unverified claim that happened to be convenient.
+# 両方のエージェントのディレクトリへリンクする。Cursor が ~/.claude/agents/ も読むという根拠は
+# ドキュメントに無く（書かれているのは .cursor/agents/ と ~/.cursor/agents/）、実際に Cursor 側では
+# サブエージェントが見えていなかった。
 CLAUDE_AGENTS="$HOME/.claude/agents"
 CURSOR_AGENTS="$HOME/.cursor/agents"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
-# On by default: one user, who wrote them. `--no-opinions` turns them off. See the header.
+# 既定で有効。`--no-opinions` で切る。冒頭を参照。
 WITH_OPINIONS=1
 
-# Holds the filtered settings snippet while a merge runs. Cleaned on every exit path: `set -e` and
-# `die` both leave the function early, and a scratch file under $TMPDIR that nothing removes is the
-# same unbounded-growth bug as the backups that were never pruned.
+# マージ中の、絞り込んだ settings スニペットを置く。`set -e` でも `die` でも関数を途中で抜けるので、
+# どの終了経路でも消す。誰も消さない $TMPDIR の一時ファイルは、刈られないバックアップと同じ無限増殖になる。
 SETTINGS_SCRATCH=""
 trap '[[ -n "$SETTINGS_SCRATCH" ]] && rm -f "$SETTINGS_SCRATCH"' EXIT
 
-# Literal tilde. Writing \~ inline leaves the backslash in bash 3.2 substitutions.
+# チルダそのもの。インラインで \~ と書くと bash 3.2 の置換でバックスラッシュが残る。
 TILDE="~"
 
 c_red=$'\033[31m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
@@ -57,21 +47,20 @@ ok()   { printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; }
 warn() { printf '%s!%s %s\n' "$c_yellow" "$c_off" "$1"; }
 bad()  { printf '%s✗%s %s\n' "$c_red" "$c_off" "$1"; }
 note() { printf '%s  %s%s\n' "$c_dim" "$1" "$c_off"; }
-run()  { if (( DRY_RUN )); then note "would: $*"; else "$@"; fi; }
-# Report what happened, not what would have happened. A dry run that prints "copied" is a lie
-# that costs someone an afternoon.
-did()  { if (( DRY_RUN )); then note "would $1"; else ok "$1"; fi; }
+run()  { if (( DRY_RUN )); then note "実行予定: $*"; else "$@"; fi; }
+# 起きたことを報告し、起きたはずのことは報告しない。「コピーした」と出す dry run は嘘になる。
+did()  { if (( DRY_RUN )); then note "予定: $1"; else ok "$1"; fi; }
 
 die() { bad "$1"; exit 1; }
 
-# Every skill directory in the repo, excluding _-prefixed ones (templates, shared fragments).
+# リポジトリ内のスキルディレクトリ全部。_ で始まるもの（テンプレート、共有断片）は除く。
 skill_names() {
   local d
   for d in "$REPO"/skills/*/; do
     [[ -d "$d" ]] || continue
     local n; n="$(basename "$d")"
     [[ "$n" == _* ]] && continue
-    [[ -f "$d/SKILL.md" ]] || { warn "skills/$n has no SKILL.md -- skipping" >&2; continue; }
+    [[ -f "$d/SKILL.md" ]] || { warn "skills/$n に SKILL.md が無い。スキップ" >&2; continue; }
     printf '%s\n' "$n"
   done
 }
@@ -94,49 +83,48 @@ agent_names() {
   done
 }
 
-# Resolve a symlink one level, portably (macOS has no `readlink -f` by default).
+# シンボリックリンクを 1 段だけ解決する（macOS には既定で `readlink -f` が無い）。
 link_target() { readlink "$1" 2>/dev/null || true; }
 
-# True when $1 is a symlink already pointing at $2.
+# $1 が既に $2 を指すシンボリックリンクなら真。
 points_at() { [[ -L "$1" && "$(link_target "$1")" == "$2" ]]; }
 
-# ---------------------------------------------------------------- install
+# ---------------------------------------------------------------- インストール
 
 link_skill() {
   local name="$1"
   local src="$REPO/skills/$name"
 
-  # Physical entry: ~/.agents/skills/<name> -> <repo>/skills/<name>
+  # 実体の入口: ~/.agents/skills/<name> -> <repo>/skills/<name>
   if [[ -e "$AGENTS_SKILLS/$name" && ! -L "$AGENTS_SKILLS/$name" ]]; then
-    bad "$AGENTS_SKILLS/$name exists as a real directory, not ours -- refusing to replace it"
+    bad "$AGENTS_SKILLS/$name はこちらのものではない実ディレクトリ。置き換えない"
     return 1
   fi
   if points_at "$AGENTS_SKILLS/$name" "$src"; then
-    note "up to date: ~/.agents/skills/$name"
+    note "最新: ~/.agents/skills/$name"
   else
     run ln -sfn "$src" "$AGENTS_SKILLS/$name"
-    did "link ~/.agents/skills/$name"
+    did "リンク ~/.agents/skills/$name"
   fi
 
-  # Only Claude Code needs a link. Cursor reads ~/.agents/skills natively -- confirmed by observing
-  # an upstream skill with no ~/.cursor/skills entry appear in its menu -- and a skill reachable from
-  # both paths is listed once, not twice. See docs/decisions.md.
+  # リンクが要るのは Claude Code だけ。Cursor は ~/.agents/skills をそのまま読み（実測で確認）、
+  # 両方の経路から見えるスキルも一覧には 1 回しか出ない。docs/decisions.md を参照。
   local dest="$CLAUDE_SKILLS/$name"
   local rel="../../.agents/skills/$name"   # ~/.claude/skills/<n> -> ~/.agents/skills/<n>
   if [[ -e "$dest" && ! -L "$dest" ]]; then
-    bad "$dest exists as a real directory, not ours -- refusing to replace it"
+    bad "$dest はこちらのものではない実ディレクトリ。置き換えない"
   elif points_at "$dest" "$rel"; then
-    note "up to date: ~/.claude/skills/$name"
+    note "最新: ~/.claude/skills/$name"
   else
     run ln -sfn "$rel" "$dest"
-    did "link ~/.claude/skills/$name"
+    did "リンク ~/.claude/skills/$name"
   fi
 
-  # Earlier versions created a ~/.cursor/skills link too. Remove ours, but only if it is a symlink
-  # pointing where we would have pointed it -- anything else belongs to someone else.
+  # 以前の版は ~/.cursor/skills にもリンクを作っていた。こちらが張ったはずの先を指すシンボリック
+  # リンクのときだけ消す。それ以外は他人のもの。
   if points_at "$CURSOR_SKILLS/$name" "$rel"; then
     run rm -f "$CURSOR_SKILLS/$name"
-    did "remove the now-redundant ~/.cursor/skills/$name"
+    did "不要になった ~/.cursor/skills/$name を削除"
   fi
 }
 
@@ -145,26 +133,25 @@ link_agent() {
   local src="$REPO/agents/$name.md"
   local d dir label
 
-  # Symlinked, not copied. Unlike hooks, a dangling agent link cannot fail open: the agent simply
-  # does not resolve and the caller falls back to general-purpose, which is visible in the
-  # transcript. Linking keeps edits here effective immediately.
+  # コピーではなくリンク。hook と違い、宙に浮いたエージェントのリンクは開く側に倒れない。解決できず
+  # general-purpose に落ちるだけで、それはトランスクリプトに見える。
   for dir in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
     d="$dir/$name.md"
     label="${dir/#$HOME/$TILDE}/$name.md"
     if [[ -e "$d" && ! -L "$d" ]]; then
-      bad "$d exists as a real file, not ours -- refusing to replace it"
+      bad "$d はこちらのものではない実ファイル。置き換えない"
       return 1
     fi
     if points_at "$d" "$src"; then
-      note "up to date: $label"
+      note "最新: $label"
     else
       run ln -sfn "$src" "$d"
-      did "link $label"
+      did "リンク $label"
     fi
   done
 }
 
-# Agents dropped from the repository would otherwise stay linked and keep being dispatched to.
+# リポジトリから消えたエージェントは、放っておくとリンクが残って呼ばれ続ける。
 prune_agents() {
   local current recorded f name dir label
   local dirs=("$CLAUDE_AGENTS" "$CURSOR_AGENTS")
@@ -179,29 +166,26 @@ prune_agents() {
    [[ -d "$dir" ]] || continue
    label="${dir/#$HOME/$TILDE}"
    for f in "$dir"/*.md; do
-    # `-e` follows the symlink, so it is false for exactly the links that most need pruning: the ones
-    # whose target was renamed or deleted. Test `-L` as well or a rename leaves a dangling link behind
-    # and the agent silently resolves to nothing.
+    # `-e` はリンクをたどるので、刈るべき「先が改名・削除されたリンク」でちょうど偽になる。`-L` も見る。
     [[ -e "$f" || -L "$f" ]] || continue
     name="$(basename "$f" .md)"
-    # Ours by shape (a symlink into this repo's agents/) or by manifest record. Anything else is
-    # someone else's and is left alone.
+    # 形（このリポジトリの agents/ を指すリンク）かマニフェストの記録でこちらのものと判断する。
+    # それ以外は他人のものなので触らない。
     if points_at "$f" "$REPO/agents/$name.md" || [[ " $recorded " == *" $name "* ]]; then
       [[ " $current " == *" $name "* ]] && continue
-      [[ -L "$f" ]] || { warn "$label/$name.md is not a symlink -- leaving it"; continue; }
+      [[ -L "$f" ]] || { warn "$label/$name.md はシンボリックリンクではない。残す"; continue; }
       run rm -f "$f"
-      did "prune $label/$name.md (no longer in the repository)"
+      did "刈り取り $label/$name.md（リポジトリから消えた）"
     fi
    done
 
-  # Sweep dangling links into this repo's agents/ even when the name was never recorded -- a rename
-  # between two installs leaves one behind under the old name, which the loop above cannot match by
-  # manifest and which `points_at` alone would not reach if the manifest was rewritten first.
+  # 記録に無い名前でも、このリポジトリの agents/ を指す宙に浮いたリンクは掃く。2 回の install の間の
+  # 改名は旧名のリンクを残し、上のループはそれをマニフェストでも `points_at` でも拾えない。
    for f in "$dir"/*.md; do
     [[ -L "$f" && ! -e "$f" ]] || continue
     [[ "$(link_target "$f")" == "$REPO/agents/"* ]] || continue
     run rm -f "$f"
-    did "prune $label/$(basename "$f") (dangling -- its target is gone)"
+    did "刈り取り $label/$(basename "$f")（リンク先が無い）"
    done
   done
 }
@@ -211,16 +195,16 @@ copy_hook() {
   local src="$REPO/hooks/$f"
   local dest="$CLAUDE_HOOKS/$f"
   if [[ -f "$dest" ]] && cmp -s "$src" "$dest"; then
-    note "up to date: ~/.claude/hooks/$f"
+    note "最新: ~/.claude/hooks/$f"
     return
   fi
   run cp "$src" "$dest"
   run chmod +x "$dest"
-  did "copy ~/.claude/hooks/$f"
+  did "コピー ~/.claude/hooks/$f"
 }
 
-# Skills removed from the repository leave three symlinks behind, and write_manifest then forgets
-# they existed, so uninstall cannot reclaim them either. Prune before the manifest is rewritten.
+# リポジトリから消えたスキルはリンクを 3 本残し、write_manifest がその存在を忘れるので uninstall でも
+# 回収できなくなる。マニフェストを書き直す前に刈る。
 prune_skills() {
   local shipped; shipped="$(skill_names)"
   local recorded n q
@@ -232,39 +216,35 @@ prune_skills() {
   for n in $recorded; do
     grep -qxF "$n" <<<"$shipped" && continue
     for q in "$CLAUDE_SKILLS/$n" "$CURSOR_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
-      # Only ever remove a symlink. A real directory there belongs to someone else.
-      if [[ -L "$q" ]]; then run rm -f "$q"; did "prune ${q/#$HOME/$TILDE}"
-      elif [[ -e "$q" ]]; then warn "${q/#$HOME/$TILDE} is not a symlink -- left in place"; fi
+      # 消すのはシンボリックリンクだけ。実ディレクトリは他人のもの。
+      if [[ -L "$q" ]]; then run rm -f "$q"; did "刈り取り ${q/#$HOME/$TILDE}"
+      elif [[ -e "$q" ]]; then warn "${q/#$HOME/$TILDE} はシンボリックリンクではない。残す"; fi
     done
   done
 
-  # The manifest is not enough on its own. write_manifest rewrites the skill list every install, so
-  # an orphan created before pruning became automatic is no longer recorded anywhere -- and a
-  # manifest-only reconcile can never reclaim it. Observed exactly that: a test skill left two
-  # dangling links that survived every subsequent install.
-  #
-  # So also sweep by shape, which needs no record: a *dangling* symlink whose target is spelled the
-  # way we spell ours. Both patterns are unambiguous and cannot match someone else's link.
+  # マニフェストだけでは足りない。スキル一覧は install ごとに書き直されるので、自動刈り取り以前に
+  # できた孤児はどこにも記録が無い。そこで記録に頼らず形でも掃く: こちらの書き方で先を指す、宙に
+  # 浮いたリンク。どちらのパターンも他人のリンクには当たらない。
   local l t
   shopt -s nullglob
   for l in "$AGENTS_SKILLS"/*; do
     [[ -L "$l" && ! -e "$l" ]] || continue
     t="$(link_target "$l")"
     [[ "$t" == "$REPO/skills/"* ]] || continue
-    run rm -f "$l"; did "prune orphaned ${l/#$HOME/$TILDE} (target gone from the repo)"
+    run rm -f "$l"; did "孤児を刈り取り ${l/#$HOME/$TILDE}（リンク先がリポジトリから消えた）"
   done
   for l in "$CLAUDE_SKILLS"/* "$CURSOR_SKILLS"/*; do
     [[ -L "$l" && ! -e "$l" ]] || continue
     t="$(link_target "$l")"
     [[ "$t" == "../../.agents/skills/"* ]] || continue
-    run rm -f "$l"; did "prune orphaned ${l/#$HOME/$TILDE} (chain is broken)"
+    run rm -f "$l"; did "孤児を刈り取り ${l/#$HOME/$TILDE}（リンクの連鎖が切れている）"
   done
 }
 
 prune_hooks() {
   local shipped; shipped="$(hook_names)"
   local installed f
-  # Only prune what a previous run of ours recorded, never files we did not install.
+  # 以前の実行が記録したものだけを刈る。入れていないファイルには触らない。
   installed="$(node -e '
     const fs=require("fs");
     try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
@@ -273,21 +253,19 @@ prune_hooks() {
   for f in $installed; do
     if ! grep -qxF "$f" <<<"$shipped"; then
       run rm -f "$CLAUDE_HOOKS/$f"
-      did "prune stale hook ~/.claude/hooks/$f"
+      did "古い hook を刈り取り ~/.claude/hooks/$f"
     fi
   done
 }
 
-# How many pre-images to keep per target. Three is enough to undo a bad install and small enough that
-# the directory stays readable; 52 of them had accumulated here, which is not a safety net -- it is a
-# pile nobody can tell apart. An unattended loop that re-installs per iteration grows it without limit.
+# 対象ごとに残す変更前の写しの数。悪い install を 1 回戻すには 3 で足り、見分けがつく量に収まる。
+# install を毎回回すループがあるので、上限が無いと際限なく増える。
 BACKUP_KEEP=3
 
-# Run a merge, and keep a backup only if the merge actually changed the target.
+# マージを実行し、対象が実際に変わったときだけバックアップを残す。
 #
-# The pre-image is held in a temp file and promoted to a backup only on a real change, rather than
-# taken unconditionally and deleted afterwards. Both orders end up with the same files, but only this
-# one is never briefly lying about what happened.
+# 変更前の写しはまず一時ファイルに取り、本当に変わったときだけバックアップに昇格させる。無条件に
+# 取って後で消す順序だと、一瞬でも起きていないことを示す状態ができる。
 merge_with_backup() { # <target> <label> <merge command...>
   local target="$1" label="$2"; shift 2
   local pre="" rc=0
@@ -301,25 +279,22 @@ merge_with_backup() { # <target> <label> <merge command...>
   if [[ -n "$pre" ]]; then
     if cmp -s "$pre" "$target"; then
       rm -f "$pre"
-      note "$label unchanged -- no backup taken"
+      note "$label は変更なし。バックアップは取らない"
     else
-      # $$ as well as the timestamp: the stamp is second-resolution, so two installs inside one second
-      # produced the same name and the second silently overwrote the first pre-image.
+      # タイムスタンプに加えて $$。刻みが秒なので、同じ秒の 2 回の install が同名になり後が前を上書きした。
       local backup="$target.dotagents-backup-$(date +%Y%m%d%H%M%S)-$$"
       mv "$pre" "$backup"
-      note "backup: ${backup/#$HOME/$TILDE}"
+      note "バックアップ: ${backup/#$HOME/$TILDE}"
     fi
   fi
 
-  # Pruned every time, not only when a backup was just taken. Enforcing the cap on the creating path
-  # alone leaves a pile that nothing ever touches again: ~/.cursor/hooks.json stopped changing, so its
-  # 24 pre-existing backups were never reached. A bound that only applies while you keep adding is not
-  # a bound.
+  # バックアップを取った時だけでなく毎回刈る。作る経路でだけ上限をかけると、変わらなくなったファイルの
+  # 既存の山には二度と手が届かない。
   prune_backups "$target"
   return "$rc"
 }
 
-# Keep the newest BACKUP_KEEP. Names sort lexically because the stamp is %Y%m%d%H%M%S.
+# 新しい方から BACKUP_KEEP 個を残す。刻みが %Y%m%d%H%M%S なので名前の辞書順で並ぶ。
 prune_backups() { # <target>
   local target="$1" f n=0
   while IFS= read -r f; do
@@ -327,25 +302,20 @@ prune_backups() { # <target>
     n=$((n+1))
     if (( n > BACKUP_KEEP )); then
       run rm -f "$f"
-      did "prune old backup ${f/#$HOME/$TILDE}"
+      did "古いバックアップを刈り取り ${f/#$HOME/$TILDE}"
     fi
   done < <(ls -1 "$target".dotagents-backup-* 2>/dev/null | sort -r)
 }
 
-# Merge only the keys our template declares. Existing values we did not write -- notably
-# env.OTEL_EXPORTER_OTLP_HEADERS, which holds a plaintext API key -- are never read or rewritten.
+# テンプレートが宣言するキーだけをマージする。こちらが書いていない既存の値（とくに平文の API キーを
+# 持つ env.OTEL_EXPORTER_OTLP_HEADERS）は読みも書き直しもしない。
 #
-# With --no-opinions the keys listed in the template's own $opinionKeys are dropped first, leaving the
-# mechanism (`hooks`) -- which is always merged, because without it nothing here runs at all.
+# --no-opinions のときは、テンプレート自身の $opinionKeys にあるキーを先に落とし、機構（`hooks`）だけを
+# 残す。hooks はそれが無いと何も動かないので常にマージする。
 #
-# The filtering exists; only the default flipped. It was opt-in on the theory that installing a
-# verification gate is not consent to changing how other skills behave. That is right for a stranger,
-# and there is no stranger: what the flag bought in practice was the author retyping it per machine.
-#
-# Filtered into a temp file rather than merged as a second pass, because merge-settings.mjs REPLACES
-# manifest.settingsHooks with what the snippet it was just handed declares. A second pass over a
-# snippet with no `hooks` would clear our hook records, and the manifest is the only thing uninstall
-# has to go on.
+# 2 回目のマージではなく一時ファイルに絞り込んでから渡す。merge-settings.mjs は manifest.settingsHooks を
+# 渡されたスニペットの宣言で置き換えるので、`hooks` の無いスニペットで 2 回目を回すと hook の記録が消え、
+# uninstall の手がかりが無くなる。
 effective_settings_snippet() { # <template> -> path to merge (may be a temp file)
   local tmpl="$1"
   if (( WITH_OPINIONS )); then printf '%s\n' "$tmpl"; return; fi
@@ -353,17 +323,16 @@ effective_settings_snippet() { # <template> -> path to merge (may be a temp file
   local out
   out="$(mktemp "${TMPDIR:-/tmp}/dotagents-settings.XXXXXX" 2>/dev/null)" || out=""
   if [[ -z "$out" ]]; then
-    # No scratch file means we cannot filter. Merging the unfiltered template would apply the
-    # opinions without being asked, so decline the whole merge and say why.
-    die "could not create a temp file to filter the settings template -- refusing to merge, because
-the unfiltered template would apply the opinion keys you asked to skip. Set TMPDIR, or drop
---no-opinions."
+    # 一時ファイルが無いと絞り込めない。絞らないテンプレートをマージすると頼まれていない意見キーまで
+    # 当たるので、マージ全体を断って理由を言う。
+    die "settings テンプレートを絞り込む一時ファイルを作れない。マージを中止する（絞らずにマージすると、
+省くよう指定された意見キーまで当たるため）。TMPDIR を設定するか、--no-opinions を外すこと。"
   fi
   SETTINGS_SCRATCH="$out"
   node -e '
     const fs = require("fs");
     const snippet = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    // One home for the list: the template. A copy here would be a second thing to update.
+    // 一覧の置き場はテンプレート 1 か所。ここに写すと更新箇所が 2 つになる。
     const drop = new Set(snippet.$opinionKeys ?? []);
     for (const k of drop) delete snippet[k];
     delete snippet.$opinionKeys;
@@ -375,13 +344,13 @@ the unfiltered template would apply the opinion keys you asked to skip. Set TMPD
 merge_settings() {
   local tmpl="$REPO/templates/claude.settings.snippet.json"
   local target="$HOME/.claude/settings.json"
-  [[ -f "$tmpl" ]] || { note "no settings snippet -- skipping"; return; }
+  [[ -f "$tmpl" ]] || { note "settings スニペットが無い。スキップ"; return; }
 
   local eff; eff="$(effective_settings_snippet "$tmpl")"
 
   if (( DRY_RUN )); then
-    note "would: merge keys from templates/claude.settings.snippet.json into ~/.claude/settings.json"
-    (( WITH_OPINIONS )) || note "(mechanism only -- --no-opinions drops env/skillOverrides)"
+    note "実行予定: templates/claude.settings.snippet.json のキーを ~/.claude/settings.json へマージ"
+    (( WITH_OPINIONS )) || note "（機構のみ。--no-opinions で env/skillOverrides を省く）"
     node "$REPO/scripts/lib/merge-settings.mjs" --print-keys "$eff" | sed 's/^/    /'
     rm -f "$SETTINGS_SCRATCH"; SETTINGS_SCRATCH=""
     return
@@ -390,7 +359,7 @@ merge_settings() {
   merge_with_backup "$target" "~/.claude/settings.json" \
     node "$REPO/scripts/lib/merge-settings.mjs" "$eff" "$target" "$MANIFEST"
   rm -f "$SETTINGS_SCRATCH"; SETTINGS_SCRATCH=""
-  ok "merged settings into ~/.claude/settings.json$( (( WITH_OPINIONS )) || echo ' (mechanism only)')"
+  ok "settings を ~/.claude/settings.json へマージした$( (( WITH_OPINIONS )) || echo '（機構のみ）')"
 }
 
 merge_cursor_hooks() {
@@ -399,17 +368,16 @@ merge_cursor_hooks() {
   [[ -f "$tmpl" ]] || return 0
 
   if (( DRY_RUN )); then
-    # install creates ~/.cursor/skills before reaching here, so ~/.cursor always exists by
-    # then. Reporting "skipping" on a machine without Cursor would make the dry run disagree
-    # with the install it is supposed to preview.
-    note "would: merge Cursor hook entries into ~/.cursor/hooks.json"
+    # install はここより前に ~/.cursor/skills を作るので、この時点で ~/.cursor は必ずある。Cursor の無い
+    # 機械で「スキップ」と出すと、dry run が予告すべき install と食い違う。
+    note "実行予定: Cursor の hook 項目を ~/.cursor/hooks.json へマージ"
     return 0
   fi
   mkdir -p "$HOME/.cursor"
 
   merge_with_backup "$target" "~/.cursor/hooks.json" \
     node "$REPO/scripts/lib/merge-settings.mjs" --cursor "$tmpl" "$target" "$MANIFEST"
-  ok "merged hooks into ~/.cursor/hooks.json"
+  ok "hook を ~/.cursor/hooks.json へマージした"
 }
 
 write_manifest() {
@@ -430,22 +398,20 @@ write_manifest() {
   ' "$MANIFEST" "$REPO" "$skills" "$hooks" "$agents"
 }
 
-# Everything that can refuse, checked before anything is written.
+# 断る可能性のあるものを、何かを書く前に全部確かめる。
 #
-# `link_skill` and `link_agent` return 1 when a destination is a real directory or file that is not
-# ours. Under `set -e` that failure was the last command of an `&&` list, so the whole script exited --
-# after some skills were already linked, with no hooks copied, no settings merged and no manifest to
-# uninstall from. Exactly the state the node preflight above exists to prevent, reached by a different
-# route. Refusing up front means the answer is all-or-nothing rather than however far the loop got.
+# `link_skill` と `link_agent` は、行き先がこちらのものではない実体だと 1 を返す。`set -e` の下では
+# 途中で終了し、スキルの一部だけリンクされ、hook もマニフェストも無い状態が残る。先に断れば、
+# 結果は全部か無しかになる。
 preflight() {
   local n blocked=0
   while read -r n; do
     [[ -n "$n" ]] || continue
     if [[ -e "$AGENTS_SKILLS/$n" && ! -L "$AGENTS_SKILLS/$n" ]]; then
-      bad "$AGENTS_SKILLS/$n is a real directory, not ours"; blocked=1
+      bad "$AGENTS_SKILLS/$n はこちらのものではない実ディレクトリ"; blocked=1
     fi
     if [[ -e "$CLAUDE_SKILLS/$n" && ! -L "$CLAUDE_SKILLS/$n" ]]; then
-      bad "$CLAUDE_SKILLS/$n is a real directory, not ours"; blocked=1
+      bad "$CLAUDE_SKILLS/$n はこちらのものではない実ディレクトリ"; blocked=1
     fi
   done < <(skill_names)
   while read -r n; do
@@ -453,28 +419,26 @@ preflight() {
     local d
     for d in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
       if [[ -e "$d/$n.md" && ! -L "$d/$n.md" ]]; then
-        bad "$d/$n.md is a real file, not ours"; blocked=1
+        bad "$d/$n.md はこちらのものではない実ファイル"; blocked=1
       fi
     done
   done < <(agent_names)
 
-  (( blocked )) && die "refusing to install: move or remove the paths above first. Nothing has been changed."
+  (( blocked )) && die "インストールを中止した。何も変更していない。上のパスを移動か削除してから再実行すること。"
   return 0
 }
 
 cmd_install() {
-  # Installing from a linked worktree points every link into that worktree; removing it later
-  # would silently delete the whole toolkit. The escape hatch is for the installer suite only:
-  # test-setup.sh has to exercise install from whatever checkout the gate is standing in, and
-  # the loop deliberately works inside linked worktrees. Nothing else sets this.
+  # linked worktree から入れると全リンクがその worktree を指し、worktree を消すとツール一式が黙って
+  # 消える。逃げ道はインストーラのテスト専用（test-setup.sh とループは linked worktree の中で動く）。
   if [[ -f "$REPO/.git" && -z "${DOTAGENTS_ALLOW_WORKTREE_INSTALL:-}" ]]; then
-    die "$REPO looks like a linked git worktree. Install from the main checkout instead --
-    removing the worktree would take every installed skill with it."
+    die "$REPO は linked git worktree に見える。メインのチェックアウトから入れること --
+    worktree を消すと、入れたスキルが全部道連れになる。"
   fi
 
-  # Every settings merge and the manifest go through node. Failing partway leaves skills linked
-  # but no guardrails wired and no manifest to uninstall from, so check before changing anything.
-  command -v node >/dev/null || die "node is required (>= 18). Nothing has been changed."
+  # settings のマージとマニフェストはすべて node を通る。途中で落ちるとガードレールもマニフェストも
+  # 無い状態が残るので、何かを変える前に確かめる。
+  command -v node >/dev/null || die "node（18 以上）が必要。何も変更していない。"
 
   preflight
 
@@ -486,9 +450,8 @@ cmd_install() {
   while read -r n; do [[ -n "$n" ]] && copy_hook  "$n"; done < <(hook_names)
   while read -r n; do [[ -n "$n" ]] && link_agent "$n"; done < <(agent_names)
 
-  # Always. install means "make the installed state match the repository", and that includes
-  # removing what the repository no longer ships. Both prune functions only touch what a previous
-  # run of ours recorded in the manifest, so nothing else is at risk.
+  # 常に刈る。install は「導入状態をリポジトリに合わせる」ことで、配らなくなったものの削除も含む。
+  # 刈り取りは以前の実行がマニフェストに記録したものにしか触らない。
   prune_skills
   prune_hooks
   prune_agents
@@ -497,69 +460,64 @@ cmd_install() {
   write_manifest
 
   echo
-  ok "install complete$( (( DRY_RUN )) && echo ' (dry run -- nothing changed)')"
-  note "verify with: scripts/setup.sh status"
+  ok "インストール完了$( (( DRY_RUN )) && echo '（dry run。何も変更していない）')"
+  note "確認: scripts/setup.sh status"
 }
 
 # ---------------------------------------------------------------- status / doctor
 
 cmd_status() {
   local n missing=0 total=0
-  echo "skills"
+  echo "スキル"
   while read -r n; do
     [[ -n "$n" ]] || continue
     total=$((total+1))
     local a="$AGENTS_SKILLS/$n" c="$CLAUDE_SKILLS/$n"
     if [[ -d "$a" && -d "$c" ]]; then
-      ok "$n  ${c_dim}(~/.agents, linked from ~/.claude; Cursor reads ~/.agents directly)${c_off}"
+      ok "$n  ${c_dim}（~/.agents に実体、~/.claude からリンク、Cursor は ~/.agents を直接読む）${c_off}"
     else
       local where=""
       [[ -d "$a" ]] || where+=" agents"
       [[ -d "$c" ]] || where+=" claude"
-      bad "$n  missing:$where"; missing=$((missing+1))
+      bad "$n  不足:$where"; missing=$((missing+1))
     fi
   done < <(skill_names)
 
-  # Skills are symlinked, so the installed instructions ARE this working tree: an edit is live the
-  # next time a skill is read, with no install step and nothing recorded. That includes an edit made
-  # by an agent, in the same session, to the instructions it is following.
+  # スキルはリンクなので、導入済みの指示はこの作業ツリーそのもの。編集は次に読まれた時点で効き、
+  # 記録は残らない（エージェントが同じセッションで自分の従う指示を書き換えた場合も）。
   #
-  # No hashes are kept for this. The earlier design put a sha256 per skill in the manifest, which is
-  # a second record of something git already records exactly -- and a baseline written at install time
-  # records whatever was there at install time, including a change nobody reviewed. git is the
-  # baseline, and `git status` is the comparison.
+  # ハッシュは持たない。git が既に正確に記録しており、導入時の基準は未レビューの変更まで基準にして
+  # しまう。基準は git、比較は `git status`。
   echo
-  echo "skill bodies vs the last commit"
+  echo "スキル本文と最新コミットの比較"
   if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
     local drift; drift="$(git -C "$REPO" status --porcelain -- skills/ 2>/dev/null)"
     if [[ -z "$drift" ]]; then
-      ok "identical to HEAD ${c_dim}($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null))${c_off}"
+      ok "HEAD と一致 ${c_dim}($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null))${c_off}"
     else
-      # Not a failure. Editing skills is the normal way to work on this repository, and the point is
-      # that it is *visible* -- an uncommitted change to an agent's own instructions should never be
-      # something you have to go looking for.
-      warn "uncommitted, and therefore already live:"
+      # 失敗ではない。スキルの編集はこのリポジトリの普通の作業で、要は「見える」こと。
+      warn "未コミット。したがって既に効いている:"
       while IFS= read -r line; do [[ -n "$line" ]] && note "  $line"; done <<<"$drift"
     fi
   else
-    warn "$REPO is not a git checkout -- there is no baseline to compare skill bodies against"
+    warn "$REPO は git のチェックアウトではない。スキル本文を比べる基準が無い"
   fi
 
   echo
-  echo "hooks"
+  echo "hook"
   while read -r n; do
     [[ -n "$n" ]] || continue
     if [[ ! -f "$CLAUDE_HOOKS/$n" ]]; then
-      bad "$n  not installed"; missing=$((missing+1))
+      bad "$n  未導入"; missing=$((missing+1))
     elif cmp -s "$REPO/hooks/$n" "$CLAUDE_HOOKS/$n"; then
       ok "$n"
     else
-      warn "$n  installed copy differs from source -- run: scripts/setup.sh install"
+      warn "$n  導入済みのコピーがソースと違う。実行: scripts/setup.sh install"
     fi
   done < <(hook_names)
 
   echo
-  echo "agents"
+  echo "エージェント"
   while read -r n; do
     [[ -n "$n" ]] || continue
     total=$((total+1))
@@ -567,18 +525,18 @@ cmd_status() {
     points_at "$CLAUDE_AGENTS/$n.md" "$REPO/agents/$n.md" && where="claude"
     points_at "$CURSOR_AGENTS/$n.md" "$REPO/agents/$n.md" && where="${where:+$where+}cursor"
     if [[ "$where" == "claude+cursor" ]]; then
-      ok "$n  ${c_dim}(~/.claude/agents and ~/.cursor/agents)${c_off}"
+      ok "$n  ${c_dim}（~/.claude/agents と ~/.cursor/agents）${c_off}"
     elif [[ -n "$where" ]]; then
-      warn "$n  only in $where -- the other agent cannot reach it"; missing=$((missing+1))
+      warn "$n  $where にしか無い。もう片方のエージェントからは届かない"; missing=$((missing+1))
     elif [[ -e "$CLAUDE_AGENTS/$n.md" || -e "$CURSOR_AGENTS/$n.md" ]]; then
-      warn "$n  present but not our symlink -- left alone"
+      warn "$n  あるが、こちらのリンクではない。触らない"
     else
-      bad "$n  not installed"; missing=$((missing+1))
+      bad "$n  未導入"; missing=$((missing+1))
     fi
   done < <(agent_names)
 
   echo
-  echo "hook wiring"
+  echo "hook の配線"
   local wired
   wired="$(node -e '
     const fs = require("fs");
@@ -594,55 +552,50 @@ cmd_status() {
     ].join(" "));
   ' 2>/dev/null || echo "- - - -")"
   local i=1
-  for label in "Claude Stop gate" "Claude frontmatter lint" "Cursor stop gate" "Cursor frontmatter lint"; do
+  for label in "Claude の Stop ゲート" "Claude の frontmatter lint" "Cursor の stop ゲート" "Cursor の frontmatter lint"; do
     if [[ "$(echo "$wired" | cut -d" " -f$i)" == "-" ]]; then
-      warn "$label  not wired"
+      warn "$label  未配線"
     else
       ok "$label"
     fi
     i=$((i+1))
   done
-  note "Cursor's stop hook cannot block; it only injects a follow-up. Not parity -- see docs/decisions.md."
+  note "Cursor の stop hook はブロックできず、追いメッセージを差し込むだけ。同等ではない（docs/decisions.md）。"
 
   echo
   if (( missing )); then
-    bad "$missing item(s) missing of $total skill(s)"
+    bad "$missing 件が不足（スキルとエージェント計 $total 件）"
     return 1
   fi
-  ok "all $total skill(s) installed"
+  ok "$total 件すべて導入済み"
 }
 
 cmd_doctor() {
   local problems=0
 
-  # The flows in README.md hand work to upstream skills this repository deliberately does not vendor.
-  # Nothing installs them, and nothing said they were missing: a fresh machine got a documented
-  # pipeline whose first step (`/research`) simply did not exist, and a slash command that is not there
-  # is silence, not an error. Reported, not fixed -- installing them is `npx skills add`, which is the
-  # user's call and is spelled out in README.md.
+  # README.md の手順は、このリポジトリが意図して同梱しない upstream スキルに作業を渡す。何もそれを
+  # 入れず、無いことも言わないので、最初の手順（`/research`）が黙って存在しなかった。報告だけして
+  # 直さない。入れるのは `npx skills add` で、利用者の判断（README.md に手順あり）。
   #
-  # The list is declared once, here. scripts/verify-skills.sh asserts every name still appears in
-  # README.md, so a rename upstream cannot leave this checking for something nobody documents.
+  # 一覧はここ 1 か所で宣言する。scripts/verify-skills.sh が各名前が README.md にあることを確かめる。
   # dotagents:upstream-flow-skills research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
-  echo "upstream skills the documented flows use"
+  echo "手順書の流れが使う upstream スキル"
   local UPSTREAM_FLOW_SKILLS="research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner"
   local u umissing=0
   for u in $UPSTREAM_FLOW_SKILLS; do
-    [[ -d "$AGENTS_SKILLS/$u" ]] || { umissing=$((umissing+1)); note "missing: /$u"; }
+    [[ -d "$AGENTS_SKILLS/$u" ]] || { umissing=$((umissing+1)); note "不足: /$u"; }
   done
   if (( umissing == 0 )); then
-    ok "all present"
+    ok "すべてある"
   else
-    warn "$umissing not installed -- those steps of the documented flows are absent, silently. See README.md"
+    warn "$umissing 件が未導入。手順書の該当ステップは黙って欠ける。README.md を参照"
   fi
 
   echo
-  # Everything above can be green on a machine where the gate cannot check anything: it is armed per
-  # repository, and it resolves what to run from a profile matched on the git remote. With no profile
-  # it passes, by design -- guessing commands would be worse. But `status` never mentioned profiles, so
-  # a fresh install reported success while the one thing the toolkit is for was absent everywhere.
-  # Counted the way the gate counts them: `_`-prefixed files are templates and never match.
-  echo "profiles"
+  # 上が全部緑でも、ゲートが何も検査できない機械はある。ゲートはリポジトリごとに有効化され、git remote に
+  # 合うプロファイルから実行内容を決める。プロファイルが無ければ設計どおり pass する。数え方はゲートと
+  # 同じ: `_` で始まるファイルはテンプレートで、一致しない。
+  echo "プロファイル"
   local pn=0 pf
   for pf in "$REPO"/profiles/*.json; do
     [[ -f "$pf" ]] || continue
@@ -650,67 +603,65 @@ cmd_doctor() {
     pn=$((pn+1))
   done
   if (( pn > 0 )); then
-    ok "$pn profile(s) in $REPO/profiles ${c_dim}(the gate checks a repository only if one matches its remote)${c_off}"
+    ok "$REPO/profiles にプロファイル $pn 件 ${c_dim}（ゲートが検査するのは remote が一致するリポジトリだけ）${c_off}"
   else
-    warn "no profiles -- the gate will pass on every repository, silently. Copy profiles/_example.*.json, or run /da-verify"
+    warn "プロファイルが無い。ゲートはどのリポジトリでも黙って pass する。profiles/_example.*.json をコピーするか、/da-verify を実行すること"
   fi
 
   echo
-  echo "environment"
-  [[ -d "$HOME/.claude" ]] && ok "~/.claude exists" || { bad "~/.claude missing"; problems=$((problems+1)); }
-  [[ -d "$HOME/.cursor" ]] && ok "~/.cursor exists" || { warn "~/.cursor missing -- Cursor side will not work"; }
-  command -v node >/dev/null && ok "node $(node -v)" || { bad "node not found (needed for settings merge)"; problems=$((problems+1)); }
+  echo "環境"
+  [[ -d "$HOME/.claude" ]] && ok "~/.claude あり" || { bad "~/.claude が無い"; problems=$((problems+1)); }
+  [[ -d "$HOME/.cursor" ]] && ok "~/.cursor あり" || { warn "~/.cursor が無い。Cursor 側は動かない"; }
+  command -v node >/dev/null && ok "node $(node -v)" || { bad "node が見つからない（settings のマージに必要）"; problems=$((problems+1)); }
 
   echo
-  echo "dangling links"
+  echo "宙に浮いたリンク"
   local d found=0
   for d in "$AGENTS_SKILLS"/* "$CLAUDE_SKILLS"/* "$CURSOR_SKILLS"/*; do
     [[ -L "$d" ]] || continue
     if [[ ! -e "$d" ]]; then
-      bad "${d/#$HOME/$TILDE} -> $(link_target "$d")  (broken)"
+      bad "${d/#$HOME/$TILDE} -> $(link_target "$d")  （壊れている）"
       found=1; problems=$((problems+1))
     fi
   done
-  (( found )) || ok "none"
+  (( found )) || ok "なし"
 
   echo
-  echo "foreign entries in our namespace"
-  # Real directories we did not create -- e.g. a skill installed by npx skills with --copy.
+  echo "こちらの名前空間にある他人の項目"
+  # こちらが作っていない実ディレクトリ。たとえば npx skills の --copy で入れたスキル。
   found=0
   local ours; ours="$(skill_names)"
   for d in "$CLAUDE_SKILLS"/*; do
     [[ -e "$d" ]] || continue
     local n; n="$(basename "$d")"
     grep -qxF "$n" <<<"$ours" || continue
-    [[ -L "$d" ]] || { warn "$n is a real directory but we ship a skill by that name"; found=1; }
+    [[ -L "$d" ]] || { warn "$n は実ディレクトリだが、同名のスキルをこちらが配っている"; found=1; }
   done
-  (( found )) || ok "none"
+  (( found )) || ok "なし"
 
   echo
-  echo "hook blocking contract"
-  # A guardrail must have a path that actually blocks: exit 2 for Stop/PostToolUse, or a
-  # permissionDecision of deny/ask for PreToolUse. Any other exit code is treated as
-  # non-blocking, so a hook without one of these silently permits everything it inspects.
+  echo "hook のブロック契約"
+  # ガードレールには実際にブロックする経路が要る: Stop/PostToolUse なら exit 2、PreToolUse なら
+  # permissionDecision の deny/ask。それ以外の終了コードは非ブロック扱いで、全部を素通しする。
   found=0
   local f
   for f in "$REPO"/hooks/*.sh; do
     [[ -f "$f" ]] || continue
-    # Every hook shipped here is a guardrail, so every one must have a blocking path. The exception
-    # for a render-only status line went away with the status line itself.
+    # ここで配る hook はすべてガードレールなので、すべてにブロック経路が要る。
     grep -qE 'exit 2|permissionDecision|followup_message' "$f" \
-      || { warn "$(basename "$f") has no blocking path (no 'exit 2', no permissionDecision) -- it cannot stop anything"; found=1; }
+      || { warn "$(basename "$f") にブロック経路が無い（'exit 2' も permissionDecision も無い）。何も止められない"; found=1; }
   done
-  (( found )) || ok "all guardrail hooks can block"
+  (( found )) || ok "ガードレールの hook はすべてブロックできる"
 
   echo
-  (( problems )) && { bad "$problems problem(s) found"; return 1; }
-  ok "no problems found"
+  (( problems )) && { bad "問題 $problems 件"; return 1; }
+  ok "問題なし"
 }
 
-# ---------------------------------------------------------------- uninstall
+# ---------------------------------------------------------------- アンインストール
 
 cmd_uninstall() {
-  [[ -f "$MANIFEST" ]] || die "no manifest at ${MANIFEST/#$HOME/$TILDE} -- nothing recorded as installed"
+  [[ -f "$MANIFEST" ]] || die "${MANIFEST/#$HOME/$TILDE} にマニフェストが無い。導入の記録が無い"
 
   local skills hooks agents
   skills="$(node -e 'const m=require(process.argv[1]);(m.skills||[]).forEach(s=>console.log(s))' "$MANIFEST")"
@@ -721,65 +672,63 @@ cmd_uninstall() {
   for n in $skills; do
     local p
     for p in "$CLAUDE_SKILLS/$n" "$CURSOR_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
-      # Only remove symlinks. A real directory there is someone else's and stays.
-      if [[ -L "$p" ]]; then run rm -f "$p"; did "remove ${p/#$HOME/$TILDE}"
-      elif [[ -e "$p" ]]; then warn "${p/#$HOME/$TILDE} is not a symlink -- left in place"; fi
+      # 消すのはシンボリックリンクだけ。実ディレクトリは他人のものなので残す。
+      if [[ -L "$p" ]]; then run rm -f "$p"; did "削除 ${p/#$HOME/$TILDE}"
+      elif [[ -e "$p" ]]; then warn "${p/#$HOME/$TILDE} はシンボリックリンクではない。残す"; fi
     done
   done
 
   for n in $hooks; do
-    [[ -f "$CLAUDE_HOOKS/$n" ]] && { run rm -f "$CLAUDE_HOOKS/$n"; did "remove ~/.claude/hooks/$n"; }
+    [[ -f "$CLAUDE_HOOKS/$n" ]] && { run rm -f "$CLAUDE_HOOKS/$n"; did "削除 ~/.claude/hooks/$n"; }
   done
 
   for n in $agents; do
     local a d
     for d in "$CLAUDE_AGENTS" "$CURSOR_AGENTS"; do
       a="$d/$n.md"
-      if [[ -L "$a" ]]; then run rm -f "$a"; did "remove ${d/#$HOME/$TILDE}/$n.md"
-      elif [[ -e "$a" ]]; then warn "${d/#$HOME/$TILDE}/$n.md is not a symlink -- left in place"; fi
+      if [[ -L "$a" ]]; then run rm -f "$a"; did "削除 ${d/#$HOME/$TILDE}/$n.md"
+      elif [[ -e "$a" ]]; then warn "${d/#$HOME/$TILDE}/$n.md はシンボリックリンクではない。残す"; fi
     done
   done
 
-  # Our backups go with us. They are pre-images of a file we were editing; once we are uninstalled they
-  # are litter, and 52 of them had accumulated because nothing ever removed one.
+  # バックアップも一緒に消す。編集していたファイルの変更前の写しで、アンインストール後はごみになる。
   local t
   for t in "$HOME/.claude/settings.json" "$HOME/.cursor/hooks.json"; do
     local b
     while IFS= read -r b; do
       [[ -n "$b" ]] || continue
       run rm -f "$b"
-      did "remove ${b/#$HOME/$TILDE}"
+      did "削除 ${b/#$HOME/$TILDE}"
     done < <(ls -1 "$t".dotagents-backup-* 2>/dev/null)
   done
 
   if [[ -f "$REPO/templates/claude.settings.snippet.json" ]]; then
     if (( DRY_RUN )); then
-      note "would: revert settings keys recorded in the manifest"
+      note "実行予定: マニフェストに記録した settings のキーを戻す"
     else
       node "$REPO/scripts/lib/merge-settings.mjs" --revert "$HOME/.claude/settings.json" "$MANIFEST"
-      ok "reverted settings keys we added"
+      ok "追加した settings のキーを戻した"
     fi
   fi
 
   if [[ -f "$HOME/.cursor/hooks.json" ]]; then
     if (( DRY_RUN )); then
-      note "would: remove the Cursor hook entries recorded in the manifest"
+      note "実行予定: マニフェストに記録した Cursor の hook 項目を外す"
     else
       node "$REPO/scripts/lib/merge-settings.mjs" --revert-cursor "$HOME/.cursor/hooks.json" "$MANIFEST"
-      ok "reverted Cursor hook entries we added"
+      ok "追加した Cursor の hook 項目を戻した"
     fi
   fi
 
   (( DRY_RUN )) || rm -f "$MANIFEST"
   echo
-  ok "uninstall complete$( (( DRY_RUN )) && echo ' (dry run -- nothing changed)')"
+  ok "アンインストール完了$( (( DRY_RUN )) && echo '（dry run。何も変更していない）')"
 }
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- メイン
 
 usage() {
-  # Print the header block up to its first bare '#' line, rather than a hardcoded range that
-  # silently drifts every time a flag is documented.
+  # 冒頭のブロックを最初の '#' だけの行まで出す。行番号の決め打ちは、フラグを書き足すたびにずれる。
   sed -n '2,/^#$/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'
   exit "${1:-0}"
 }
@@ -791,13 +740,12 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
     --no-opinions)   WITH_OPINIONS=0 ;;
-    # Still accepted, and silently: it is now the default, and a warning on a flag that asks for
-    # exactly what already happens is noise. Kept because it is in this repository's own history and
-    # in muscle memory, and an unknown-option `die` on it would be a puzzling failure.
+    # 既定と同じ動作なので黙って受け付ける。履歴と手癖に残っており、未知オプションで `die` すると
+    # 首をかしげる失敗になる。
     --with-opinions) WITH_OPINIONS=1 ;;
-    --prune-scripts) warn "--prune-scripts is now the default and is ignored" ;;
+    --prune-scripts) warn "--prune-scripts は既定の動作になったので無視する" ;;
     -h|--help)       usage ;;
-    *) die "unknown option: $arg" ;;
+    *) die "不明なオプション: $arg" ;;
   esac
 done
 
@@ -807,5 +755,5 @@ case "$cmd" in
   doctor)    cmd_doctor ;;
   uninstall) cmd_uninstall ;;
   -h|--help) usage ;;
-  *) bad "unknown command: $cmd"; usage 1 ;;
+  *) bad "不明なコマンド: $cmd"; usage 1 ;;
 esac

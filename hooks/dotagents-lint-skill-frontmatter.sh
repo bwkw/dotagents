@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# preToolUse hook. Catches broken SKILL.md frontmatter before it lands.
+# preToolUse hook。壊れた SKILL.md の frontmatter を書き込み前に捕まえる。
 #
-# A skill with a missing `description` still appears in the menu; it just never gets chosen
-# automatically, and nothing says why. A skill with `disable-model-invocation` silently stops
-# being callable from other skills. Both are cheap to catch here and expensive to notice later.
+# `description` の無いスキルはメニューには出るが、自動では選ばれず、理由も出ない。
+# `disable-model-invocation` を付けたスキルは、他のスキルから黙って呼べなくなる。
 #
-# Runs on both agents. They disagree on the reply format:
+# 両エージェントで動く。返答の形が違う:
 #
 #   Claude Code  {"hookSpecificOutput": {"hookEventName": "PreToolUse",
 #                                        "permissionDecision": "deny"|"ask", ...}}
 #   Cursor       {"permission": "deny"|"ask", "user_message": ..., "agent_message": ...}
 #
-# Detected by `hook_event_name`, which only Claude Code sends.
+# 見分けは `hook_event_name` で行う（Claude Code だけが送る）。
 
 set -uo pipefail
 
@@ -33,52 +32,42 @@ process.stdin.on("end", () => {
       : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision,
                                 permissionDecisionReason: `[dotagents] ${reason}` } });
   const deny = (r) => decide("deny", r);
-  // Allowed, but with something said. This used to be `ask`, which waits for a human -- so any
-  // unattended run that wrote a SKILL.md with a weak description stalled on a permission prompt.
-  // This hook only inspects; the one that is allowed to stop a turn is the Stop gate. Anything that
-  // is genuinely broken is denied below, and everything else is a warning.
+  // 許可しつつ一言添える。`ask` は人を待つので、無人実行が権限プロンプトで止まる。
+  // このフックは検査だけで、ターンを止めてよいのは Stop ゲートだけ。本当に壊れたものは下で deny する。
   const warn = (r) => decide("allow", r);
 
   const input = ev.tool_input || {};
 
-  // Tool names differ between agents and across versions, so key off the payload shape instead:
-  // any field that looks like a path to a SKILL.md, and any field that looks like its content.
+  // ツール名はエージェントとバージョンで違うので、ペイロードの形で判定する:
+  // SKILL.md へのパスらしいフィールドと、その中身らしいフィールド。
   const path = input.file_path ?? input.path ?? input.filePath ?? input.target_file ?? "";
   if (!/(^|\/)SKILL\.md$/.test(String(path))) return allow();
 
-  // Write carries the whole file. Edit carries a fragment, so we can only judge it when the
-  // fragment itself contains the frontmatter block.
+  // Write はファイル全体を運ぶ。Edit は断片なので、frontmatter を含む断片の時だけ判定できる。
   const content = String(
     input.content ?? input.new_string ?? input.newString ?? input.contents ??
     (Array.isArray(input.edits) ? input.edits.map((e) => e.new_string ?? "").join("\n") : ""),
   );
 
-  // --- the body, before the frontmatter checks ------------------------------
-  // Everything below this block only reads frontmatter, and returned early for a fragment that did
-  // not contain one -- so the BODY of a SKILL.md was never looked at by anything. A skill body is
-  // not data, it is the instructions an agent follows: one sentence of prose added here changes
-  // behaviour, and no linter, type check or test can see the intent. That is the gap this closes.
+  // --- 本文の検査（frontmatter の検査より前） ---------------------------------
+  // 以降の検査は frontmatter しか読まず、それを含まない断片では早期に返る。本文はエージェントが従う指示で、
+  // 1 文の追加で振る舞いが変わるのに、その意図はリンターにもテストにも見えない。その穴をここで塞ぐ。
+  // Edit の断片は新しく足された文そのものなので、基準なしで読む価値がある。
   //
-  // An Edit fragment is exactly the newly-added text, which is the interesting case: it needs no
-  // baseline to be worth reading.
-  //
-  // Kept identical to the list in scripts/verify-skills.sh, which compares the two marker comments.
+  // scripts/verify-skills.sh の一覧と同一に保つ（2 つのマーカーコメントを比較している）。
   // dotagents:sensitive-body-patterns (cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~/\.aws|~/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin
   const SENSITIVE = /(cat|read|open|curl|wget|send|post|upload|include|echo)[^.]{0,40}(~\/\.aws|~\/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)|(~\/\.aws|~\/\.ssh|\.env\b|id_rsa|\.netrc|credentials|keychain)[^.]{0,40}(を読|を送|に送|include|report)|\|\s*(ba)?sh\b|base64\s+-d|nc\s+-|webhook\.site|pastebin/i;
   for (const line of content.split("\n")) {
-    // The escape hatch has to name a reason, because "allow this" with no reason is how an
-    // allowlist becomes the rule. Documented in scripts/verify-skills.sh.
+    // 抜け道には理由の記載を求める。理由なしの「許可」は許可リストが規則になる入口。
     if (/dotagents:allow-sensitive/.test(line)) continue;
     if (SENSITIVE.test(line)) {
-      // Warned, not denied. This hook fires on every SKILL.md anywhere, and a skill that genuinely
-      // deploys something may legitimately read a .env -- denying that would be this repository
-      // deciding what other people's skills may do. The gate that fails closed is the one that runs
-      // over THIS repository's own skills, in scripts/verify-skills.sh.
+      // deny ではなく警告。このフックはどこの SKILL.md にも効き、デプロイするスキルが .env を読むのは正当でありうる。
+      // 閉じる側のゲートは、このリポジトリ自身のスキルに走る scripts/verify-skills.sh。
       return warn(
-        "This SKILL.md body names a credential surface or a pipe-to-shell shape: " +
-        `"${line.trim().slice(0, 120)}". A skill body is the instructions an agent follows, and no ` +
-        "linter can see intent -- so say plainly why it is here, or drop it. If it is deliberate, " +
-        "add 'dotagents:allow-sensitive: <reason>' on that line.",
+        "SKILL.md の本文が認証情報の置き場所か、シェルへのパイプの形を含む: " +
+        `"${line.trim().slice(0, 120)}"。スキル本文はエージェントが従う指示で、意図はリンターに見えない。` +
+        "ここにある理由をはっきり書くか、削除する。意図的なら、その行に " +
+        "'dotagents:allow-sensitive: <理由>' を足す。",
       );
     }
   }
@@ -86,7 +75,7 @@ process.stdin.on("end", () => {
   if (!content.trimStart().startsWith("---")) return allow();
 
   const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!m) return deny("SKILL.md starts with '---' but the frontmatter block is never closed.");
+  if (!m) return deny("SKILL.md が '---' で始まるが、frontmatter のブロックが閉じていない。");
 
   const fm = m[1];
   const key = (k) => {
@@ -94,69 +83,63 @@ process.stdin.on("end", () => {
     return hit ? hit[1].trim() : null;
   };
 
-  if (!key("name")) return deny("SKILL.md frontmatter is missing 'name'.");
+  if (!key("name")) return deny("SKILL.md の frontmatter に 'name' が無い。");
 
   const desc = key("description");
   if (!desc) {
     return deny(
-      "SKILL.md frontmatter is missing 'description'. Without it the skill is never selected " +
-      "automatically -- it will sit in the menu looking installed and never fire.",
+      "SKILL.md の frontmatter に 'description' が無い。これが無いとスキルは自動で選ばれず、" +
+      "インストール済みに見えたままメニューに残り、発火しない。",
     );
   }
 
-  // `disable-model-invocation` is officially the right spelling for a user-invoked workflow, and it
-  // costs zero description budget. It is only wrong where something reaches this skill *by name*,
-  // because it also blocks programmatic Skill calls and subagent preloading -- silently.
+  // `disable-model-invocation` は人が打つワークフローには公式に正しい書き方で、説明の予算も食わない。
+  // 誤りになるのは名前で呼ばれるスキルだけ。プログラムからの Skill 呼び出しとサブエージェントの事前読み込みも黙って塞ぐため。
   if (/^disable-model-invocation\s*:\s*(true|yes|on|1)\s*$/m.test(fm)) {
     const name = key("name") ?? String(path).replace(/.*\/([^/]+)\/SKILL\.md$/, "$1");
 
-    // Declared as data so the list has one home per file. scripts/verify-skills.sh reads these two
-    // lines and asserts its own copies match, which is why the marker comments are load-bearing: the
-    // cross-check that exists to catch a rename was itself hardcoded to the `da-` prefix, so the
-    // x-review-* names below were unguarded while it printed a green tick.
+    // データとして宣言し、一覧の置き場をファイルごとに 1 か所にする。scripts/verify-skills.sh がこの 2 行を読み、
+    // 自分の写しと一致するか検査する。マーカーコメントはそのために要る。
     const DMI_GATE = ["da-verify"];                                                  // dotagents:dmi-gate
     const DMI_DISPATCH = ["x-review-backend", "x-review-frontend", "x-review-infra"]; // dotagents:dmi-dispatch
 
-    // /da-verify is the only thing in the toolkit that runs `gate.sh arm`. Without its auto-invocation
-    // the Stop gate never arms, so it passes every turn: the guardrail opens instead of closing.
+    // `gate.sh arm` を実行するのは /da-verify だけ。自動呼び出しが無いと Stop ゲートが arm されず、毎ターン素通りする。
     if (DMI_GATE.includes(name)) {
       return deny(
-        "Never set 'disable-model-invocation' on 'verify'. It is the only thing that runs " +
-        "'gate.sh arm', so disabling auto-invocation leaves the Stop gate unarmed and it passes " +
-        "every turn -- the guardrail fails OPEN with nothing reported. See docs/decisions.md.",
+        "'verify' に 'disable-model-invocation' を付けてはならない。'gate.sh arm' を実行するのはこれだけで、" +
+        "自動呼び出しを止めると Stop ゲートが arm されず毎ターン素通りする。ガードレールが" +
+        "何も報告せずに開いたままになる。docs/decisions.md を参照。",
       );
     }
 
-    // da-review-all dispatches to these by name via a subagent.
+    // da-review-all がサブエージェント経由で名前で呼ぶ。
     if (DMI_DISPATCH.includes(name)) {
       return deny(
-        `'${name}' is a by-name dispatch target of da-review-all, and ` +
-        "'disable-model-invocation' blocks programmatic Skill calls and subagent preloading too. " +
-        "Setting it makes da-review-all report that layer as covered while reviewing nothing, with " +
-        "no error. See docs/decisions.md.",
+        `'${name}' は da-review-all が名前で呼ぶ先で、` +
+        "'disable-model-invocation' はプログラムからの Skill 呼び出しとサブエージェントの事前読み込みも塞ぐ。" +
+        "付けると da-review-all はその層をレビュー済みと報告しつつ、何もレビューしない。" +
+        "エラーも出ない。docs/decisions.md を参照。",
       );
     }
 
-    // Anything else may set it. Warn about the cost, because it is easy to set on a skill you later
-    // want another skill to call.
+    // それ以外は付けてよい。後で別のスキルから呼びたくなるスキルに付けがちなので、代償を警告する。
     return warn(
-      `'${name}' will become user-invocable only: its description leaves Claude's context ` +
-      "entirely (zero budget cost), it will never fire automatically, and no other skill or " +
-      "subagent can reach it by name. Correct for side-effectful workflows you always type " +
-      "yourself. Wrong if anything dispatches to it by name.",
+      `'${name}' は人が打つ専用になる: 説明文は Claude のコンテキストから完全に外れ（予算は 0）、` +
+      "自動では発火せず、他のスキルやサブエージェントから名前で呼べなくなる。" +
+      "副作用のあるワークフローを常に自分で打つなら正しい。" +
+      "何かが名前で呼んでいるなら誤り。",
     );
   }
 
-  // A description with no sense of *when* to use the skill cannot be matched against a request.
+  // いつ使うかが書かれていない説明文は、依頼と照合できない。
   // dotagents:when-clause-tokens use (this|it|when)|when |after |before |時|する場合
-  // Kept identical to the list in scripts/verify-skills.sh, which verify-skills.sh itself checks.
-  // They disagreed: the linter accepted a Japanese clause and this hook did not, so a Japanese
-  // description passed the lint and then met a permission prompt from the hook.
+  // scripts/verify-skills.sh の一覧と同一に保つ（verify-skills.sh 自身が検査する）。
+  // 食い違うと、リンターを通った日本語の説明文がこのフックの権限プロンプトで止まる。
   if (!/use (this|it|when)|when |after |before |時|する場合/i.test(desc)) {
     return warn(
-      "This description says what the skill does but not when to use it, so auto-invocation " +
-      "will be unreliable. Add a clause naming the situations that should trigger it " +
-      '("use when ..."), unless it is meant to be invoked only by name.',
+      "説明文に何をするかはあるが、いつ使うかが無いので、自動呼び出しが当てにならない。" +
+      "発火させたい状況を示す句（「〜する時に使う」）を足す。" +
+      "名前でだけ呼ぶつもりなら不要。",
     );
   }
 
@@ -164,16 +147,13 @@ process.stdin.on("end", () => {
 });
 NODE
 
-# Read through an explicit descriptor rather than bare stdin. With fd 0 closed, bash hands the lowest
-# free descriptor to the next pipe it builds -- fd 0 -- and a reader then blocks on its own output
-# pipe. The gate hook hung exactly that way. Here the consequence is a stalled Write rather than a gate
-# that fails open, but a hook that can hang is a hook that can stop an unattended run either way.
-# Probed in a subshell: `exec` with a redirection and no command applies it to the shell for good, so
-# testing with `exec 3<&0 2>/dev/null` would silence this hook's own stderr from then on.
+# 素の stdin ではなく明示的な記述子から読む。fd 0 が閉じていると、bash は次に作るパイプに fd 0 を渡し、
+# 読み手が自分の出力パイプで固まる。ハングしうるフックは無人実行を止めうる。
+# サブシェルで試すのは、コマンド無しの `exec` とリダイレクトがシェル全体に永続して、stderr まで黙らせるため。
 if ( exec 3<&0 ) 2>/dev/null; then exec 3<&0; else exec 3</dev/null; fi
 
-# A hook that crashes must not block ordinary edits, so anything unexpected falls through open.
-# This one only inspects; the gate that must fail closed is dotagents-verify-gate.sh.
+# クラッシュしたフックが通常の編集を塞いではならないので、想定外はすべて開く側に落とす。
+# 閉じる側に落ちなければならないゲートは dotagents-verify-gate.sh。
 node -e "$LINTER" <&3 2>/dev/null || true
 exec 3<&-
 exit 0

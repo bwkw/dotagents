@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
-# Tests for the installer, against a fake HOME. Nothing here touches the real one.
+# インストーラのテスト。偽の HOME に対して動かし、本物の HOME には触れない。
 #
-# The installer is the component that edits files it does not own -- agent settings holding
-# credentials, hooks registered by other tools. It had syntax checks and nothing else, while the
-# gate had 42 behavioural tests. That was the wrong way round.
+# インストーラは自分のものではないファイル（認証情報を持つエージェント設定、他ツールの hook）を
+# 書き換えるので、構文検査だけでなく振る舞いのテストが要る。
 
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 
-# One probe is created inside the repository under test, because pruning is what it exercises: the
-# installer only prunes what the repo has stopped shipping, so the repo has to stop shipping
-# something. It is removed inline, and named in the trap as well -- without that, an abort between
-# creating and removing it leaves skills/ephemeral-probe in the working tree, and a loop that runs
-# check.sh and then commits would commit it.
+# 刈り込みを試すため、テスト中のリポジトリ内にプローブを 1 つ作る。途中で中断しても
+# skills/ephemeral-probe が作業ツリーに残って commit されないよう、trap でも消す。
 PROBE_STAGED="$REPO/skills/_ephemeral-probe"
 PROBE_LIVE="$REPO/skills/ephemeral-probe"
 trap 'rm -rf "$TMP" "$PROBE_STAGED" "$PROBE_LIVE"' EXIT INT TERM
@@ -23,18 +19,17 @@ pass=0; fail=0
 c_red=$'\033[31m'; c_green=$'\033[32m'; c_off=$'\033[0m'
 ok()   { printf '%s✓%s %s\n' "$c_green" "$c_off" "$1"; pass=$((pass+1)); }
 no()   { printf '%s✗%s %s\n' "$c_red" "$c_off" "$1"; fail=$((fail+1)); }
-check(){ if [[ "$2" == "$3" ]]; then ok "$1"; else no "$1 (expected [$2], got [$3])"; fi; }
+check(){ if [[ "$2" == "$3" ]]; then ok "$1"; else no "$1 (期待 [$2]、実際 [$3])"; fi; }
 
 FAKE="$TMP/home"
 mkdir -p "$FAKE/.claude" "$FAKE/.cursor"
 
-# The installer refuses a linked worktree so a removed worktree cannot take the toolkit with it.
-# This suite still has to run from one: the verify gate and the loop both work there. Fake HOME
-# is throwaway, so the danger the guard exists for does not apply -- lift it for every install
-# below, and re-assert the guard itself in a miniature tree that is shaped like a worktree.
+# インストーラは linked worktree を拒むが、このテストは worktree の中でも動く必要がある。
+# 偽の HOME なので守る対象の危険は無く、以下の install では逃げ道を開ける。拒否そのものは
+# worktree の形をした小さなツリーで別に確かめる。
 export DOTAGENTS_ALLOW_WORKTREE_INSTALL=1
 
-# A settings file that looks like a real one: a secret we must never touch, and another tool's hook.
+# 本物らしい設定ファイル: 触ってはいけない秘密と、他ツールの hook。
 cat > "$FAKE/.claude/settings.json" <<'JSON'
 {
   "model": "opus",
@@ -54,54 +49,48 @@ cp "$FAKE/.cursor/hooks.json" "$TMP/cursor.before"
 run_setup() { HOME="$FAKE" bash "$REPO/scripts/setup.sh" "$@" 2>&1; }
 j() { node -e 'const f=process.argv[1];try{console.log(JSON.stringify(require(f)))}catch{console.log("{}")}' "$1"; }
 
-echo "installer"
+echo "インストーラ"
 echo
 
-# --no-opinions first, on a machine that has never been installed to: the mechanism must land and the
-# opinion keys must not. This is the assertion that keeps the filtering real now that it is no longer
-# the default -- a flag nothing tests is a flag that stops working quietly. The hook has to be there
-# in the same breath, because an install that skipped the mechanism too would satisfy a check that
-# only looked for absence.
+# 未インストールの環境で --no-opinions を先に試す。仕組みは入り、好みのキーは入らないこと。
+# 仕組みごと飛ばしたインストールでも「無いこと」の検査は通るので、hook があることも同時に見る。
 run_setup install --no-opinions >/dev/null
 mech() { node -e 'const f=process.argv[1];try{const s=require(f);console.log(JSON.stringify(s.skillOverrides?.["claude-api"] ?? null), JSON.stringify(s.env?.OTEL_LOG_TOOL_DETAILS ?? null))}catch{console.log("ERR")}' "$FAKE/.claude/settings.json"; }
-check "--no-opinions applies no opinion keys" "null null" "$(mech)"
+check "--no-opinions は好みのキーを入れない" "null null" "$(mech)"
 grep -q 'dotagents-verify-gate' "$FAKE/.claude/settings.json" \
-  && ok "--no-opinions still wires the Stop gate" || no "the mechanism was skipped as well"
+  && ok "--no-opinions でも Stop ゲートは配線する" || no "仕組みまで飛ばされた"
 
-# ...and now the default, which is what the author actually runs.
+# 次に既定のインストール。
 run_setup install >/dev/null
-check "install links every shipped skill" \
+check "install は同梱のスキルを全部リンクする" \
   "$(ls "$REPO/skills" | grep -vc '^_')" "$(ls "$FAKE/.claude/skills" | wc -l | tr -d ' ')"
-check "a default install applies the opinion keys" '"name-only" "1"' "$(mech)"
+check "既定のインストールは好みのキーを入れる" '"name-only" "1"' "$(mech)"
 
 grep -q 'do-not-touch-me' "$FAKE/.claude/settings.json" \
-  && ok "a secret we did not write is untouched" || no "THE SECRET WAS ALTERED"
+  && ok "書いていない秘密は無傷" || no "秘密が書き換えられた"
 
-# skillOverrides is a map we share with the user: we add entries, we must not rewrite theirs. `pdf`
-# is deliberately set to a DIFFERENT value than our snippet asks for, so it exercises the
-# "already set to something else -- not ours to change" branch rather than a no-op.
+# skillOverrides はユーザーと共有する map。項目は足すが、ユーザーのものは書き換えない。
+# `pdf` はこちらの指定と別の値にしてあり、「別の値が既にある」分岐を通す。
 so() { node -e 'const f=process.argv[1];try{const s=require(f).skillOverrides||{};console.log(s[process.argv[2]]??"absent")}catch{console.log("absent")}' "$FAKE/.claude/settings.json" "$1"; }
-check "an override the user set to a different value is left alone" "on"  "$(so pdf)"
-check "an override for a skill we know nothing about survives"     "off" "$(so someone-elses-skill)"
-check "our own override is applied"      "name-only" "$(so claude-api)"
-check "an 'off' override is applied"     "off"       "$(so 'anthropic-skills:schedule')"
+check "ユーザーが別の値にした override はそのまま" "on"  "$(so pdf)"
+check "知らないスキルの override は残る"           "off" "$(so someone-elses-skill)"
+check "こちらの override が入る"      "name-only" "$(so claude-api)"
+check "'off' の override が入る"      "off"       "$(so 'anthropic-skills:schedule')"
 
 grep -q 'other-tool hook' "$FAKE/.claude/settings.json" \
-  && ok "another tool's PreToolUse hook survives" || no "another tool's hook was dropped"
+  && ok "他ツールの PreToolUse hook は残る" || no "他ツールの hook が消えた"
 grep -q 'notify.sh' "$FAKE/.claude/settings.json" \
-  && ok "another tool's Stop hook survives" || no "another tool's Stop hook was dropped"
+  && ok "他ツールの Stop hook は残る" || no "他ツールの Stop hook が消えた"
 grep -q 'other-tool' "$FAKE/.cursor/hooks.json" \
-  && ok "another tool's Cursor hook survives" || no "another tool's Cursor hook was dropped"
+  && ok "他ツールの Cursor hook は残る" || no "他ツールの Cursor hook が消えた"
 
-# Hook commands must be absolute, or the shell cannot start them and the guardrail fails open.
+# hook のコマンドは絶対パスでないとシェルが起動できず、ガードレールが素通しになる。
 grep -q '\$HOME' "$FAKE/.claude/settings.json" \
-  && no "a hook command still contains an unexpanded \$HOME" \
-  || ok "hook commands are absolute"
+  && no "hook のコマンドに展開されていない \$HOME が残っている" \
+  || ok "hook のコマンドは絶対パス"
 
-# The Stop hook must carry an explicit timeout. Left to the harness default, a slow suite gets the
-# hook killed -- and a killed hook exits with neither 0 nor 2, which is non-blocking. That is the gate
-# turning into a silent pass, the one failure it exists to prevent. It also has to be larger than the
-# gate's own budget, so our clock is the one that fires and the timeout is an event we can record.
+# Stop hook には明示の timeout が要る。harness に殺された hook は 0 でも 2 でもなく終わり、
+# ブロックしない（ゲートが黙って素通しになる）。ゲート自身の予算より大きくし、先にこちらの時計を鳴らす。
 hook_timeout() { # <event> <substring>
   node -e '
     const s = require(process.argv[1]);
@@ -115,45 +104,38 @@ hook_timeout() { # <event> <substring>
 }
 st="$(hook_timeout Stop dotagents-verify-gate)"
 [[ "$st" != "absent" ]] && (( st > 780 )) \
-  && ok "the Stop hook timeout exceeds the gate's worst case (600+180) (${st}s)" \
-  || no "the Stop hook timeout is $st -- a harness kill is non-blocking, so this fails open"
+  && ok "Stop hook の timeout はゲートの最悪値（600+180）を超える（${st} 秒）" \
+  || no "Stop hook の timeout が ${st} -- harness に殺されるとブロックしないので素通しになる"
 [[ "$(hook_timeout PreToolUse dotagents-lint-skill-frontmatter)" != "absent" ]] \
-  && ok "the lint hook declares a timeout too" \
-  || no "the lint hook has no timeout"
+  && ok "lint hook も timeout を宣言している" \
+  || no "lint hook に timeout が無い"
 
-# Subagents have to reach both agents. `setup.sh` used to link only ~/.claude/agents/ on the strength
-# of a comment claiming Cursor reads that directory too -- which is not in Cursor's documentation
-# (it names .cursor/agents/ and ~/.cursor/agents/), and ~/.cursor/agents/ was empty on the author's
-# machine. So the README claimed both subagents existed in every repository while Cursor had neither.
+# サブエージェントは両方のエージェントに届かなければならない。Cursor が読むのは
+# .cursor/agents/ と ~/.cursor/agents/ で、~/.claude/agents/ だけでは Cursor に届かない。
 for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
   [[ -L "$FAKE/.claude/agents/$a.md" ]] \
-    && ok "agent '$a' is linked for Claude Code" || no "agent '$a' missing from ~/.claude/agents"
+    && ok "エージェント '${a}' が Claude Code 向けにリンクされている" || no "エージェント '${a}' が ~/.claude/agents に無い"
   [[ -L "$FAKE/.cursor/agents/$a.md" ]] \
-    && ok "agent '$a' is linked for Cursor" || no "agent '$a' missing from ~/.cursor/agents"
+    && ok "エージェント '${a}' が Cursor 向けにリンクされている" || no "エージェント '${a}' が ~/.cursor/agents に無い"
 done
 
-# install twice must change nothing further. Same flags both times: idempotence is a property of
-# running the same command again, and comparing two different installs would test something else.
+# 2 回目の install は何も変えない。冪等性は同じコマンドの再実行の性質なので、フラグも同じにする。
 cp "$FAKE/.claude/settings.json" "$TMP/after1"
 run_setup install >/dev/null
 cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
-  && ok "install is idempotent" || no "a second install changed settings again"
+  && ok "install は冪等" || no "2 回目の install が設定をまた変えた"
 
-# ...and an install that changes nothing must not leave a backup behind. The old code took a
-# timestamped copy on every install whether anything moved or not, and never removed one: 52 files,
-# 208 KB, had accumulated on the author's machine. A backup nobody can distinguish from 51 others is
-# not a safety net, and an unattended loop that re-installs per iteration grows it without limit.
+# 何も変えない install はバックアップを残さない。区別できないバックアップの山は安全網にならず、
+# 反復ごとに入れ直すループでは際限なく増える。
 backups() { ls -1 "$FAKE/.claude/settings.json".dotagents-backup-* 2>/dev/null | wc -l | tr -d ' '; }
 before_n="$(backups)"
 run_setup install >/dev/null
 [[ "$(backups)" == "$before_n" ]] \
-  && ok "an install that changes nothing takes no backup" \
-  || no "a no-op install still took a backup ($before_n -> $(backups))"
+  && ok "何も変えない install はバックアップを取らない" \
+  || no "何も変えない install がバックアップを取った（${before_n} -> $(backups)）"
 
-# The worktree guard has to stay real. REPO is derived from setup.sh's location, so stage a
-# miniature tree with a `.git` *file* (the linked-worktree shape) and the same installer, then
-# call it without the escape hatch. A suite that only ever ran from the main checkout would
-# never notice the guard had broken -- or that the suite itself could no longer run in a worktree.
+# worktree ガードが生きているか。REPO は setup.sh の場所から決まるので、`.git` を *ファイル* にした
+# （linked worktree の形の）小さなツリーに同じインストーラを置き、逃げ道なしで呼ぶ。
 WT_PROBE="$TMP/worktree-shaped"
 mkdir -p "$WT_PROBE/scripts" "$WT_PROBE/skills" "$WT_PROBE/hooks" "$WT_PROBE/agents"
 cp "$REPO/scripts/setup.sh" "$WT_PROBE/scripts/setup.sh"
@@ -165,29 +147,27 @@ wt_out="$(
   echo "rc=$?"
 )"
 grep -q 'linked git worktree' <<<"$wt_out" && grep -q 'rc=1' <<<"$wt_out" \
-  && ok "install from a linked-worktree-shaped tree refuses" \
-  || no "worktree guard did not refuse: $(tr '\n' ' ' <<<"$wt_out")"
+  && ok "linked worktree の形のツリーからの install は拒否される" \
+  || no "worktree ガードが拒否しなかった: $(tr '\n' ' ' <<<"$wt_out")"
 [[ ! -e "$wt_home/.claude/.dotagents-managed.json" ]] && [[ ! -d "$wt_home/.claude/hooks" ]] \
-  && ok "   ...and wrote nothing before refusing" \
-  || no "   worktree-shaped install wrote something: $(ls -a "$wt_home/.claude" 2>/dev/null | tr '\n' ' ')"
+  && ok "   ...拒否の前に何も書いていない" \
+  || no "   worktree の形の install が何か書いた: $(ls -a "$wt_home/.claude" 2>/dev/null | tr '\n' ' ')"
 
-# A destination that is not ours must stop the install before anything is written. link_skill returned
-# 1 in that case, and under `set -e` that ended the script partway: some skills linked, no hooks
-# copied, no settings merged, no manifest to uninstall from. The node preflight was added to prevent
-# exactly that state; this reached it by another route.
+# こちらのものではない置き場所があれば、何も書く前に install を止める。途中で止まると
+# 一部のスキルだけリンクされ、hook も設定もマニフェストも無い（uninstall できない）状態になる。
 CLASH="$TMP/clash-home"
-mkdir -p "$CLASH/.claude" "$CLASH/.agents/skills/da-verify"     # a real directory where a link belongs
+mkdir -p "$CLASH/.claude" "$CLASH/.agents/skills/da-verify"     # リンクがあるべき場所に実ディレクトリ
 clash_out="$(HOME="$CLASH" bash "$REPO/scripts/setup.sh" install 2>&1; echo "rc=$?")"
 grep -q 'rc=0' <<<"$clash_out" \
-  && no "an install over a foreign directory succeeded -- it should refuse" \
-  || ok "an install over a foreign directory refuses"
+  && no "他人のディレクトリの上への install が成功した -- 拒否すべき" \
+  || ok "他人のディレクトリの上への install は拒否される"
 [[ ! -e "$CLASH/.claude/.dotagents-managed.json" ]] && [[ ! -d "$CLASH/.claude/hooks" ]] \
-  && ok "   ...and wrote nothing at all (no manifest, no hooks)" \
-  || no "   it wrote something before refusing: $(ls -a "$CLASH/.claude" | tr '\n' ' ')"
-grep -qi 'nothing has been changed' <<<"$clash_out" \
-  && ok "   ...and says so" || no "   refused without saying nothing changed"
+  && ok "   ...何も書いていない（マニフェストも hook も無い）" \
+  || no "   拒否の前に何か書いた: $(ls -a "$CLASH/.claude" | tr '\n' ' ')"
+grep -q '何も変更していない' <<<"$clash_out" \
+  && ok "   ...そう伝えている" || no "   何も変えていないと伝えずに拒否した"
 
-# The reason this file exists: a skill removed from the repo must stop being installed, with no flag.
+# このファイルの本題: リポジトリから消したスキルは、フラグなしでインストールされなくなる。
 mkdir -p "$PROBE_STAGED"
 cat > "$PROBE_STAGED/SKILL.md" <<'SK'
 ---
@@ -201,22 +181,21 @@ none
 SK
 mv "$PROBE_STAGED" "$PROBE_LIVE"
 run_setup install >/dev/null
-[ -e "$FAKE/.claude/skills/ephemeral-probe" ] && ok "a new skill is picked up" || no "new skill not linked"
+[ -e "$FAKE/.claude/skills/ephemeral-probe" ] && ok "新しいスキルが拾われる" || no "新しいスキルがリンクされていない"
 rm -r "$PROBE_LIVE"
 run_setup install >/dev/null
 [ -e "$FAKE/.claude/skills/ephemeral-probe" ] \
-  && no "a deleted skill is still installed -- pruning is not automatic" \
-  || ok "a deleted skill is pruned without a flag"
+  && no "消したスキルがまだ入っている -- 刈り込みが自動でない" \
+  || ok "消したスキルはフラグなしで刈り込まれる"
 [ -L "$FAKE/.claude/skills/ephemeral-probe" ] \
-  && no "a dangling symlink was left behind" || ok "no dangling symlink left behind"
+  && no "宙に浮いたシンボリックリンクが残った" || ok "宙に浮いたシンボリックリンクは残らない"
 
-# uninstall must take back exactly what was added, and nothing else.
+# uninstall は足したものを過不足なく戻す。
 run_setup uninstall >/dev/null
 
-# Content, not bytes. The merge rewrites JSON with a fixed 2-space layout, so an original formatted
-# any other way cannot come back identical -- the README used to claim it did, which was false.
-# JSON.parse, not require: require() decides how to read a file from its extension, and these
-# fixtures have none -- so it parsed them as JavaScript and threw.
+# バイトではなく内容で比べる。マージは JSON を 2 スペース固定で書き直すので、別の整形の原本は
+# バイト一致では戻らない。require ではなく JSON.parse を使うのは、拡張子の無いフィクスチャを
+# require が JavaScript として読んで落ちるため。
 pretty() { node -e '
   const fs = require("fs");
   console.log(JSON.stringify(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), null, 2));
@@ -237,59 +216,53 @@ same_content() { # same_content <before> <after> <label>
   ' "$1" "$2"; then ok "$3"; else no "$3"; diff <(pretty "$1") <(pretty "$2") | head -8; fi
 }
 same_content "$TMP/settings.before" "$FAKE/.claude/settings.json" \
-  "uninstall restores every settings key to its original value"
+  "uninstall で設定のキーがすべて元の値に戻る"
 same_content "$TMP/cursor.before" "$FAKE/.cursor/hooks.json" \
-  "uninstall restores Cursor hooks to their original value"
+  "uninstall で Cursor の hook が元の値に戻る"
 
 grep -q 'dotagents' "$FAKE/.claude/settings.json" \
-  && no "uninstall left one of our entries behind" || ok "nothing of ours is left in settings"
+  && no "uninstall がこちらの項目を残した" || ok "設定にこちらのものは何も残らない"
 [ -d "$FAKE/.claude/skills" ] && [ "$(ls "$FAKE/.claude/skills" | wc -l | tr -d ' ')" = "0" ] \
-  && ok "no skill links remain" || no "skill links remain after uninstall"
+  && ok "スキルのリンクは残らない" || no "uninstall 後もスキルのリンクが残っている"
 
 echo
-# Uninstall has to clear both agent directories. Leaving one behind is the same failure as the install
-# side: the toolkit reports itself gone while Cursor still dispatches to a subagent it defines.
+# uninstall は両方のエージェントのディレクトリを片付ける。片方が残ると、消えたはずのツールの
+# サブエージェントに Cursor がまだ振り分ける。
 left="$(ls "$FAKE/.claude/agents" "$FAKE/.cursor/agents" 2>/dev/null | grep -c '\.md$' || true)"
 [[ "$left" == "0" ]] \
-  && ok "uninstall leaves no agent links in either directory" \
-  || no "$left agent link(s) survived uninstall"
+  && ok "uninstall はどちらのディレクトリにもエージェントのリンクを残さない" \
+  || no "uninstall 後もエージェントのリンクが ${left} 個残った"
 
-# --- bounded state, after the uninstall comparisons ----------------------------
-# Last, because both of these overwrite the settings fixture to force a real merge, and the uninstall
-# assertions above compare against the original bytes.
+# --- 状態の上限（uninstall の比較の後） ----------------------------------------
+# 最後に置くのは、以下が設定のフィクスチャを上書きしてマージを起こし、上の uninstall の比較が
+# 原本のバイトに依るため。
 run_setup install >/dev/null
 
-# And the count is bounded. Seeded with distinct old stamps rather than by installing in a loop: the
-# stamp is second-resolution, so five installs inside one second reused one filename and the test
-# passed while proving nothing.
+# 数に上限がある。スタンプは秒単位で、1 秒内の連続 install は同じファイル名になり何も証明しないので、
+# ループで入れる代わりに古い別々のスタンプを種として置く。
 for d in 20200101000001 20200101000002 20200101000003 20200101000004 20200101000005; do
   : > "$FAKE/.claude/settings.json.dotagents-backup-$d"
 done
 seeded="$(backups)"
-# Deliberately NOT forcing a change: the cap has to apply on a no-op install too. Enforcing it only on
-# the path that creates a backup left ~/.cursor/hooks.json with 24 of them, because that file had
-# stopped changing and nothing reached the pile again.
+# わざと変更を起こさない。上限は何も変えない install にも効く必要がある。
 run_setup install >/dev/null
 (( $(backups) <= 3 )) \
-  && ok "backups are pruned to 3 generations (was $seeded, now $(backups))" \
-  || no "$(backups) backups kept out of $seeded seeded -- the count is unbounded"
-# The newest must be the ones kept, or the pruning threw away the pre-image you would actually want.
+  && ok "バックアップは 3 世代に刈り込まれる（${seeded} から $(backups) へ）" \
+  || no "種 ${seeded} 個に対してバックアップが $(backups) 個残った -- 数に上限が無い"
+# 残すのは新しい方。でないと本当に欲しい変更前の姿を捨てることになる。
 ls -1 "$FAKE/.claude/settings.json".dotagents-backup-* 2>/dev/null | grep -q '20200101000001' \
-  && no "pruning kept the oldest backup and dropped newer ones" \
-  || ok "   the oldest were the ones dropped"
+  && no "刈り込みが最古を残し、新しい方を捨てた" \
+  || ok "   捨てられたのは古い方"
 
-# The manifest is the only record uninstall has of what to take back, so a duplicate entry is a
-# request to remove something that does not exist. `dropOurs` clears every spelling of our hooks from
-# settings.json before rewriting, but the manifest side only appended -- so an old spelling stayed
-# forever. Four records for two hooks, measured.
+# マニフェストは uninstall が戻すものの唯一の記録で、重複は存在しないものの削除要求になる。
+# settings.json 側は旧表記も消すが、マニフェスト側が追記だけだと旧表記が残り続ける。
 mrec() { node -e '
   const m = require(process.argv[1]);
   console.log((m[process.argv[2]] ?? []).length);
 ' "$FAKE/.claude/.dotagents-managed.json" "$1"; }
 
-# Seeded with the stale spelling, because a clean fake HOME cannot reproduce it -- the four records on
-# the real machine came from a version that recorded an unresolved $HOME. A test that starts clean
-# would pass without the fix.
+# 旧表記（展開されていない $HOME）はきれいな偽の HOME では再現できず、修正なしでも通ってしまうので、
+# 種として入れておく。
 node -e '
   const fs = require("fs"), p = process.argv[1];
   const m = JSON.parse(fs.readFileSync(p, "utf8"));
@@ -304,18 +277,18 @@ node -e '
   ];
   fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
 ' "$FAKE/.claude/.dotagents-managed.json"
-printf '{"model":"haiku"}\n' > "$FAKE/.claude/settings.json"    # force a real merge
+printf '{"model":"haiku"}\n' > "$FAKE/.claude/settings.json"    # 実際のマージを起こす
 run_setup install >/dev/null
-check "a stale hook spelling is dropped from the manifest, not accumulated" 3 "$(mrec settingsHooks)"
-check "the Cursor side too" 2 "$(mrec cursorHooks)"
+check "hook の旧表記はマニフェストから消え、溜まらない" 3 "$(mrec settingsHooks)"
+check "Cursor 側も同じ" 2 "$(mrec cursorHooks)"
 node -e '
   const m = require(process.argv[1]);
   process.exit((m.settingsHooks ?? []).some(h => (h.command ?? "").includes("someone-elses-hook")) ? 0 : 1);
 ' "$FAKE/.claude/.dotagents-managed.json" \
-  && ok "   ...and a record that is not ours is left on the manifest" \
-  || no "   a foreign manifest record was dropped -- uninstall would stop knowing about it"
+  && ok "   ...こちらのものではない記録はマニフェストに残る" \
+  || no "   他人のマニフェスト記録が消えた -- uninstall がそれを知らなくなる"
 
 
-if (( fail )); then printf '%s%d passed, %d failed%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1; fi
+if (( fail )); then printf '%s成功 %d 件、失敗 %d 件%s\n' "$c_red" "$pass" "$fail" "$c_off"; exit 1; fi
 
-printf '%s✓ %d passed%s\n' "$c_green" "$pass" "$c_off"
+printf '%s✓ 成功 %d 件%s\n' "$c_green" "$pass" "$c_off"
