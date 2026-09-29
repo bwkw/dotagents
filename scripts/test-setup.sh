@@ -45,6 +45,11 @@ cp "$FAKE/.claude/settings.json" "$TMP/settings.before"
 printf '{ "version": 1, "hooks": { "preToolUse": [ { "command": "other-tool", "matcher": "Shell" } ] } }\n' \
   > "$FAKE/.cursor/hooks.json"
 cp "$FAKE/.cursor/hooks.json" "$TMP/cursor.before"
+mkdir -p "$FAKE/.codex/agents"
+printf '{ "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "other-tool stop" } ] } ] } }\n' \
+  > "$FAKE/.codex/hooks.json"
+cp "$FAKE/.codex/hooks.json" "$TMP/codex.before"
+printf 'name = "mine"\ndescription = "x"\ndeveloper_instructions = "x"\n' > "$FAKE/.codex/agents/mine.toml"
 
 run_setup() { HOME="$FAKE" bash "$REPO/scripts/setup.sh" "$@" 2>&1; }
 j() { node -e 'const f=process.argv[1];try{console.log(JSON.stringify(require(f)))}catch{console.log("{}")}' "$1"; }
@@ -110,6 +115,14 @@ st="$(hook_timeout Stop dotagents-verify-gate)"
   && ok "lint hook も timeout を宣言している" \
   || no "lint hook に timeout が無い"
 
+# Codex の hook は Claude Code と同じ形なので、同じ項目（timeout 込み）が ~/.codex/hooks.json に入る。
+codex_hook() { node -e 'const f=process.argv[1];try{const s=require(f);const h=(s.hooks?.[process.argv[2]]??[]).flatMap(m=>m.hooks??[]).find(h=>h.command.includes(process.argv[3]));console.log(h?`${h.timeout}`:"absent")}catch{console.log("absent")}' "$FAKE/.codex/hooks.json" "$1" "$2"; }
+[[ "$(codex_hook Stop dotagents-verify-gate)" == "$(hook_timeout Stop dotagents-verify-gate)" ]] \
+  && ok "Codex にも Stop ゲートを同じ timeout で配線する" || no "Codex の Stop ゲートが無いか timeout が違う"
+[[ "$(codex_hook PreToolUse dotagents-lint-skill-frontmatter)" != "absent" ]] \
+  && ok "Codex にも lint hook を配線する" || no "Codex に lint hook が無い"
+grep -q 'other-tool stop' "$FAKE/.codex/hooks.json" && ok "Codex の他人の hook は残る" || no "Codex の他人の hook が消えた"
+
 # サブエージェントは両方のエージェントに届かなければならない。Cursor が読むのは
 # .cursor/agents/ と ~/.cursor/agents/ で、~/.claude/agents/ だけでは Cursor に届かない。
 for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
@@ -118,6 +131,30 @@ for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
   [[ -L "$FAKE/.cursor/agents/$a.md" ]] \
     && ok "エージェント '${a}' が Cursor 向けにリンクされている" || no "エージェント '${a}' が ~/.cursor/agents に無い"
 done
+
+# Codex は Markdown のエージェントを読まない。~/.codex/agents/*.toml の name・description・
+# developer_instructions が必須で、model を書くとセッションのモデルを上書きする（不変条件 10）。
+# 本物の TOML パーサが無いので、Codex が起動時に弾く形をここで最低限見る。
+for a in $(ls "$REPO/agents" | sed 's/\.md$//'); do
+  t="$FAKE/.codex/agents/$a.toml"
+  if [[ -f "$t" ]]; then
+    grep -q "^name = \"$a\"$" "$t" && grep -q '^description = "' "$t" && grep -q '^developer_instructions = "' "$t" \
+      && ok "エージェント '${a}' が Codex 向けの TOML になっている" || no "エージェント '${a}' の TOML に必須キーが無い"
+    grep -q '^model' "$t" && no "エージェント '${a}' の TOML がモデルを固定している" || ok "エージェント '${a}' の TOML はモデルを固定しない"
+    grep -q '^sandbox_mode = "read-only"$' "$t" \
+      && ok "readonly のエージェント '${a}' は Codex でも read-only" || no "エージェント '${a}' が Codex で書き込める"
+  else
+    no "エージェント '${a}' が ~/.codex/agents に無い"
+  fi
+done
+
+# バックアップの無い対象（初めて作る ~/.codex/hooks.json）で、刈り取りがカレントディレクトリを列挙して
+# 消しにいかないこと。prune_skills の nullglob が漏れると、空の glob で `ls -1` が cwd を並べ、4 件目以降を rm していた。
+FRESH="$TMP/fresh-home"; CWDP="$TMP/cwd-probe"
+mkdir -p "$FRESH" "$CWDP"; touch "$CWDP"/{a,b,c,d,e}
+fresh_rc="$(cd "$CWDP" && HOME="$FRESH" bash "$REPO/scripts/setup.sh" install >/dev/null 2>&1; echo $?)"
+check "バックアップの無い新しい HOME でも install が通る" 0 "$fresh_rc"
+check "install はカレントディレクトリのファイルを消さない" 5 "$(ls "$CWDP" | wc -l | tr -d ' ')"
 
 # 2 回目の install は何も変えない。冪等性は同じコマンドの再実行の性質なので、フラグも同じにする。
 cp "$FAKE/.claude/settings.json" "$TMP/after1"
@@ -217,6 +254,8 @@ same_content() { # same_content <before> <after> <label>
 }
 same_content "$TMP/settings.before" "$FAKE/.claude/settings.json" \
   "uninstall で設定のキーがすべて元の値に戻る"
+same_content "$TMP/codex.before" "$FAKE/.codex/hooks.json" \
+  "uninstall で Codex の hook が元の値に戻る"
 same_content "$TMP/cursor.before" "$FAKE/.cursor/hooks.json" \
   "uninstall で Cursor の hook が元の値に戻る"
 
@@ -229,6 +268,10 @@ echo
 # uninstall は両方のエージェントのディレクトリを片付ける。片方が残ると、消えたはずのツールの
 # サブエージェントに Cursor がまだ振り分ける。
 left="$(ls "$FAKE/.claude/agents" "$FAKE/.cursor/agents" 2>/dev/null | grep -c '\.md$' || true)"
+left_codex="$(ls "$FAKE/.codex/agents" 2>/dev/null | grep -c '\.toml$' || true)"
+[[ "$left_codex" == "1" ]] \
+  && ok "uninstall は Codex の生成物だけを消し、他人の TOML は残す" \
+  || no "uninstall 後の ~/.codex/agents の TOML が ${left_codex} 個（期待 1: 他人のもの）"
 [[ "$left" == "0" ]] \
   && ok "uninstall はどちらのディレクトリにもエージェントのリンクを残さない" \
   || no "uninstall 後もエージェントのリンクが ${left} 個残った"

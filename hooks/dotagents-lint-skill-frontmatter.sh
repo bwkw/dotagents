@@ -4,13 +4,14 @@
 # `description` の無いスキルはメニューには出るが、自動では選ばれず、理由も出ない。
 # `disable-model-invocation` を付けたスキルは、他のスキルから黙って呼べなくなる。
 #
-# 両エージェントで動く。返答の形が違う:
+# 3 つのエージェントで動く。返答の形が違う:
 #
 #   Claude Code  {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-#                                        "permissionDecision": "deny"|"ask", ...}}
-#   Cursor       {"permission": "deny"|"ask", "user_message": ..., "agent_message": ...}
+#                                        "permissionDecision": "deny"|"allow", ...}}
+#   Codex        deny は Claude Code と同じ。警告は additionalContext（reason 付きの allow は受け付けない）
+#   Cursor       {"permission": "deny"|"allow", "user_message": ..., "agent_message": ...}
 #
-# 見分けは `hook_event_name` で行う（Claude Code だけが送る）。
+# 見分けは `hook_event_name`（Cursor は送らない）と `turn_id`（Codex だけが送る）で行う。
 
 set -uo pipefail
 
@@ -22,11 +23,14 @@ process.stdin.on("end", () => {
   try { ev = JSON.parse(raw); } catch { return process.stdout.write("{}"); }
 
   const cursor = !("hook_event_name" in ev);
+  const codex = "turn_id" in ev;
 
   const emit = (o) => process.stdout.write(JSON.stringify(o));
   const allow = () => emit({});
   const decide = (decision, reason) =>
-    emit(cursor
+    emit(codex && decision === "allow"
+      ? { hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: `[dotagents] ${reason}` } }
+      : cursor
       ? { permission: decision, user_message: `[dotagents] SKILL.md ${decision}`,
           agent_message: `[dotagents] ${reason}` }
       : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision,
@@ -36,7 +40,15 @@ process.stdin.on("end", () => {
   // このフックは検査だけで、ターンを止めてよいのは Stop ゲートだけ。本当に壊れたものは下で deny する。
   const warn = (r) => decide("allow", r);
 
-  const input = ev.tool_input || {};
+  let input = ev.tool_input || {};
+
+  // Codex は編集を apply_patch で送り、パスと中身はパッチ本文（tool_input.command）の中にある。
+  // 最初の SKILL.md の節の足された行を中身とみなす。Add File なら全体、Update File なら断片で、Edit と同じ扱いになる。
+  // ponytail: 1 つのパッチで SKILL.md を複数書き換えると 2 つ目以降は見ない。問題になったら節ごとに回す。
+  const patch = String(input.command ?? "").match(/^\*\*\* (?:Add|Update) File: (.*\/SKILL\.md)\n([\s\S]*?)(?=^\*\*\* )/m);
+  if (patch) {
+    input = { file_path: patch[1], content: patch[2].split("\n").filter((l) => l.startsWith("+")).map((l) => l.slice(1)).join("\n") };
+  }
 
   // ツール名はエージェントとバージョンで違うので、ペイロードの形で判定する:
   // SKILL.md へのパスらしいフィールドと、その中身らしいフィールド。

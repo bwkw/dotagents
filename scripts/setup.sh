@@ -11,7 +11,9 @@
 #   doctor                                  ずれと故障の診断
 #   uninstall [--dry-run]                   入れたものだけを正確に外す
 #
-# スキルはシンボリックリンクにする。編集がすぐ効くため。
+# スキルはシンボリックリンクにする。編集がすぐ効くため。Cursor と Codex は ~/.agents/skills を直接読む。
+# Codex のサブエージェントは TOML しか読まないので agents/*.md から生成し、hook は Claude Code と同じ定義を
+# ~/.codex/hooks.json に入れる（docs/decisions.md の決定 39）。
 # hook はコピーにする。宙に浮いた hook のリンクは 127 で終わり、Claude Code はそれを非ブロックと
 # 扱うので、ガードレールが閉じずに開く。docs/decisions.md を参照。
 
@@ -21,13 +23,16 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 AGENTS_SKILLS="$HOME/.agents/skills"
 CLAUDE_SKILLS="$HOME/.claude/skills"
-CURSOR_SKILLS="$HOME/.cursor/skills"
 CLAUDE_HOOKS="$HOME/.claude/hooks"
 # 両方のエージェントのディレクトリへリンクする。Cursor が ~/.claude/agents/ も読むという根拠は
 # ドキュメントに無く（書かれているのは .cursor/agents/ と ~/.cursor/agents/）、実際に Cursor 側では
 # サブエージェントが見えていなかった。
 CLAUDE_AGENTS="$HOME/.claude/agents"
 CURSOR_AGENTS="$HOME/.cursor/agents"
+# Codex は Markdown のエージェントを読まず、TOML だけを読む（~/.codex/agents/*.toml）。リンクできないので
+# 生成する。スキルは Codex も ~/.agents/skills を直接読むので何もしない（Cursor と同じ）。
+CODEX_AGENTS="$HOME/.codex/agents"
+CODEX_MARK="# dotagents:generated"
 MANIFEST="$HOME/.claude/.dotagents-managed.json"
 
 DRY_RUN=0
@@ -83,6 +88,12 @@ agent_names() {
   done
 }
 
+# マニフェストの一覧を 1 行 1 件で出す。マニフェストが無いか壊れていれば失敗する。刈り取りは
+# `|| true` で空として扱い、uninstall は `set -e` で止まる（記録なしに外すものを決めない）。
+manifest_list() {
+  node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));(m[process.argv[2]]||[]).forEach(x=>console.log(x))' "$MANIFEST" "$1"
+}
+
 # シンボリックリンクを 1 段だけ解決する（macOS には既定で `readlink -f` が無い）。
 link_target() { readlink "$1" 2>/dev/null || true; }
 
@@ -107,7 +118,7 @@ link_skill() {
     did "リンク ~/.agents/skills/$name"
   fi
 
-  # リンクが要るのは Claude Code だけ。Cursor は ~/.agents/skills をそのまま読み（実測で確認）、
+  # リンクが要るのは Claude Code だけ。Cursor と Codex は ~/.agents/skills をそのまま読み（実測で確認）、
   # 両方の経路から見えるスキルも一覧には 1 回しか出ない。docs/decisions.md を参照。
   local dest="$CLAUDE_SKILLS/$name"
   local rel="../../.agents/skills/$name"   # ~/.claude/skills/<n> -> ~/.agents/skills/<n>
@@ -120,12 +131,6 @@ link_skill() {
     did "リンク ~/.claude/skills/$name"
   fi
 
-  # 以前の版は ~/.cursor/skills にもリンクを作っていた。こちらが張ったはずの先を指すシンボリック
-  # リンクのときだけ消す。それ以外は他人のもの。
-  if points_at "$CURSOR_SKILLS/$name" "$rel"; then
-    run rm -f "$CURSOR_SKILLS/$name"
-    did "不要になった ~/.cursor/skills/$name を削除"
-  fi
 }
 
 link_agent() {
@@ -151,16 +156,30 @@ link_agent() {
   done
 }
 
+# 生成物なので、中身が同じなら書かない。先頭行のマーカーの無い同名ファイルは他人のもので、preflight が断る。
+gen_codex_agent() {
+  local name="$1" dest="$CODEX_AGENTS/$1.toml" want
+  if codex_agent_current "$name"; then
+    note "最新: ~/.codex/agents/$name.toml"
+    return
+  fi
+  want="$(node "$REPO/scripts/lib/codex-agent.mjs" "$REPO/agents/$name.md")" || return 1
+  if (( ! DRY_RUN )); then printf '%s\n' "$want" > "$dest"; fi
+  did "生成 ~/.codex/agents/$name.toml"
+}
+
+codex_agent_current() {
+  [[ -f "$CODEX_AGENTS/$1.toml" && "$(cat "$CODEX_AGENTS/$1.toml")" == "$(node "$REPO/scripts/lib/codex-agent.mjs" "$REPO/agents/$1.md")" ]]
+}
+
+is_codex_generated() { [[ -f "$1" ]] && head -1 "$1" | grep -q "^$CODEX_MARK"; }
+
 # リポジトリから消えたエージェントは、放っておくとリンクが残って呼ばれ続ける。
 prune_agents() {
   local current recorded f name dir label
   local dirs=("$CLAUDE_AGENTS" "$CURSOR_AGENTS")
   current="$(agent_names | tr '\n' ' ')"
-  recorded="$(node -e '
-    const fs=require("fs");
-    try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-          console.log((m.agents||[]).join(" ")); } catch { console.log(""); }
-  ' "$MANIFEST" 2>/dev/null || true)"
+  recorded="$(manifest_list agents 2>/dev/null | tr '\n' ' ' || true)"
 
   for dir in "${dirs[@]}"; do
    [[ -d "$dir" ]] || continue
@@ -188,6 +207,15 @@ prune_agents() {
     did "刈り取り $label/$(basename "$f")（リンク先が無い）"
    done
   done
+
+  # Codex の生成物はマーカーで判断する。改名で残った旧名も同じ規則で拾える。
+  for f in "$CODEX_AGENTS"/*.toml; do
+    is_codex_generated "$f" || continue
+    name="$(basename "$f" .toml)"
+    [[ " $current " == *" $name "* ]] && continue
+    run rm -f "$f"
+    did "刈り取り ~/.codex/agents/$name.toml（リポジトリから消えた）"
+  done
 }
 
 copy_hook() {
@@ -208,14 +236,10 @@ copy_hook() {
 prune_skills() {
   local shipped; shipped="$(skill_names)"
   local recorded n q
-  recorded="$(node -e '
-    const fs=require("fs");
-    try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-          (m.skills||[]).forEach(x=>console.log(x)); } catch {}
-  ' "$MANIFEST" 2>/dev/null || true)"
+  recorded="$(manifest_list skills 2>/dev/null || true)"
   for n in $recorded; do
     grep -qxF "$n" <<<"$shipped" && continue
-    for q in "$CLAUDE_SKILLS/$n" "$CURSOR_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
+    for q in "$CLAUDE_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
       # 消すのはシンボリックリンクだけ。実ディレクトリは他人のもの。
       if [[ -L "$q" ]]; then run rm -f "$q"; did "刈り取り ${q/#$HOME/$TILDE}"
       elif [[ -e "$q" ]]; then warn "${q/#$HOME/$TILDE} はシンボリックリンクではない。残す"; fi
@@ -226,14 +250,15 @@ prune_skills() {
   # できた孤児はどこにも記録が無い。そこで記録に頼らず形でも掃く: こちらの書き方で先を指す、宙に
   # 浮いたリンク。どちらのパターンも他人のリンクには当たらない。
   local l t
-  shopt -s nullglob
+  # nullglob は使わない。一致が無い時のリテラルは下の `-L` で落ちる。漏れた nullglob は backups_of の前身を
+  # 「cwd を列挙して消す」に変えていた。
   for l in "$AGENTS_SKILLS"/*; do
     [[ -L "$l" && ! -e "$l" ]] || continue
     t="$(link_target "$l")"
     [[ "$t" == "$REPO/skills/"* ]] || continue
     run rm -f "$l"; did "孤児を刈り取り ${l/#$HOME/$TILDE}（リンク先がリポジトリから消えた）"
   done
-  for l in "$CLAUDE_SKILLS"/* "$CURSOR_SKILLS"/*; do
+  for l in "$CLAUDE_SKILLS"/*; do
     [[ -L "$l" && ! -e "$l" ]] || continue
     t="$(link_target "$l")"
     [[ "$t" == "../../.agents/skills/"* ]] || continue
@@ -245,11 +270,7 @@ prune_hooks() {
   local shipped; shipped="$(hook_names)"
   local installed f
   # 以前の実行が記録したものだけを刈る。入れていないファイルには触らない。
-  installed="$(node -e '
-    const fs=require("fs");
-    try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-          (m.hooks||[]).forEach(h=>console.log(h)); } catch {}
-  ' "$MANIFEST" 2>/dev/null || true)"
+  installed="$(manifest_list hooks 2>/dev/null || true)"
   for f in $installed; do
     if ! grep -qxF "$f" <<<"$shipped"; then
       run rm -f "$CLAUDE_HOOKS/$f"
@@ -294,6 +315,10 @@ merge_with_backup() { # <target> <label> <merge command...>
   return "$rc"
 }
 
+# glob の設定に左右されずにバックアップを列挙する。`ls -1 <glob>` は nullglob の下で一致が無いと
+# 引数なしの `ls` になり、カレントディレクトリを並べる。刈り取りはそれを消しにいっていた。
+backups_of() { local f; for f in "$1".dotagents-backup-*; do [[ -e "$f" ]] && printf '%s\n' "$f"; done; return 0; }
+
 # 新しい方から BACKUP_KEEP 個を残す。刻みが %Y%m%d%H%M%S なので名前の辞書順で並ぶ。
 prune_backups() { # <target>
   local target="$1" f n=0
@@ -304,7 +329,7 @@ prune_backups() { # <target>
       run rm -f "$f"
       did "古いバックアップを刈り取り ${f/#$HOME/$TILDE}"
     fi
-  done < <(ls -1 "$target".dotagents-backup-* 2>/dev/null | sort -r)
+  done < <(backups_of "$target" | sort -r)
 }
 
 # テンプレートが宣言するキーだけをマージする。こちらが書いていない既存の値（とくに平文の API キーを
@@ -362,37 +387,37 @@ merge_settings() {
   ok "settings を ~/.claude/settings.json へマージした$( (( WITH_OPINIONS )) || echo '（機構のみ）')"
 }
 
-merge_cursor_hooks() {
-  local tmpl="$REPO/templates/cursor.hooks.snippet.json"
-  local target="$HOME/.cursor/hooks.json"
+# Cursor と Codex の hooks.json に、こちらの hook 項目を足す。Cursor は形が違うので専用のスニペット、
+# Codex は Claude Code の `hooks` と同じ形なので Claude Code のスニペットの `hooks` だけを使う。
+merge_hook_file() { # <cursor|codex> <スニペット> <対象>
+  local kind="$1" tmpl="$2" target="$3"
+  local label="${target/#$HOME/$TILDE}"
   [[ -f "$tmpl" ]] || return 0
-
   if (( DRY_RUN )); then
-    # install はここより前に ~/.cursor/skills を作るので、この時点で ~/.cursor は必ずある。Cursor の無い
-    # 機械で「スキップ」と出すと、dry run が予告すべき install と食い違う。
-    note "実行予定: Cursor の hook 項目を ~/.cursor/hooks.json へマージ"
+    note "実行予定: hook 項目を $label へマージ"
     return 0
   fi
-  mkdir -p "$HOME/.cursor"
-
-  merge_with_backup "$target" "~/.cursor/hooks.json" \
-    node "$REPO/scripts/lib/merge-settings.mjs" --cursor "$tmpl" "$target" "$MANIFEST"
-  ok "hook を ~/.cursor/hooks.json へマージした"
+  mkdir -p "$(dirname "$target")"
+  merge_with_backup "$target" "$label" \
+    node "$REPO/scripts/lib/merge-settings.mjs" "--$kind" "$tmpl" "$target" "$MANIFEST"
+  ok "hook を $label へマージした"
+  # 管理下でない hook は、ユーザーが定義を信頼するまで黙ってスキップされる。信頼はセキュリティ設定なので触らない。
+  [[ "$kind" == codex ]] && warn "Codex は /hooks で信頼するまでこの hook を実行しない（定義が変わるたびに再度）"
+  return 0
 }
 
 write_manifest() {
   (( DRY_RUN )) && return
   local skills hooks agents
-  skills="$(skill_names | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
-  hooks="$(hook_names  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
-  agents="$(agent_names | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(s.split("\n").filter(Boolean))))')"
+  skills="$(skill_names)"; hooks="$(hook_names)"; agents="$(agent_names)"
   node -e '
     const fs=require("fs"), p=process.argv[1];
     let m={}; try { m=JSON.parse(fs.readFileSync(p,"utf8")); } catch {}
     m.repo=process.argv[2];
-    m.skills=JSON.parse(process.argv[3]);
-    m.hooks=JSON.parse(process.argv[4]);
-    m.agents=JSON.parse(process.argv[5]);
+    const list = (s) => s.split("\n").filter(Boolean);
+    m.skills=list(process.argv[3]);
+    m.hooks=list(process.argv[4]);
+    m.agents=list(process.argv[5]);
     m.updatedAt=new Date().toISOString();
     fs.writeFileSync(p, JSON.stringify(m,null,2)+"\n");
   ' "$MANIFEST" "$REPO" "$skills" "$hooks" "$agents"
@@ -422,6 +447,9 @@ preflight() {
         bad "$d/$n.md はこちらのものではない実ファイル"; blocked=1
       fi
     done
+    if [[ -e "$CODEX_AGENTS/$n.toml" ]] && ! is_codex_generated "$CODEX_AGENTS/$n.toml"; then
+      bad "$CODEX_AGENTS/$n.toml はこちらの生成物ではない"; blocked=1
+    fi
   done < <(agent_names)
 
   (( blocked )) && die "インストールを中止した。何も変更していない。上のパスを移動か削除してから再実行すること。"
@@ -442,13 +470,14 @@ cmd_install() {
 
   preflight
 
-  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CURSOR_SKILLS" "$CLAUDE_HOOKS" \
-    "$CLAUDE_AGENTS" "$CURSOR_AGENTS"
+  run mkdir -p "$AGENTS_SKILLS" "$CLAUDE_SKILLS" "$CLAUDE_HOOKS" \
+    "$CLAUDE_AGENTS" "$CURSOR_AGENTS" "$CODEX_AGENTS"
 
   local n
   while read -r n; do [[ -n "$n" ]] && link_skill "$n"; done < <(skill_names)
   while read -r n; do [[ -n "$n" ]] && copy_hook  "$n"; done < <(hook_names)
   while read -r n; do [[ -n "$n" ]] && link_agent "$n"; done < <(agent_names)
+  while read -r n; do [[ -n "$n" ]] && gen_codex_agent "$n"; done < <(agent_names)
 
   # 常に刈る。install は「導入状態をリポジトリに合わせる」ことで、配らなくなったものの削除も含む。
   # 刈り取りは以前の実行がマニフェストに記録したものにしか触らない。
@@ -456,7 +485,8 @@ cmd_install() {
   prune_hooks
   prune_agents
   merge_settings
-  merge_cursor_hooks
+  merge_hook_file cursor "$REPO/templates/cursor.hooks.snippet.json" "$HOME/.cursor/hooks.json"
+  merge_hook_file codex "$REPO/templates/claude.settings.snippet.json" "$HOME/.codex/hooks.json"
   write_manifest
 
   echo
@@ -524,10 +554,11 @@ cmd_status() {
     local where=""
     points_at "$CLAUDE_AGENTS/$n.md" "$REPO/agents/$n.md" && where="claude"
     points_at "$CURSOR_AGENTS/$n.md" "$REPO/agents/$n.md" && where="${where:+$where+}cursor"
-    if [[ "$where" == "claude+cursor" ]]; then
-      ok "$n  ${c_dim}（~/.claude/agents と ~/.cursor/agents）${c_off}"
+    codex_agent_current "$n" && where="${where:+$where+}codex"
+    if [[ "$where" == "claude+cursor+codex" ]]; then
+      ok "$n  ${c_dim}（~/.claude/agents・~/.cursor/agents・~/.codex/agents）${c_off}"
     elif [[ -n "$where" ]]; then
-      warn "$n  $where にしか無い。もう片方のエージェントからは届かない"; missing=$((missing+1))
+      warn "$n  $where にしか無い。他のエージェントからは届かない"; missing=$((missing+1))
     elif [[ -e "$CLAUDE_AGENTS/$n.md" || -e "$CURSOR_AGENTS/$n.md" ]]; then
       warn "$n  あるが、こちらのリンクではない。触らない"
     else
@@ -537,30 +568,15 @@ cmd_status() {
 
   echo
   echo "hook の配線"
-  local wired
-  wired="$(node -e '
-    const fs = require("fs");
-    const read = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return null } };
-    const claude = read(process.env.HOME + "/.claude/settings.json");
-    const cursor = read(process.env.HOME + "/.cursor/hooks.json");
-    const has = (o, path) => JSON.stringify(o ?? {}).includes(path);
-    console.log([
-      has(claude, "dotagents-verify-gate")            ? "claude-stop" : "-",
-      has(claude, "dotagents-lint-skill-frontmatter") ? "claude-lint" : "-",
-      has(cursor, "dotagents-verify-gate")            ? "cursor-stop" : "-",
-      has(cursor, "dotagents-lint-skill-frontmatter") ? "cursor-lint" : "-",
-    ].join(" "));
-  ' 2>/dev/null || echo "- - - -")"
-  local i=1
-  for label in "Claude の Stop ゲート" "Claude の frontmatter lint" "Cursor の stop ゲート" "Cursor の frontmatter lint"; do
-    if [[ "$(echo "$wired" | cut -d" " -f$i)" == "-" ]]; then
-      warn "$label  未配線"
-    else
-      ok "$label"
-    fi
-    i=$((i+1))
+  local file who
+  for who in "Claude:.claude/settings.json" "Cursor:.cursor/hooks.json" "Codex:.codex/hooks.json"; do
+    file="$HOME/${who#*:}"
+    for n in "dotagents-verify-gate:Stop ゲート" "dotagents-lint-skill-frontmatter:frontmatter lint"; do
+      if grep -qs "${n%%:*}" "$file"; then ok "${who%%:*} の ${n#*:}"; else warn "${who%%:*} の ${n#*:}  未配線"; fi
+    done
   done
   note "Cursor の stop hook はブロックできず、追いメッセージを差し込むだけ。同等ではない（docs/decisions.md）。"
+  note "Codex は /hooks で信頼するまで hook を実行しない。配線済みでも未信頼なら素通り。"
 
   echo
   if (( missing )); then
@@ -580,7 +596,8 @@ cmd_doctor() {
   # 一覧はここ 1 か所で宣言する。scripts/verify-skills.sh が各名前が README.md にあることを確かめる。
   # dotagents:upstream-flow-skills research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
   echo "手順書の流れが使う upstream スキル"
-  local UPSTREAM_FLOW_SKILLS="research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner"
+  # 写しを持たずマーカーそのものを読む。写しは verify-skills.sh の検査を受けずにずれる。
+  local UPSTREAM_FLOW_SKILLS; UPSTREAM_FLOW_SKILLS="$(sed -n 's/^ *# dotagents:upstream-flow-skills //p' "${BASH_SOURCE[0]}")"
   local u umissing=0
   for u in $UPSTREAM_FLOW_SKILLS; do
     [[ -d "$AGENTS_SKILLS/$u" ]] || { umissing=$((umissing+1)); note "不足: /$u"; }
@@ -612,12 +629,13 @@ cmd_doctor() {
   echo "環境"
   [[ -d "$HOME/.claude" ]] && ok "~/.claude あり" || { bad "~/.claude が無い"; problems=$((problems+1)); }
   [[ -d "$HOME/.cursor" ]] && ok "~/.cursor あり" || { warn "~/.cursor が無い。Cursor 側は動かない"; }
+  [[ -d "$HOME/.codex" ]] && ok "~/.codex あり" || { warn "~/.codex が無い。Codex 側は動かない"; }
   command -v node >/dev/null && ok "node $(node -v)" || { bad "node が見つからない（settings のマージに必要）"; problems=$((problems+1)); }
 
   echo
   echo "宙に浮いたリンク"
   local d found=0
-  for d in "$AGENTS_SKILLS"/* "$CLAUDE_SKILLS"/* "$CURSOR_SKILLS"/*; do
+  for d in "$AGENTS_SKILLS"/* "$CLAUDE_SKILLS"/*; do
     [[ -L "$d" ]] || continue
     if [[ ! -e "$d" ]]; then
       bad "${d/#$HOME/$TILDE} -> $(link_target "$d")  （壊れている）"
@@ -664,14 +682,14 @@ cmd_uninstall() {
   [[ -f "$MANIFEST" ]] || die "${MANIFEST/#$HOME/$TILDE} にマニフェストが無い。導入の記録が無い"
 
   local skills hooks agents
-  skills="$(node -e 'const m=require(process.argv[1]);(m.skills||[]).forEach(s=>console.log(s))' "$MANIFEST")"
-  hooks="$( node -e 'const m=require(process.argv[1]);(m.hooks ||[]).forEach(s=>console.log(s))' "$MANIFEST")"
-  agents="$(node -e 'const m=require(process.argv[1]);(m.agents||[]).forEach(s=>console.log(s))' "$MANIFEST")"
+  skills="$(manifest_list skills)"
+  hooks="$(manifest_list hooks)"
+  agents="$(manifest_list agents)"
 
   local n
   for n in $skills; do
     local p
-    for p in "$CLAUDE_SKILLS/$n" "$CURSOR_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
+    for p in "$CLAUDE_SKILLS/$n" "$AGENTS_SKILLS/$n"; do
       # 消すのはシンボリックリンクだけ。実ディレクトリは他人のものなので残す。
       if [[ -L "$p" ]]; then run rm -f "$p"; did "削除 ${p/#$HOME/$TILDE}"
       elif [[ -e "$p" ]]; then warn "${p/#$HOME/$TILDE} はシンボリックリンクではない。残す"; fi
@@ -689,17 +707,20 @@ cmd_uninstall() {
       if [[ -L "$a" ]]; then run rm -f "$a"; did "削除 ${d/#$HOME/$TILDE}/$n.md"
       elif [[ -e "$a" ]]; then warn "${d/#$HOME/$TILDE}/$n.md はシンボリックリンクではない。残す"; fi
     done
+    if is_codex_generated "$CODEX_AGENTS/$n.toml"; then
+      run rm -f "$CODEX_AGENTS/$n.toml"; did "削除 ~/.codex/agents/$n.toml"
+    fi
   done
 
   # バックアップも一緒に消す。編集していたファイルの変更前の写しで、アンインストール後はごみになる。
   local t
-  for t in "$HOME/.claude/settings.json" "$HOME/.cursor/hooks.json"; do
+  for t in "$HOME/.claude/settings.json" "$HOME/.cursor/hooks.json" "$HOME/.codex/hooks.json"; do
     local b
     while IFS= read -r b; do
       [[ -n "$b" ]] || continue
       run rm -f "$b"
       did "削除 ${b/#$HOME/$TILDE}"
-    done < <(ls -1 "$t".dotagents-backup-* 2>/dev/null)
+    done < <(backups_of "$t")
   done
 
   if [[ -f "$REPO/templates/claude.settings.snippet.json" ]]; then
@@ -711,14 +732,17 @@ cmd_uninstall() {
     fi
   fi
 
-  if [[ -f "$HOME/.cursor/hooks.json" ]]; then
+  local kind
+  for kind in cursor codex; do
+    t="$HOME/.$kind/hooks.json"
+    [[ -f "$t" ]] || continue
     if (( DRY_RUN )); then
-      note "実行予定: マニフェストに記録した Cursor の hook 項目を外す"
+      note "実行予定: マニフェストに記録した hook 項目を ${t/#$HOME/$TILDE} から外す"
     else
-      node "$REPO/scripts/lib/merge-settings.mjs" --revert-cursor "$HOME/.cursor/hooks.json" "$MANIFEST"
-      ok "追加した Cursor の hook 項目を戻した"
+      node "$REPO/scripts/lib/merge-settings.mjs" "--revert-$kind" "$t" "$MANIFEST"
+      ok "${t/#$HOME/$TILDE} に追加した hook 項目を戻した"
     fi
-  fi
+  done
 
   (( DRY_RUN )) || rm -f "$MANIFEST"
   echo
@@ -740,10 +764,6 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run)       DRY_RUN=1 ;;
     --no-opinions)   WITH_OPINIONS=0 ;;
-    # 既定と同じ動作なので黙って受け付ける。履歴と手癖に残っており、未知オプションで `die` すると
-    # 首をかしげる失敗になる。
-    --with-opinions) WITH_OPINIONS=1 ;;
-    --prune-scripts) warn "--prune-scripts は既定の動作になったので無視する" ;;
     -h|--help)       usage ;;
     *) die "不明なオプション: $arg" ;;
   esac

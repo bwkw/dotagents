@@ -1655,3 +1655,35 @@ subagent が効く可能性がある、という観測としてここに置き�
 パスをルート相対で明示し、`verify-skills.sh` に不変条件を足しました —— `reference/profiles/...` 形を
 禁止し、ディレクトリ無しの `review-voice.md` も禁止し、`_example.review-voice.md` の同梱を要求します。
 3通りの壊し方それぞれで落ちることを確認済み。**ヘッダの既定に負ける注記は、注記ではなく罠です。**
+
+## 39. Codex を 3 つ目の一級市民にした —— 足したのは生成 1 つとマージ 1 モードだけ（2026-09-29）
+
+「Codex からスキルが使えない」と言われて調べると、**スキルは最初から読まれていました**。Codex もユーザー用の
+置き場として `~/.agents/skills` を読むので、Cursor と同じく何もしなくてよかった。使えないように見えたのは、
+Codex では `/` ではなく `$da-verify` と打つことと、`install` を再実行していない新スキルがあったためです。
+
+実際に届いていなかったのはサブエージェントと hook でした。どちらも**新しい仕組みを作らずに済ませています**:
+
+- **サブエージェント**: Codex は Markdown を読まないので、`scripts/lib/codex-agent.mjs` が `agents/*.md` から
+  TOML を生成する。原本は `.md` の 1 か所のまま。`model` は書かない（不変条件 10）。生成物の先頭行の目印で
+  「こちらのもの」を判断し、目印の無い同名ファイルは preflight が断る
+- **hook**: Codex の `hooks.json` は Claude Code の `hooks` と**同じ形**なので、3 つ目のテンプレートは作らず、
+  Claude Code のスニペットの `hooks` をそのまま `~/.codex/hooks.json` に入れる（`merge-settings.mjs --codex`）。
+  Stop ゲートは**変更なし**で動く（exit 2 で継続、payload は Claude Code として判別される）。lint hook だけ、
+  `apply_patch` のパッチ本文から SKILL.md を取り出す数行と、Codex が reason 付き `allow` を受け付けない
+  ことへの対応を足した
+
+**Codex の hook は「配線した」では動きません。** 管理下でない hook はユーザーが `/hooks` で信頼するまで黙って
+スキップされ、定義が変わると信頼が外れる。不変条件 4 と同じ「開く側に倒れる」形なので、`setup.sh` の
+install と status の両方がそう言います。**信頼はセキュリティ設定なので、こちらからは触りません。**
+
+事実の出典と実測は [ハーネスの実挙動](harness-facts.md) の Codex の節。
+
+### 3 つ目の対象を足したら、install が cwd のファイルを消すバグが出てきた
+
+`prune_skills` が `shopt -s nullglob` を有効にしたまま戻さず、バックアップの刈り取りは
+`ls -1 "$target".dotagents-backup-*` で列挙していました。一致が無いと glob が空になり、**引数なしの `ls` が
+カレントディレクトリを並べ**、その 4 件目以降を `rm -f` します。Claude Code と Cursor の設定には常に
+バックアップがあったので一度も起きず、初めて作る `~/.codex/hooks.json` で表に出ました（実機では 4 件目が
+ディレクトリだったので `rm` が失敗して止まり、何も消えていません）。列挙を glob の設定に依らない
+`backups_of` にし、そもそも不要だった `nullglob` を消しました。`test-setup.sh` に再現テストがあります。
