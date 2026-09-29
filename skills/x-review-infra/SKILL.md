@@ -29,7 +29,7 @@ metadata:
 
 | 条件 | 満たさない場合 |
 |---|---|
-| 作業ディレクトリが git リポジトリ内 | 止まり、その旨を伝え、進めない |
+| 対象リポジトリと担当ファイルの差分・内容を参照できる | ディスパッチャの対象と参照方法を使う。取得できない範囲と理由を報告する |
 | 差分・パス・`all` が 1 つ以上のインフラファイルに解決する | 「インフラの変更なし」と報告して止まる |
 
 ## ワークフロー上の位置
@@ -43,6 +43,8 @@ metadata:
 ## 読むファイル
 
 ### 開く前に差分を測る
+
+**対象・base/head・差分はディスパッチャから引き継ぐ。** PR は取得済みの差分から担当範囲の追加・削除行数とファイル数を測り、以下のローカル探索を飛ばす。未解決なら `${CLAUDE_SKILL_DIR}/reference/review-process.md` の Step 1 で対象を解決する。Git コマンドは対象ディレクトリで実行する。
 
 ```bash
 BASE=""
@@ -89,24 +91,9 @@ git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...
 
 ---
 
-## Step 1. スコープを決める
+## Step 1. 範囲を確定する
 
-**ファイル一覧を渡されたら**（`/da-review-all` から、または依頼の中で）、その一覧がスコープ。差分を導き直さず、広げない。
-
-それ以外は `$ARGUMENTS` から決める。空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
-
-```bash
-BASE=""
-for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')" \
-         origin/develop origin/main develop main; do
-  [ -n "$b" ] && git rev-parse --verify --quiet "$b" >/dev/null 2>&1 && BASE="$b" && break
-done
-```
-
-`BASE` があれば `git diff --name-only "${BASE}"...HEAD`。`BASE` が空（detached HEAD、upstream 無し、最初のコミット）なら空ツリーを使い、**その旨を書く**。
-`git diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`
-
-**PR は要らない。** この層では特に、plan を走らせる前にレビューするのが最も価値がある。
+ディスパッチャから渡された対象・base/head・差分・ファイル一覧を使い、範囲を導き直さない。未解決の時は `${CLAUDE_SKILL_DIR}/reference/review-process.md` の Step 1 に従う。PR URL とローカル差分で対象の解決方法を分ける。
 
 ## Steps 2–7
 

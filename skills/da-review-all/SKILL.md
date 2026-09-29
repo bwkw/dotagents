@@ -1,7 +1,7 @@
 ---
 name: da-review-all
 description: すべてのコードレビューの入口（1 層でも複数層でも）。PR レビュー、差分のレビュー、出す前の確認をする時に使う。1 層だけの変更でもこれを使う。変更を層に分類して各層をレビューし、層の間に落ちる不可逆なリスク（契約と利用側のリリース順のずれなど）を見つける。読み取り専用。
-argument-hint: "[base ブランチ | path/ | ファイル | 'all']（省略時は作業中の差分とその波及範囲）"
+argument-hint: "[PR URL | base ブランチ | path/ | ファイル | 'all']（省略時は作業中の差分とその波及範囲）"
 allowed-tools: Read, Grep, Glob, Write, Skill, Artifact, Bash(git:*), Bash(gh:*)
 metadata:
   source: bwkw/dotagents
@@ -19,8 +19,8 @@ metadata:
 
 | 条件 | 満たさない場合 |
 |---|---|
-| 作業ディレクトリが git リポジトリ内 | 止まり、その旨を伝え、進めない |
-| 差分・パス・`all` が 1 つ以上のファイルに解決する | 「変更なし」と報告し、`path/` か `all` を提案して止まる |
+| 対象を PR URL またはローカルリポジトリから特定できる | Step 1 で解決し、不明なら対象を尋ねる |
+| PR 差分・ローカル差分・パス・`all` が 1 つ以上のファイルに解決する | 空なら「変更なし」と報告し、`path/` か `all` を提案。取得失敗は理由を報告 |
 
 上流: 実装完了、または PR が開いている。下流: `/da-fix-plan` が所見を順序付きの計画にし、次に `/da-verify`。
 
@@ -53,18 +53,20 @@ metadata:
 
 ## Step 1. スコープを決め、次に持ち主を決める
 
-`$ARGUMENTS`: 空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
+**cwd が git 内かは問わない。** PR URL は共通手順の PR 経路で解決する。
+
+`$ARGUMENTS`: PR URL ならその PR、空なら作業中の差分、ブランチならそれとの差分、パスならそのパスの監査、`all` ならリポジトリ全体。
 
 base とファイル一覧は `../_shared/review-process.md` の Step 1 と同じ方法で決め、決められなかった時は**その旨を書く**。
 
 **PR は要らない。** push 前のレビューが最も価値がある。PR の URL は受け付けるが要求しない。
 
-**複数の PR や複数のリポジトリは、N 個ではなく 1 つのレビュー。** ここで全部を解決し、**各ファイルがどの PR の差分に属するかを記録する**。行コメントはその行を差分に含む PR にしか付けられないから。手順は `pr-comments.md` にあり、fetch した今のうちに実行する。
+複数 PR の対応付けも共通手順の Step 1 で行う。
 
 ### 誰の変更か
 
 ```bash
-gh pr view <n> --json author -q .author.login    # or: git log -1 --format=%ae
+gh pr view <PR_URL> --json author -q .author.login    # or: git log -1 --format=%ae
 git config user.email
 ```
 
@@ -96,7 +98,7 @@ git config user.email
 
 ## Step 3. 層のレビューを走らせる — インラインで 1 つずつ
 
-**何も起動しない。** ファイルのある層ごとに、その層のスキルを**このコンテキストで名前で呼び**、その層のファイル一覧だけにスコープを絞る。
+**何も起動しない。** ファイルのある層ごとに、その層のスキルを**このコンテキストで名前で呼び**、その層のファイル一覧だけにスコープを絞る。対象・base/head・差分の参照方法も引き継ぐ。
 
 > Use the `x-review-<layer>` skill and follow it exactly. Scope: `<the list>`. Do not re-derive the
 > full diff.
