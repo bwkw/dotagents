@@ -3,7 +3,7 @@
 [![ci](https://github.com/bwkw/dotagents/actions/workflows/ci.yml/badge.svg)](https://github.com/bwkw/dotagents/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Claude Code と Cursor** のための個人用 AI 開発ツールキット。一度グローバルに入れれば、どのリポジトリでも使えます。プロダクトのリポジトリには一切手を入れません。
+**Claude Code・Cursor・Codex** のための個人用 AI 開発ツールキット。一度グローバルに入れれば、どのリポジトリでも使えます。プロダクトのリポジトリには一切手を入れません。
 
 なぜこの形なのか（出典付き）: [docs/design.md](docs/design.md) · どの仕組みを選ぶか:
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
@@ -22,6 +22,12 @@ cd ~/private/dotagents
 ./scripts/setup.sh install
 ./scripts/setup.sh status
 ```
+
+**Codex（ChatGPT デスクトップアプリ・Codex CLI）でも同じように使えます。** 違いは 2 つだけ:
+スキルは `/da-verify` ではなく **`$da-verify`** と打つ（`/skills` で一覧）。そして **hook は Codex の `/hooks` で
+一度信頼するまで動きません** —— 信頼しないと Stop ゲートも lint も黙って素通りします。スキルは 3 つとも
+`~/.agents/skills` を読み、サブエージェントは `install` が `agents/*.md` から `~/.codex/agents/*.toml` を生成し、
+hook は Claude Code と同じ定義を `~/.codex/hooks.json` に入れます（[docs/harness-facts.md](docs/harness-facts.md)）。
 
 `install` は hook の配線と、`skillOverrides` / verbose なテレメトリまで入れます。**bundled / plugin
 スキルを触らせたくないマシンでは `install --no-opinions`** で hook の配線だけになります。
@@ -325,7 +331,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 <!-- dotagents:skill-count mine=13 typed=10 layer=3 agents=2 upstream=15 -->
 **自作は13スキル**、残り15本は上流から入れています —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
 
-加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` の**両方**に入るので、どちらのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
+加えて `agents/` に**サブエージェント2本**。`~/.claude/agents/` と `~/.cursor/agents/` にリンク、`~/.codex/agents/` には TOML を生成して入るので、3 つのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（敵対的。既定で反証し、find フェーズには参加していない）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
 
 ## 面の全体と、何を抑制しているか
 
@@ -418,7 +424,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 
 **コマンドは profile から引きます。** git remote で照合するので、プロダクトのリポジトリは無改変です。`agent_may_run: false` のチェックはエージェントが決して実行せず（そう文書で定めているリポジトリがあるため）、**あなた自身の出力**を要求します。profile が無ければ推測せず黙ります —— 見知らぬリポジトリで勝手に `npm test` を叩くのは、検証ツールが信用を失う典型です。
 
-**Cursor でも走りますが、ブロックできません。** Cursor の `stop` フックには拒否の仕組みがなく、代わりに follow-up メッセージを自動投入します（`loop_limit` で打ち切り）。両フックは呼び出し元を判定して適切な方言で応答します。Cursor 側は「強い促し」と考え、重要な場面では `/da-verify` を明示実行してください。対応表は [判断の記録 §3](docs/decisions.md)。
+**Codex では Claude Code と同じく止められます**（`/hooks` で信頼した後）。**Cursor でも走りますが、ブロックできません。** Cursor の `stop` フックには拒否の仕組みがなく、代わりに follow-up メッセージを自動投入します（`loop_limit` で打ち切り）。両フックは呼び出し元を判定して適切な方言で応答します。Cursor 側は「強い促し」と考え、重要な場面では `/da-verify` を明示実行してください。対応表は [判断の記録 §3](docs/decisions.md)。
 
 **何も起きていないように見えたら** `~/.claude/.dotagents-gate/trace.log` を読んでください。全ての呼び出しと、通した理由が記録されています。「何も起きなかった」には正当な原因が6通りあり、このファイルがそれを区別します —— 一度これが無いまま推測して、**動いているコードを変えて原因を隠しかけた**ので作りました。
 
@@ -433,12 +439,12 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 ```
 dotagents/skills/<name>/
         ↑ symlink
-~/.agents/skills/<name>          ← Cursor はここを直接読む
+~/.agents/skills/<name>          ← Cursor と Codex はここを直接読む
         ↑ symlink
 ~/.claude/skills/<name>          ← Claude Code は symlink を追う
 ```
 
-実体はひとつ。ここを編集すれば同期の手順なしに両エージェントへ反映されます。リンクを張るのは Claude Code 側だけ —— Cursor が `~/.agents/skills/` を読むことは**推測ではなく観測**です（[判断の記録 §1](docs/decisions.md)）。
+実体はひとつ。ここを編集すれば同期の手順なしに 3 つのエージェントへ反映されます。リンクを張るのは Claude Code 側だけ —— Cursor が `~/.agents/skills/` を読むことは**推測ではなく観測**です（[判断の記録 §1](docs/decisions.md)）。
 
 フックだけは **実体コピー**です。symlink が切れると `exit 127` になり non-blocking として扱われるため、**ガードレールが「止まる」のではなく「開く」**からです（[判断の記録 §2](docs/decisions.md)）。
 
@@ -493,7 +499,7 @@ npx skills@1.5.20 add addyosmani/agent-skills -g -a claude-code -a cursor \
 
 同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
 
-**アンインストールしても Cursor では生き残ります。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェント側のリンクを外して lockfile を更新しますが、**`~/.agents/skills/` の実体を残します** —— Cursor がネイティブに読むパスです。実体も消して、両者が一致することを確認してください:
+**アンインストールしても Cursor と Codex では生き残ります。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェント側のリンクを外して lockfile を更新しますが、**`~/.agents/skills/` の実体を残します** —— Cursor と Codex がネイティブに読むパスです。実体も消して、両者が一致することを確認してください:
 
 ```bash
 diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)

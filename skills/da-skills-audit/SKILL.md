@@ -166,4 +166,4 @@ upstream のスキルのエラーは報告するが、その場で直すもの�
 
 ## 次に
 
-合意したアクションを適用する。upstream のスキルの削除は `npx skills remove <name> -g`。自作の削除は `dotagents/skills/` から消して `setup.sh install --prune-scripts` を実行する。
+合意したアクションを適用する。upstream のスキルの削除は `npx skills remove <name> -g`。自作の削除は `dotagents/skills/` から消して `setup.sh install` を実行する（配らなくなったものは install が刈る）。

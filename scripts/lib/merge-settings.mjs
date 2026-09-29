@@ -11,6 +11,11 @@
 //   merge-settings.mjs --print-keys <snippet>                 マージが触るキーの一覧
 //   merge-settings.mjs --cursor <snippet> <target> <manifest> 同じことを ~/.cursor/hooks.json に
 //   merge-settings.mjs --revert-cursor <target> <manifest>    Cursor 側を戻す
+//   merge-settings.mjs --codex <snippet> <target> <manifest>  スニペットの `hooks` だけを ~/.codex/hooks.json に
+//   merge-settings.mjs --revert-codex <target> <manifest>     Codex 側を戻す
+//
+// Codex の hooks.json は Claude Code の `hooks` と同じ形（イベント → matcher の枠 → handler）なので、
+// Claude Code 用のスニペットをそのまま使う。`Write|Edit` の matcher は Codex の apply_patch にも当たる。
 //
 // Cursor の hooks.json は形が違う（camelCase のイベント、平らな `hooks`、{ command, matcher } の項目）
 // ので、Claude Code 用に押し込まず専用のマージを持つ。
@@ -144,6 +149,20 @@ function pruneEmpty(obj, path) {
   }
 }
 
+function revertHooks(target, records) {
+  for (const { event, matcher, command } of records ?? []) {
+    const slots = target.hooks?.[event];
+    if (!Array.isArray(slots)) continue;
+    const slot = slots.find((m) => (m.matcher ?? "") === matcher);
+    if (!slot) continue;
+    slot.hooks = (slot.hooks ?? []).filter((h) => h.command !== command);
+    // matcher の枠はこちらが空にしたときだけ消す。他人の hook が残る枠は残す。
+    if (slot.hooks.length === 0) target.hooks[event] = slots.filter((m) => m !== slot);
+    if (target.hooks[event]?.length === 0) delete target.hooks[event];
+  }
+  if (target.hooks && Object.keys(target.hooks).length === 0) delete target.hooks;
+}
+
 // ------------------------------------------------------------------ modes
 
 const [mode, ...rest] = process.argv.slice(2);
@@ -197,6 +216,29 @@ if (mode === "--cursor") {
   process.exit(0);
 }
 
+if (mode === "--codex") {
+  const [snippetPath, targetPath, manifestPath] = rest;
+  const target = readJson(targetPath);
+  const manifest = readJson(manifestPath);
+  const recorded = { hooks: [] };
+  mergeHooks(target, readJson(snippetPath).hooks ?? {}, recorded);
+  writeJson(targetPath, target);
+  // 追記ではなく置き換え。下の manifest.settingsHooks の注記を参照。
+  manifest.codexHooks = keepForeignHooks(manifest.codexHooks).concat(recorded.hooks);
+  writeJson(manifestPath, manifest);
+  for (const h of recorded.hooks) console.error(`  追加 codex hooks.${h.event}: ${h.command}`);
+  process.exit(0);
+}
+
+if (mode === "--revert-codex") {
+  const [targetPath, manifestPath] = rest;
+  const target = readJson(targetPath, null);
+  if (!target) process.exit(0);
+  revertHooks(target, readJson(manifestPath).codexHooks);
+  writeJson(targetPath, target);
+  process.exit(0);
+}
+
 if (mode === "--revert-cursor") {
   const [targetPath, manifestPath] = rest;
   const target = readJson(targetPath, null);
@@ -225,18 +267,7 @@ if (mode === "--revert") {
     pruneEmpty(target, path);
   }
 
-  for (const { event, matcher, command } of manifest.settingsHooks ?? []) {
-    const slots = target.hooks?.[event];
-    if (!Array.isArray(slots)) continue;
-    const slot = slots.find((m) => (m.matcher ?? "") === matcher);
-    if (!slot) continue;
-    slot.hooks = (slot.hooks ?? []).filter((h) => h.command !== command);
-    // matcher の枠はこちらが空にしたときだけ消す。他人の hook が残る枠は残す。
-    if (slot.hooks.length === 0) target.hooks[event] = slots.filter((m) => m !== slot);
-    if (target.hooks[event]?.length === 0) delete target.hooks[event];
-  }
-  if (target.hooks && Object.keys(target.hooks).length === 0) delete target.hooks;
-
+  revertHooks(target, manifest.settingsHooks);
   writeJson(targetPath, target);
   process.exit(0);
 }

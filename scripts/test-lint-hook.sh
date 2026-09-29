@@ -16,7 +16,7 @@ bad() { printf '%s✗%s %s\n' "$c_red" "$c_off" "$1"; fail=$((fail+1)); }
 
 command -v node >/dev/null || { echo "node が必要"; exit 1; }
 
-# 実物の hook の封筒を出す。Claude Code は hook_event_name を送り、Cursor は送らない。どちらも
+# 実物の hook の封筒を出す。Claude Code と Codex は hook_event_name を送り、Cursor は送らない。どちらも
 # 中身は tool_input の下。フィールドをトップレベルに置くテストは空振りで通る。
 payload() { # name dialect body_lines...
   local name="$1" dialect="$2"; shift 2
@@ -25,6 +25,12 @@ payload() { # name dialect body_lines...
     const ev = { tool_input: { file_path: `/probe/skills/${name}/SKILL.md`,
                                content: lines.join("\n") + "\n" } };
     if (dialect === "claude") ev.hook_event_name = "PreToolUse";
+    // Codex は編集を apply_patch で送る。パスと中身はパッチ本文の中にしか無い。
+    if (dialect === "codex") {
+      ev.hook_event_name = "PreToolUse"; ev.turn_id = "t"; ev.tool_name = "apply_patch";
+      ev.tool_input = { command: ["*** Begin Patch", `*** Add File: /probe/skills/${name}/SKILL.md`,
+        ...lines.map((l) => "+" + l), "*** End Patch", ""].join("\n") };
+    }
     process.stdout.write(JSON.stringify(ev));
   ' "$name" "$dialect" "$@"
 }
@@ -53,7 +59,7 @@ probe_dmi() { # name expect dialect
 echo "lint hook: disable-model-invocation の範囲"
 
 # deny: 名前で呼ばれるので、このフィールドは黙って壊す。
-for d in claude cursor; do
+for d in claude cursor codex; do
   probe_dmi da-verify          deny "$d"
   probe_dmi x-review-backend  deny "$d"
   probe_dmi x-review-frontend deny "$d"
@@ -62,7 +68,7 @@ done
 
 # allow: 人が打つワークフローなら正当。ask にすると無人実行が許可待ちで止まる。この hook は
 # 検査だけで、止めるのは Stop ゲートの役目。
-for d in claude cursor; do
+for d in claude cursor codex; do
   probe_dmi da-pr-describe  allow "$d"
   probe_dmi da-skills-audit allow "$d"
   probe_dmi anything-else allow "$d"

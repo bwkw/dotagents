@@ -1,6 +1,6 @@
 # dotagents
 
-個人用の AI 開発ツールキット。スキル・hook・リポジトリのプロファイルを、**Claude Code と Cursor の両方**で動く形でグローバルに 1 回入れる。Claude Code は `AGENTS.md` を読まないので、`CLAUDE.md` はここへのシンボリックリンク。
+個人用の AI 開発ツールキット。スキル・hook・リポジトリのプロファイルを、**Claude Code・Cursor・Codex の 3 つ**で同じように動く形でグローバルに 1 回入れる。Claude Code は `AGENTS.md` を読まないので、`CLAUDE.md` はここへのシンボリックリンク。
 
 **文書もスキル本文もすべて日本語で書く。** 英語のまま残すのは、コード・識別子・コマンドと、スクリプトがパースする見出し（🧱 Landing plan の表見出し、修正計画のバケット名。英語を括弧で併記する）だけ。英語の README は置かない。原本と食い違う古い翻訳は、翻訳が無いより悪い。
 
@@ -11,7 +11,7 @@
 どれも壊れたとき**黙って**壊れる。エラーもログも出ず、動いているように見える。だから一度読めば済む文書ではなく、ここに置く。
 
 1. **スキルは `name` と `description` だけで動かなければならない。**
-   Cursor が解釈するのは `name`・`description`・`paths`・`disable-model-invocation` だけで、`allowed-tools`・`context: fork`・`model`・`argument-hint` は黙って捨てる。制約は本文に書き（「サブエージェントで実行する」「ソースは変更しない」）、Claude 専用の frontmatter は上乗せの最適化として扱う。仕組みにはしない。`verify-skills.sh` が検査する。
+   Cursor が解釈するのは `name`・`description`・`paths`・`disable-model-invocation` だけで（Codex も `name`・`description` のみ）、`allowed-tools`・`context: fork`・`model`・`argument-hint` は黙って捨てる。制約は本文に書き（「サブエージェントで実行する」「ソースは変更しない」）、Claude 専用の frontmatter は上乗せの最適化として扱う。仕組みにはしない。`verify-skills.sh` が検査する。
 
 2. **`disable-model-invocation` は、常に自分で打つスキルには正しく、呼び出し先には致命的。**
    モデルの自動呼び出しだけでなく、`Skill` による呼び出しとサブエージェントの事前ロードも止め、description も文脈から消える（だから予算はゼロ）。次の 2 か所には絶対に付けない。`verify-skills.sh` と lint hook の両方が止める。
@@ -35,7 +35,7 @@
    リポジトリを arm すると、共有 git dir で一致する **linked worktree** も arm される。試行回数は worktree ごとに数える（ゲートを引き継いでも、別の作業と回数を共有しない）。両方を決める関数は `scripts/gate.sh` と hook に `dotagents:gate-shared` ブロックとしてバイト単位で複製してある。不変条件 4 で hook は消えうるパスに依存できないため複製し、`verify-skills.sh` が一致を検査する。
 
 7. **接頭辞は 2 種類。この分け方がメニューを正直に保つ。**
-   **`da-*` は打つもの。** **`x-*` は内部用**（呼び出し先とサブエージェント。打たない）。`user-invocable: false` は Claude 専用で、Cursor はサブエージェントをコマンドピッカーに出すので、フィールドで*隠す*方法は両方では効かない。`da` 接頭辞を共有しないことは効く。`/da` で Claude Code と Cursor に同じ 10 件が出る。
+   **`da-*` は打つもの。** **`x-*` は内部用**（呼び出し先とサブエージェント。打たない）。`user-invocable: false` は Claude 専用で、Cursor はサブエージェントをコマンドピッカーに出すので、フィールドで*隠す*方法は両方では効かない。`da` 接頭辞を共有しないことは効く。`/da` で Claude Code と Cursor に、`$da` で Codex に同じ 10 件が出る。
    <!-- dotagents:skill-count mine=13 typed=10 layer=3 agents=2 upstream=15 -->
 
    どれかの名前を変えると **3 か所**が黙って壊れる。`verify-skills.sh` の `disable-model-invocation` の対象、lint hook の同じ一覧、そして名前で検索しても当たらない `` `x-review-<layer>` `` のようなテンプレのプレースホルダ。両ファイルは一覧を `dotagents:dmi-gate` / `dotagents:dmi-dispatch` 行のデータとして持ち、`verify-skills.sh` が全名前の解決・2 つの一覧の一致・プレースホルダの接頭辞を検査する。**このマーカーのコメントを消すと検査が消える**ので、どちらかが無ければ linter がエラーにする。
@@ -48,7 +48,7 @@
 10. **エージェントはモデルを固定しない。常に `model: inherit`。**
     固定すると**セッションで選んだモデルを黙って上書きする**。Opus を選んでも別のモデルで動き、プロンプトにも記録にも出ない。固定は実際に安い（トークン約 37% 減）ので、「追跡は機械的だから大きいモデルは要らない」と*わざと*破られやすい。一度その理屈で出して戻した。
     問題は節約の大きさではなく**誰の判断か**。ユーザーが同意していない節約は、ツールが黙ってユーザーに逆らうことになる。
-    **これは Claude 専用のフィールドではない。** 不変条件 1 の「Cursor は `model:` を捨てる」はスキルの frontmatter の話で、サブエージェントでは Cursor も `name`・`description`・`model`・`readonly`・`is_background` を読み、既定は `inherit`。固定すると両方でユーザーを上書きする。
+    **これは Claude 専用のフィールドではない。** 不変条件 1 の「Cursor は `model:` を捨てる」はスキルの frontmatter の話で、サブエージェントでは Cursor も `name`・`description`・`model`・`readonly`・`is_background` を読み、既定は `inherit`。固定すると両方でユーザーを上書きする。Codex のエージェントは `setup.sh` が `agents/*.md` から TOML を生成し、`model` を書かない（書くと同じく上書きする）。
     **コストはサブエージェントの*数*で削る。動かすモデルでは削らない。** レビューは今サブエージェントを 1 本も起動しない。`verify-skills.sh` は `inherit` 以外の `model:` をエラーにする。
 
 ## 実装の進め方

@@ -339,6 +339,18 @@ else no "   トレースの行なしで解放した（trace: $(cat "$GATE/trace.
 if trace_has 'boom'; then ok "   トレースがまだ赤のチェックを名指す"
 else no "   解放のトレースが失敗したチェックを名指さない"; fi
 
+# Codex の Stop は Claude Code と同じ契約（exit 2 と stderr で継続、exit 0 なら stdout は空か JSON）。
+# ペイロードは Claude Code のものに turn_id などが足された形で、Claude Code として扱われなければならない。
+codex_payload() { printf '{"cwd":"%s","hook_event_name":"Stop","session_id":"s","turn_id":"t","model":"m","permission_mode":"default","stop_hook_active":%s,"last_assistant_message":"done"}' "$REPO" "$1"; }
+rm -rf "$GATE"; arm
+codex_exit="$(codex_payload false | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr" >"$TMP/stdout"; echo $?)"
+check "Codex: 赤のチェック -> exit 2 で継続させる" 2 "$codex_exit"
+grep -q 'boom' "$TMP/stderr" && ok "   Codex にも失敗したチェックを名指す" || no "   Codex への理由に失敗したチェックが無い"
+codex_exit="$(codex_payload true | DOTAGENTS_GATE_DIR="$GATE" DOTAGENTS_PROFILES="$PROFILES" bash "$HOOK" 2>"$TMP/stderr" >"$TMP/stdout"; echo $?)"
+check "Codex: 再入 -> 一度解放する" 0 "$codex_exit"
+[[ ! -s "$TMP/stdout" ]] && ok "   Codex の exit 0 で stdout に平文を出さない（Codex は不正な出力として扱う）" \
+  || no "   Codex の exit 0 で stdout に出した: $(head -c 100 "$TMP/stdout")"
+
 # block のメッセージで、委任の結果を偽造する方法をエージェントに教えない。
 rm -rf "$GATE"; arm
 write_profile <<'JSON'

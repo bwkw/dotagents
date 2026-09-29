@@ -98,23 +98,24 @@ Claude Code と Cursor はエージェントの挙動を変える手段を複数
 
 ---
 
-## Cursor は全部の部分集合しか読まない
+## Cursor と Codex は全部の部分集合しか読まない
 
-両エージェントを一級市民として扱うので、**制約になるのは常に Cursor が理解する範囲**です。
+3 つのエージェントを一級市民として扱うので、**制約になるのは常に Cursor と Codex が理解する範囲**です。
 
-| | Claude Code | Cursor |
-|---|---|---|
-| スキル | `~/.claude/skills/`、symlink を追う | `~/.agents/skills/` をネイティブに、加えて `.cursor/` `.claude/` `.codex/` |
-| スキル frontmatter | 多数 | **`name` `description` `paths` `disable-model-invocation` `metadata` のみ** |
-| `name` とディレクトリ名の一致 | 不要 | **必須** |
-| サブエージェント | `~/.claude/agents/` | `.claude/agents/` も読む。フィールドは `name` `description` `model` `readonly` `is_background` |
-| hook | `settings.json`、PascalCase | `hooks.json`、camelCase、**非互換** |
-| 常時ロード | `CLAUDE.md` | `AGENTS.md` か `.cursor/rules` |
-| コマンド | レガシー | ドキュメントページ削除 |
+| | Claude Code | Cursor | Codex |
+|---|---|---|---|
+| スキル | `~/.claude/skills/`、symlink を追う | `~/.agents/skills/` をネイティブに、加えて `.cursor/` `.claude/` `.codex/` | `~/.agents/skills/` をネイティブに、symlink を追う |
+| スキル frontmatter | 多数 | **`name` `description` `paths` `disable-model-invocation` `metadata` のみ** | **`name` `description` のみ**（UI と自動呼び出しの方針は `agents/openai.yaml`） |
+| 打ち方 | `/da-verify` | `/da-verify` | **`$da-verify`**（`/skills` で一覧） |
+| `name` とディレクトリ名の一致 | 不要 | **必須** | 不要 |
+| サブエージェント | `~/.claude/agents/` | `.claude/agents/` も読む。フィールドは `name` `description` `model` `readonly` `is_background` | **`~/.codex/agents/*.toml`**。`name` `description` `developer_instructions` が必須。`setup.sh` が `.md` から生成 |
+| hook | `settings.json`、PascalCase | `hooks.json`、camelCase、**非互換** | `~/.codex/hooks.json`、**Claude Code と同じ形**。`/hooks` で信頼するまで動かない |
+| 常時ロード | `CLAUDE.md` | `AGENTS.md` か `.cursor/rules` | `AGENTS.md` |
+| コマンド | レガシー | ドキュメントページ削除 | — |
 
 `allowed-tools` `argument-hint` `context: fork` `model` `when_to_use` `user-invocable` は **Cursor では単に存在せず、それを報告するものもありません**。だから `AGENTS.md` の規則: **Claude 専用フィールドを全部剥がしても、スキルは同じ挙動をしなければならない**。制約は本文に散文で書き、frontmatter はその上の最適化。サブエージェント定義も同じ理由で、読み取り専用の制約を `tools:` と本文の両方に書いています。
 
-`${CLAUDE_SKILL_DIR}` `$ARGUMENTS` `` !`command` `` は Claude Code の拡張です。依存する場合、その依存が Cursor で生き残る形になっている必要があります。
+`${CLAUDE_SKILL_DIR}` `$ARGUMENTS` `` !`command` `` は Claude Code の拡張です。依存する場合、その依存が Cursor と Codex で生き残る形になっている必要があります。
 
 ---
 
@@ -156,6 +157,7 @@ Claude Code と Cursor はエージェントの挙動を変える手段を複数
 - [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
 - [Steering Claude Code: when to use CLAUDE.md, skills, hooks, and subagents](https://claude.com/blog/steering-claude-code-skills-hooks-rules-subagents-and-more)
 - [Agent Skills — Cursor](https://cursor.com/docs/skills) · [Subagents](https://cursor.com/docs/subagents) · [Hooks](https://cursor.com/docs/hooks)
+- [Build skills — Codex](https://developers.openai.com/codex/skills) · [Subagents](https://developers.openai.com/codex/subagents) · [Hooks](https://developers.openai.com/codex/hooks)（2026-09-29 に確認）
 
 ### レビュー観点の裏にある出典
 

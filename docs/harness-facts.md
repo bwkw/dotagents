@@ -120,6 +120,29 @@ README は「どのリポジトリにも存在します」と書いていまし�
 **なお `tools:` は Claude 専用**で、Cursor の対応物は `readonly` です。不変条件1のとおり、
 **読み取り専用は本文の宣言で担保**されていて frontmatter には依存していません。
 
+## Codex —— スキルは読めていて、エージェントと hook が届いていなかった（2026-09-29）
+
+一次情報は [Build skills](https://developers.openai.com/codex/skills)・[Subagents](https://developers.openai.com/codex/subagents)・
+[Hooks](https://developers.openai.com/codex/hooks)。実測は ChatGPT デスクトップアプリ同梱の codex-cli 0.158.0。
+
+- **スキル**: ユーザー用の置き場は `$HOME/.agents/skills`。symlink を追う。app-server の `skills/list` で、
+  自作 13 本・upstream すべてがエラーなしで読まれていることを確かめた。**呼び出しは `$name`** で、`/` は
+  組み込みコマンドだけ。「Codex からスキルが使えない」の正体はこれと、`install` を再実行していない新スキルだった
+- **サブエージェント**: `~/.codex/agents/*.toml` だけを読み、Markdown は読まない。必須は `name`・`description`・
+  `developer_instructions`。`model` を書くと親の選択より優先される（不変条件 10 と同じ理由で書かない）。
+  読み取り専用は `sandbox_mode = "read-only"`。`codex exec` に agent type を列挙させ、2 本が出ることを確かめた
+- **hook**: `~/.codex/hooks.json` は Claude Code の `hooks` と同じ形（イベント → matcher の枠 → handler、`timeout` は秒）。
+  Stop は **exit 2 と stderr で継続**（理由が次のユーザープロンプトになる）、exit 0 なら stdout は空か JSON
+  （平文は不正）。PreToolUse の deny は Claude Code と同じ `hookSpecificOutput.permissionDecision`。
+  **reason 付きの `allow` は受け付けない**ので、警告は `additionalContext` で返す
+- **payload**: Claude Code の共通フィールドに `turn_id`・`model` が足された形。ゲートは `cwd` と
+  `hook_event_name` で Claude Code として扱い、そのまま正しく動く（`test-verify-gate.sh` の Codex のケース）。
+  lint hook は `turn_id` で Codex を見分ける
+- **編集は `apply_patch`**: `tool_input.command` がパッチ本文で、パスも中身もその中にしかない。matcher の
+  `Write|Edit` は `apply_patch` の別名として当たる
+- **信頼**: 管理下でない hook は、定義のハッシュに対してユーザーが `/hooks` で信頼するまで**黙ってスキップ**される。
+  配線しただけでは開いたまま。`setup.sh status` がそう言う
+
 ---
 
 ## headless（`claude -p`）—— ループの駆動系が乗っている面

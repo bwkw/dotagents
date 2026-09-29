@@ -9,10 +9,12 @@
 # 常時有効な Stop hook は、質問に答えるだけのセッションでも毎回テストを回して使い物にならず、
 # 結局外される。それは無いより悪い。
 #
-# 両方のエージェントで動くが、強制力は違う。
+# 3 つのエージェントで動くが、強制力は違う。
 #
 #   Claude Code  Stop hook。  exit 2 でターンを止め、stderr がエージェントに渡る。他の終了コードでは
 #                             止まらない（exit 1 は非ブロックのエラーでターンが終わる）。docs/harness-facts.md 参照。
+#   Codex        Stop hook。  Claude Code と同じ契約で、payload も同じ形（turn_id などが足される）なので
+#                             Claude Code として扱う。exit 0 の時に stdout へ平文を出してはならない。
 #   Cursor       stop hook。  止められない。{"followup_message": "..."} を出すとメッセージが自動送信され、
 #                             エージェントが作業を続ける。Cursor の loop_limit（既定 5）で頭打ちになる。
 #
