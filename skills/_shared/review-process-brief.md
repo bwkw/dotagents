@@ -12,6 +12,8 @@
 
 ## 0. 最初に tier を確かめる
 
+**ディスパッチャの対象・base/head・差分・担当ファイル一覧を引き継ぐ。** PR は取得済みの差分から担当範囲を測り、cwd の Git や下の base 探索を使わない。対象未解決なら `review-process.md` の Step 1 を読む。以下の探索と空ツリーへのフォールバックは、比較元未解決のローカル差分だけに使う。Git コマンドは対象ディレクトリで実行する。
+
 ```bash
 BASE=""
 for b in "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')" \
