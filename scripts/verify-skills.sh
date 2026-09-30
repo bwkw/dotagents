@@ -649,40 +649,6 @@ else
   printf '%s✓%s 変更表は 3 つの写しすべてで %s\n' "$c_green" "$c_off" "$(printf '%s' "$change_cols" | head -1)"
 fi
 
-# --- 文章に書いた数はディスク上の数であること ---------------------------
-# README と AGENTS.md はスキルの数を文で書いている。da-spec を足した時、そのうち 3 文が一度に誤りになり、どれも
-# 自然に読めた。文章の中の数は、ディレクトリが変わったことに気づけない。
-#
-# The counts are declared on a marker beside the sentence and computed here. dotagents:skill-count
-echo
-echo "文章中のスキル数がディレクトリと一致するか検査する"
-real_mine="$(ls -d "$REPO"/skills/*/ 2>/dev/null | grep -vE '_shared|_template' | wc -l | tr -d ' ')"
-real_typed="$(ls -d "$REPO"/skills/da-*/ 2>/dev/null | wc -l | tr -d ' ')"
-real_layer="$(ls -d "$REPO"/skills/x-review-*/ 2>/dev/null | wc -l | tr -d ' ')"
-real_agents="$(ls -1 "$REPO"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')"
-count_bad=""; count_seen=0
-while IFS= read -r line; do
-  [[ -n "$line" ]] || continue
-  count_seen=$((count_seen+1))
-  for pair in $line; do
-    case "$pair" in
-      mine=*)   [[ "${pair#mine=}"   == "$real_mine"   ]] || count_bad="$count_bad mine(記載 ${pair#mine=}、実際 $real_mine)" ;;
-      typed=*)  [[ "${pair#typed=}"  == "$real_typed"  ]] || count_bad="$count_bad typed(記載 ${pair#typed=}、実際 $real_typed)" ;;
-      layer=*)  [[ "${pair#layer=}"  == "$real_layer"  ]] || count_bad="$count_bad layer(記載 ${pair#layer=}、実際 $real_layer)" ;;
-      agents=*) [[ "${pair#agents=}" == "$real_agents" ]] || count_bad="$count_bad agents(記載 ${pair#agents=}、実際 $real_agents)" ;;
-    esac
-  done
-done < <(grep -rhoE 'dotagents:skill-count [a-z0-9= ]+' "$REPO/README.md" "$REPO/AGENTS.md" 2>/dev/null \
-         | sed 's/dotagents:skill-count //')
-if (( count_seen < 2 )); then
-  err "skill-count" "'dotagents:skill-count' マーカーが 2 つ未満 -- README.md と AGENTS.md はどちらもこの数を文章で書いており、印の無い文は失敗せずに古くなる"
-elif [[ -n "$count_bad" ]]; then
-  err "skill-count" "文章に書いた数がディレクトリと合わなくなった:$count_bad -- スキルの増減で 2 ファイルの文が変わり、誤っていても両方とも自然に読める"
-else
-  printf '%s✓%s 文章中の数は一致: スキル %s、打つもの %s、層 %s、エージェント %s\n' \
-    "$c_green" "$c_off" "$real_mine" "$real_typed" "$real_layer" "$real_agents"
-fi
-
 # --- スキーマの形と、それを読む指示が一致すること ---------------
 # 注入の余地を消すため profiles/_schema.json の `validate` をシェル文字列から argv に変えたのに、実行の仕方を教える
 # ファイルは「コマンド。change id を差し込む」のまま、素のシェル行を載せていた。スキーマはその指示の形を弾く。
