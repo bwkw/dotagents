@@ -392,29 +392,34 @@ if [[ -f "$dr" ]]; then
   fi
 fi
 
-# --- サブエージェント禁止の規則は reference/ だけでなく本文に書くこと -----
+# --- レビューの実行形態（inline / fan-out）の規則は reference/ だけでなく本文に書くこと -----
 # Cursor には ${CLAUDE_SKILL_DIR} も同等のものも無い。reference/ にだけある規則は Claude Code は従い Cursor は
 # 従わないかもしれず、その失敗は見えない。不変条件 1（制約は本文に書き、Claude 専用の経路はその上の最適化）を、
 # レビューのコストを決める規則に当てたもの。
 #
-# 以前は逆の内容（0/3/5 の fan-out 予算）を求めていた。レビューはもう何も起動しないので、本文にサブエージェントの
-# 許可が残っていれば、半分だけ当たった変更の古い半分になる。**検査は消さずに向け直した**。理由は規則に依らない:
-# 支出を縛るものは両エージェントで効かなければならず、両方で効くのは本文だけ。
+# 0/3/5 の fan-out 予算 → 決定 26 の全面 inline → 決定 41 の「1,000 行以下は inline、超えたら担当ごとに fan-out」と
+# 2 度向きが変わった。**検査は消さずに向け直してきた**。理由は規則に依らない: 支出を縛るものは両エージェントで
+# 効かなければならず、両方で効くのは本文だけ。いまは両方の段（inline と fan-out）が本文にあることを見る。
+# 片方だけなら、半分だけ当たった変更の古い半分が残っている。
 echo
-echo "サブエージェント禁止の規則が本文に書かれているか検査する"
+echo "レビューの実行形態（inline / fan-out）の規則が本文に書かれているか検査する"
 budget_missing=""
 for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
   bf="$REPO/skills/$bs/SKILL.md"
   [[ -f "$bf" ]] || { budget_missing="$budget_missing $bs(absent)"; continue; }
   bbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$bf")"
-  # 禁止と、報告が持つべき語の両方を見る。"no subagents" だけなら別の話の文にありうるし、"inline" だけなら何の副詞でもよい。
-  grep -qiE 'no subagents' <<<"$bbody" && grep -qiE 'inline' <<<"$bbody" \
+  # 両方の段の語を見る。"inline, no subagents" は 🔎 に書く語、"fan-out" はもう 1 つの段の名前。
+  grep -qiE 'inline, no subagents' <<<"$bbody" && grep -qiE 'fan-out' <<<"$bbody" \
     || budget_missing="$budget_missing $bs"
 done
+# fan-out を決めるのはディスパッチャだけ。閾値と、所見ごとの反証役の名前が本文に無ければ、どちらかの段が黙って落ちる。
+drb="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$REPO/skills/da-review-all/SKILL.md" 2>/dev/null)"
+grep -qE '1,000 行' <<<"$drb" && grep -qE 'x-review-verifier' <<<"$drb" \
+  || budget_missing="$budget_missing da-review-all(閾値か反証役)"
 if [[ -n "$budget_missing" ]]; then
-  err "no-subagent-rule" "サブエージェント禁止の規則が次の本文に無い:$budget_missing -- Cursor は \${CLAUDE_SKILL_DIR} を解決できないので、reference/ にだけある規則はそこで効かない"
+  err "review-execution-rule" "レビューの実行形態の規則が次の本文に無い:$budget_missing -- Cursor は \${CLAUDE_SKILL_DIR} を解決できないので、reference/ にだけある規則はそこで効かない"
 else
-  printf '%s✓%s fan-out の予算とそのインライン段が、レビューの本文 4 つすべてにある\n' "$c_green" "$c_off"
+  printf '%s✓%s inline の段と fan-out の段が、レビューの本文 4 つすべてにある\n' "$c_green" "$c_off"
 fi
 
 # --- 差分サイズの計測はレビュー対象の範囲に絞ること ---
