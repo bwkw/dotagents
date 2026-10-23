@@ -1,7 +1,7 @@
 // 機能紹介動画を 1 本のシナリオから作る。
 //   node demo.mjs setup   <scenario.mjs>   依存を ~/.cache/da-demo-video に入れる（初回だけ）
 //   node demo.mjs login   <scenario.mjs>   ブラウザ窓を開き、手でログイン → <workdir>/auth.json
-//   node demo.mjs tts     <scenario.mjs>   ナレーション → <workdir>/audio/*.mp3
+//   node demo.mjs tts     <scenario.mjs>   ナレーション → <workdir>/audio/*.wav
 //   node demo.mjs record  <scenario.mjs>   撮影（cleanup を前後に実行）→ frames/ timeline.json
 //   node demo.mjs compose <scenario.mjs>   out.mp4 と確認用コンタクトシート stills/sheet*.jpg
 //   node demo.mjs all     <scenario.mjs>   tts → record → compose
@@ -14,9 +14,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import os from 'node:os';
+import { voicevoxOptions, synthesizeVoicevox } from './voicevox.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// 依存（node_modules と edge-tts の venv）はスキルの外に置く。スキルのディレクトリはリンクで配られ、
+// 依存（node_modules）はスキルの外に置く。スキルのディレクトリはリンクで配られ、
 // 中身がすべてエージェントの読む対象として lint される。依存をそこに置くと、入れた人の検査が落ちる。
 const DEPS = process.env.DA_DEMO_VIDEO_HOME ?? path.join(process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'), 'da-demo-video');
 const [cmd, scenarioArg] = process.argv.slice(2);
@@ -35,6 +36,7 @@ const p = (...a) => path.join(W, ...a);
 // 壊れたシナリオは撮影を数分走らせてから落ちる。先に形だけ見る
 function check(s) {
   const bad = [];
+  try { voicevoxOptions(s); } catch (error) { bad.push(error.message); }
   if (!/^https?:\/\//.test(s?.url ?? '')) bad.push('url が http(s) でない');
   if (typeof s?.ready !== 'function') bad.push('ready が関数でない');
   if (!Array.isArray(s?.scenes) || !s.scenes.length) bad.push('scenes が空');
@@ -50,7 +52,7 @@ function check(s) {
 }
 
 const VIEW = { width: 1440, height: 900 };
-const dur = (id) => +spawnSync(ffmpeg, ['-i', p('audio', `${id}.mp3`)], { encoding: 'utf8' }).stderr
+const dur = (id) => +spawnSync(ffmpeg, ['-i', p('audio', `${id}.wav`)], { encoding: 'utf8' }).stderr
   .match(/Duration: (\d+):(\d+):([\d.]+)/).slice(1).reduce((a, v) => a * 60 + +v, 0);
 
 async function openPage(browser, extra = {}) {
@@ -74,14 +76,10 @@ async function login() {
   await browser.close();
 }
 
-function tts() {
-  fs.mkdirSync(p('audio'), { recursive: true });
-  for (const s of sc.scenes) {
-    const r = spawnSync(path.join(DEPS, '.venv/bin/edge-tts'), ['--voice', sc.voice ?? 'ja-JP-NanamiNeural', `--rate=${sc.rate ?? '+8%'}`,
-      '--text', s.say, '--write-media', p('audio', `${s.id}.mp3`)], { encoding: 'utf8' });
-    if (r.status) throw new Error(`tts ${s.id}: ${r.stderr}`);
-    console.log(s.id, dur(s.id).toFixed(1), 's');
-  }
+async function tts() {
+  const metadata = await synthesizeVoicevox(sc, p('audio'));
+  for (const scene of sc.scenes) console.log(scene.id, dur(scene.id).toFixed(1), 's');
+  console.log(metadata.credit, metadata.styleName, `話速 ${metadata.speedScale}`);
 }
 
 async function cleanup() {
@@ -93,6 +91,7 @@ async function cleanup() {
 }
 
 async function record() {
+  const { credit } = JSON.parse(fs.readFileSync(p('audio', 'voicevox.json'), 'utf8'));
   await cleanup();
   fs.rmSync(p('frames'), { recursive: true, force: true });
   fs.mkdirSync(p('frames'), { recursive: true });
@@ -108,6 +107,7 @@ async function record() {
   for (const sel of sc.hideSelectors ?? []) await page.locator(sel).evaluateAll(es => es.forEach(e => (e.style.visibility = 'hidden')));
 
   const ov = (fn, ...a) => page.evaluate(([fn, a]) => window.__ov[fn](...a), [fn, a]);
+  await ov('credit', credit);
   const sleep = (ms) => page.waitForTimeout(ms);
   const box = async (loc) => { await loc.waitFor(); return loc.boundingBox(); };
   const center = (b) => [b.x + b.width / 2, b.y + b.height / 2];
@@ -184,7 +184,7 @@ function compose() {
   const delays = timeline.map((s, i) => `[${i + 1}:a]adelay=${Math.round((s.t - t0) * 1000 + 300)}:all=1[a${i}]`).join(';');
   const mix = timeline.map((_, i) => `[a${i}]`).join('') + `amix=inputs=${timeline.length}:normalize=0,apad=whole_dur=${(end - t0).toFixed(2)}[aout]`; // 音声を映像の長さまで無音で伸ばす。-shortest が最後のカードを切らないように
   const out = p(sc.output ?? 'out.mp4');
-  const r = spawnSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', p('frames.txt'), ...timeline.flatMap(s => ['-i', p('audio', `${s.id}.mp3`)]),
+  const r = spawnSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', p('frames.txt'), ...timeline.flatMap(s => ['-i', p('audio', `${s.id}.wav`)]),
     '-filter_complex', `[0:v]fps=30,scale=1920:1200:flags=lanczos,format=yuv420p[v];${delays};${mix}`,
     '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-crf', '18', '-preset', 'slow', '-c:a', 'aac', '-b:a', '160k',
     '-movflags', '+faststart', '-shortest', out], { encoding: 'utf8' });
@@ -207,16 +207,15 @@ function setup() {
   const run = (c, a) => { const r = spawnSync(c, a, { cwd: DEPS, stdio: 'inherit' }); if (r.status) throw new Error(`${c} ${a.join(' ')} が失敗`); };
   run('npm', ['ci', '--no-audit', '--no-fund']); // lock の版で入れる
   run('npx', ['playwright', 'install', 'chromium']);
-  run('python3', ['-m', 'venv', '.venv']);
-  run(path.join(DEPS, '.venv/bin/pip'), ['install', '-q', 'edge-tts']);
+  console.log('音声生成にはローカルのVOICEVOXを起動してください（macOS: open -a VOICEVOX）');
   console.log('ok', DEPS);
 }
 
 if (cmd === 'check') console.log('ok', sc.scenes.length, 'scenes');
 else if (cmd === 'setup') setup();
 else if (cmd === 'login') await login();
-else if (cmd === 'tts') tts();
+else if (cmd === 'tts') await tts();
 else if (cmd === 'record') await record();
 else if (cmd === 'compose') compose();
-else if (cmd === 'all') { tts(); await record(); compose(); }
+else if (cmd === 'all') { await tts(); await record(); compose(); }
 else throw new Error(`unknown command: ${cmd}`);

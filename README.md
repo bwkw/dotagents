@@ -33,8 +33,8 @@ hook は Claude Code と同じ定義を `~/.codex/hooks.json` に入れます（
 スキルを触らせたくないマシンでは `install --no-opinions`** で hook の配線だけになります。
 
 必要なもの: `node`、`bash`、`git`。**macOS と Linux で CI が回っています**（bash 3.2 を含む）。Windows は
-bash 前提なので WSL のみのはずですが、未確認です。node は CI で 22 を検証しています。18 でも動く想定ですが
-**検証していません**（[docs/portability.md](docs/portability.md) の「直していないもの」）。
+bash 前提なので WSL のみのはずですが、未確認です。Node.jsは24以上が必要です。推奨版は `.node-version` の24.22.1（LTS）で、CIは下限の24系列と推奨版を検証します。
+ローカルでも利用中のNodeバージョン管理ツールで `.node-version` の版に揃えてください。
 
 > **`profiles/` を1つ書くまで、検証ゲートは何も検査しません。** これは推測しない設計の帰結です
 > （一致する profile が無ければ pass）。`profiles/_example.node-pnpm.json` をコピーするか、`/da-verify`
@@ -184,7 +184,7 @@ landing ごとに:
 
 | 打つもの | いつ |
 |---|---|
-| ● `/da-demo-video` | 機能紹介・操作説明の動画が要るとき。**実画面を自動で操作して撮り**、ナレーション・テロップ・枠・カーソル・ズームを付けて mp4 にする。ログインはユーザーが行い、撮影で保存した変更はシナリオの `cleanup` で戻す |
+| ● `/da-demo-video` | 機能紹介・操作説明の動画が要るとき。**実画面を自動で操作して撮り**、ローカルVOICEVOXのナレーション・テロップ・枠・カーソル・ズームを付けて mp4 にする。リリース共有は冒頭に誰・業務・価値を示し、対応内容を落とさず2分前後で伝える。ログインはユーザーが行い、撮影で保存した変更はシナリオの `cleanup` で戻す |
 
 ### どのコマンドより効く3つの規則
 
@@ -457,7 +457,7 @@ dotagents/skills/<name>/
 **2つの規則があり、どちらも安全側の理由で入っています。**
 
 - **名指しした既知の保守者のリポジトリからだけ入れる。レジストリの索引から探して入れない。** 2026年に報告されたスキルのサプライチェーン攻撃は公開レジストリの母集団で起きています（ClawHub 経由のマルウェア30本超、Snyk が ClawHub と skills.sh の3,984本を走査してマルウェア76本を確認）。ClawHub の公開障壁は「SKILL.md と1週間前の GitHub アカウント」で、署名もレビューもサンドボックスもありません。`npx skills add <owner>/<repo>` は**索引を引かずに名指しのリポジトリを直接 clone** するので、この母集団に触れません（[判断の記録 §10](docs/decisions.md)）。
-- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.5.20` と書いてあるのはそのためです。スキル本体はテキストにすぎませんが、**この CLI はこのエコシステムからこのマシンで実際に実行される唯一のコード**で、`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。
+- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.7.4` と書いてあるのはそのためです。スキル本体はテキストにすぎませんが、**この CLI はこのエコシステムからこのマシンで実際に実行される唯一のコード**で、`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。
 - **`npx skills update` の直後に `/skill-scanner` を回す。** `skillFolderHash` はインストール時の記録で、バージョン固定ではありません。update は既定ブランチの最新を持ってきます。監査は一度で終わりません。
 
 **選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
@@ -477,7 +477,7 @@ dotagents/skills/<name>/
 #   後半4本は前半が REQUIRED SUB-SKILL / 代替として名指ししている依存。
 #   subagent-driven-development は writing-plans が必須と宣言するので入れますが、
 #   このリポジトリの駆動系は打ちません（docs/loops.md に理由）。
-npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
+npx skills@1.7.4 add obra/superpowers -g -a claude-code -a cursor \
   -s writing-plans -s executing-plans -s receiving-code-review \
   -s systematic-debugging -s test-driven-development -s using-git-worktrees \
   -s finishing-a-development-branch -s verification-before-completion \
@@ -485,15 +485,15 @@ npx skills@1.5.20 add obra/superpowers -g -a claude-code -a cursor \
 
 # 実務 — mattpocock/skills
 #   包み紙の grill-me ではなく、実体の grilling を直接入れます（判断の記録 §38）。
-npx skills@1.5.20 add mattpocock/skills -g -a claude-code -a cursor \
+npx skills@1.7.4 add mattpocock/skills -g -a claude-code -a cursor \
   -s grilling -s research
 
 # セキュリティ — getsentry/skills
-npx skills@1.5.20 add getsentry/skills -g -a claude-code -a cursor \
+npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
 
 # 決定の記録 — addyosmani/agent-skills
-npx skills@1.5.20 add addyosmani/agent-skills -g -a claude-code -a cursor \
+npx skills@1.7.4 add addyosmani/agent-skills -g -a claude-code -a cursor \
   -s documentation-and-adrs
 ```
 
