@@ -12,6 +12,7 @@
   #ov-cap{position:absolute;left:50%;bottom:44px;transform:translate(-50%,20px);max-width:88%;padding:14px 30px;border-radius:14px;background:rgba(15,23,42,.9);color:#fff;font-size:26px;font-weight:700;letter-spacing:.02em;opacity:0;transition:all .4s ease;white-space:nowrap}
   #ov-cap.on{opacity:1;transform:translate(-50%,0)}
   #ov-card{position:absolute;inset:0;background:linear-gradient(135deg,#0f1b3d,#1d3a8a);color:#fff;display:flex;flex-direction:column;justify-content:center;padding:0 110px;opacity:0;transition:opacity .6s ease}
+  #ov-credit{position:absolute;right:20px;bottom:10px;padding:4px 8px;border-radius:4px;background:rgba(15,23,42,.85);color:#fff;font-size:14px}
   #ov-card.on{opacity:1}
   #ov-card h1{font-size:54px;margin:0 0 22px;line-height:1.35}
   #ov-card .sub{font-size:28px;opacity:.85;line-height:1.6}
@@ -28,7 +29,7 @@
   const shadow = host.attachShadow({ mode: 'open' });
   const st = document.createElement('style'); st.textContent = css; shadow.appendChild(st);
   const root = document.createElement('div'); root.id = 'ov-root';
-  root.innerHTML = `<div id="ov-card"></div><div id="ov-hl"></div><div id="ov-cap"></div>
+  root.innerHTML = `<div id="ov-card"></div><div id="ov-hl"></div><div id="ov-cap"></div><div id="ov-credit"></div>
   <svg id="ov-cursor" viewBox="0 0 24 24"><path d="M4 2l16 9.5-7 1.6 4.2 7.4-2.8 1.5-4.2-7.4L5 19.5z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   shadow.appendChild(root);
   document.documentElement.appendChild(host);
@@ -40,6 +41,7 @@
     ripple() { const r = document.createElement('div'); r.className = 'ov-ripple'; r.style.left = cx + 'px'; r.style.top = cy + 'px'; root.appendChild(r); setTimeout(() => r.remove(), 700); },
     hl(r, pad = 8) { const h = $('ov-hl'); Object.assign(h.style, { left: r.x - pad + 'px', top: r.y - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px', opacity: 1 }); },
     hlOff() { $('ov-hl').style.opacity = 0; },
+    credit(t) { $('ov-credit').textContent = t; },
     cap(t) { const c = $('ov-cap'); if (!t) { c.classList.remove('on'); return; } c.textContent = t; c.classList.add('on'); },
     card(html) { const c = $('ov-card'); c.innerHTML = html; c.classList.add('on'); },
     cardShowCols() { root.querySelectorAll('.col').forEach((e, i) => setTimeout(() => e.classList.add('on'), i * 900)); },
