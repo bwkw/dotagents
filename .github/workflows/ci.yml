@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  # README は node 18 以上を求めているので、その下限で実際に全チェックを回す。
+  # README は node 24 以上を求めているので、その下限で実際に全チェックを回す。
   #
   # `shell` の matrix に足さず別ジョブにするのは、ジョブ名を安定させるため。ジョブ名はブランチルールの
   # 必須チェックになっており、変えると黙って必須から外れる。
@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '18'
+          node-version: '24'
 
       - name: 実際に使っているバージョンを表示
         run: |
@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
 
       - name: 実際に使っている shell を表示
         run: bash --version | head -1
@@ -84,7 +84,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
 
       # CLAUDE.md は AGENTS.md へのシンボリックリンクのまま保つ。Claude Code は AGENTS.md を読まないので、
       # 別ファイルになると常時ロードの層が黙ってずれる。シンボリックリンクに `perl -pi` を掛けると黙って

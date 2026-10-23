@@ -466,7 +466,13 @@ cmd_install() {
 
   # settings のマージとマニフェストはすべて node を通る。途中で落ちるとガードレールもマニフェストも
   # 無い状態が残るので、何かを変える前に確かめる。
-  command -v node >/dev/null || die "node（18 以上）が必要。何も変更していない。"
+  command -v node >/dev/null || die "node（24 以上）が必要。何も変更していない。"
+  local node_version node_major
+  node_version="$(node --version 2>/dev/null)" || die "node（24 以上）のバージョンを確認できない。何も変更していない。"
+  node_major="${node_version#v}"
+  node_major="${node_major%%.*}"
+  [[ "$node_major" =~ ^[0-9]+$ ]] && (( node_major >= 24 )) \
+    || die "node（24 以上）が必要。現在は ${node_version}。何も変更していない。"
 
   preflight
 
