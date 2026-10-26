@@ -1,11 +1,7 @@
 version: 2
 
-# ここにパッケージのマニフェストは意図的に無い。このリポジトリが配るのはシェル・Markdown・JSON で、
-# 推奨する upstream スキルも同梱しない（理由は README）。腐りうる依存はワークフローの actions だけで、
-# それは PR ごとにリポジトリのトークンで動くので、古いピンが実害になる唯一の場所である。
-#
-# `npx skills` はここでは扱わない。手元で実行される skills エコシステムの唯一のコードなので、バージョンは
-# README.md で手でピンしている。このファイルを読み直す時は、そのピンも読み直す。
+# ワークフローと、動画生成スキルのnpm依存を更新する。
+# `npx skills` はREADME.mdと検査メッセージで手動ピンする。更新時はCLIの互換性も確認する。
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -13,4 +9,11 @@ updates:
       interval: monthly
     commit-message:
       prefix: "ci"
+    open-pull-requests-limit: 3
+  - package-ecosystem: npm
+    directory: /skills/da-demo-video
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps"
     open-pull-requests-limit: 3

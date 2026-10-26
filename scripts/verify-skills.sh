@@ -837,7 +837,7 @@ else
       [[ "$ref" == "$from" ]] && continue                      # 自分自身を名指す
       printf '%s\n' $builtins | grep -qx "$ref" && continue    # スキルではなく組み込みコマンド
       [[ -d "$INSTALLED/$ref" ]] && continue
-      err "$from" "スキル '$ref' を名指すが、インストールされていない -- それを中心にした指示が何も指していない。インストールする: npx skills@1.5.20 add <owner>/<repo> -g -a claude-code -a cursor -s $ref"
+      err "$from" "スキル '$ref' を名指すが、インストールされていない -- それを中心にした指示が何も指していない。インストールする: npx skills@1.7.4 add <owner>/<repo> -g -a claude-code -a cursor -s $ref"
       ref_bad=$((ref_bad+1))
     done < <( {
       printf '%s\n' "$body" \

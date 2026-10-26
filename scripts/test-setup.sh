@@ -57,6 +57,31 @@ j() { node -e 'const f=process.argv[1];try{console.log(JSON.stringify(require(f)
 echo "インストーラ"
 echo
 
+# サポート外のNodeでは、ユーザー設定やリンクを変更する前に止まる。
+mkdir -p "$TMP/old-node"
+REAL_TEST_NODE="$(node -p 'process.execPath')"
+cat > "$TMP/old-node/node" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --version ]]; then
+  printf 'v22.23.4\n'
+else
+  exec "$DOTAGENTS_TEST_REAL_NODE" "$@"
+fi
+SH
+chmod +x "$TMP/old-node/node"
+old_node_out="$(PATH="$TMP/old-node:$PATH" DOTAGENTS_TEST_REAL_NODE="$REAL_TEST_NODE" run_setup install)"
+old_node_rc=$?
+check "Node 22 はインストール前に拒否する" 1 "$old_node_rc"
+grep -q '24' <<<"$old_node_out" && ok "必要なNodeのバージョンを伝える" || no "必要なNodeのバージョンが分からない"
+if cmp -s "$FAKE/.claude/settings.json" "$TMP/settings.before" \
+  && cmp -s "$FAKE/.cursor/hooks.json" "$TMP/cursor.before" \
+  && cmp -s "$FAKE/.codex/hooks.json" "$TMP/codex.before" \
+  && [[ ! -d "$FAKE/.claude/skills" && ! -f "$FAKE/.claude/.dotagents-managed.json" ]]; then
+  ok "サポート外のNodeでは設定とリンクを変更しない"
+else
+  no "サポート外のNodeでユーザー設定かリンクを変更した"
+fi
+
 # 未インストールの環境で --no-opinions を先に試す。仕組みは入り、好みのキーは入らないこと。
 # 仕組みごと飛ばしたインストールでも「無いこと」の検査は通るので、hook があることも同時に見る。
 run_setup install --no-opinions >/dev/null

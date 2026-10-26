@@ -7,6 +7,7 @@ export default {
   hide: [],               // 映したくない文字列（環境名・組織名など）の正規表現
   hideSelectors: [],      // 映したくない要素の CSS セレクタ
   output: 'example.mp4',
+  voicevox: { speaker: 2, speedScale: 1.05 }, // 四国めたん／ノーマル。ローカルでVOICEVOXを起動して使う
 
   // 撮影で保存した変更を元に戻す。撮影の前と後（失敗時も）に走る。保存しないシナリオでは書かない
   // async cleanup(page) {},

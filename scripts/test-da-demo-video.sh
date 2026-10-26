@@ -35,4 +35,9 @@ expect_reject no-ready  "export default { url: 'https://example.com/', scenes: [
 expect_reject no-scenes "export default { url: 'https://example.com/', $ok_ready, scenes: [] };" 'scenes が空'
 expect_reject bad-id    "export default { url: 'https://example.com/', $ok_ready, scenes: [{ id: '../x', say: 'x' }] };" 'ファイル名'
 
+expect_reject remote-voicevox "export default { url: 'https://example.com/', $ok_ready, voicevox: { url: 'https://example.com' }, scenes: [{ id: 'a', say: 'x' }] };" 'ローカル'
+expect_reject invalid-speed "export default { url: 'https://example.com/', $ok_ready, voicevox: { speedScale: 0 }, scenes: [{ id: 'a', say: 'x' }] };" 'speedScale'
+expect_reject legacy-voice "export default { url: 'https://example.com/', $ok_ready, voice: 'ja-JP-NanamiNeural', scenes: [{ id: 'a', say: 'x' }] };" 'voicevox'
+
+node --test "$REPO/scripts/test-da-demo-video-voicevox.mjs"
 echo "ok"
