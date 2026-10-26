@@ -1,0 +1,12 @@
+{
+  "name": "da-adr-figure",
+  "private": true,
+  "type": "module",
+  "description": "da-adr-figure の書き出しに使う依存。setup がスキル外のキャッシュにインストールする",
+  "dependencies": {
+    "playwright": "1.64.1"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
