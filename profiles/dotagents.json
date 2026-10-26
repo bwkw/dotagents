@@ -199,6 +199,15 @@
       "when": "da-demo-video の check は、壊れたシナリオを撮影の前に弾き続けること（依存無しで動く）"
     },
     {
+      "id": "da-adr-figure-check",
+      "cmd": "./scripts/test-da-adr-figure.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 60,
+      "when": "da-adr-figure の check は壊れた定義を書き出しの前に弾き、build は文字があふれた図を失敗させ続けること（check は依存無しで動き、build の検査は依存がある時だけ走る）"
+    },
+    {
       "id": "gate-covers-check-sh",
       "cmd": "node -e 'const fs=require(\"fs\");const steps=[...fs.readFileSync(\"scripts/check.sh\",\"utf8\").matchAll(/^[ \\\\t]*step .*?(\\.\\/scripts\\/[a-z-]+\\.sh)/gm)].map(m=>m[1]);const gated=require(\"./profiles/dotagents.json\").checks.filter(c=>c.gate).map(c=>c.cmd).join(\" \");const missing=steps.filter(s=>!gated.includes(s));if(missing.length){console.error(\"not gated by profiles/dotagents.json: \"+missing.join(\" \"));process.exit(1)}console.log(\"all \"+steps.length+\" suites check.sh runs are gated\")'",
       "gate": true,
