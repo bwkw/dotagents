@@ -844,8 +844,14 @@ else
         | grep -oE '(^|[^a-zA-Z0-9_./-])superpowers:[a-z][a-z0-9]*(-[a-z0-9]+)+' \
         | sed 's/.*://'
       printf '%s\n' "$body" \
-        | grep -oE '(^|[^a-zA-Z0-9_./`-])/[a-z][a-z0-9]*(-[a-z0-9]+)+' \
-        | sed 's|.*/||'
+        | node -e '
+          let body = "";
+          process.stdin.on("data", (chunk) => body += chunk).on("end", () => {
+            // <folder>/review-2 や ${directory}/report-name は出力パス。
+            // 拡張子や続く / を除き、文末の句点と隣り合う呼び出しは残す。
+            const calls = /(?<![a-zA-Z0-9_.\/`>{}%):\-])\/([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?![a-zA-Z0-9_\/-]|\.[a-zA-Z0-9])/g;
+            for (const match of body.matchAll(calls)) console.log(match[1]);
+          });'
       printf '%s\n' "$body" \
         | grep -oE '`/[a-z][a-z0-9]*(-[a-z0-9]+)+`' | tr -d '`' | sed 's|^/||'
     } | sort -u )

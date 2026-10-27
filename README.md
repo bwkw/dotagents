@@ -9,6 +9,7 @@
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
 1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
+外部スキルの採否と反証・比較評価: [docs/external-skills.md](docs/external-skills.md) ·
 **ループの回し方: [docs/loops.md](docs/loops.md)**（実測は台帳が持っています —— `scripts/loop.sh report`）
 
 何を配っているのかの正直な説明: [SECURITY.md](SECURITY.md) ·
@@ -453,12 +454,30 @@ dotagents/skills/<name>/
 
 ## 上流のスキル
 
-ここには取り込まず、横に並べて `npx skills check` / `npx skills update` で更新します。
+ここには取り込まず、横に並べて上流で保守します。依存をなくすこと自体を目的にせず、必要な能力と既存との差、依存先の影響まで確かめて選びます。[2026-10-26 の反証・比較評価と導入記録](docs/external-skills.md) に、取得した版・検査・受容した制約を残しています。
 
-**2つの規則があり、どちらも安全側の理由で入っています。**
+### 追加した道具の使い分け
+
+Codex では名前の先頭を `$` にします。`retro` と `improve-codebase-architecture` は人が明示して呼ぶ上流の設定を維持します。
+
+| こう頼む | 使うもの | 既存との違い |
+|---|---|---|
+| 「Archifyで、このリクエストの流れを図にして」 | `archify` | コードの根拠を伴う対話的な HTML 図。ADR の固定形式の PNG は `da-adr-figure` |
+| 「この画面の見た目と情報設計を作って」 | `frontend-design` | 実装の正しさを扱うレビューに、視覚設計・余白・書体・文言の観点を加える |
+| 「状態遷移や画面の案を、動かして比較したい」 | `prototype` | 決める前の使い捨ての試作。本実装は既存の TDD・検証規約に従う |
+| 「人が行う初期設定を、案内スクリプトにして」 | `wizard` | 人が操作する URL・入力・保存先を段階化する。実際の認証設定や移行を導入時に実行するものではない |
+| 「この作業を振り返って環境を改善したい」 | `/retro` | ソースの欠陥ではなく探索・検査の配線・指示・ツールを改善する |
+| 「このコードベースの設計を改善したい」 | `/improve-codebase-architecture` | 変更の多い箇所から改善案を探し、候補を比較して対話で絞る |
+| 指示文・スキルの執筆 | `writing-for-agents` | `retro` の必須依存。振り返り以外の執筆にも自動適用されることを含めて導入 |
+| モジュールの境界・テストの境界を設計 | `codebase-design` | 設計改善の語彙と手法を上流で共有する |
+| 業務用語の定義とシナリオを整理 | `domain-modeling` | 設計改善の依存。用語集や ADR はプロジェクトの既存配置・profile の規則を優先する |
+
+Archify は安定版 `v3.2.0`。通常の新規図は JSON から生成します。外部から渡された SVG/HTML を低水準の差分 API に直接渡す用途は、信頼の確認なしに使いません。説明を常にページ化する設定は追加していません。
+
+**3つの規則があり、いずれも安全側の理由で入っています。**
 
 - **名指しした既知の保守者のリポジトリからだけ入れる。レジストリの索引から探して入れない。** 2026年に報告されたスキルのサプライチェーン攻撃は公開レジストリの母集団で起きています（ClawHub 経由のマルウェア30本超、Snyk が ClawHub と skills.sh の3,984本を走査してマルウェア76本を確認）。ClawHub の公開障壁は「SKILL.md と1週間前の GitHub アカウント」で、署名もレビューもサンドボックスもありません。`npx skills add <owner>/<repo>` は**索引を引かずに名指しのリポジトリを直接 clone** するので、この母集団に触れません（[判断の記録 §10](docs/decisions.md)）。
-- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.7.4` と書いてあるのはそのためです。スキル本体はテキストにすぎませんが、**この CLI はこのエコシステムからこのマシンで実際に実行される唯一のコード**で、`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。
+- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.7.4` と書いてあるのはそのためです。`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。Archify のようにスキル自身もコードを同梱するので、CLI の固定だけで終わらず、スキルの取得版と同梱コードも確認します。
 - **`npx skills update` の直後に `/skill-scanner` を回す。** `skillFolderHash` はインストール時の記録で、バージョン固定ではありません。update は既定ブランチの最新を持ってきます。監査は一度で終わりません。
 
 **選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
@@ -489,6 +508,17 @@ npx skills@1.7.4 add obra/superpowers -g -a claude-code -a cursor \
 npx skills@1.7.4 add mattpocock/skills -g -a claude-code -a cursor \
   -s grilling -s research
 
+# 設計・試作・設定案内・振り返り — 監査した上流コミット
+npx skills@1.7.4 add https://github.com/mattpocock/skills/tree/5beb35b040e3de97e54fa9e386d7e42d15c295c2 -g -a claude-code -a cursor \
+  -s retro -s writing-for-agents -s prototype -s wizard \
+  -s codebase-design -s improve-codebase-architecture -s domain-modeling
+
+# 対話的な図解 — 監査・生成検証した安定版
+npx skills@1.7.4 add https://github.com/tt-a1i/archify/tree/v3.2.0 -g -a claude-code -a cursor -s archify
+
+# 視覚設計 — Anthropic 公式の監査したコミット
+npx skills@1.7.4 add https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44 -g -a claude-code -a cursor -s frontend-design
+
 # セキュリティ — getsentry/skills
 npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor \
   -s find-bugs -s skill-scanner
@@ -497,6 +527,8 @@ npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor \
 npx skills@1.7.4 add addyosmani/agent-skills -g -a claude-code -a cursor \
   -s documentation-and-adrs
 ```
+
+固定した版は今回確認したスナップショットです。上流保守は利用しますが、将来版の安全性や互換性まで保証するものではありません。更新時は取得元と差分を確認してスキャンと必要な実行検証をやり直します。`skills` の lockfile はインストール記録で、版の固定を代替しません。
 
 同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
 

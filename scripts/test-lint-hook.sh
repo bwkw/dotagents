@@ -325,6 +325,41 @@ bash "$LINTER" "$FIX/skills" >/dev/null 2>&1 \
 rm -rf "$FIX"
 
 echo
+echo "スキル参照: 出力パスと呼び出しを区別する"
+
+# 実際の上流で、<folder>/review-2 が未導入スキルとして報告され、ゲートを止めた。
+# fixture に実物のリンターを通し、パスを除外しても本物の未導入呼び出しを見失わないことを確かめる。
+REFS="$PROBE/installed-references"
+mkdir -p "$REFS/reference-source"
+ref_body() {
+  { printf '%s\n' '---' 'name: reference-source' 'description: Use when testing references.' '---' ''
+    cat
+  } > "$REFS/reference-source/SKILL.md"
+}
+ref_body <<'BODY'
+Use `<folder>/review-2`, `<folder>/review-3`, and `<folder>/visual-check` for output.
+Write `<tmpdir>/architecture-review-<timestamp>.html` for the report.
+Other paths: ${directory}/another-report, %TEMP%/temporary-report, (directory)/draft-report.
+Read /tmp/generated-report.html and /tmp/generated-report/files afterward.
+BODY
+ref_out="$(DOTAGENTS_INSTALLED_SKILLS="$REFS" bash "$LINTER" "$REFS" 2>&1)"; ref_rc=$?
+[[ $ref_rc -eq 0 ]] \
+  && ok "出力パスを未導入のスキル名として切り取らない" \
+  || bad "出力パスでリンターが失敗した: $(grep "スキル '" <<<"$ref_out" | head -1)"
+
+ref_body <<'BODY'
+Use /first-required and /second-required.
+Then call `/third-required` and superpowers:fourth-required.
+BODY
+ref_out="$(DOTAGENTS_INSTALLED_SKILLS="$REFS" bash "$LINTER" "$REFS" 2>&1)"; ref_rc=$?
+[[ $ref_rc -ne 0 ]] && ok "本物の未導入の呼び出しでは失敗する" || bad "未導入の呼び出しを通した"
+for ref in first-required second-required third-required fourth-required; do
+  grep -q "スキル '$ref'" <<<"$ref_out" \
+    && ok "未導入の $ref を報告する" \
+    || bad "未導入の $ref を見失った"
+done
+
+echo
 if (( fail )); then
   printf '%s成功 %d 件、失敗 %d 件%s\n' "$c_red" "$pass" "$fail" "$c_off"
   exit 1
