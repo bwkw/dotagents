@@ -20,23 +20,35 @@ const TAGS = {
   決定: 'ketsu', なぜ: 'naze', 例: 'rei', ボツ案: 'botsu', 見直す条件: 'amber', 限界: 'amber', ポイント: 'rei',
 };
 const REQUIRED_TAGS = ['決定', 'なぜ'];
+// 図は判断の入口で、細部は ADR に任せる。上限を超えたら削る（枠を広げない）
+const LIMIT = { lead: 1, leadText: 80, cardTitle: 55, text: 90, points: 2, point: 70, alts: 2, altName: 25, altResult: 60, tables: 1, tableRows: 4, cell: 30, sub: 30 };
+const len = (s) => String(s ?? '').replace(/`|\*\*/g, '').length;
 
 export function validate(f) {
   const bad = [];
   const str = (v) => typeof v === 'string' && v.trim() !== '';
+  const over = (at, v, max, what) => { if (len(v) > max) bad.push(`${at} が ${len(v)} 字（${what}は ${max} 字まで）`); };
   if (!str(f?.title)) bad.push('title が無い');
   if (f?.lead !== undefined && !(Array.isArray(f.lead) && f.lead.every(str))) bad.push('lead は空でない文字列の配列にする');
+  else if (f?.lead) {
+    if (f.lead.length > LIMIT.lead) bad.push(`lead が ${f.lead.length} 行（${LIMIT.lead} 行まで）`);
+    for (const [i, l] of f.lead.entries()) over(`lead[${i}]`, l, LIMIT.leadText, 'lead');
+  }
   for (const [i, s] of (f?.overview?.stages ?? []).entries()) {
     if (!str(s.title)) bad.push(`overview.stages[${i}].title が無い`);
     if (!Array.isArray(s.rows) || !s.rows.length) bad.push(`overview.stages[${i}].rows が空`);
     for (const row of s.rows ?? []) for (const item of row) for (const b of [item].flat()) {
       if (!str(b?.name)) bad.push(`overview.stages[${i}] に name の無い箱がある`);
+      if (b?.sub) over(`overview.stages[${i}] の「${b.name}」の sub`, b.sub, LIMIT.sub, '箱の補足');
     }
   }
   if (!Array.isArray(f?.cards) || !f.cards.length) bad.push('cards が空');
   for (const [i, c] of (f?.cards ?? []).entries()) {
     const at = `cards[${i}]`;
     if (!str(c?.title)) bad.push(`${at}.title が無い`);
+    else over(`${at}.title`, c.title, LIMIT.cardTitle, 'カードの見出し');
+    const tables = (c?.parts ?? []).filter((p) => p.table).length;
+    if (tables > LIMIT.tables) bad.push(`${at} に表が ${tables} つ（${LIMIT.tables} つまで）`);
     const tags = (c?.parts ?? []).filter((p) => p.tag).map((p) => p.tag);
     for (const t of REQUIRED_TAGS) if (!tags.includes(t)) bad.push(`${at} に「${t}」が無い（図だけで判断の正しさを確かめられない）`);
     for (const [j, p] of (c?.parts ?? []).entries()) {
@@ -44,18 +56,33 @@ export function validate(f) {
       if (p.table) {
         const { head, rows } = p.table;
         if (!Array.isArray(head) || !head.length || !Array.isArray(rows) || !rows.length) bad.push(`${pat}.table に head か rows が無い`);
-        else for (const [k, r] of rows.entries()) if (r.length !== head.length) bad.push(`${pat}.table.rows[${k}] の列の数が head と違う`);
+        else {
+          if (rows.length > LIMIT.tableRows) bad.push(`${pat}.table が ${rows.length} 行（${LIMIT.tableRows} 行まで）`);
+          for (const [k, r] of rows.entries()) {
+            if (r.length !== head.length) bad.push(`${pat}.table.rows[${k}] の列の数が head と違う`);
+            for (const cell of r) over(`${pat}.table.rows[${k}]`, cell, LIMIT.cell, '表のセル');
+          }
+        }
         continue;
       }
       if (!(p.tag in TAGS)) { bad.push(`${pat}.tag「${p.tag}」は使えない（${Object.keys(TAGS).join('・')}）`); continue; }
       if (p.tag === 'ボツ案') {
         if (!Array.isArray(p.alternatives) || !p.alternatives.length) bad.push(`${pat} のボツ案に alternatives が無い`);
+        else if (p.alternatives.length > LIMIT.alts) bad.push(`${pat} のボツ案が ${p.alternatives.length} 件（${LIMIT.alts} 件まで。一番強い対抗案を残す）`);
         for (const [k, a] of (p.alternatives ?? []).entries()) {
           if (!str(a.name)) bad.push(`${pat}.alternatives[${k}].name が無い`);
+          else over(`${pat}.alternatives[${k}].name`, a.name, LIMIT.altName, 'ボツ案の名前');
           if (!str(a.result)) bad.push(`${pat}.alternatives[${k}].result が無い（その案だと何が起きるかを書く）`);
+          else over(`${pat}.alternatives[${k}].result`, a.result, LIMIT.altResult, 'ボツ案の結果');
         }
       } else if (!str(p.text) && !(Array.isArray(p.points) && p.points.length && p.points.every(str))) {
         bad.push(`${pat} に text か points が無い`);
+      } else {
+        if (str(p.text)) over(`${pat}.text`, p.text, LIMIT.text, `「${p.tag}」`);
+        if (Array.isArray(p.points)) {
+          if (p.points.length > LIMIT.points) bad.push(`${pat} の points が ${p.points.length} 個（${LIMIT.points} 個まで。一番強い理由を残す）`);
+          for (const [k, t] of p.points.entries()) over(`${pat}.points[${k}]`, t, LIMIT.point, `「${p.tag}」の項目`);
+        }
       }
     }
   }
