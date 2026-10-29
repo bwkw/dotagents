@@ -35,6 +35,11 @@ expect_reject no-naze    '{"title":"x","cards":[{"title":"t","parts":[{"tag":"�
 expect_reject bad-tag    '{"title":"x","cards":[{"title":"t","parts":[{"tag":"決定","text":"a"},{"tag":"なぜ","text":"b"},{"tag":"メモ","text":"c"}]}]}' 'メモ'
 expect_reject alt-no-why '{"title":"x","cards":[{"title":"t","parts":[{"tag":"決定","text":"a"},{"tag":"なぜ","text":"b"},{"tag":"ボツ案","alternatives":[{"name":"案"}]}]}]}' 'result'
 expect_reject ragged-tbl '{"title":"x","cards":[{"title":"t","parts":[{"tag":"決定","text":"a"},{"tag":"なぜ","text":"b"},{"table":{"head":["a","b"],"rows":[["1"]]}}]}]}' '列の数'
+long91="$(printf 'あ%.0s' {1..91})"
+expect_reject long-text   "{\"title\":\"x\",\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"${long91}\"},{\"tag\":\"なぜ\",\"text\":\"b\"}]}]}" '90 字まで'
+expect_reject many-points '{"title":"x","cards":[{"title":"t","parts":[{"tag":"決定","text":"a"},{"tag":"なぜ","points":["1","2","3"]}]}]}' '2 個まで'
+expect_reject many-alts   '{"title":"x","cards":[{"title":"t","parts":[{"tag":"決定","text":"a"},{"tag":"なぜ","text":"b"},{"tag":"ボツ案","alternatives":[{"name":"1","result":"r"},{"name":"2","result":"r"},{"name":"3","result":"r"}]}]}]}' '2 件まで'
+expect_reject many-lead   "{\"title\":\"x\",\"lead\":[\"a\",\"b\"],\"cards\":[$ok_card]}" '1 行まで'
 
 # html は文字を書き換えずに載せ、利用者の文をマークアップとして解釈しない
 printf '%s\n' "{\"title\":\"<script>x</script> と \`code\` と **強調**\",\"cards\":[$ok_card]}" > "$TMP/escape.json"
