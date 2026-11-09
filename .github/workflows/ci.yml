@@ -229,13 +229,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      DA_DEMO_VIDEO_HOME: ${{ runner.temp }}/da-demo-video
       DA_DEMO_VIDEO_REQUIRE_MEDIA_TESTS: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: '.node-version'
+      - name: 依存の置き場をランナーの一時ディレクトリに指定
+        run: echo "DA_DEMO_VIDEO_HOME=$RUNNER_TEMP/da-demo-video" >> "$GITHUB_ENV"
       - name: スキル外へ撮影・書き出しの依存を導入
         run: |
           node skills/da-demo-video/scripts/demo.mjs setup skills/da-demo-video/reference/example-scenario.mjs
