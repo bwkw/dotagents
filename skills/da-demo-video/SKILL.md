@@ -33,7 +33,7 @@ metadata:
 
 | ファイル | 条件 |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/reference/release-format.md` | リリース共有の構成や台本を作る時。冒頭カード、時間配分、入力テンプレートを使う |
+| `${CLAUDE_SKILL_DIR}/reference/release-format.md` | リリース共有の構成や台本を作る時。冒頭カード、配色・文字の強弱、時間配分を使う |
 | `${CLAUDE_SKILL_DIR}/reference/example-scenario.mjs` | シナリオを書き始める時。形はここから写す |
 | `${CLAUDE_SKILL_DIR}/reference/voicevox.md` | VOICEVOXの導入、起動、話者や話速の調整をする時 |
 | `${CLAUDE_SKILL_DIR}/reference/media-quality.md` | 撮影・書き出し・完成検証をする時。音声欠落、ズーム枠のずれ、撮影時の落とし穴を確認する |
@@ -95,7 +95,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/demo.mjs login <作業ディレクトリ>/scena
 
 ### Step 5. シナリオを書く
 
-`example-scenario.mjs` を写して直す。`run(h)` で使える関数:
+`example-scenario.mjs` を写して直す。カードを作る時は `${CLAUDE_SKILL_DIR}/reference/release-format.md` の「一目で分かる配色と文字の強弱」に従い、撮影前に静止画を確認する。`run(h)` で使える関数:
 
 | 関数 | 何をするか |
 |---|---|
