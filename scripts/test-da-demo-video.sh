@@ -39,5 +39,5 @@ expect_reject remote-voicevox "export default { url: 'https://example.com/', $ok
 expect_reject invalid-speed "export default { url: 'https://example.com/', $ok_ready, voicevox: { speedScale: 0 }, scenes: [{ id: 'a', say: 'x' }] };" 'speedScale'
 expect_reject legacy-voice "export default { url: 'https://example.com/', $ok_ready, voice: 'ja-JP-NanamiNeural', scenes: [{ id: 'a', say: 'x' }] };" 'voicevox'
 
-node --test "$REPO/scripts/test-da-demo-video-voicevox.mjs"
+node --test "$REPO/scripts/test-da-demo-video-voicevox.mjs" "$REPO/scripts/test-da-demo-video-media.mjs"
 echo "ok"

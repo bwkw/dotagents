@@ -224,6 +224,25 @@ jobs:
             process.exit(bad);
           '
 
+  # 軽いcheckは依存無しで動かし、実際のFFmpeg・ブラウザを通る回帰はこのジョブが担当する。
+  media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DA_DEMO_VIDEO_HOME: ${{ runner.temp }}/da-demo-video
+      DA_DEMO_VIDEO_REQUIRE_MEDIA_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.node-version'
+      - name: スキル外へ撮影・書き出しの依存を導入
+        run: |
+          node skills/da-demo-video/scripts/demo.mjs setup skills/da-demo-video/reference/example-scenario.mjs
+          "$DA_DEMO_VIDEO_HOME/node_modules/.bin/playwright" install-deps chromium
+      - name: 実際の書き出し・完成音声検証・ズーム追従
+        run: node --test scripts/test-da-demo-video-media.mjs
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -4,6 +4,7 @@
 //   node demo.mjs tts     <scenario.mjs>   ナレーション → <workdir>/audio/*.wav
 //   node demo.mjs record  <scenario.mjs>   撮影（cleanup を前後に実行）→ frames/ timeline.json
 //   node demo.mjs compose <scenario.mjs>   out.mp4 と確認用コンタクトシート stills/sheet*.jpg
+//   node demo.mjs verify  <scenario.mjs>   完成MP4の全シーン音声を再検証
 //   node demo.mjs all     <scenario.mjs>   tts → record → compose
 //   node demo.mjs check   <scenario.mjs>   シナリオの形だけ検査する（依存パッケージ不要）
 // <workdir> はシナリオファイルと同じディレクトリ。auth.json・音声・フレームはすべてそこに書く。
@@ -15,13 +16,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import { voicevoxOptions, synthesizeVoicevox } from './voicevox.mjs';
+import { composeMedia, verifyAudio } from './media.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 依存（node_modules）はスキルの外に置く。スキルのディレクトリはリンクで配られ、
 // 中身がすべてエージェントの読む対象として lint される。依存をそこに置くと、入れた人の検査が落ちる。
 const DEPS = process.env.DA_DEMO_VIDEO_HOME ?? path.join(process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'), 'da-demo-video');
 const [cmd, scenarioArg] = process.argv.slice(2);
-if (!cmd || !scenarioArg) { console.error('usage: node demo.mjs <setup|login|tts|record|compose|all|check> <scenario.mjs>'); process.exit(1); }
+if (!cmd || !scenarioArg) { console.error('usage: node demo.mjs <setup|login|tts|record|compose|verify|all|check> <scenario.mjs>'); process.exit(1); }
 // check と setup は依存無しで動く（CI は依存を入れない）
 const needsDeps = !['check', 'setup'].includes(cmd);
 if (needsDeps && !fs.existsSync(path.join(DEPS, 'node_modules'))) { console.error(`依存が無い。先に: node ${path.join(HERE, 'demo.mjs')} setup <scenario.mjs>`); process.exit(1); }
@@ -96,6 +98,7 @@ async function record() {
   fs.rmSync(p('frames'), { recursive: true, force: true });
   fs.mkdirSync(p('frames'), { recursive: true });
   fs.mkdirSync(p('stills'), { recursive: true });
+  for (const file of fs.readdirSync(p('stills'))) if (/^zoom-.*\.jpg$/.test(file)) fs.rmSync(p('stills', file));
   const browser = await chromium.launch();
   const { ctx, page } = await openPage(browser, { deviceScaleFactor: 2 });
   await page.waitForTimeout(1500);
@@ -111,6 +114,8 @@ async function record() {
   const sleep = (ms) => page.waitForTimeout(ms);
   const box = async (loc) => { await loc.waitFor(); return loc.boundingBox(); };
   const center = (b) => [b.x + b.width / 2, b.y + b.height / 2];
+  let zoomStill = 0;
+  const captureZoom = phase => page.screenshot({ path: p('stills', `zoom-${String(zoomStill++).padStart(3, '0')}-${phase}.jpg`) });
   const h = {
     page, ov, sleep, box,
     // スムーズスクロールして止まるまで待つ。枠やカーソルはこの後に描く（先に描くと古い位置に残る）
@@ -124,13 +129,17 @@ async function record() {
     async click(loc, pause = 500) { await h.moveTo(loc); await ov('ripple'); await loc.click(); await sleep(pause); },
     // ページが動くクリック（アンカー・保存・ダイアログ開閉）は枠を消してから
     async clickAndClear(loc, pause = 1200) { await h.moveTo(loc); await ov('ripple'); await loc.click(); await ov('hlOff'); await sleep(pause); },
-    async hl(locOrRect, pad = 8) { const r = locOrRect.boundingBox ? await box(locOrRect) : locOrRect; await ov('hl', r, pad); await sleep(500); },
+    async hl(locOrRect, pad = 8) {
+      if (locOrRect.evaluate) await locOrRect.evaluate((element, pad) => window.__ov.hl(element.getBoundingClientRect(), pad, element), pad);
+      else await ov('hl', locOrRect, pad);
+      await sleep(500);
+    },
     hlOff: () => ov('hlOff'),
     async type(loc, text) { await h.click(loc, 200); await page.keyboard.type(text, { delay: 110 }); await sleep(300); },
     async pick(combo, name) { await h.click(combo, 500); const o = page.getByRole('option', { name, exact: true }); await h.moveTo(o, 450); await ov('ripple'); await o.click(); await sleep(500); },
     // ズーム中はドロップダウンの位置がずれるので、ズームは「見せるだけ」の場面に使う
-    async zoom(loc, s = 1.5) { await ov('zoom', await box(loc), s); await sleep(900); },
-    async unzoom() { await ov('unzoom'); await sleep(700); },
+    async zoom(loc, s = 1.5) { await ov('zoom', await box(loc), s); await sleep(350); await captureZoom('in-mid'); await sleep(550); await captureZoom('in-end'); },
+    async unzoom() { await ov('unzoom'); await sleep(350); await captureZoom('out-mid'); await sleep(350); await captureZoom('out-end'); },
     async card(html) { await ov('card', html); await sleep(700); await ov('cardShowCols'); },
     cardOff: () => ov('cardOff'),
     dur,
@@ -175,20 +184,16 @@ async function record() {
 }
 
 function compose() {
+  fs.rmSync(p('audio-verification.json'), { force: true });
   const { frames, timeline, end } = JSON.parse(fs.readFileSync(p('timeline.json'), 'utf8'));
   const t0 = frames[0].t;
   let list = '';
   frames.forEach((f, i) => { list += `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? end) - f.t).toFixed(4)}\n`; });
   list += `file '${frames.at(-1).file}'\n`;
   fs.writeFileSync(p('frames.txt'), list);
-  const delays = timeline.map((s, i) => `[${i + 1}:a]adelay=${Math.round((s.t - t0) * 1000 + 300)}:all=1[a${i}]`).join(';');
-  const mix = timeline.map((_, i) => `[a${i}]`).join('') + `amix=inputs=${timeline.length}:normalize=0,apad=whole_dur=${(end - t0).toFixed(2)}[aout]`; // 音声を映像の長さまで無音で伸ばす。-shortest が最後のカードを切らないように
   const out = p(sc.output ?? 'out.mp4');
-  const r = spawnSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', p('frames.txt'), ...timeline.flatMap(s => ['-i', p('audio', `${s.id}.wav`)]),
-    '-filter_complex', `[0:v]fps=30,scale=1920:1200:flags=lanczos,format=yuv420p[v];${delays};${mix}`,
-    '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-crf', '18', '-preset', 'slow', '-c:a', 'aac', '-b:a', '160k',
-    '-movflags', '+faststart', '-shortest', out], { encoding: 'utf8' });
-  if (r.status) throw new Error(r.stderr.slice(-2000));
+  composeMedia(ffmpeg, W, { frames, timeline, end }, out);
+  verifyAudio(ffmpeg, W, { frames, timeline, end }, out);
   // 確認用: 各シーンの 35% / 85% 地点を並べたコンタクトシート
   fs.mkdirSync(p('stills'), { recursive: true });
   for (const f of fs.readdirSync(p('stills'))) if (/^(c|sheet)/.test(f)) fs.rmSync(p('stills', f));
@@ -217,5 +222,6 @@ else if (cmd === 'login') await login();
 else if (cmd === 'tts') await tts();
 else if (cmd === 'record') await record();
 else if (cmd === 'compose') compose();
+else if (cmd === 'verify') { verifyAudio(ffmpeg, W, JSON.parse(fs.readFileSync(p('timeline.json'), 'utf8')), p(sc.output ?? 'out.mp4')); console.log('ok 全シーンの音声を検証'); }
 else if (cmd === 'all') { await tts(); await record(); compose(); }
 else throw new Error(`unknown command: ${cmd}`);
