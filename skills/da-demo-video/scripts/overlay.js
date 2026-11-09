@@ -8,7 +8,7 @@
   #ov-cursor{position:absolute;left:0;top:0;width:28px;height:28px;transition:transform .55s cubic-bezier(.4,.1,.2,1);filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
   .ov-ripple{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:3px solid #ff4d4f;animation:ovr .6s ease-out forwards}
   @keyframes ovr{from{transform:scale(.3);opacity:1}to{transform:scale(1.4);opacity:0}}
-  #ov-hl{position:absolute;border:3px solid #ff4d4f;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,23,42,.38),0 0 18px rgba(255,77,79,.7);opacity:0;transition:all .45s ease}
+  #ov-hl{position:absolute;box-sizing:border-box;border:3px solid #ff4d4f;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,23,42,.38),0 0 18px rgba(255,77,79,.7);opacity:0;transition:opacity .2s ease}
   #ov-cap{position:absolute;left:50%;bottom:44px;transform:translate(-50%,20px);max-width:88%;padding:14px 30px;border-radius:14px;background:rgba(15,23,42,.9);color:#fff;font-size:26px;font-weight:700;letter-spacing:.02em;opacity:0;transition:all .4s ease;white-space:nowrap}
   #ov-cap.on{opacity:1;transform:translate(-50%,0)}
   #ov-card{position:absolute;inset:0;background:linear-gradient(135deg,#0f1b3d,#1d3a8a);color:#fff;display:flex;flex-direction:column;justify-content:center;padding:0 110px;opacity:0;transition:opacity .6s ease}
@@ -36,11 +36,28 @@
   const $ = (id) => root.querySelector('#' + id);
   let cx = 720, cy = 450;
   $('ov-cursor').style.transform = `translate(${cx}px,${cy}px)`;
+  let focusTarget = null, focusPad = 8, focusFrame = null;
+  const drawFocus = (r, pad) => Object.assign($('ov-hl').style, { left: r.x - pad + 'px', top: r.y - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px', opacity: 1 });
+  const stopFollowing = () => {
+    focusTarget = null;
+    if (focusFrame !== null) cancelAnimationFrame(focusFrame);
+    focusFrame = null;
+  };
+  // 枠はbodyの外に置くため、ズーム前の矩形ではなく現在の表示位置へ追従させる。
+  const followFocus = () => {
+    if (!focusTarget?.isConnected) { stopFollowing(); $('ov-hl').style.opacity = 0; return; }
+    drawFocus(focusTarget.getBoundingClientRect(), focusPad);
+    focusFrame = requestAnimationFrame(followFocus);
+  };
   window.__ov = {
     cursorTo(x, y, ms = 550) { const c = $('ov-cursor'); c.style.transitionDuration = ms + 'ms'; c.style.transform = `translate(${x - 4}px,${y - 2}px)`; cx = x; cy = y; },
     ripple() { const r = document.createElement('div'); r.className = 'ov-ripple'; r.style.left = cx + 'px'; r.style.top = cy + 'px'; root.appendChild(r); setTimeout(() => r.remove(), 700); },
-    hl(r, pad = 8) { const h = $('ov-hl'); Object.assign(h.style, { left: r.x - pad + 'px', top: r.y - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px', opacity: 1 }); },
-    hlOff() { $('ov-hl').style.opacity = 0; },
+    hl(r, pad = 8, element) {
+      stopFollowing();
+      if (element) { focusTarget = element; focusPad = pad; followFocus(); }
+      else drawFocus(r, pad);
+    },
+    hlOff() { stopFollowing(); $('ov-hl').style.opacity = 0; },
     credit(t) { $('ov-credit').textContent = t; },
     cap(t) { const c = $('ov-cap'); if (!t) { c.classList.remove('on'); return; } c.textContent = t; c.classList.add('on'); },
     card(html) { const c = $('ov-card'); c.innerHTML = html; c.classList.add('on'); },

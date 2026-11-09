@@ -48,7 +48,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/demo.mjs compose <作業ディレクトリ>/sce
 `tts` はローカルAPIの `/audio_query` と `/synthesis` を呼び、`audio/<シーンID>.wav` を作る。
 話者、スタイル、話速、クレジットは `audio/voicevox.json` に記録する。
 `record` はこの記録を読み、動画の右下に `VOICEVOX:四国めたん` などのクレジットを表示する。
-`compose` はWAVを読み、AAC音声付きmp4を書き出す。
+`compose` はWAVを独立したPCM音声へまとめ、映像と結合してAAC音声付きmp4を書き出す。完成MP4から取り出した音声を全シーンのWAVと照合し、結果を `audio-verification.json` に保存する。
 最初から全工程を作るなら従来どおり `all` が使える。
 
 音声や話者を変更した場合は `tts` からやり直す。
