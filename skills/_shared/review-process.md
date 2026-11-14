@@ -214,6 +214,8 @@ git diff --shortstat "$BASE"...HEAD -- $SCOPE && git diff --name-only "$BASE"...
 
 `verification.md` に従う。6a（反証）と 6b（クリアへの異議、見落としの探索）の両方が必須。
 
+振る舞いの候補は、実行できる最小再現を先に試す。判定・証拠の種類・未実行理由は `review-evidence.md` に従い、規約違反や設計の問いと確認方法を分ける。
+
 ## Step 7. まとめる
 
 `report-format.md` に従う。

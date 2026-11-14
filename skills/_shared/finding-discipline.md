@@ -53,7 +53,7 @@
 
 | 点数 | 意味 |
 |---|---|
-| 90–100 | 実証済み。コード経路を読み、失敗を示せる。 |
+| 90–100 | 強く裏付けられている。証拠の種類は別途示し、コード追跡だけを実行再現とは呼ばない。 |
 | 80–89 | 強い。仕組みは明確で、未確認の仮定が 1 つ残る。 |
 | 60–79 | ありそうだが未確認。やっていない読み込みが要る。 |
 | < 60 | 推測。パターン照合であって確立していない。 |
@@ -100,6 +100,8 @@
 
 ## 返却スキーマ
 
+検証時の `verdict` と `evidence` は [review-evidence.md](review-evidence.md) に従う。確信度は同意される見込みであり、実行結果の代わりではない。
+
 ```
 [
   { id: "sequential",
@@ -113,7 +115,11 @@
     comment: "review comment body, ready to paste on that line: problem -> why it matters -> fix.
               Self-contained, minimal jargon.",
     kind: "defect" | "design-doubt" | "unverified-clear",
-    confidence: 0-100 }
+    confidence: 0-100,
+    verdict: "supported" | "refuted" | "inconclusive",
+    evidence: [{ kind: "static" | "test" | "runtime" | "model",
+                 target, expected, observed, limits, command?, artifact? }],
+    nextCheck?: "未実行の検証と必要な環境" }
 ]
 ```
 
