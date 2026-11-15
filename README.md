@@ -9,6 +9,7 @@
 [docs/mechanisms.md](docs/mechanisms.md) · 判断の記録: [docs/decisions.md](docs/decisions.md) ·
 ハーネスの実挙動（一次情報で確認）: [docs/harness-facts.md](docs/harness-facts.md) ·
 1台のマシンへの依存を外した記録: [docs/portability.md](docs/portability.md) ·
+完了条件・機能マップ・故障注入の再実行: [docs/verification.md](docs/verification.md) ·
 外部スキルの採否と反証・比較評価: [docs/external-skills.md](docs/external-skills.md) ·
 **ループの回し方: [docs/loops.md](docs/loops.md)**（実測は台帳が持っています —— `scripts/loop.sh report`）
 

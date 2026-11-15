@@ -67,6 +67,21 @@
       ]
     },
     {
+      "id": "verification-evidence-tests",
+      "cmd": "./scripts/test-verification-evidence.sh",
+      "gate": true,
+      "agent_may_run": true,
+      "scope": "all",
+      "timeout": 120,
+      "when": "固定課題は正常版で成功し、拒否・未検証・Cursor 応答を壊した版を検出し、証拠を保持すること",
+      "paths": [
+        "hooks/dotagents-verify-gate.sh",
+        "scripts/gate.sh",
+        "scripts/lib/evaluate-gate.mjs",
+        "scripts/test-verification-evidence.*"
+      ]
+    },
+    {
       "id": "no-multibyte-after-var",
       "cmd": "perl -ne 'close ARGV if eof; next if /^\\s*#/; exit 1 if /\\$[A-Za-z_]\\w*[^\\x00-\\x7F]/' scripts/*.sh hooks/*.sh",
       "gate": true,
@@ -137,6 +152,7 @@
       "timeout": 120,
       "paths": [
         "hooks/**",
+        "scripts/verify-skills.sh",
         "scripts/test-lint-hook.sh",
         "templates/**"
       ]

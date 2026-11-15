@@ -246,6 +246,9 @@ _gate_work=""
 gate_on_exit() {
   local code=$?
   [[ -n "$_gate_work" ]] && rm -f "$_gate_work" "$_gate_work.fail" "$_gate_work.out" "$_gate_work.timeout"
+  # verify は非0をそのまま失敗として受け取る。Stop 用の変換を掛けると、意図した検証失敗
+  # （exit 1）まで「ゲート自身が壊れた」と誤報する。ターン終了時の fail-closed は維持する。
+  (( GATE_DRY )) && return "$code"
   # Cursor は止められないので、変換しても得るものが無く、読まれないストリームを汚すだけ。
   if [[ "$code" != "0" && "$code" != "2" && "$agent" != "cursor" ]]; then
     trace "$agent" "$cwd" "CRASHED（status ${code}）。block に変換した"
