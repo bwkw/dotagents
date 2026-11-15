@@ -117,6 +117,7 @@ if (( ! FAST )); then
   tree_before="$(git status --porcelain 2>/dev/null)"
 
   step "verify-gate の振る舞い"    ./scripts/test-verify-gate.sh
+  step "検証の固定課題と故障注入" ./scripts/test-verification-evidence.sh
   step "lint-hook と lint の範囲" ./scripts/test-lint-hook.sh
   step "インストーラの振る舞い"      ./scripts/test-setup.sh
   step "ループ駆動の振る舞い"    ./scripts/test-loop.sh

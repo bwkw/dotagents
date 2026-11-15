@@ -31,6 +31,14 @@ c_red=$'\033[31m'; c_yellow=$'\033[33m'; c_green=$'\033[32m'; c_dim=$'\033[2m'; 
 err()  { printf '%s✗%s %s: %s\n' "$c_red" "$c_off" "$1" "$2"; errors=$((errors+1)); }
 warn() { printf '%s!%s %s: %s\n' "$c_yellow" "$c_off" "$1" "$2"; warnings=$((warnings+1)); }
 
+# 実行環境と依存物は指示の配布物ではない。3つの再帰走査で境界を共有し、一方だけが
+# node_modules の文書や .venv の外向きリンクを指示の不備として報告しないようにする。
+instruction_files() {
+  local root="$1"; shift
+  find "$root" \( -type d \( -name node_modules -o -name .venv \) -prune \) \
+    -o \( "$@" \) -print 2>/dev/null
+}
+
 # YAML frontmatter から最上位の `key: value` を取り出す。
 frontmatter_value() {
   awk -v key="$2" '
@@ -225,7 +233,7 @@ check_skill() {
     if [[ -n "$target" && "$target" != "$REPO"/* && "$target" != "$REPO" ]]; then
       err "$id" "シンボリックリンクがリポジトリの外を指す: ${link#"$dir"/} -> $target"
     fi
-  done < <(find "$dir" -type l 2>/dev/null)
+  done < <(instruction_files "$dir" -type l)
 
   # --- reference ファイルは絶対パスで指すこと -------------------------------------
   # 相対パスは cwd の違うサブエージェントの中では解決しない。
@@ -716,7 +724,7 @@ else
         err "${sf#"$REPO/"}:${hit%%:*}" "スキル本文が認証情報の置き場所か、シェルへのパイプの形を含む -- $(printf '%s' "${hit#*:}" | sed 's/^[[:space:]]*//' | cut -c1-100)"
         sens_hits=$((sens_hits+1))
       done < <(grep -niE "$sens_pat" "$sf" 2>/dev/null)
-    done < <(find "$sroot" -type f -name '*.md' 2>/dev/null | sort)
+    done < <(instruction_files "$sroot" -type f -name '*.md' | sort)
   done
   (( sens_hits == 0 )) \
     && printf '%s✓%s 認証情報の読み取りやシェルへのパイプを指示するスキル本文は無い\n' "$c_green" "$c_off"
@@ -767,7 +775,7 @@ for lroot in "${ROOTS[@]}"; do
     done < <(grep -o ']([^)]*)' "$lf" 2>/dev/null | sed 's/^](//;s/)$//')
     # `-type f` に加えて `-type l` も要る。`find -type f` は指す先ではなくリンク自体を判定するので、シンボリックリンク
     # （reference/ 配下のファイルはすべてそう）を飛ばす。`-type f` だけだと _shared/ しか見ずに緑を出していた。
-  done < <(find "$lroot" \( -type f -o -type l \) -name '*.md' 2>/dev/null | sort)
+  done < <(instruction_files "$lroot" \( -type f -o -type l \) -name '*.md' | sort)
 done
 (( link_bad == 0 )) \
   && printf '%s✓%s スキル内の相対リンクはすべて解決する\n' "$c_green" "$c_off"
