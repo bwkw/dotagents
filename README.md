@@ -387,7 +387,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 - 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
 - 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
-### 上流15本はどこから来たか
+### 上流はどこから来たか
 
 **広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
 
@@ -457,6 +457,8 @@ dotagents/skills/<name>/
 
 ここには取り込まず、横に並べて上流で保守します。依存をなくすこと自体を目的にせず、必要な能力と既存との差、依存先の影響まで確かめて選びます。[2026-10-26 の反証・比較評価と導入記録](docs/external-skills.md) に、取得した版・検査・受容した制約を残しています。
 
+pstack からは、実行確認と予算の点検を経て7本を選択導入しました。[使い分けと採否の記録](docs/pstack.md) を参照してください。常設のモデル設定や、既存の実装ループは変更しません。
+
 ### 追加した道具の使い分け
 
 Codex では名前の先頭を `$` にします。`retro` と `improve-codebase-architecture` は人が明示して呼ぶ上流の設定を維持します。
@@ -474,6 +476,34 @@ Codex では名前の先頭を `$` にします。`retro` と `improve-codebase-
 | 業務用語の定義とシナリオを整理 | `domain-modeling` | 設計改善の依存。用語集や ADR はプロジェクトの既存配置・profile の規則を優先する |
 
 Archify は安定版 `v3.2.0`。通常の新規図は JSON から生成します。外部から渡された SVG/HTML を低水準の差分 API に直接渡す用途は、信頼の確認なしに使いません。説明を常にページ化する設定は追加していません。
+
+### pstack の手動コマンド
+
+Claude Code・Cursor は `/`、Codex は `$` を付けて明示して呼びます。上流の手動呼び出し設定を維持し、スキル同士の自動連鎖は前提にしません。
+
+下の選択導入コマンドは `-a claude-code -a cursor` の両方を指定しています。共有実体は `~/.agents/skills/`、Claude Code用の入口は `~/.claude/skills/` のリンクです。Cursor・Codexは共有実体を読みます。今回のClaude Codeのコマンド名は `/why` など、接頭辞なしの名前です。
+
+| 使うタイミング | Claude Code・Cursor | Codex | 得るもの |
+|---|---|---|---|
+| **依頼前**。範囲を広げず、確かめ方を深める | `/sharpen` | `$sharpen` | 原資料・方法・外部の判定を含む依頼文 |
+| **調査・設計前**。過去の判断理由を知る | `/why` | `$why` | コミットとPR議論を根拠にした判断の来歴 |
+| **実装中**。同じミスを2回以上直している | `/correct` | `$correct` | 構造・型・lint・テストによる再発防止。実装とコミットを伴う |
+| **検証を用意する時**。実アプリの操作手段がない | `/create-verification-skill` | `$create-verification-skill` | 起動・操作・証拠・後片付けと機能マップ |
+| **変更後・保守時**。操作や機能マップが古くなった | `/maintain-verification-skill` | `$maintain-verification-skill` | ソースと実操作を照合した検証手順の保守 |
+| **競合や状態遷移を調べる時**。通常の再現では順序を追い切れない | `/statechart` | `$statechart` | TLA+の検査、Mermaid図、違反への最短経路 |
+| **数値を報告・採否判断する前**。高速化や評価を計測した | `/benchmark-checklist` | `$benchmark-checklist` | 処理の実行・エラー・限界・反復・実利用への影響の点検 |
+
+検証手順の生成先は、対象プロジェクトで3ツールが共有する既存配置を依頼に明記します。上流の既定は `.cursor/skills/` で、そこへ生成しただけでは他の2ツールでの発見まで保証できません。具体的な依頼例と実行上の前提は [pstack の説明](docs/pstack.md) にあります。
+
+### 上流・dotagents・プロジェクトの責務
+
+| 持ち主 | 担うもの | 変更する場所 |
+|---|---|---|
+| **上流** | 調査・再発防止・測定・検証生成などの汎用手順、TLC実行や状態図の変換 | 上流へ改善を返すか、監査して更新する。インストール済み本文はローカルで直さない |
+| **dotagents** | 3ツールへの配置、profileによるコマンドと権限の解決、hookのゲート、証拠の区別、導入・検証・更新の規約 | このリポジトリの `scripts/`・`hooks/`・`profiles/`・`da-*` と共有参照 |
+| **対象プロジェクト** | 実際の起動・操作経路・fixture・期待値・不変条件、生成された検証手順とモデル | そのプロジェクトの既存配置。一般の手順を写すのではなく、そのアプリの事実を置く |
+
+たとえば上流が作るのは「検証手順を作る方法」、プロジェクトが持つのは「このアプリの保存操作を検証する手順」、dotagentsが持つのは「その結果をどのコマンド・権限・証拠で完了と判断するか」です。汎用手順の複製や翻訳だけを目的に、新しい `da-*` は作りません。汎用手順では扱えない3ツール間の配線やゲートの差がある時に、自前の実装を持ちます。
 
 **3つの規則があり、いずれも安全側の理由で入っています。**
 
@@ -516,6 +546,15 @@ npx skills@1.7.4 add https://github.com/mattpocock/skills/tree/5beb35b040e3de97e
 
 # 対話的な図解 — 監査・生成検証した安定版
 npx skills@1.7.4 add https://github.com/tt-a1i/archify/tree/v3.2.0 -g -a claude-code -a cursor -s archify
+
+# pstack — 監査した固定版から必要な7本だけ
+npx --yes skills@1.7.4 add https://github.com/cursor/plugins/tree/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack -g -a claude-code -a cursor \
+  -s why -s sharpen -s correct -s benchmark-checklist \
+  -s create-verification-skill -s maintain-verification-skill -s statechart -y
+# 選択コピーに含まれない上流ルートの著作権表示も保存する
+mkdir -p ~/.agents/.skill-licenses/cursor-plugins-pstack
+curl -fLsS https://raw.githubusercontent.com/cursor/plugins/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack/LICENSE \
+  -o ~/.agents/.skill-licenses/cursor-plugins-pstack/LICENSE
 
 # 視覚設計 — Anthropic 公式の監査したコミット
 npx skills@1.7.4 add https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44 -g -a claude-code -a cursor -s frontend-design
