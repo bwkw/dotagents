@@ -53,6 +53,7 @@ metadata:
 |---|---|
 | 判断の出どころの change や spec | 判断が `/da-spec` の change で決まった時。ADR はそれと矛盾してはいけない |
 | 判断が支配するコード | ADR が識別子を名指す時。バッククォートの名前はすべて存在を確かめる |
+| `${CLAUDE_SKILL_DIR}/reference/notion.md` | Notion の ADR を書く時 |
 | `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` | リポジトリにあり、`adr_system.rules` がそれらに委ねている時 |
 
 > 「念のため」全部を読むことは禁止。
@@ -64,6 +65,8 @@ metadata:
 プロファイルから `adr_system` を読む。**ADR がありそうに見えるからディレクトリを選ぶことはしない**。ツリーは移行途中のことがあり、そうなると整ったファイルが誰も見ない実在の場所に黙って落ちる。
 
 `kind: colocated` なら、ADR は支配するコードの隣、`roots` のいずれかの中に置く。選んだサブツリーと理由を書く。`kind: directory` なら唯一のルートの下に置く。
+
+ユーザーが Notion の ADR を指定し、`adr_system.notion` があるなら、`${CLAUDE_SKILL_DIR}/reference/notion.md` に従って Notion に書く。
 
 ### Step 2. 既存の ADR を探す
 
@@ -90,11 +93,9 @@ git log --oneline -20 -- '**/ADR.*'
 
 バッククォートの識別子（ファイル、テーブル、カラム、クラス、フラグ）は、書く前に存在を確かめる。改名されたシンボルがあると、ADR は権威があるように読まれて誤る。読み手が探す羽目になる場所は `path/file.ts:L42` で示す。
 
-### Step 5. 日本語の ADR なら表示を確かめる
+### Step 5. 読み直す
 
-CommonMark は、日本語の句点・読点の直後の `**` を閉じない（right-flanking の規則を満たさず、アスタリスクがそのまま出る）。句読点は太字の外に出す。
-
-書き終えたら、`adr-shape.md` の「書き方」（推敲に使う日本語のスキルを含む）で読み直す。
+`adr-shape.md` の「書き方」（太字と句読点、推敲に使う日本語のスキルを含む）で読み直す。
 
 ### Step 6. 要約を図と文にする
 
