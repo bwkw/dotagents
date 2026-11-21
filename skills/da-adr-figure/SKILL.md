@@ -27,7 +27,7 @@ metadata:
 
 | 上流 | このスキル | 下流 |
 |---|---|---|
-| `/da-adr`（ADR を書いた・直した後） | `/da-adr-figure` | 共有・レビュー。図で ADR の弱い所が見えたら `/da-adr` に戻る |
+| `/da-adr`（ADR を書いた・直した後に、Step 6 から呼ばれる） | `/da-adr-figure` | 図を ADR の要約の先頭に置く。図で ADR の弱い所が見えたら `/da-adr` に戻る |
 
 ## 読むファイル
 
@@ -121,4 +121,4 @@ node ${CLAUDE_SKILL_DIR}/scripts/figure.mjs build figure.json figure.png
 
 ## 次に
 
-図で ADR の弱い所が見えたら `/da-adr` で ADR を直し、図を書き出し直す。
+図は ADR の「先に結論の要約」の先頭に置き、要約の箇条は消さずに図の下に残す（図に載らない判断も箇条で見える）。図で ADR の弱い所が見えたら `/da-adr` で ADR を直し、図を書き出し直す。
