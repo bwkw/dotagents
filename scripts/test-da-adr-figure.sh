@@ -33,7 +33,9 @@ expect_reject no-title   "{${sum},\"cards\":[$ok_card]}" 'title'
 expect_reject no-summary "{\"title\":\"x\",\"cards\":[$ok_card]}" 'summary'
 expect_reject many-summary "{\"title\":\"x\",\"summary\":[\"a\",\"b\",\"c\",\"d\"],\"cards\":[$ok_card]}" '3 行まで'
 expect_reject no-cards   "{\"title\":\"x\",${sum},\"cards\":[]}" 'cards が空'
-expect_reject many-cards "{\"title\":\"x\",${sum},\"cards\":[$ok_card,$ok_card,$ok_card,$ok_card,$ok_card]}" '4 枚まで'
+expect_reject many-cards "{\"title\":\"x\",${sum},\"cards\":[$(printf '%s,' $(for i in $(seq 1 10); do echo "$ok_card"; done))$ok_card]}" '10 枚まで'
+# ADR の判断が 8 つなら、カード 8 枚を通す
+node "$FIG" check <(printf '%s\n' "{\"title\":\"x\",${sum},\"cards\":[$(printf '%s,' $(for i in $(seq 1 7); do echo "$ok_card"; done))$ok_card]}") >/dev/null || { echo 'check がカード 8 枚を弾いた' >&2; exit 1; }
 expect_reject no-ketsu   "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"なぜ\",\"text\":\"b\"}]}]}" '決定'
 expect_reject no-naze    "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"}]}]}" 'なぜ'
 expect_reject bad-tag    "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"text\":\"b\"},{\"tag\":\"メモ\",\"text\":\"c\"}]}]}" 'メモ'
@@ -41,6 +43,8 @@ expect_reject alt-no-why "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"
 expect_reject ragged-tbl "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"text\":\"b\"},{\"table\":{\"head\":[\"a\",\"b\"],\"rows\":[[\"1\"]]}}]}]}" '列の数'
 long71="$(printf 'あ%.0s' {1..71})"
 expect_reject long-text   "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"${long71}\"},{\"tag\":\"なぜ\",\"text\":\"b\"}]}]}" '70 字まで'
+long51="$(printf 'あ%.0s' {1..51})"
+expect_reject long-title "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"${long51}\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"text\":\"b\"}]}]}" '50 字まで'
 expect_reject many-points "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"points\":[\"1\",\"2\"]}]}]}" '1 個まで'
 expect_reject many-alts   "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"text\":\"b\"},{\"tag\":\"ボツ案\",\"alternatives\":[{\"name\":\"1\",\"result\":\"r\"},{\"name\":\"2\",\"result\":\"r\"}]}]}]}" '1 件まで'
 

@@ -1,4 +1,4 @@
-// ADR を、先頭の要約と要点のカードだけの 1 枚にする。中身は JSON の定義 1 ファイルに書く。
+// ADR を、先頭の要約と、判断ごとのカードの 1 枚にする。中身は JSON の定義 1 ファイルに書く。
 //   node figure.mjs setup                      依存を ~/.cache/da-adr-figure に入れる（初回だけ）
 //   node figure.mjs check <figure.json>        定義の形だけ検査する（依存パッケージ不要）
 //   node figure.mjs html  <figure.json> <out.html>   HTML を書く（依存パッケージ不要）
@@ -20,8 +20,8 @@ const TAGS = {
   決定: 'ketsu', なぜ: 'naze', 例: 'rei', ボツ案: 'botsu', 見直す条件: 'amber', 限界: 'amber', ポイント: 'rei',
 };
 const REQUIRED_TAGS = ['決定', 'なぜ'];
-// 図は要点だけを載せ、細部は ADR に任せる。上限を超えたら削る（枠を広げない）
-const LIMIT = { summary: 3, summaryText: 80, cards: 4, cardTitle: 40, text: 70, points: 1, point: 70, alts: 1, altName: 25, altResult: 60, tables: 1, tableRows: 3, cell: 30, sub: 30 };
+// 図は判断ごとに決定と一番強い理由だけを載せ、細部は ADR に任せる。上限を超えたら削る（枠を広げない）
+const LIMIT = { summary: 3, summaryText: 80, cards: 10, cardTitle: 50, text: 70, points: 1, point: 70, alts: 1, altName: 25, altResult: 60, tables: 1, tableRows: 3, cell: 30, sub: 30 };
 const len = (s) => String(s ?? '').replace(/`|\*\*/g, '').length;
 
 export function validate(f) {
@@ -43,7 +43,7 @@ export function validate(f) {
     }
   }
   if (!Array.isArray(f?.cards) || !f.cards.length) bad.push('cards が空');
-  else if (f.cards.length > LIMIT.cards) bad.push(`cards が ${f.cards.length} 枚（${LIMIT.cards} 枚まで。読み手が動きを変える要点だけ残し、残りは ADR に任せる）`);
+  else if (f.cards.length > LIMIT.cards) bad.push(`cards が ${f.cards.length} 枚（${LIMIT.cards} 枚まで。ADR の判断が多すぎるなら、ADR を分ける）`);
   for (const [i, c] of (f?.cards ?? []).entries()) {
     const at = `cards[${i}]`;
     if (!str(c?.title)) bad.push(`${at}.title が無い`);
