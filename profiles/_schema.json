@@ -77,6 +77,17 @@
         "rules": {
           "type": "string",
           "description": "判断の書き方について、リポジトリ**独自**のルールを持つファイル。書く前に読む。spec_system.rules と同じファイルであることが多い。"
+        },
+        "notion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["database", "template_id", "page_rules"],
+          "description": "ADR を Notion の ADR DB にも置くリポジトリだけが持つ。ユーザーが Notion の ADR を指定したとき（既存のページか、Notion に書くという指示）の置き場所。",
+          "properties": {
+            "database": { "type": "string", "minLength": 1, "description": "ADR DB のデータソース（collection://...）。" },
+            "template_id": { "type": "string", "minLength": 1, "description": "新しい ADR のページを作るときに当てる Notion のテンプレート。" },
+            "page_rules": { "type": "string", "minLength": 1, "description": "ページの題、プロパティ、公開の決まりを持つファイル（リポジトリルートからの相対）。本文の形は da-adr に従い、このファイルからはページの作り方だけを取る。" }
+          }
         }
       }
     },

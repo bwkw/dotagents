@@ -1,4 +1,4 @@
-// ADR の判断を 1 枚の図解にする。中身は JSON の定義 1 ファイルに書く。
+// ADR を、先頭の要約と、判断ごとのカードの 1 枚にする。中身は JSON の定義 1 ファイルに書く。
 //   node figure.mjs setup                      依存を ~/.cache/da-adr-figure に入れる（初回だけ）
 //   node figure.mjs check <figure.json>        定義の形だけ検査する（依存パッケージ不要）
 //   node figure.mjs html  <figure.json> <out.html>   HTML を書く（依存パッケージ不要）
@@ -20,8 +20,8 @@ const TAGS = {
   決定: 'ketsu', なぜ: 'naze', 例: 'rei', ボツ案: 'botsu', 見直す条件: 'amber', 限界: 'amber', ポイント: 'rei',
 };
 const REQUIRED_TAGS = ['決定', 'なぜ'];
-// 図は判断の入口で、細部は ADR に任せる。上限を超えたら削る（枠を広げない）
-const LIMIT = { lead: 1, leadText: 80, cardTitle: 55, text: 90, points: 2, point: 70, alts: 2, altName: 25, altResult: 60, tables: 1, tableRows: 4, cell: 30, sub: 30 };
+// 図は判断ごとに決定と一番強い理由だけを載せ、細部は ADR に任せる。上限を超えたら削る（枠を広げない）
+const LIMIT = { summary: 3, summaryText: 80, cards: 10, cardTitle: 50, text: 70, points: 1, point: 70, alts: 1, altName: 25, altResult: 60, tables: 1, tableRows: 3, cell: 30, sub: 30 };
 const len = (s) => String(s ?? '').replace(/`|\*\*/g, '').length;
 
 export function validate(f) {
@@ -29,10 +29,10 @@ export function validate(f) {
   const str = (v) => typeof v === 'string' && v.trim() !== '';
   const over = (at, v, max, what) => { if (len(v) > max) bad.push(`${at} が ${len(v)} 字（${what}は ${max} 字まで）`); };
   if (!str(f?.title)) bad.push('title が無い');
-  if (f?.lead !== undefined && !(Array.isArray(f.lead) && f.lead.every(str))) bad.push('lead は空でない文字列の配列にする');
-  else if (f?.lead) {
-    if (f.lead.length > LIMIT.lead) bad.push(`lead が ${f.lead.length} 行（${LIMIT.lead} 行まで）`);
-    for (const [i, l] of f.lead.entries()) over(`lead[${i}]`, l, LIMIT.leadText, 'lead');
+  if (!(Array.isArray(f?.summary) && f.summary.length && f.summary.every(str))) bad.push('summary（先頭の要約）が無い。何を決めたかを 1〜3 行で書く');
+  else {
+    if (f.summary.length > LIMIT.summary) bad.push(`summary が ${f.summary.length} 行（${LIMIT.summary} 行まで）`);
+    for (const [i, l] of f.summary.entries()) over(`summary[${i}]`, l, LIMIT.summaryText, '要約の 1 行');
   }
   for (const [i, s] of (f?.overview?.stages ?? []).entries()) {
     if (!str(s.title)) bad.push(`overview.stages[${i}].title が無い`);
@@ -43,6 +43,7 @@ export function validate(f) {
     }
   }
   if (!Array.isArray(f?.cards) || !f.cards.length) bad.push('cards が空');
+  else if (f.cards.length > LIMIT.cards) bad.push(`cards が ${f.cards.length} 枚（${LIMIT.cards} 枚まで。ADR の判断が多すぎるなら、ADR を分ける）`);
   for (const [i, c] of (f?.cards ?? []).entries()) {
     const at = `cards[${i}]`;
     if (!str(c?.title)) bad.push(`${at}.title が無い`);
@@ -101,9 +102,11 @@ const CSS = `
 body { background:var(--bg); color:var(--ink); padding:24px 28px; display:flex; flex-direction:column; gap:14px;
   font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif; }
 h1 { font-size:38px; font-weight:800; }
-.lead { display:flex; gap:10px; flex-wrap:wrap; }
-.pill { background:#fff; border:2px solid var(--ink); border-radius:999px; padding:6px 18px; font-size:17px; font-weight:700; }
-.pill b { color:var(--blue); }
+.summary { background:#fff; border:3px solid var(--ink); border-radius:14px; padding:12px 18px; display:flex; gap:14px; align-items:flex-start; }
+.summary .label { flex:none; background:var(--ink); color:#fff; border-radius:8px; padding:3px 12px; font-size:16px; font-weight:800; }
+.summary ul { list-style:none; display:flex; flex-direction:column; gap:4px; font-size:17px; font-weight:500; line-height:1.5; color:var(--sub); }
+.summary li.main { font-size:22px; font-weight:800; color:var(--ink); }
+.summary b { color:var(--blue); }
 section.overview { background:#fff; border:2px solid var(--line); border-radius:16px; padding:14px 18px; display:flex; flex-direction:column; gap:10px; }
 h2 { font-size:23px; font-weight:800; }
 .flow { display:flex; gap:10px; align-items:stretch; }
@@ -174,10 +177,11 @@ export function toHtml(f) {
     + ov.stages.map((s, i) => stage(s, i + 1)).join('<div class="big-arrow">→</div>') + '</div>'
     + (ov.aside ? `<div class="aside"><b class="label">${ink(ov.aside.label)}：</b>${ink(ov.aside.text)}</div>` : '') + '</section>' : '';
   const cards = f.cards.map((c, i) => `<div class="card"><h3><span class="num">${i + 1}</span>${ink(c.title)}</h3>${c.parts.map(part).join('')}</div>`).join('');
+  const cols = f.cards.length <= 3 ? f.cards.length : 2;
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(f.title)}</title><style>${CSS}</style></head>`
     + `<body style="width:${width}px"><h1>${ink(f.title)}</h1>`
-    + (f.lead ? `<div class="lead">${f.lead.map((l) => `<div class="pill">${ink(l)}</div>`).join('')}</div>` : '')
-    + `${overview}<section class="cards">${cards}</section></body></html>`;
+    + `<div class="summary"><span class="label">要約</span><ul>${f.summary.map((l, i) => `<li${i === 0 ? ' class="main"' : ''}>${ink(l)}</li>`).join('')}</ul></div>`
+    + `${overview}<section class="cards" style="grid-template-columns:repeat(${cols},1fr)">${cards}</section></body></html>`;
 }
 
 function load(file) {
@@ -196,7 +200,7 @@ async function build(f, html, png) {
   try {
     const page = await browser.newPage({ viewport: { width: f.width ?? 1600, height: 200 }, deviceScaleFactor: 2 });
     await page.goto('file://' + path.resolve(html));
-    const over = await page.evaluate(() => [...document.querySelectorAll('.card, .stage, .box, .pill, h1')]
+    const over = await page.evaluate(() => [...document.querySelectorAll('.card, .stage, .box, .summary, h1')]
       .filter((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1)
       .map((e) => e.textContent.trim().slice(0, 40)));
     await page.screenshot({ path: png, fullPage: true });
@@ -216,7 +220,8 @@ function setup() {
   console.log('ok', DEPS);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// スキルはリンク経由で配られるので、実体のパスどうしで比べる
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [cmd, file, out] = process.argv.slice(2);
   if (cmd === 'setup') setup();
   else if (!['check', 'html', 'build'].includes(cmd) || !file || (cmd !== 'check' && !out)) {
