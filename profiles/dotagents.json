@@ -221,7 +221,7 @@
       "agent_may_run": true,
       "scope": "all",
       "timeout": 60,
-      "when": "da-adr-figure の check は壊れた定義を書き出しの前に弾き、build は文字があふれた図を失敗させ続けること（check は依存無しで動き、build の検査は依存がある時だけ走る）"
+      "when": "da-adr-figure の check は要約の無い図・要点を詰め込みすぎた図・壊れた定義を書き出しの前に弾き、build は文字があふれた図を失敗させ続けること（check は依存無しで動き、build の検査は依存がある時だけ走る）"
     },
     {
       "id": "gate-covers-check-sh",
