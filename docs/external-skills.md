@@ -2,7 +2,7 @@
 
 ## 日本語の下書きを推敲する
 
-README・PR 本文・社内の案内文には `ja-writing-humanizer` を選んだ。主語と動詞が離れた文や同じ説明の繰り返しを直し、数値や引用、書き手の口調を保つ。短い文章の推敲はスキル本文だけで完結する。[確認した版](https://github.com/viasnake/ja-writing-humanizer/tree/d9a84050a1f74d5359871acf283cddb2f47c67f2/skills/ja-writing-humanizer)
+`ja-writing-humanizer` を入れると、エージェントは返信や途中経過、レビューコメント、PR 本文、README など、人が読む日本語を出す前に推敲する。セッション開始時の hook がこの方針を渡すので、会話ごとに頼む必要はない。`da-adr` と `da-pr` にはスキルを使う手順もある。既存 ADR の文章だけを整えるときは、見出しと順番、判断とその理由を保つ。[確認した版](https://github.com/viasnake/ja-writing-humanizer/tree/d9a84050a1f74d5359871acf283cddb2f47c67f2/skills/ja-writing-humanizer)
 
 例えば「Cursor の stop フックに関しては、ターンの終了を拒否することができないという制約があります」は「Cursor の stop フックはターンの終了を拒否できません」で伝わる。PR 本文で「macOS では未確認です」と書いてあれば、その条件も残す。
 

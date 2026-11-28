@@ -577,8 +577,8 @@ cmd_status() {
   local file who
   for who in "Claude:.claude/settings.json" "Cursor:.cursor/hooks.json" "Codex:.codex/hooks.json"; do
     file="$HOME/${who#*:}"
-    for n in "dotagents-verify-gate:Stop ゲート" "dotagents-lint-skill-frontmatter:frontmatter lint"; do
-      if grep -qs "${n%%:*}" "$file"; then ok "${who%%:*} の ${n#*:}"; else warn "${who%%:*} の ${n#*:}  未配線"; fi
+    for n in "dotagents-japanese-writing:日本語の推敲" "dotagents-verify-gate:Stop ゲート" "dotagents-lint-skill-frontmatter:frontmatter lint"; do
+      if grep -qs "${n%%:*}" "$file"; then ok "${who%%:*} の${n#*:}"; else warn "${who%%:*} の${n#*:}  未配線"; fi
     done
   done
   note "Cursor の stop hook はブロックできず、追いメッセージを差し込むだけ。同等ではない（docs/decisions.md）。"
@@ -671,7 +671,8 @@ cmd_doctor() {
   local f
   for f in "$REPO"/hooks/*.sh; do
     [[ -f "$f" ]] || continue
-    # ここで配る hook はすべてガードレールなので、すべてにブロック経路が要る。
+    # セッション開始時の推敲指示は情報を渡すだけで、作業を止める役割を持たない。
+    [[ "$f" == "$REPO/hooks/dotagents-japanese-writing.sh" ]] && continue
     grep -qE 'exit 2|permissionDecision|followup_message' "$f" \
       || { warn "$(basename "$f") にブロック経路が無い（'exit 2' も permissionDecision も無い）。何も止められない"; found=1; }
   done
