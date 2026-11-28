@@ -62,6 +62,10 @@ node scripts/lib/evaluate-gate.mjs --source /path/to/other-checkout \
 
 **性質は「作業ツリー A の失敗で、B の残り試行回数を減らさない」。** 同じゲートを継ぐ A・B の2本、失敗する検査1件、上限3回に絞った。[TLA+ モデル](verification/WorktreeAttempts.tla) の `stored` は保存した回数、`failures` は観測した失敗回数をツリーごとに表す。`Isolated` は「各ツリーのキーで読み出した回数が、そのツリーで起きた失敗回数と等しい」を調べる。
 
+![ゲートは両方の作業ツリーで有効。A だけで失敗した直後の記録は A が 1、B が 0。キーを共有する故障版では B も 1 になる](figures/worktree-isolation.png)
+
+[図の編集元](figures/worktree-isolation.svg)
+
 | 2026-11-28 の観測 | 通常のキー | 2本とも同じキーを返す故障版 |
 |---|---|---|
 | TLC 2.19（配布版1.7.4）、Java 25、幅優先探索 | 終了0。26状態生成、異なる16状態、探索待ち0 | 終了12、`Isolated` 違反。Aで1回失敗した時点で、Bは失敗0回なのにAの保存値1を読む |

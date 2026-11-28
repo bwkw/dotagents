@@ -15,8 +15,10 @@
 
 ## 打つのは1つ
 
+製品リポジトリで実行する前に、検査用のプロファイルを用意し、`gh extension install github/gh-stack` で GitHub CLI の拡張を入れます。無人で実行する場合は、実行中にログインを求められないよう `claude setup-token` で認証を準備してください。
+
 ```bash
-scripts/loop.sh "やりたいことを1文で"
+~/private/dotagents/scripts/loop.sh "やりたいことを1文で"
 ```
 
 **同じコマンドを打つたびに1歩進みます。** 次がどの段かも、計画ファイルのパスも覚えなくて良い
