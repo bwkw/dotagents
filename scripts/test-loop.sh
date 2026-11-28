@@ -1250,14 +1250,13 @@ runloop "大きいこと"
 grep -qE 'あなたの手番|your turn' <<<"$OUT" \
   && ok "あなたの手番だとはっきり言う" \
   || { no "誰の手番かを言わなかった"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
-for want in grilling da-plan da-review da-adr; do
+for want in da-plan da-review da-adr; do
   grep -qE "/${want}([[:space:]]|$)" <<<"$OUT" && ok "  /${want} を名指す" || no "  /${want} が抜けている"
 done
-# ラッパーを名指してはならない。`/grill-me` は本文が "Run a `/grilling` session." だけのスキルで、名指すと何も
-# 足さず宙に浮きうる経由を通らせる。"grill-me" は "grilling" を含まないので、上の肯定の検査では見えない。無いことを検査する。
+# 廃止したラッパーが手順に残っていると、面談の入口が二つに見える。
 grep -q 'grill-me' <<<"$OUT" \
   && no "  削除した /grill-me ラッパーをまだ名指している" \
-  || ok "  ラッパーを名指さない。スキルは /grilling"
+  || ok "  面談のための別の入口を案内しない"
 grep -q 'stack submit' "$FAKE_GH_LOG" && no "設計フェーズなしで PR を開いた" || ok "何も開かない"
 
 # landing plan を commit した後で同じコマンドをもう一度 -> plan を自分で見つけて run する。パスを覚える必要は無い。
@@ -1305,16 +1304,18 @@ grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
 
 setup; measurement 20 3 1 1 1; runloop size "r"     # L
 runloop design
-for want in grilling da-plan da-review da-adr; do
+for want in da-plan da-review da-adr; do
   grep -qE "/${want}([[:space:]]|$)" <<<"$OUT" \
     && ok "tier L の design は /${want} を名指す" \
     || no "tier L の design で /${want} が抜けている"
 done
+grep -qE '^[[:space:]]*[0-9]+\. /grilling([[:space:]]|$)' <<<"$OUT" \
+  && no "面談に別の公開入口を要求した" || ok "設計面談は da-plan の中で使う"
 grep -q 'grill-me' <<<"$OUT" \
   && no "tier L の design が、削除した /grill-me ラッパーをまだ名指している" \
   || ok "tier L の design はラッパーを名指さない"
 
-# ディスクに何も残さない 3 段階は、緑に見せず検査できないと報告しなければならない。
+# 面談の合意や外部調査など、駆動系が検査できない段階を明示する。
 grep -qiE 'cannot be checked|検査でき' <<<"$OUT" \
   && ok "design は、どの段階を検証できないかを述べる" \
   || { no "design が検証できないものに何も触れなかった。問題なしと読まれる"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }

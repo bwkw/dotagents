@@ -19,7 +19,7 @@
 
 | 上流 | このスキル | 下流 |
 |---|---|---|
-| `/research`, `/grilling`, `/da-investigate` | `/da-plan` | **`/da-review`**、その後 `/executing-plans` |
+| `/research`、`/da-investigate`、設計面談の回答 | `/da-plan` | **`/da-review`**、その後 `/executing-plans` |
 
 ## 読むファイル
 

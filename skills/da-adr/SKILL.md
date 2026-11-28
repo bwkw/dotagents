@@ -31,7 +31,7 @@ metadata:
 
 | 上流 | このスキル | 下流 |
 |---|---|---|
-| `/grilling`, `/da-review`, `/da-investigate`, `/da-plan` | `/da-adr`（最後に `x-present` で要約の図を作る） | `/executing-plans` |
+| `/da-plan` の設計判断、`/da-review`、`/da-investigate` | `/da-adr`（最後に `x-present` で要約の図を作る） | `/executing-plans` |
 
 ## 読むファイル
 

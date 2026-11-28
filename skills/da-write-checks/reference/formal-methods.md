@@ -12,6 +12,6 @@
 
 **定理証明。** どの業務規則と外部事実を信頼したか、実装が証明の対象そのものか、独立した仕様と対応させたかを示す。Lean なら対象定理の `#print axioms` を確認し、`sorry` や未承認の公理で成立させた結果を採用しない。実行時の事実取得や副作用の成否には、その経路を通る別の観測が要る。
 
-**照合と保守。** 反例は、同じ入力・操作順を実装の通常入口に与えて照合する。報告は「モデルで反例」「実装でも観測」「定めた範囲の探索完了」「命題を証明」「実行未完了」に分ける。モデルと実装が別なら、対応した実装箇所と最終確認版を残す。仕様が変わった場合は、変更された規則の出典を確認してから検査を書き換える。
+**照合と保守。** 反例は、同じ入力・操作順を実装の通常入口に与えて照合する。報告は「モデルで反例」「実装でも観測」「定めた範囲の探索完了」「命題を証明」「実行未完了」に分ける。モデルと実装が別なら、対応した実装箇所と最終確認版を残す。保守時には、モデルの操作・不変条件・探索上限を前回確認版からの実装差分と突き合わせる。仕様が変わった場合は、変更された規則の出典を確認してから検査を書き換える。反例を図にする時は検査結果の操作順と状態値をそのまま使い、モデルの経路と実装で再現した経路を明記する。
 
 根拠は [AWS の設計検証](https://www.cl.cam.ac.uk/teaching/2021/HLog%2BModC/How-Amazon-Web-Services-Uses-Formal-Methods.pdf)、[Quint と実装の照合](https://zenn.dev/mizchi/articles/quint-application-modeling)、[freee の業務規則と証明](https://developers.freee.co.jp/entry/lean-formal-verification-ai-agent-guardrails)、[pstack の検証生成](https://github.com/cursor/plugins/blob/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack/skills/create-formal-verification-skill/SKILL.md)。

@@ -2,6 +2,8 @@
 
 以下は導入時の記録。現在は、来歴を調べる依頼を `da-investigate`、実操作・形式検証の整備を `da-write-checks` から受けます。[現在の用途別一覧](../README.md#何をしたいかで選ぶ)
 
+2026-11-28 に形式検証の使い分けを再確認した。`create-formal-verification-skill` は対象と性質を選んで検査を作り、`maintain-formal-verification-skill` は実装変更後にモデルや前提のずれを調べる。`statechart` は TLA+ を検査し、到達状態や違反経路を図にする。dotagents は作成・保守を `da-write-checks` で受け、設計中の反例は `da-review` で調べる。[pstack の使い分け](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/06-verify-and-ship.md)・[dotagents の選定基準](../skills/da-write-checks/reference/formal-methods.md)
+
 検証を実際に動かし、失敗できることを確かめ、手順を次の実行者へ残す考え方を取り入れる。既存の TDD・検証ゲート・実装ループと同じ役割のものは重ねない。上流版をそのまま選択導入し、本文の翻訳・改変・vendoring は行わない。
 
 取得元は [cursor/plugins の固定コミット](https://github.com/cursor/plugins/tree/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack)。58本の名前・説明・サイズ・呼び出し設定から分類し、候補9本の本文と補助ファイルを確認した。最終的に残したのは次の7本。

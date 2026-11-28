@@ -657,7 +657,7 @@ backend / frontend / infrastructure のどれに届くか。\`one_way\` は取�
        say "       scripts/loop.sh run <plan-path>" ;;
     L) say "設計フェーズを一通り、有人で行う必要がある。取り返せない一歩があるか、リスク面に触れるか、"
        say "確認できていないものがある —— 測っていない変更は、無人のループに渡すものとして最悪。"
-       say "次:  /grilling   →   /da-plan 仕様を記録   →   /da-review <設計書のパス>"
+       say "次:  /da-plan 設計を固め、仕様を記録   →   /da-review <設計書のパス>"
        say "       のあと 🧱 Landing plan を commit し、続けて:  scripts/loop.sh run <plan-path>" ;;
   esac
 }
@@ -809,7 +809,7 @@ cmd_design() {
   tier_needs_interview "$tier" && {
     say "  1. /research <topic>            外の世界。検査できない —— 自分で選んだパスにファイルを書くので、"
     say "                                  ここからは探せない。"
-    say "  2. /grilling                    面談。検査できない —— 会話で変更の形を決め、何も書き残さない。"
+    say "  2. /da-plan 設計を固める       未決の判断は面談し、必要なら案を図で比較。合意は利用者が確認する。"
   }
   say "  3. /da-plan 仕様の記録       $( ((have_plan)) && printf '見つかった: %s' "$plan_note" || printf '見つからない%s' "${plan_note:+ -- $plan_note}" )"
   say "  4. /da-adr                      $adr"
@@ -821,7 +821,6 @@ cmd_design() {
   say "commit が承認になる —— 承認フラグは無い。フラグは読まずに打てるものだから。"
   echo
   say "ここで検証したもの: plan ファイルと ADR。検証していないもの: research、面談、設計レビュー。"
-  say "5 段階のうち 3 つは何も残さず、このコマンドはそうでないふりをしない。"
 
   ledger_append repo "$(repo_key)" branch "$(branch)" worktree "$PWD" phase design \
     tier "$tier" plan_found "$have_plan" adr_found "$have_adr" \

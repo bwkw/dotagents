@@ -51,7 +51,7 @@ Claude Code・Cursor では `/da-…`、Codex では `$da-…` で呼びます�
 | やりたいこと | 入口 | 受け取るもの |
 |---|---|---|
 | 動作・経緯・障害の原因を知る | `da-investigate` | 実装、履歴、観測、一次資料に裏付けた答え |
-| 設計する、仕様にする、所見を修正計画にする | `da-plan` | 相談なら選択肢、記録が必要なら対象プロジェクトの形式に沿う仕様・計画 |
+| 設計する、仕様にする、所見を修正計画にする | `da-plan` | 未決の判断は面談で詰め、境界や順序が変わる案は画像で比較。記録を頼むと仕様・計画にまとめる |
 | 機能を作る、不具合を直す | `da-implement` | 再現するテストから始めた変更と、利用者の入口での結果 |
 | 設計書やPRの問題を見つける | `da-review` | 設計なら移行順や反例、差分なら各層と層の間を調べた所見 |
 | 今の変更が出せるか確かめる | `da-verify` | プロファイルの検査結果、各完了条件の証拠と未確認事項 |
@@ -61,6 +61,10 @@ Claude Code・Cursor では `/da-…`、Codex では `$da-…` で呼びます�
 | スキルの追加・廃止を判断する | `da-skills-audit` | 用途の重複・依存・予算と、置き換えてよい条件 |
 
 **依頼例。** 「二重送信が起きる設計か見て」は `da-review`、「二重送信を直して」は `da-implement`、「この操作順が再発したら検出して」は `da-write-checks` で扱います。検査を実装の外にモデル化した場合は、モデル上の反例と実装での観測を分けます。実操作の動画は「この機能をCSに説明するデモ動画を作って」と依頼できます。動画・図のための公開コマンドを増やさず、同じ内部スキルが形式別の手順を選びます。
+
+**図で確かめる例。** 「失敗回数はどこで持つ？」と `da-plan` に頼むと、前提を調べ、選択が必要な点を `grilling` で詰めます。下図は決定後の実装で、A の失敗が B の再試行枠を消費しないことを示します。[図の編集元](docs/figures/worktree-isolation.svg)・[モデルと hook の検査結果](docs/verification.md)
+
+![ゲートは両方の作業ツリーで有効。A だけで検査に失敗すると、記録は A が 1、B が 0](docs/figures/worktree-isolation.png)
 
 **旧名からの移行。** `da-spec`・`da-fix-plan` は `da-plan`、`da-design-review`・`da-review-all` は `da-review`、`da-pr-describe`・`da-greptile-review` は `da-pr` にまとまりました。`da-adr-figure` と `da-demo-video` の実行部は `x-present` にあります。配布済みのリンク・hook の更新には `./scripts/setup.sh install` を使います。
 
@@ -75,7 +79,7 @@ Claude Code・Cursor では `/da-…`、Codex では `$da-…` で呼びます�
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
 | **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-review` を対話で | 2周 | 承認1回（= 計画を commit） |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grilling` → `/da-plan` → `/da-review` | 2周 | ループの**中** |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/da-plan` で面談・仕様化 → `/da-review` | 2周 | ループの**中** |
 
 **規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
 崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
@@ -83,7 +87,7 @@ Claude Code・Cursor では `/da-…`、Codex では `$da-…` で呼びます�
 無人で回るものが1つも無くなる。入力が全部同じクラスに落ちる分類器は、分類していません。詳細と、
 それぞれが「厳しすぎた」ではなく**間違っていた**理由は `docs/loops.md`。
 
-**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `/grilling` は面接で、`da-review` の Step 1 は
+**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `da-plan` の面談には回答する人が必要で、`da-review` の Step 1 は
 「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。
 そして**判定は bash の算術**です: モデルが測り、表の適用はスクリプトがやる。「規模に応じて」と
 書いてモデルに選ばせると毎回最大値になる（ファンアウト予算で実際に起きたこと）。
@@ -195,7 +199,7 @@ scripts/loop.sh "やりたいことを1文で"
 scripts/loop.sh "認証を OIDC に寄せる"
 #   → tier L。「あなたの手番です」と順序が出る
 
-#   あなたが打つ: /grilling → /da-plan → /da-review
+#   あなたが打つ: /da-plan で設計を固める → /da-review
 #   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
 
 scripts/loop.sh "認証を OIDC に寄せる"
@@ -208,7 +212,7 @@ scripts/loop.sh "認証を OIDC に寄せる"
 下の個別サブコマンド（`size` / `design` / `run` / `report` / `status`）は残してありますが、
 **普段打つ必要はありません。** `report` だけは自分で打ちます —— 数字は読まないと意味がないので。
 
-PRの説明は `da-pr` に頼めます。小さな修正は「何が変わるか」「どこを見ればよいか」を2〜3行で。順序や境界が判断を左右する場合は、Mermaid または Archify の図を1枚添えます。本文更新を頼むと、対象PRを読み戻して反映を確認します。[実際の差分を使った本文例](skills/da-pr/reference/pr-template.md)
+PRの説明は `da-pr` に頼めます。小さな修正は「何が変わるか」「どこを見ればよいか」を2〜3行で。順序や境界が判断を左右する場合は、確認してほしい経路を PNG で1枚添えます。本文更新を頼むと、対象PRを読み戻して反映を確認します。[実際の差分を使った本文例](skills/da-pr/reference/pr-template.md)
 
 ```bash
 scripts/loop.sh "やりたいことを1文で"        # ← 普段打つのはこれだけ。状態を見て1歩進む

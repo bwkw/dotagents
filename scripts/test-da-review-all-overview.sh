@@ -42,3 +42,10 @@ COMMENTS="$REPO/skills/_shared/pr-comments.md"
 require "$COMMENTS" '--hostname "$HOST"' "指定した PR のホスト"
 require "$COMMENTS" 'repos/$REPO/pulls/$NUMBER/reviews' "指定した PR のリポジトリと番号"
 require "$COMMENTS" '"commit_id"' "下書きを確認した head"
+
+# 図の作成は同じ内部入口に届く。設計中の面談と画像生成はそれぞれ独立して利用できる。
+for caller in skills/da-plan/SKILL.md skills/da-pr/reference/body.md skills/da-review/reference/overview-artifact.md skills/_shared/report-format.md; do
+  require "$REPO/$caller" 'x-present' "$caller から設計図の生成に到達"
+done
+require "$REPO/skills/x-present/SKILL.md" 'reference/architecture.md' "設計・構成図専用の手順"
+require "$REPO/skills/x-present/reference/architecture.md" 'PNG' "読者が開ける画像"
