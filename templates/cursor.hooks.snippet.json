@@ -8,6 +8,11 @@
   ],
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "\"$HOME/.claude/hooks/dotagents-japanese-writing.sh\" cursor"
+      }
+    ],
     "preToolUse": [
       {
         "command": "$HOME/.claude/hooks/dotagents-lint-skill-frontmatter.sh"

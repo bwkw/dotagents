@@ -2,8 +2,9 @@
 
 ## 何を配っているのかの正直な説明
 
-`scripts/setup.sh install` は、あなたのマシンに2つの hook を**コピー**し、`~/.claude/settings.json` に配線します。
+`scripts/setup.sh install` は hook を `~/.claude/hooks/` にコピーし、Claude Code・Cursor・Codex に登録します。
 
+- `dotagents-japanese-writing.sh` はセッションの開始時に動きます。`ja-writing-humanizer` が共有のスキルディレクトリにあれば、日本語を推敲するようエージェントに伝えます。原稿や会話の内容は読みません。
 - `dotagents-lint-skill-frontmatter.sh` —— **すべての `Write` / `Edit` で実行されます**
 - `dotagents-verify-gate.sh` —— **すべてのターン終了時に実行されます**（armed のときだけ働きますが、呼び出しは毎回)
 

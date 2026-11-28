@@ -16,7 +16,7 @@ cd ~/private/dotagents
 ./scripts/setup.sh status
 ```
 
-`install` はスキルへのリンクを作り、編集時・ターン終了時に動く hook をコピーします。Claude Code のテレメトリや組み込みスキルの設定を残すには、`install` に `--no-opinions` を付けます。更新で hook が変わったら `install` をもう一度実行してください。dotagents を外すには `./scripts/setup.sh uninstall` を使います。[自動実行される処理と設定](SECURITY.md)
+`install` はスキルへのリンクを作り、セッション開始時・編集時・ターン終了時に動く hook をコピーします。Claude Code のテレメトリや組み込みスキルの設定を残すには、`install` に `--no-opinions` を付けます。更新で hook が変わったら `install` をもう一度実行してください。dotagents を外すには `./scripts/setup.sh uninstall` を使います。[自動実行される処理と設定](SECURITY.md)
 
 ## 何をしたいかで選ぶ
 
@@ -74,7 +74,7 @@ npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor -s find-bugs -
 
 | 用途 | スキル |
 |---|---|
-| README や PR の下書きを自然な日本語に直す | [ja-writing-humanizer の導入と他候補との比較](docs/external-skills.md#日本語の下書きを推敲する) |
+| 返信・進捗報告・PR の説明・ADR を出す前に日本語を推敲する | [ja-writing-humanizer の導入と適用範囲](docs/external-skills.md#日本語の下書きを推敲する) |
 | 状態遷移を検査する、繰り返す失敗を防ぐ | `statechart`、`correct`（[pstack の採用記録](docs/pstack.md)） |
 | 設計を見直す、用語をそろえる | `improve-codebase-architecture`、`codebase-design`、`domain-modeling` |
 | 構成図・画面・試作品を作る | `archify`、`frontend-design`、`prototype` |

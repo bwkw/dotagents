@@ -104,6 +104,13 @@ for catalog in "$FAKE/.agents/skills" "$FAKE/.claude/skills"; do
   else
     no "ADR から内部の資料生成に届かない"
   fi
+  for writer in da-adr da-pr; do
+    if grep -Fq '`ja-writing-humanizer`' "$catalog/$writer/SKILL.md"; then
+      ok "$writer の手順から日本語の推敲に進める"
+    else
+      no "$writer に日本語の推敲手順がない"
+    fi
+  done
   if [[ -r "$catalog/da-write-checks/reference/formal-methods.md" ]] \
       && grep -Fq 'reference/formal-methods.md' "$catalog/da-write-checks/SKILL.md"; then
     ok "検査作成の入口から形式検証の選択手順を読める"
@@ -203,6 +210,57 @@ cp "$FAKE/.claude/settings.json" "$TMP/after1"
 run_setup install >/dev/null
 cmp -s "$TMP/after1" "$FAKE/.claude/settings.json" \
   && ok "install は冪等" || no "2 回目の install が設定をまた変えた"
+
+# 3 製品に実際に登録されたコマンドを起動し、それぞれが読む形式で同じ指示が届くかを見る。
+if HOME="$FAKE" node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const home = process.env.HOME;
+const commands = [];
+for (const [file, event] of [
+  [".claude/settings.json", "SessionStart"],
+  [".codex/hooks.json", "SessionStart"],
+  [".cursor/hooks.json", "sessionStart"],
+]) {
+  const config = JSON.parse(readFileSync(join(home, file), "utf8"));
+  const hooks = (config.hooks[event] ?? []).flatMap(entry => entry.hooks ?? [entry]);
+  const ours = hooks.filter(hook => hook.command.includes("dotagents-japanese-writing"));
+  assert.equal(ours.length, 1, file);
+  commands.push([ours[0].command, event]);
+}
+function run(command, event) {
+  return JSON.parse(execSync(command, {input: JSON.stringify({hook_event_name: event}), encoding: "utf8"}));
+}
+for (const [command, event] of commands) assert.deepEqual(run(command, event), {});
+const skill = join(home, ".agents/skills/ja-writing-humanizer");
+mkdirSync(skill, {recursive: true});
+writeFileSync(join(skill, "SKILL.md"), "# 推敲用のスキル\n");
+const policies = commands.map(([command, event]) => {
+  const result = run(command, event);
+  if (event === "sessionStart") return result.additional_context;
+  assert.equal(result.hookSpecificOutput?.hookEventName, event);
+  return result.hookSpecificOutput.additionalContext;
+});
+assert.match(policies[0], /ja-writing-humanizer/);
+assert.equal(new Set(policies).size, 1);
+NODE
+then ok "日本語を推敲するスキルの導入時だけ、3 製品に同じ指示が届く"
+else no "日本語の推敲指示が導入状態か製品の形式に合っていない"
+fi
+status_output="$(run_setup status)"
+for product in Claude Cursor Codex; do
+  [[ "$status_output" == *"$product の日本語の推敲"* ]] && ok "$product の推敲 hook を status に表示する" \
+    || no "$product の推敲 hook が status にない"
+done
+doctor_output="$(run_setup doctor)"
+if [[ "$doctor_output" == *'ガードレールの hook はすべてブロックできる'* ]]; then
+  ok "doctor は推敲用 hook をガードレールと区別する"
+else
+  no "doctor のブロック経路の診断に失敗した"
+fi
 
 # 何も変えない install はバックアップを残さない。区別できないバックアップの山は安全網にならず、
 # 反復ごとに入れ直すループでは際限なく増える。
@@ -345,6 +403,8 @@ mrec() { node -e '
   const m = require(process.argv[1]);
   console.log((m[process.argv[2]] ?? []).length);
 ' "$FAKE/.claude/.dotagents-managed.json" "$1"; }
+settings_hook_count="$(mrec settingsHooks)"
+cursor_hook_count="$(mrec cursorHooks)"
 
 # 旧表記（展開されていない $HOME）はきれいな偽の HOME では再現できず、修正なしでも通ってしまうので、
 # 種として入れておく。
@@ -364,8 +424,8 @@ node -e '
 ' "$FAKE/.claude/.dotagents-managed.json"
 printf '{"model":"haiku"}\n' > "$FAKE/.claude/settings.json"    # 実際のマージを起こす
 run_setup install >/dev/null
-check "hook の旧表記はマニフェストから消え、溜まらない" 3 "$(mrec settingsHooks)"
-check "Cursor 側も同じ" 2 "$(mrec cursorHooks)"
+check "hook の旧表記はマニフェストから消え、他人の 1 件だけが増える" "$((settings_hook_count + 1))" "$(mrec settingsHooks)"
+check "Cursor 側も旧表記を残さない" "$cursor_hook_count" "$(mrec cursorHooks)"
 node -e '
   const m = require(process.argv[1]);
   process.exit((m.settingsHooks ?? []).some(h => (h.command ?? "").includes("someone-elses-hook")) ? 0 : 1);

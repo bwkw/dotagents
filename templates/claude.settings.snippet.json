@@ -79,6 +79,17 @@
     "The lint hook only reads frontmatter through node, so 15s is already far more than it needs."
   ],
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/dotagents-japanese-writing.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
