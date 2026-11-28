@@ -46,6 +46,7 @@ export function validate(f) {
   else if (f.cards.length > LIMIT.cards) bad.push(`cards が ${f.cards.length} 枚（${LIMIT.cards} 枚まで。ADR の判断が多すぎるなら、ADR を分ける）`);
   for (const [i, c] of (f?.cards ?? []).entries()) {
     const at = `cards[${i}]`;
+    if (c?.no !== undefined && !(Number.isSafeInteger(c.no) && c.no > 0)) bad.push(`${at}.no は ADR の節番号を正の整数で指定する`);
     if (!str(c?.title)) bad.push(`${at}.title が無い`);
     else over(`${at}.title`, c.title, LIMIT.cardTitle, 'カードの見出し');
     const tables = (c?.parts ?? []).filter((p) => p.table).length;
@@ -176,7 +177,7 @@ export function toHtml(f) {
   const overview = ov ? `<section class="overview"><h2>${ink(ov.title ?? 'アーキテクチャ全体像')}</h2><div class="flow">`
     + ov.stages.map((s, i) => stage(s, i + 1)).join('<div class="big-arrow">→</div>') + '</div>'
     + (ov.aside ? `<div class="aside"><b class="label">${ink(ov.aside.label)}：</b>${ink(ov.aside.text)}</div>` : '') + '</section>' : '';
-  const cards = f.cards.map((c, i) => `<div class="card"><h3><span class="num">${i + 1}</span>${ink(c.title)}</h3>${c.parts.map(part).join('')}</div>`).join('');
+  const cards = f.cards.map((c, i) => `<div class="card"><h3><span class="num">${esc(c.no ?? i + 1)}</span>${ink(c.title)}</h3>${c.parts.map(part).join('')}</div>`).join('');
   const cols = f.cards.length <= 3 ? f.cards.length : 2;
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(f.title)}</title><style>${CSS}</style></head>`
     + `<body style="width:${width}px"><h1>${ink(f.title)}</h1>`
