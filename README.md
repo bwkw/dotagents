@@ -46,54 +46,40 @@ bash 前提なので WSL のみのはずですが、未確認です。Node.jsは
 
 ## 何をしたいかで選ぶ
 
-**6つのユースケース。** それぞれ独立に入ります —— 分岐のある1本のパイプラインではありません。
-**●** はこのリポジトリ製、**○** は上流、**◆** は Claude Code 組み込み。
+Claude Code・Cursor では `/da-…`、Codex では `$da-…` で呼びます。依頼に続けて対象や期待を書くと、その仕事を担う入口が手法を選びます。
 
-### 1. 機能を作る
-
-| 段階 | 打つもの | 何のためか |
+| やりたいこと | 入口 | 受け取るもの |
 |---|---|---|
-| **0. 地面を調べる** | ○ `/research` | 「世の中は実際どうやっているか」。外部の一次情報を、**リポジトリ内のファイル**に書き出す。**選択肢とトレードオフはここから出てくる**し、ファイルは `/clear` を越えて残る |
-| **1. 何を作るか固める** | ○ `/grilling` | 選んだ選択肢を、要件が本当に固まるまで質問攻めにする |
-| | ● `/da-investigate` | **この**コードベースで何に触るか。`file:line`、予算内、**確認できなかったことを名指し** |
-| **2. 書き下す** | ○ `/documentation-and-adrs` | 決定を ADR として |
-| | **● `/da-spec`** | **spec をディスクに。** リポジトリの `spec_system` を profile から解決して、openspec なら change を作る/**既存を更新する**、そうでなければ ○ `/writing-plans` に渡す。validator があれば回して出力を貼る |
-| | **● `/da-design-review`** | 書いたものを**コードが存在しない段階で**レビュー —— 一方通行の扉、移行順序、ロールバック、過去形のプリモーテム |
-| | `/clear` | 計画はディスクにある。実装は新セッションで |
-| **3. 実装する** | ○ `/executing-plans` | 書かれた計画を節目付きで進める |
-| | ○ `/using-git-worktrees` | 作業を今のワークスペースから隔離する必要があるとき |
-| | **● `/da-verify`** | **この**リポジトリの設定済みチェックを実行し、証拠を報告。**ゲートも arm する** |
-| **4. レビューして改善** | ユースケース4へ | |
+| 動作・経緯・障害の原因を知る | `da-investigate` | 実装、履歴、観測、一次資料に裏付けた答え |
+| 設計する、仕様にする、所見を修正計画にする | `da-plan` | 未決の判断は面談で詰め、境界や順序が変わる案は画像で比較。記録を頼むと仕様・計画にまとめる |
+| 機能を作る、不具合を直す | `da-implement` | 再現するテストから始めた変更と、利用者の入口での結果 |
+| 設計書やPRの問題を見つける | `da-review` | 設計なら移行順や反例、差分なら各層と層の間を調べた所見 |
+| 今の変更が出せるか確かめる | `da-verify` | プロファイルの検査結果、各完了条件の証拠と未確認事項 |
+| 次の変更でも同じ失敗を検出できるようにする | `da-write-checks` | 実操作、生成入力、モデル検査、定理証明から選んだ再実行可能な検査 |
+| 決定をADRに残す、既存ADRを図にする | `da-adr` | 決定・理由・捨てた案、または指定した図。資料の生成は内部の `x-present` が担当 |
+| PRの本文やレビュー依頼を整える | `da-pr` | 読む順序と確認箇所が分かる本文、または対象PRごとのレビュー依頼文 |
+| スキルの追加・廃止を判断する | `da-skills-audit` | 用途の重複・依存・予算と、置き換えてよい条件 |
 
-**テストが先はここの段階ではありません** —— `AGENTS.md` の常設ルールです（呼ばないと効かない既定値は既定値ではない）。詳細な手順が要るときは ○ `/test-driven-development`。
+**依頼例。** 「二重送信が起きる設計か見て」は `da-review`、「二重送信を直して」は `da-implement`、「この操作順が再発したら検出して」は `da-write-checks` で扱います。検査を実装の外にモデル化した場合は、モデル上の反例と実装での観測を分けます。実操作の動画は「この機能をCSに説明するデモ動画を作って」と依頼できます。動画・図のための公開コマンドを増やさず、同じ内部スキルが形式別の手順を選びます。
 
-**landing の分割は `/da-design-review` が決めます。** 実装に入ってから「これは別 PR にすべきか」を毎回考え直すのをやめるためです。一方通行の扉と移行順序を判断しているのは既にそのスキルなので、**どこで landing が分かれるかはその結論**です。出力の `🧱 Landing plan` が、各 landing に入るもの・**それを通す gate**・一方通行かどうかを表にします。
+**図で確かめる例。** 「失敗回数はどこで持つ？」と `da-plan` に頼むと、前提を調べ、選択が必要な点を `grilling` で詰めます。下図は決定後の実装で、A の失敗が B の再試行枠を消費しないことを示します。[図の編集元](docs/figures/worktree-isolation.svg)・[モデルと hook の検査結果](docs/verification.md)
 
-そこから先は landing ごとに同じ3手を回すだけで、**新しいコマンドは1つも増えません**:
+![ゲートは両方の作業ツリーで有効。A だけで検査に失敗すると、記録は A が 1、B が 0](docs/figures/worktree-isolation.png)
 
-```
-/da-design-review        → 一方通行の扉と landing 計画
-  ↓ ここが人間のゲート（承認）
-landing ごとに:
-  /test-driven-development → 落ちるテスト → 実装
-  scripts/gate.sh verify   → ターンを終わらせずに自己検証（何度でも。状態を触りません）
-  /da-review-all           → 層別＋層をまたぐレビュー
-  /da-fix-plan             → 何を直さないか決める＝レビュー反復の停止条件
-  ↓ 全 landing 緑
-/da-pr-describe          → 自分で打つ
-```
+**旧名からの移行。** `da-spec`・`da-fix-plan` は `da-plan`、`da-design-review`・`da-review-all` は `da-review`、`da-pr-describe`・`da-greptile-review` は `da-pr` にまとまりました。`da-adr-figure` と `da-demo-video` の実行部は `x-present` にあります。配布済みのリンク・hook の更新には `./scripts/setup.sh install` を使います。
 
-**上の3手を自分で回す代わりに、駆動系に打たせることもできます** →
-[docs/loops.md](docs/loops.md)。**駆動系が打つスキルは11本**で、対話が要る段（`/grilling`・
-`/da-spec`・`/da-design-review`）は打たず、`scripts/loop.sh design` が**順序を印字して
-検査できる成果物だけ検査**します。**規模で分岐します**（`scripts/loop.sh size` が測って決める）:
+[ソフトウェアファクトリーの6事例と採用条件](docs/evaluations/2026-11-28-software-factory.md)・[全スキルの移行表](docs/superpowers/plans/2026-11-28-skill-architecture.md)・[検査と証拠の対応](docs/verification.md)
+
+### ループで実装を進める
+
+依頼からPRまで反復する場合は `scripts/loop.sh` を使用します。規模判定、検査、レビュー、修正計画、停止理由を台帳に残します。設計への合意とマージは人が行います。[具体的な操作](docs/loops.md)
 
 | 段 | 判定 | 設計フェーズ | レビュー | 人間の位置 |
 |---|---|---|---|---|
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
-| **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で | 2周 | 承認1回（= 計画を commit） |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grilling` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
+| **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-review` を対話で | 2周 | 承認1回（= 計画を commit） |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/da-plan` で面談・仕様化 → `/da-review` | 2周 | ループの**中** |
 
 **規模と不可逆性は別の軸です。** 以前は `risk surface` と `unconfirmed` も単独で L を出していて、**段が
 崩壊していました** —— 実際のリポジトリでは backend の変更はほぼ必ず authorization に触るし、
@@ -101,7 +87,7 @@ landing ごとに:
 無人で回るものが1つも無くなる。入力が全部同じクラスに落ちる分類器は、分類していません。詳細と、
 それぞれが「厳しすぎた」ではなく**間違っていた**理由は `docs/loops.md`。
 
-**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `/grilling` は面接で、`da-design-review` の Step 1 は
+**無人で端まで回るのは XS と S です**（実際に端まで閉じた1本は **XS** でした）**。** `da-plan` の面談には回答する人が必要で、`da-review` の Step 1 は
 「Show this to the user」—— どちらも相手が要ります。上2段は「人間が入る設計フェーズ」＋「無人の実装ループ」。
 そして**判定は bash の算術**です: モデルが測り、表の適用はスクリプトがやる。「規模に応じて」と
 書いてモデルに選ばせると毎回最大値になる（ファンアウト予算で実際に起きたこと）。
@@ -119,75 +105,8 @@ landing ごとに:
 `--open` が要るのは、`gh stack submit` が既定で draft を作るからです。この層は既にゲートを通り
 レビューを1周しているので draft ではありません。**`gh extension install github/gh-stack` が前提**で、
 無ければ止まります —— `gh pr create` に落ちると全 PR が trunk に並び、**頼まれたのと違う形の出力を
-黙って出す**ことになるので。**merge は自動化しません。** `da-fix-plan` は今も「push も issue も
+黙って出す**ことになるので。**merge は自動化しません。** `da-plan` は今も「push も issue も
 コメントもするな」と明記しています。
-
-### 駆動系が打つもの / あなたが打つもの
-
-**この境界を取り違えると、動かないものを待つことになります。** 上の表は「機能を作るとき人が通る道」で、
-そのうち**ループが打てるのは一部だけ**です。
-
-| | |
-|---|---|
-| **ループが打つ**（11本） | `/da-investigate`（測る）→ `/using-git-worktrees`（隔離）→ `/da-verify`（arm）→ `/test-driven-development` または `/executing-plans` → `/da-review-all` → `/find-bugs` → `/da-fix-plan` → `/receiving-code-review` → `/da-pr-describe`、そして `gh stack submit`。ゲートが赤で戻った周は `/test-driven-development` ではなく **`/systematic-debugging`** に切り替わります |
-| **あなたが打つ** | **`/grilling`・`/da-spec`・`/da-design-review`** —— **面接に相手が要るので、ループは打てません**（打てば「誰も居ない部屋への質問」になります）。tier **M・L** でここに来ると、駆動系は順序を印字して**止まります**（exit 0） |
-| **あなたしか押せない** | **merge。** `gh pr merge` は権限分類器が止めます |
-
-**`/grilling` は起点ではありません。** XS・S は `size`（`/da-investigate`）から始まり、grilling は
-出てきません。**出てくるのは M・L の設計フェーズだけ**で、そこは人の手番です。
-
-### 2. 調査する
-
-**問いが2種類あり、道具も2つ。** 間違った方に手を伸ばすのがよくある失敗です。
-
-| 問い | 打つもの | 補足 |
-|---|---|---|
-| 「世の中はこれをどうやっているか」 | ○ `/research` | **外部**の情報源。所見をファイルに書き、背景エージェントでも走れる |
-| 「X はどこ / 何が依存 / 何が壊れる」 | ● `/da-investigate` | **この**コードベース。25ファイル・検索3ラウンドで**止まり、確認しなかったことを言う**。Confirmed / Inferred / Unconfirmed を別物として報告し、**負の結論は語彙を変えて再探索してから**主張する |
-
-`/da-investigate` は ● `x-codebase-explorer` サブエージェントに展開するので、**読んだ内容は彼らの context に留まります**。
-
-### 3. バグを直す
-
-| 段階 | 打つもの | 補足 |
-|---|---|---|
-| **調査** | **○ `/systematic-debugging`** | **修正より先に root cause**、飛躍を拒否する。**これはレビューではありません** —— バグにレビュースキルを向けると、原因ではなく近所の不完全さの一覧が返る |
-| | ● `/da-investigate` | 疑わしい箇所が決まってから、その影響範囲だけ |
-| **修正** | ○ `/systematic-debugging` | 自身の Phase 4 が修正まで担う |
-| **証明** | **● `/da-verify`** | そしてバグ修正は**バグを再現するテストから**始まる（でないと「直った」に意味がない） |
-
-### 4. レビューする
-
-| | 打つもの | 補足 |
-|---|---|---|
-| **自分の実装** | **● `/da-review-all`** | **打つレビュー入口はこれだけ。** 層別・層横断で追跡し、振る舞いの候補は最小再現を試す。実行結果・静的な裏付け・未判定を分けて返す |
-| | ◆ `/code-review` か ○ `/find-bugs` | **2本目、意図的に別の作りのもの。** 同一146 PR に4種を当てて、指摘の93.4%は4つのうち1つだけが検出 |
-| | **● `/da-fix-plan`** | 所見 → 順序付きの計画。**主な仕事は「何を直さないか」を決めること** |
-| | ○ `/receiving-code-review` | 指摘が来て、反射的に実装せず評価したいとき |
-| | ● `/da-pr-describe` | PR 説明。**自分で打つ** —— 自動では起動しない |
-| **他人の PR** | ◆ `/review <PR>` | GitHub の見え方 |
-| | ● `/da-review-all <base>` | 深さが欲しいとき。**説明・issue・コミットから意図を再構成してから、所見を1つも出さずに言い直す** —— アプローチの違いは欠陥ではなく、既存の問題は「既存」とラベルしてブロックしない |
-| **Greptileへ依頼** | ● `/da-greptile-review <PR URL...>` | PRごとの優先度と敵対的検証の重点を一覧にし、明示された範囲だけ依頼コメントを投稿する。結果の採否・修正は別の手順 |
-| **狭いパス** | ◆ `/security-review`・◆ `/simplify` | セキュリティ専用 / 品質専用で明示的にバグ探しではない |
-
-`x-review-backend` / `-frontend` / `-infra` は完全なスキルですが **`/` メニューには出しません** —— ディスパッチャが届き、層を名指しした依頼（「backend をレビューして」）も届きます。**打つのは1つ、その裏に3層の深さ。**
-
-### 5. ツールキットを保守する
-
-| 打つもの | いつ |
-|---|---|
-| ◆ `/skill-doctor` | **最初にこれ。** 未使用でコンテキストを食っているスキル |
-| ◆ `/doctor` | listing の実コストと最大寄与者 |
-| ● `/da-skills-audit` | 過剰制約、トリガ重複、Cursor 非互換、サイズ |
-| ○ `/skill-scanner` | 第三者スキルを信用する前。**bloat ではなくセキュリティ** |
-| ○ `anthropic-skills:skill-creator` | スキルが**役に立っているか**を測れる唯一のもの: with/without の pass rate・トークン・時間 |
-
-### 6. 出来たものを見せる
-
-| 打つもの | いつ |
-|---|---|
-| ● `/da-demo-video` | 機能紹介・操作説明の動画が要るとき。**実画面を自動で操作して撮り**、ローカルVOICEVOXのナレーション・テロップ・枠・カーソル・ズームを付けて mp4 にする。リリース共有は冒頭に誰・業務・価値を示し、対応内容を落とさず2分前後で伝える。ログインはユーザーが行い、撮影で保存した変更はシナリオの `cleanup` で戻す |
-| ● `/da-adr-figure` | ADR の要点だけを 1 枚の図で共有したいとき。先頭に**要約**、流れが中心なら**全体像**を置き、流れに出ない判断を 4 つまでのカード（**決定と一番強い理由**）にして PNG に書き出す。ADR より強い理由を図だけに書かない。要約の無い図・詰め込みすぎた図・文字があふれた図は失敗する |
 
 ### どのコマンドより効く3つの規則
 
@@ -280,7 +199,7 @@ scripts/loop.sh "やりたいことを1文で"
 scripts/loop.sh "認証を OIDC に寄せる"
 #   → tier L。「あなたの手番です」と順序が出る
 
-#   あなたが打つ: /grilling → /da-spec → /da-design-review
+#   あなたが打つ: /da-plan で設計を固める → /da-review
 #   🧱 Landing plan を docs/plans/ 以下に保存して commit  ← これが承認の印
 
 scripts/loop.sh "認証を OIDC に寄せる"
@@ -293,14 +212,7 @@ scripts/loop.sh "認証を OIDC に寄せる"
 下の個別サブコマンド（`size` / `design` / `run` / `report` / `status`）は残してありますが、
 **普段打つ必要はありません。** `report` だけは自分で打ちます —— 数字は読まないと意味がないので。
 
-**`/da-pr-describe` は `disable-model-invocation` なので、あなたが打つしかありません。**
-駆動系は*打てます*（ユーザ入力だから）が、モデルからは呼べません。
-
-**`/grilling` は違います。** `disable-model-invocation` を持たないので description が常駐し、
-「grill して」と書いただけで**自分から発火します**。つまり**面接を無人レーンに持ち込まない境界は、
-ハーネスではなく規律で守られています** —— `loop.sh` がそれを打たないように書かれているだけです。
-ここは以前から変わっていません: 包み紙だった `/grill-me` は `disable-model-invocation` でしたが、
-**実体の `grilling` は最初から常駐していた**ので、包み紙を外しても発火面は1ミリも増えていません。
+PRの説明は `da-pr` に頼めます。小さな修正は「何が変わるか」「どこを見ればよいか」を2〜3行で。順序や境界が判断を左右する場合は、確認してほしい経路を PNG で1枚添えます。本文更新を頼むと、対象PRを読み戻して反映を確認します。[実際の差分を使った本文例](skills/da-pr/reference/pr-template.md)
 
 ```bash
 scripts/loop.sh "やりたいことを1文で"        # ← 普段打つのはこれだけ。状態を見て1歩進む
@@ -313,9 +225,6 @@ scripts/loop.sh run [<landing-plan>]        # 回すだけ
 scripts/loop.sh status                      # 直近の size 判定と、ゲートの状態
 ```
 
-> **駆動系は新しいエージェントではなく「打つ人」です。** だから `disable-model-invocation` の付いた
-> `da-pr-describe` も、あのフィールドを外さずに届きます —— あれが止めるのはモデルで、人ではない。
->
 > **`report` が出す数字は1つが最重要です: 採択1件あたりのコスト。** 採択率が 50% を下回ったら
 > ループは負けています（レビュー作業を人間に押し戻しているだけ）。`report` はそのとき自分でそう言います。
 > **スキル単体のコストは実測しました**（`/da-review-all` **$1.99** · `/da-verify` $0.59 ·
@@ -332,43 +241,17 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 
 ## 何が入っているか
 
-**自作のスキルと、上流から入れたもの**が並んでいます —— 方法論はそれを本業にしている人たちが維持した方が良いので。自作なのは**意見をエンコードしたもの**だけです: 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。**●** が付いているものです。
+dotagents は目的別の入口とプロジェクトごとの判断を持ち、TDDやデバッグの手順には[上流のスキル](#上流のスキル)を使います。
 
-加えて `agents/` に**サブエージェント**。`~/.claude/agents/` と `~/.cursor/agents/` にリンク、`~/.codex/agents/` には TOML を生成して入るので、3 つのエージェントのどのリポジトリからも届きます —— 以前は Claude 側だけにリンクしていて、「Cursor は `~/.claude/agents/` も読む」という**公式ドキュメントに裏付けのない主張**でそれを正当化していました。実際 `~/.cursor/agents/` は空で、Cursor には1本も届いていませんでした（[ハーネスの実挙動](docs/harness-facts.md)）: **`x-review-verifier`**（反証を探し、裏付け・反証・未判定を区別する読み取り専用の検証役）と **`x-codebase-explorer`**（読み取り専用、`file:line` 証拠、明示的な予算）。レビュー系が名指しで委譲します。これが存在する前は、5ファイルが「リポジトリが専用エージェントを定義していれば優先」と書いていましたが、**このツールキットはプロダクトリポに1ファイルも置かない**ので、その分岐は永遠に到達しませんでした。[判断の記録 §4](docs/decisions.md) 参照。
+読み取り専用のサブエージェントは2つです。`x-codebase-explorer` が根拠のある場所と依存を調べ、`x-review-verifier` がレビュー所見を反証できるか確かめます。`setup.sh install` は Claude Code と Cursor には定義へのリンク、Codex には対応する TOML を配置します。[ホストごとの実際の配置](docs/harness-facts.md)
 
 ## 面の全体と、何を抑制しているか
 
-**`/da` と打てば、打つべきものだけが出ます —— Claude Code と Cursor で同じ一覧。**
-
-**前置は2つあり、その分割が本質**です。**`da-` は打つもの**。**`x-` は内部**（層別レビューとサブエージェント）—— ディスパッチャか層の名指しで届き、**打つものではありません**。
-
-分割が必要なのは、**フィールドで隠す方法が両エージェントで通用しない**からです: `user-invocable: false` は Claude 専用、そして **Cursor はサブエージェントをコマンドピッカーに載せる**。結果 `/da` が返す件数は Cursor の方が多く、**その差はすべて誰も打つべきでないディスパッチ先**でした。前置を共有しないことで、**どちらかのエージェントが無視しうるフィールドに頼らずに**両方で直ります。これで2つの問題が同時に解けます: `/` メニューでは自作と第三者製20数本を見分ける手段が他に無いこと、そして**前置なしの名前は組み込みを無言で隠す**こと（`review` という名前のスキルが Claude Code の `/review` を隠す事故が実際に起きました）。
+Claude Code と Cursor は `/da`、Codex は `$da` で公開スキルを選べます。内部の `x-*` は、層別レビュー・資料生成・サブエージェント用です。単一層の無人レビューでは、ループがその層のスキルを直接呼びます。
 
 ### 面の実際の大きさ
 
-**到達可能な名前はディスク上の数の3倍以上あります。** 共有している予算が context window の1%であること、そしてこのリポジトリの監査が2回ともファイルシステムを読んで外したことの両方で重要です。
-
-**数はここに書きません。** 以前は「21 ではなく 72」と書いてあり、`templates/claude.settings.snippet.json` は同じものを「24 / 75」と書いていて、実測は23でした ——
-**3箇所が3つの違う数を主張していた。** stale な記述を欠陥として扱うリポジトリで手書きの数を持つのは、欠陥の常設発生装置です。数が要るときは `/doctor` と `/skill-doctor` が全部を見ます:
-
-| 出所 | 場所 |
-|---|---|
-| ディスク上 | `~/.agents/skills/` —— 自作10、残りは上流 |
-| Anthropic 管理プラグイン | `~/Library/Application Support/Claude/…` 配下、サーバ同期 |
-| **CLI バイナリにコンパイル済み** | **ファイルとして存在しない** —— 実行ファイルの中。ここが最も多い |
-
-`~/.agents/skills` を数えても全体にはなりません。`/doctor` と `/skill-doctor` が全部を見ます。一部は `skillOverrides` で抑制しています（下記）。
-
-### トリガが重なる場所と、どちらが勝つか
-
-| こう頼む | 行き先 | 2本目 |
-|---|---|---|
-| 「レビューして」 | `/da-review-all` —— `/find-bugs` にも行きえる | `/code-review` |
-| 「セキュアか」 | `/find-bugs`（バグ＋セキュリティ＋品質） | `/security-review` |
-| 「終わった？」 | `/da-verify`。profile が無ければ**埋めるだけの profile を返して止まる** —— 代替スキルはもう無く、保存するまでゲートも無い |
-| 「spec 書いて」／「openspec 更新して」 | **`/da-spec`** —— profile の `spec_system` で分岐。**既存の change を先に探す**（作る前に）。validator の出力を貼る | `/writing-plans`（spec system の無いリポジトリ向け） |
-| 「整理して」 | `/simplify` —— 設計上、品質専用 | —— |
-| 「毎日動かして」 | バンドルの `/schedule` | 単発の繰り返しは `/loop` |
+ホストのメニューは、共有ディレクトリのスキルに組み込み・プラグインを加えたものです。公開入口は[目的別の表](#何をしたいかで選ぶ)、ホストごとの検出方法と設定の違いは[仕組みの比較](docs/mechanisms.md)で確認できます。
 
 ### 抑制しているもの、そしてなぜそれ以上やらないか
 
@@ -383,26 +266,9 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 そこから出てくる運用上の帰結:
 
 - **`/da` を打てば自作のものだけが1つのリストに出ます。** 2つ目の異なる呼び出し方は存在しません。
-- プロンプトテンプレートの用途は今 `disable-model-invocation: true` という綴りで、**description が context から完全に消えるので予算コストがゼロ**です。`/da-pr-describe` がこれ（GitHub に書き込むので、タイミングはあなたのもの）。
+- プロンプトテンプレートの用途は今 `disable-model-invocation: true` という綴りで、**description が context から完全に消えるので予算コストがゼロ**です。人が専用の名前で呼ぶ上流スキルに使われています。
 - 逆に **`/da-verify` と層別3本には絶対に付けません** —— **名前で**到達されるものなので、付けるとディスパッチが**無言で壊れます**。lint hook とリンタの両方がテスト付きで強制しています。
-- 直接呼び出しと `/da-review-all` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
-
-### 上流はどこから来たか
-
-**広く使われていて、実際にメンテされている**コレクションから選び、**選択的に**入れています —— リポジトリ丸ごとは絶対に入れません。description は1つの予算を共有するので。上のフローが実際に到達するものだけです。
-
-| 出所 | そこから入れたもの | なぜこのコレクションか |
-|---|---|---|
-| **[obra/superpowers](https://github.com/obra/superpowers)** — 6本 | `writing-plans` · `executing-plans` · `test-driven-development` · `systematic-debugging` · `receiving-code-review` · `using-git-worktrees` | **方法論の背骨**: plan → implement → verify と、デバッグの規律。マルチハーネス対応で、自前の `AGENTS.md` とテストを持つ。**プロセスはここから来ています** |
-| **[mattpocock/skills](https://github.com/mattpocock/skills)** — 2本 | `grilling` · `research` | **鋭くて単一目的**の道具。`grilling` は選択肢を固まった要件に変える質問攻め —— 決定を**設計木**にして、前提が埋まった枝（frontier）だけをラウンドごとに**まとめて**聞き、事実は自分で取りに行く。`research` は設計フローの出発点となる外部調査。**以前ここは包み紙の `grill-me` を数えていて、実体の `grilling` を数に入れていませんでした**（[判断の記録 §38](docs/decisions.md)） |
-| **[getsentry/skills](https://github.com/getsentry/skills)** — 2本 | `find-bugs` · `skill-scanner` | **本番の障害を見つけることが製品の会社**から。`find-bugs` は攻撃面を全列挙してからスイープする —— 層別レビューとは**形が違う**ので、まさに2本目のレビュアに適しています。`skill-scanner` はこのリポジトリ自身の frontmatter の実バグを見つけました |
-| **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** — 1本 | `documentation-and-adrs` | **ADR の実践だけ。** このコレクションの他4本は「ループ外」として削除。これも一度削除して、**戻しました** —— ADR を書くことが設計フローの出発点だからです |
-
-**抑制せずに使っている Claude Code 組み込み**: `/code-review` · `/review` · `/security-review` · `/simplify` · `/verify` · `/run` · `/doctor` · `/skill-doctor`。加えて `anthropic-skills:skill-creator` —— **スキルが役に立っているかを測れる唯一のもの**です。
-
-**選定の規則と、なぜ vendoring しないか。** 方法論はそれを本業にしている人たちが維持した方が良いので、コピーせず**並べて入れます** —— `npx skills check` で上流の差分を確認してから `npx skills update` で取り込む。vendored なコピーは**誰もメンテしない fork** です。この選択の代償は、**上流スキルはここで編集できない**こと: その場で直しても次の update で失われるので、レバーは install と remove だけ。**だから `da-` prefix が自作を示し、上流は元の名前のままなのです。**
-
-ここに置くかの判定基準: **「違う意見を持つ人にとっても同じくらい有用か？」** Yes なら上流に属します。残るのは**特定の意見をエンコードしたもの** —— 何を報告に値する所見とするか、何がレビューを信頼できるものにするか、何が真であれば完了と呼べるか。
+- 直接呼び出しと `/da-review` からのディスパッチを1本で兼ねられることが、層別をスキルにしている理由です。コマンドなら2ファイルに分かれて乖離していく —— このリポジトリの前身が実際にそう腐りました。参照セットは symlink で共有しているので、**規律を1箇所直せば全層と層をまたぐパスに同時に届きます**。
 
 ### frontmatter ガード
 
@@ -415,7 +281,7 @@ scripts/loop.sh status                      # 直近の size 判定と、ゲー�
 | `name` か `description` が無い | メニューには出るのに一度も発火しない。他にそれを報告するものが無い |
 | `---` で開いて閉じていない | 同じ失敗で、より気づきにくい |
 | `da-verify` に `disable-model-invocation` | ゲートを arm する唯一のものなので、ガードレールが開く |
-| 層別レビューに `disable-model-invocation` | `da-review-all` がその層を「カバー済み」と報告して何もレビューしなくなる |
+| 層別レビューに `disable-model-invocation` | `da-review` がその層を「カバー済み」と報告して何もレビューしなくなる |
 
 「何をするか」は書いてあるが「**いつ使うか**」が無い description は、**拒否ではなく確認**になります —— 打てば動くが、自動では発火しないので。それ以外は通します。この hook は検査だけなので落ちたら**開いて**通します。閉じて止まらなければならないのは下のゲートです。
 
@@ -455,73 +321,9 @@ dotagents/skills/<name>/
 
 ## 上流のスキル
 
-ここには取り込まず、横に並べて上流で保守します。依存をなくすこと自体を目的にせず、必要な能力と既存との差、依存先の影響まで確かめて選びます。[2026-10-26 の反証・比較評価と導入記録](docs/external-skills.md) に、取得した版・検査・受容した制約を残しています。
+### 標準の依存
 
-pstack からは、実行確認と予算の点検を経て7本を選択導入しました。[使い分けと採否の記録](docs/pstack.md) を参照してください。常設のモデル設定や、既存の実装ループは変更しません。
-
-### 追加した道具の使い分け
-
-Codex では名前の先頭を `$` にします。`retro` と `improve-codebase-architecture` は人が明示して呼ぶ上流の設定を維持します。
-
-| こう頼む | 使うもの | 既存との違い |
-|---|---|---|
-| 「Archifyで、このリクエストの流れを図にして」 | `archify` | コードの根拠を伴う対話的な HTML 図。ADR の固定形式の PNG は `da-adr-figure` |
-| 「この画面の見た目と情報設計を作って」 | `frontend-design` | 実装の正しさを扱うレビューに、視覚設計・余白・書体・文言の観点を加える |
-| 「状態遷移や画面の案を、動かして比較したい」 | `prototype` | 決める前の使い捨ての試作。本実装は既存の TDD・検証規約に従う |
-| 「人が行う初期設定を、案内スクリプトにして」 | `wizard` | 人が操作する URL・入力・保存先を段階化する。実際の認証設定や移行を導入時に実行するものではない |
-| 「この作業を振り返って環境を改善したい」 | `/retro` | ソースの欠陥ではなく探索・検査の配線・指示・ツールを改善する |
-| 「このコードベースの設計を改善したい」 | `/improve-codebase-architecture` | 変更の多い箇所から改善案を探し、候補を比較して対話で絞る |
-| 指示文・スキルの執筆 | `writing-for-agents` | `retro` の必須依存。振り返り以外の執筆にも自動適用されることを含めて導入 |
-| モジュールの境界・テストの境界を設計 | `codebase-design` | 設計改善の語彙と手法を上流で共有する |
-| 業務用語の定義とシナリオを整理 | `domain-modeling` | 設計改善の依存。用語集や ADR はプロジェクトの既存配置・profile の規則を優先する |
-
-Archify は安定版 `v3.2.0`。通常の新規図は JSON から生成します。外部から渡された SVG/HTML を低水準の差分 API に直接渡す用途は、信頼の確認なしに使いません。説明を常にページ化する設定は追加していません。
-
-### pstack の手動コマンド
-
-Claude Code・Cursor は `/`、Codex は `$` を付けて明示して呼びます。上流の手動呼び出し設定を維持し、スキル同士の自動連鎖は前提にしません。
-
-下の選択導入コマンドは `-a claude-code -a cursor` の両方を指定しています。共有実体は `~/.agents/skills/`、Claude Code用の入口は `~/.claude/skills/` のリンクです。Cursor・Codexは共有実体を読みます。今回のClaude Codeのコマンド名は `/why` など、接頭辞なしの名前です。
-
-| 使うタイミング | Claude Code・Cursor | Codex | 得るもの |
-|---|---|---|---|
-| **依頼前**。範囲を広げず、確かめ方を深める | `/sharpen` | `$sharpen` | 原資料・方法・外部の判定を含む依頼文 |
-| **調査・設計前**。過去の判断理由を知る | `/why` | `$why` | コミットとPR議論を根拠にした判断の来歴 |
-| **実装中**。同じミスを2回以上直している | `/correct` | `$correct` | 構造・型・lint・テストによる再発防止。実装とコミットを伴う |
-| **検証を用意する時**。実アプリの操作手段がない | `/create-verification-skill` | `$create-verification-skill` | 起動・操作・証拠・後片付けと機能マップ |
-| **変更後・保守時**。操作や機能マップが古くなった | `/maintain-verification-skill` | `$maintain-verification-skill` | ソースと実操作を照合した検証手順の保守 |
-| **競合や状態遷移を調べる時**。通常の再現では順序を追い切れない | `/statechart` | `$statechart` | TLA+の検査、Mermaid図、違反への最短経路 |
-| **数値を報告・採否判断する前**。高速化や評価を計測した | `/benchmark-checklist` | `$benchmark-checklist` | 処理の実行・エラー・限界・反復・実利用への影響の点検 |
-
-検証手順の生成先は、対象プロジェクトで3ツールが共有する既存配置を依頼に明記します。上流の既定は `.cursor/skills/` で、そこへ生成しただけでは他の2ツールでの発見まで保証できません。具体的な依頼例と実行上の前提は [pstack の説明](docs/pstack.md) にあります。
-
-### 上流・dotagents・プロジェクトの責務
-
-| 持ち主 | 担うもの | 変更する場所 |
-|---|---|---|
-| **上流** | 調査・再発防止・測定・検証生成などの汎用手順、TLC実行や状態図の変換 | 上流へ改善を返すか、監査して更新する。インストール済み本文はローカルで直さない |
-| **dotagents** | 3ツールへの配置、profileによるコマンドと権限の解決、hookのゲート、証拠の区別、導入・検証・更新の規約 | このリポジトリの `scripts/`・`hooks/`・`profiles/`・`da-*` と共有参照 |
-| **対象プロジェクト** | 実際の起動・操作経路・fixture・期待値・不変条件、生成された検証手順とモデル | そのプロジェクトの既存配置。一般の手順を写すのではなく、そのアプリの事実を置く |
-
-たとえば上流が作るのは「検証手順を作る方法」、プロジェクトが持つのは「このアプリの保存操作を検証する手順」、dotagentsが持つのは「その結果をどのコマンド・権限・証拠で完了と判断するか」です。汎用手順の複製や翻訳だけを目的に、新しい `da-*` は作りません。汎用手順では扱えない3ツール間の配線やゲートの差がある時に、自前の実装を持ちます。
-
-**3つの規則があり、いずれも安全側の理由で入っています。**
-
-- **名指しした既知の保守者のリポジトリからだけ入れる。レジストリの索引から探して入れない。** 2026年に報告されたスキルのサプライチェーン攻撃は公開レジストリの母集団で起きています（ClawHub 経由のマルウェア30本超、Snyk が ClawHub と skills.sh の3,984本を走査してマルウェア76本を確認）。ClawHub の公開障壁は「SKILL.md と1週間前の GitHub アカウント」で、署名もレビューもサンドボックスもありません。`npx skills add <owner>/<repo>` は**索引を引かずに名指しのリポジトリを直接 clone** するので、この母集団に触れません（[判断の記録 §10](docs/decisions.md)）。
-- **`npx skills` のバージョンを固定する。** 下のコマンドが `skills@1.7.4` と書いてあるのはそのためです。`npx` は既定で毎回最新を取ってきてファイルシステム権限付きで走ります。Archify のようにスキル自身もコードを同梱するので、CLI の固定だけで終わらず、スキルの取得版と同梱コードも確認します。
-- **`npx skills update` の直後に `/skill-scanner` を回す。** `skillFolderHash` はインストール時の記録で、バージョン固定ではありません。update は既定ブランチの最新を持ってきます。監査は一度で終わりません。
-
-**選択的に入れてください。** インストールされた description は全て常にコンテキストに常駐するので、リポジトリ丸ごと入れると他の全スキルの選択精度を削ります。
-
-> **`-s` で選ぶときは、そのスキルが名指ししているスキルも入れてください。** 下のリストはその閉包に
-> なっています。**閉包になっていなかったせいで、3か月ものあいだ `/grill-me` は何も実行しませんでした**
-> —— 本文が7行で、全体が「Run a `/grilling` session.」なのに `grilling` を入れていなかった。
-> `/grill-me` は**当時のユースケース1の1行目**でした。`verify-skills.sh` が参照の解決を検査する
-> ようになったので、次に同じことが起きたら赤くなります。
->
-> **その `grill-me` 自体は、もう入れていません**（[判断の記録 §38](docs/decisions.md)）。本文の全部が
-> 実体を1行名指しするだけの包み紙で、**実体の `grilling` を直接打てば同じ面接が始まる**からです。
-> 閉包の規則は何も変わっていません —— 閉じるべき辺が1本減っただけです。
+自作の入口にはプロジェクトごとの判断を置き、実装・調査の方法論は上流で保守します。`scripts/setup.sh status` が不足を報告します。リポジトリ全体を取り込まないように、名前を `-s` で指定します。
 
 ```bash
 # 方法論 — obra/superpowers
@@ -539,6 +341,16 @@ npx skills@1.7.4 add obra/superpowers -g -a claude-code -a cursor \
 npx skills@1.7.4 add mattpocock/skills -g -a claude-code -a cursor \
   -s grilling -s research
 
+# セキュリティ — getsentry/skills
+npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor \
+  -s find-bugs -s skill-scanner
+```
+
+### 用途に応じて入れるもの
+
+設計改善には `improve-codebase-architecture` と設計語彙を、振り返りには `retro` と必須の `writing-for-agents` を組み合わせます。`statechart` はTLA+の検査結果を図にする時、`correct` は過去に繰り返した失敗を構造・型・検査で防ぐ時に使います。以下から必要な組だけを選びます。
+
+```bash
 # 設計・試作・設定案内・振り返り — 監査した上流コミット
 npx skills@1.7.4 add https://github.com/mattpocock/skills/tree/5beb35b040e3de97e54fa9e386d7e42d15c295c2 -g -a claude-code -a cursor \
   -s retro -s writing-for-agents -s prototype -s wizard \
@@ -547,10 +359,8 @@ npx skills@1.7.4 add https://github.com/mattpocock/skills/tree/5beb35b040e3de97e
 # 対話的な図解 — 監査・生成検証した安定版
 npx skills@1.7.4 add https://github.com/tt-a1i/archify/tree/v3.2.0 -g -a claude-code -a cursor -s archify
 
-# pstack — 監査した固定版から必要な7本だけ
-npx --yes skills@1.7.4 add https://github.com/cursor/plugins/tree/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack -g -a claude-code -a cursor \
-  -s why -s sharpen -s correct -s benchmark-checklist \
-  -s create-verification-skill -s maintain-verification-skill -s statechart -y
+# pstack — 状態図の検査、または繰り返したミスの再発防止。必要な名前だけ指定する
+npx skills@1.7.4 add https://github.com/cursor/plugins/tree/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack -g -a claude-code -a cursor -s statechart -s correct
 # 選択コピーに含まれない上流ルートの著作権表示も保存する
 mkdir -p ~/.agents/.skill-licenses/cursor-plugins-pstack
 curl -fLsS https://raw.githubusercontent.com/cursor/plugins/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack/LICENSE \
@@ -558,35 +368,11 @@ curl -fLsS https://raw.githubusercontent.com/cursor/plugins/bf0c7cd80abdbf7fe47b
 
 # 視覚設計 — Anthropic 公式の監査したコミット
 npx skills@1.7.4 add https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44 -g -a claude-code -a cursor -s frontend-design
-
-# セキュリティ — getsentry/skills
-npx skills@1.7.4 add getsentry/skills -g -a claude-code -a cursor \
-  -s find-bugs -s skill-scanner
-
-# 決定の記録 — addyosmani/agent-skills
-npx skills@1.7.4 add addyosmani/agent-skills -g -a claude-code -a cursor \
-  -s documentation-and-adrs
 ```
 
-固定した版は今回確認したスナップショットです。上流保守は利用しますが、将来版の安全性や互換性まで保証するものではありません。更新時は取得元と差分を確認してスキャンと必要な実行検証をやり直します。`skills` の lockfile はインストール記録で、版の固定を代替しません。
+来歴調査、依頼文の推敲、性能値の点検、実操作の検査の作成・保守、ADR は自作の入口に統合しました。設計上の廃止候補6本と、移行前に確認する機能は[採否表](docs/superpowers/plans/2026-11-28-skill-architecture.md)を参照してください。すでに個人が導入した第三者製スキルは `setup.sh` の管理外です。
 
-同じトリガを奪い合わないよう意図的に外したもの: `mattpocock/tdd` と `diagnosing-bugs`（superpowers がカバー）、`addyosmani/code-review-and-quality` と `spec-driven-development`（本リポジトリと上流でカバー）、プラットフォーム固有のもの。
-
-**アンインストールしても Cursor と Codex では生き残ります。** `npx skills remove <name> -g -a claude-code -a cursor` はエージェント側のリンクを外して lockfile を更新しますが、**`~/.agents/skills/` の実体を残します** —— Cursor と Codex がネイティブに読むパスです。実体も消して、両者が一致することを確認してください:
-
-```bash
-diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
-```
-
-**測ってから削除しています**（勘ではなく）。`/da-skills-audit` が description のトリガ語彙を総当たりで比較し、トリガの語彙が重なっていた**13本を3ラウンドで削除**しました —— 35本 → 21本、resident な description は 6,905字 → 約3,500字になりました。1本ごとの理由と代償は [判断の記録 §4](docs/decisions.md) と [判断の記録 §8](docs/decisions.md) にあります。**うち2本は誤りで、戻しました** —— どちらも開発フロー自体ではなく、それについての推測に対して切ったものです。
-
-歴史ではなく**今も生きている影響**が2つ:
-
-- **上流3本が、もう入っていないスキルを名指ししています** —— `writing-plans`・`executing-plans`・`systematic-debugging`。受容しています: 上流ファイルをその場で編集しても次の `npx skills update` で、無言で失われるので。
-- **`/da-verify` に代替がありません。** profile が無いリポジトリを覆っていたスキルを外したので、コマンドを推測せず、**停止して埋める用の profile を返します**。
-
-スキルは**エージェントの全権限で動きます**。`/skill-scanner` はプロンプトインジェクションとサプライチェーンリスクを監査します —— 実際にこのリポジトリ自身の frontmatter の不具合を見つけました。そういうためのものです。
-
+上流は導入前と更新時に取得元・固定版・依存を確認し、`skill-scanner` を使って対象を検査します。削除する場合は他のスキルやループからの参照を確認し、共有側の実体・Claude側のリンク・ロックファイルを照合します。[外部スキルの採否と評価](docs/external-skills.md)・[pstack の監査と使用例](docs/pstack.md)
 
 ## スキルの書き方
 
@@ -594,27 +380,9 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 
 不変則は [`AGENTS.md`](AGENTS.md) にあります —— あれが常時ロードされる層で、**無警告で失敗する**ものだけを置いています。全体を規定する1つ: **Claude 固有の frontmatter を全部剥がしても同じ挙動が成立すること。** Cursor はそれらを何も言わずに無視し、しかも**別のモデルファミリー**で動くので。
 
-### Cursor はもっと大きい別のメニューを見ている —— そしてこれは解決しきっていません
-
-両エージェントを一級市民として扱っていますが、**面の大きさは同じではなく**、差は一方向に出ます。
-
-| | Claude Code | Cursor |
-|---|---|---|
-| `~/.agents/skills` から | 21 **− 層別3本**（`user-invocable: false` で隠す） | **21全部** —— このフィールドを無視するので**層別レビューがメニューに出る** |
-| 組み込み | 約40（CLI にコンパイル済み） | **自前で19本**: `review` `review-bugbot` `review-security` `create-skill` `create-rule` `create-subagent` `loop` `automate` `babysit` `split-to-prs` `onboard` `shell` `sdk` `canvas` `statusline` `migrate-to-skills` `create-hook` `update-cli-config` `update-cursor-settings` |
-| `skillOverrides` の抑制 | 8件有効 | **0件** —— `settings.json` を読まない |
-
-はっきり書いておくべき帰結が2つ。
-
-**層別レビューが Cursor のメニューに漏れます。** Claude Code では打つレビュー入口は1つですが、Cursor では自作4本＋`review`＋`review-bugbot`＋`review-security`＋`find-bugs`。Cursor で層別を直接打っても**同じスキルなので正しく動きます** —— 失うのはメニューの見通しであって挙動ではなく、それが [判断の記録 §3](docs/decisions.md) の引く線です。ただし**現時点で最大の乖離**であり、**直っていません**。
-
-**抑制は Cursor に効かず、そして効く必要もありません。** 対象は**すべて Cursor に存在しないスキル**（バンドルと Anthropic プラグイン）なので、あちらには抑制する相手がいません。実際の件数は `templates/claude.settings.snippet.json` の `skillOverrides` が唯一の出典です —— この段落は以前「9件のうち6件」と書き、別の段落は「6件」、さらに別の段落は「8件」と書いていました。**同じ数を3箇所で手で維持すると3つの数になる。**
-
-**分かっていないこと**: Cursor の19本を無効化できるのか、できるならどこで。Cursor 自身の設定面は読んでいないので、**ここでは剪定できると主張しません**。メニューを圧迫して困るなら、それが次に調べることであって、すでに処理済みのことではありません。
-
 ## スクリプト全部と、それを正当化する理由
 
-**スクリプトの増殖はこの種のツールキットの failure mode** なので、1本ごとに「何を防ぐか」を言えなければいけません。9ファイルあり、**2つはこのテストに落ちて削除しました。**
+配布・ゲート・検査に使う主なスクリプトと、それぞれが防ぐ失敗をまとめます。
 
 | ファイル | なぜ存在するか |
 |---|---|
@@ -644,7 +412,7 @@ diff <(ls -1 ~/.agents/skills) <(ls -1 ~/.claude/skills)
 ## テスト
 
 ```bash
-./scripts/check.sh              # 全部: 構文、symlink、lint、振る舞いスイート4本、作業ツリーの汚れ
+./scripts/check.sh              # 構文、リンク、スキル、動作、検査後の作業ツリーを確認
 ./scripts/check.sh --fast       # 構文と lint だけ
 ```
 

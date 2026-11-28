@@ -41,7 +41,7 @@ async function fixture(t, mode = 'ok') {
 
 test('日本語のクエリ、話者、話速を渡し、返ったWAVと正しいクレジットを保存する', async t => {
   const f = await fixture(t);
-  const { synthesizeVoicevox } = await import('../skills/da-demo-video/scripts/voicevox.mjs');
+  const { synthesizeVoicevox } = await import('../skills/x-present/video/scripts/voicevox.mjs');
   await synthesizeVoicevox({ scenes: [{ id: 'intro', say: '確認の手間を減らします。' }], voicevox: { url: f.url, speedScale: 1.08 } }, f.work);
   assert.deepEqual(await fs.readFile(path.join(f.work, 'intro.wav')), f.wav);
   const query = f.requests.find(r => r.url.pathname === '/audio_query');
@@ -58,7 +58,7 @@ test('日本語のクエリ、話者、話速を渡し、返ったWAVと正し�
 
 test('話者IDの0を既定値で上書きしない', async t => {
   const f = await fixture(t);
-  const { synthesizeVoicevox } = await import('../skills/da-demo-video/scripts/voicevox.mjs');
+  const { synthesizeVoicevox } = await import('../skills/x-present/video/scripts/voicevox.mjs');
   await synthesizeVoicevox({ scenes: [{ id: 'zero', say: 'テストです。' }], voicevox: { url: f.url, speaker: 0 } }, f.work);
   assert.equal(f.requests.find(r => r.url.pathname === '/synthesis').url.searchParams.get('speaker'), '0');
 });
@@ -66,7 +66,7 @@ test('話者IDの0を既定値で上書きしない', async t => {
 for (const mode of ['error', 'bad-wav']) {
   test(`${mode}では成功扱いにせず、音声を書き出さない`, async t => {
     const f = await fixture(t, mode);
-    const { synthesizeVoicevox } = await import('../skills/da-demo-video/scripts/voicevox.mjs');
+    const { synthesizeVoicevox } = await import('../skills/x-present/video/scripts/voicevox.mjs');
     await assert.rejects(synthesizeVoicevox({ scenes: [{ id: 'bad', say: 'テストです。' }], voicevox: { url: f.url } }, f.work), mode === 'error' ? /503/ : /WAV/);
     await assert.rejects(fs.access(path.join(f.work, 'bad.wav')));
   });
@@ -74,7 +74,7 @@ for (const mode of ['error', 'bad-wav']) {
 
 test('存在しない話者を指定したら音声生成前に止まる', async t => {
   const f = await fixture(t);
-  const { synthesizeVoicevox } = await import('../skills/da-demo-video/scripts/voicevox.mjs');
+  const { synthesizeVoicevox } = await import('../skills/x-present/video/scripts/voicevox.mjs');
   await assert.rejects(synthesizeVoicevox({ scenes: [{ id: 'bad', say: 'テストです。' }], voicevox: { url: f.url, speaker: 9999 } }, f.work), /9999/);
   assert.equal(f.requests.length, 1);
 });

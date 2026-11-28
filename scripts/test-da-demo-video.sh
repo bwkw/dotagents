@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# da-demo-video の `check` が、壊れたシナリオを撮影の前に弾き続けることを確かめる。
+# x-present の動画作成で `check` が、壊れたシナリオを撮影の前に弾き続けることを確かめる。
 # 壊れたシナリオは数分撮影してから落ち、保存を伴う画面では後始末の前に変更が残る。先に落とすのはそのため。
 # `check` は依存パッケージ無しで動く（CI は npm i をしない）。
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEMO="$REPO/skills/da-demo-video/scripts/demo.mjs"
+DEMO="$REPO/skills/x-present/video/scripts/demo.mjs"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/da-demo-video.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
+[[ -f "$DEMO" ]] || { echo 'x-present から動画用の実行ファイルを開けません' >&2; exit 1; }
 node --check "$DEMO"
-node --check "$REPO/skills/da-demo-video/scripts/overlay.js"
+node --check "$REPO/skills/x-present/video/scripts/overlay.js"
 
 # 同梱の見本は通る
-node "$DEMO" check "$REPO/skills/da-demo-video/reference/example-scenario.mjs" >/dev/null
+node "$DEMO" check "$REPO/skills/x-present/video/reference/example-scenario.mjs" >/dev/null
 
 expect_reject() { # expect_reject <名前> <シナリオ本文> <出力に含まれるべき文>
   local name="$1" body="$2" want="$3" out

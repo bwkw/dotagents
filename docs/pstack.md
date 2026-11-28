@@ -1,4 +1,8 @@
-# pstack から使うもの（2026-11-16）
+# pstack 7本の導入評価（2026-11-16）
+
+以下は導入時の記録。現在は、来歴を調べる依頼を `da-investigate`、実操作・形式検証の整備を `da-write-checks` から受けます。[現在の用途別一覧](../README.md#何をしたいかで選ぶ)
+
+2026-11-28 に形式検証の使い分けを再確認した。`create-formal-verification-skill` は対象と性質を選んで検査を作り、`maintain-formal-verification-skill` は実装変更後にモデルや前提のずれを調べる。`statechart` は TLA+ を検査し、到達状態や違反経路を図にする。dotagents は作成・保守を `da-write-checks` で受け、設計中の反例は `da-review` で調べる。[pstack の使い分け](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/06-verify-and-ship.md)・[dotagents の選定基準](../skills/da-write-checks/reference/formal-methods.md)
 
 検証を実際に動かし、失敗できることを確かめ、手順を次の実行者へ残す考え方を取り入れる。既存の TDD・検証ゲート・実装ループと同じ役割のものは重ねない。上流版をそのまま選択導入し、本文の翻訳・改変・vendoring は行わない。
 
@@ -6,7 +10,7 @@
 
 ## 使うコマンド
 
-Claude Code・Cursor は `/why`、Codex は `$why` のように呼ぶ。選択導入は `-a claude-code -a cursor` を指定し、共有実体とClaude Code用リンクを両方配置した。全7本とも上流の `disable-model-invocation: true` を維持する。自動適用や、別のスキルからの `Skill` 呼び出しを保証する構成ではない。使う段階と、上流・dotagents・プロジェクトの責務は [README](../README.md#pstack-の手動コマンド) にまとめた。
+Claude Code・Cursor は `/why`、Codex は `$why` のように呼ぶ。選択導入は `-a claude-code -a cursor` を指定し、共有実体とClaude Code用リンクを両方配置した。全7本とも上流の `disable-model-invocation: true` を維持する。自動適用や、別のスキルからの `Skill` 呼び出しを保証する構成ではない。使う段階と、上流・dotagents・プロジェクトの責務は [README](../README.md#用途に応じて入れるもの) にまとめた。
 
 | 名前 | 補う不足 | 既存との使い分け |
 |---|---|---|

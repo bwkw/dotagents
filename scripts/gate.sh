@@ -6,6 +6,7 @@
 #   gate.sh record <check> [dir] 委任したチェックをユーザーが実行したと記録する
 #   gate.sh status [dir]         掛かっているか、アイドル時間、記録済みの内容
 #   gate.sh status --json [dir]  同じ内容を、人ではなくドライバー向けに出す
+#   gate.sh profile [dir]        origin に一致するプロファイルのパスを出す。一致しなければ空
 #   gate.sh verify [--json] [dir] ターンを終えずに、このリポジトリのゲートのチェックをいま実行する
 #   gate.sh gc                   終わったセッションが掛けたまま残したゲートを回収する
 #
@@ -215,19 +216,16 @@ idle_hours() { # <armed-dir>
 
 # このリポジトリのプロファイルはあるか。無いまま掛けると、「armed」と答えたうえで毎ターン黙って
 # 通すゲートになる。守られていると思い込む状態で、docs/decisions.md が防ぎたいもの。
-warn_if_no_profile() {
-  local root="$1" remote profiles hit
-  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
-  profiles="$(node -e '
-    try { console.log(require(process.env.HOME + "/.claude/.dotagents-managed.json").repo + "/profiles") } catch {}
-  ' 2>/dev/null)"
-  [[ -n "$profiles" && -d "$profiles" ]] || profiles="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/profiles"
+profile_directory() {
+  if [[ -n "${DOTAGENTS_PROFILES:-}" ]]; then printf '%s\n' "$DOTAGENTS_PROFILES"; return; fi
+  local local_dir
+  local_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/profiles"
+  if [[ -d "$local_dir" ]]; then printf '%s\n' "$local_dir"; return; fi
+  node -e 'try {console.log(require(process.env.HOME + "/.claude/.dotagents-managed.json").repo + "/profiles")} catch {}'
+}
 
-  if [[ -z "$remote" ]]; then
-    echo "  warning: git remote が無く、プロファイルを照合できない。ゲートは黙って通す。"
-    return
-  fi
-  hit="$(node -e '
+matching_profile() { # <プロファイルのディレクトリ> <origin>
+  node -e '
     const fs = require("fs"), path = require("path");
     const [dir, remote] = process.argv.slice(1);
     try {
@@ -238,14 +236,30 @@ warn_if_no_profile() {
           // 文字列か文字列のリストで、どれか 1 つが一致すればよい。
           // hooks/dotagents-verify-gate.sh 側のコピーと同一に保つ。
           const pats = p?.match?.remote == null ? [] : [].concat(p.match.remote);
-          if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) { console.log(f); break; }
+          if (pats.some((s) => typeof s === "string" && s !== "" && remote.includes(s))) { console.log(path.resolve(dir, f)); break; }
         } catch {}
       }
     } catch {}
-  ' "$profiles" "$remote" 2>/dev/null)"
+  ' "$1" "$2" 2>/dev/null
+}
 
+cmd_profile() {
+  local remote
+  remote="$(git -C "${1:-.}" remote get-url origin 2>/dev/null)" || return 1
+  matching_profile "$(profile_directory)" "$remote"
+}
+
+warn_if_no_profile() {
+  local root="$1" remote profiles hit
+  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  profiles="$(profile_directory)"
+  if [[ -z "$remote" ]]; then
+    echo "  warning: git remote が無く、プロファイルを照合できない。ゲートは黙って通す。"
+    return
+  fi
+  hit="$(matching_profile "$profiles" "$remote")"
   if [[ -n "$hit" ]]; then
-    echo "  profile: $hit"
+    echo "  profile: ${hit##*/}"
   else
     echo
     echo "  WARNING: $remote に一致するプロファイルが無い"
@@ -542,6 +556,7 @@ case "$cmd" in
   disarm)    cmd_disarm "${1:-}" ;;
   record)    cmd_record "${1:-}" "${2:-}" ;;
   status)    cmd_status "${1:-}" "${2:-}" ;;
+  profile)   cmd_profile "${1:-}" ;;
   gc)        cmd_gc ;;
   verify)    cmd_verify "${1:-}" "${2:-}" ;;
   -h|--help) usage ;;

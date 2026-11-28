@@ -4,7 +4,7 @@
 
 **駆動系（`scripts/loop.sh`）は新しいエージェントではありません。人間が打つことを打つだけです。**
 `claude -p "/da-verify"` はユーザ入力であって、モデルの自動発火ではない —— だから
-`disable-model-invocation` の付いたスキル（`da-pr-describe`）も、そのフィールドを外さずに届きます。
+`disable-model-invocation` の付いたスキルも、そのフィールドを外さずに届きます。
 あれが止めるのは*モデル*で、人ではありません。
 
 **その帰結は先に書いておきます。読まない打ち手は comprehension debt の機械です。**
@@ -30,9 +30,7 @@ scripts/loop.sh "やりたいことを1文で"
 | tier **M・L**、計画が commit 済み | 計画を自分で見つけて端まで回す |
 | 計画が2つ以上 | **推測せず並べて止まる** |
 
-**駆動系は対話レーンを打ちません。** `/grilling` はあなたを面接するので、**相手が居ない面接は
-虚空に質問を出すだけ**です。だから状態は「進める・引き継ぐ・回す」の3つで、
-**引き継ぎは exit 0** —— 進めるところまで進んだ結果なので。
+`da-plan` が設計の選択を尋ねる段階では、駆動系は **exit 0** で利用者に引き継ぎます。面談の続きは同じ `da-plan` で進めます。
 
 個別のサブコマンドも残っています（`size` / `design` / `run` / `report` / `status`）。
 **普段打つ必要はありません** —— `report` を除いて。数字は読まないと意味がないので。
@@ -51,24 +49,24 @@ scripts/loop.sh "やりたいことを1文で"
 loop.sh size "やりたいこと"        →     tier を決める（bash の算術）
 loop.sh design                     →     何を打つか / 何が検証済みか
    ↓ S ならこのレーンは空
-/grilling                                ← 要件を詰める（面接）
 /research                                ← 外の世界（必要なとき）
-/da-spec                                 ← spec をディスクに。plans なリポジトリでは
+/da-plan                                 ← 未決の判断を面談で詰め、必要なら案を画像で比較。
+                                            spec をディスクに。plans なリポジトリでは
                                             /writing-plans に渡すので成果物は同じ
-/documentation-and-adrs                  ← 決定を残す（したなら）
-/da-design-review                        ← 🧱 Landing plan（会話の中）
+/da-adr                                  ← 決定を残す（したなら）
+/da-review <設計書のパス>                 ← 🧱 Landing plan（会話の中）
 人間が plan を commit                    ← これが承認の印
                                    →     loop.sh run <plan>
                                            /using-git-worktrees   隔離
                                            /da-verify             ゲートを arm
                                            /executing-plans       （S は /test-driven-development）
                                            /systematic-debugging  周2以降
-                                           /da-review-all
+                                           /da-review
                                            /find-bugs             risk surface のときだけ
-                                           /da-fix-plan           両方の所見を受ける
+                                           /da-plan               両方の所見を受ける
                                            /receiving-code-review
                                            gh stack submit --open
-                                           /da-pr-describe
+                                           /da-pr
 人間: merge
 ```
 
@@ -76,7 +74,7 @@ loop.sh design                     →     何を打つか / 何が検証済み�
 `test-non-interactive.sh` が対話経路の不在を検査しているので、`design` は**何も聞けません**。
 対話レーンでの駆動系の仕事は**検査と記録だけ**です。
 
-**打つスキルは11本**（`size` の `/da-investigate` を含めて12箇所）。使わないものと理由:
+規模の判定は `/da-investigate` が担当します。以下のスキルは駆動系からは起動しません。
 
 | 使わない | 理由 |
 |---|---|
@@ -98,17 +96,15 @@ loop.sh design                     →     何を打つか / 何が検証済み�
 
 | 段 | 成果物 | 検査 |
 |---|---|---|
-| `/da-spec`（`plans` なリポジトリでは `/writing-plans` に渡す） | `docs/superpowers/plans/YYYY-MM-DD-*.md` | ✅ **強い。** `# … Implementation Plan` / `**Goal:**` / `## Global Constraints` / `- [ ]` が揃っているかまで見ます —— **パスだけ見ると、空ファイルがゲートを通ります** |
-| `/da-spec`（`openspec` なリポジトリ） | `openspec/changes/<id>/` | ❌ **見ていません。** `plan_files()` は `docs/superpowers/plans/` しか探さないので、**検証済みの change がある状態で「計画が無い」と言います。** 駆動系側は未対応で、`da-spec` / `da-design-review` は既に対応済み —— 対話で回す分には通りますが、`loop.sh design` は openspec リポジトリではまだ進めません |
-| `/documentation-and-adrs` | `docs/decisions/ADR-*.md` ほか | ⚠️ 弱い（パスが慣習依存） |
+| `/da-plan`（`plans` なリポジトリでは `/writing-plans` に渡す） | `docs/superpowers/plans/YYYY-MM-DD-*.md` | ✅ **強い。** `# … Implementation Plan` / `**Goal:**` / `## Global Constraints` / `- [ ]` が揃っているかまで見ます —— **パスだけ見ると、空ファイルがゲートを通ります** |
+| `/da-plan`（`openspec` なリポジトリ） | `openspec/changes/<id>/` | ❌ **見ていません。** `plan_files()` は `docs/superpowers/plans/` しか探さないので、**検証済みの change がある状態で「計画が無い」と言います。** 駆動系側は未対応で、`da-plan` / `da-review` は既に対応済み —— 対話で回す分には通りますが、`loop.sh design` は openspec リポジトリではまだ進めません |
+| `/da-adr` | `adr_system.roots` の中で `pattern` に一致するファイル | 保存先に実在するかを確認します。未設定なら案内を表示します。判断と本文の妥当性は有人の確認事項です |
 | 🧱 Landing plan | 人間が写した commit 済みファイル | ✅ 強い（`run` の前提条件） |
 | `/research` | エージェントが選んだパス | ❌ **無い** |
-| `/grilling` | 無し | ❌ **無い** |
-| `/da-design-review` | **無し（会話のみ）** | ❌ **無い** |
+| `/da-plan` の面談・図解 | 会話・一時プレビュー | 合意の有無は利用者が確かめます |
+| `/da-review` | **無し（会話のみ）** | ❌ **無い** |
 
-**`da-design-review` はファイルを1つも書きません** —— 本文に「never writes code and never edits the
-plan」とあります。つまり 🧱 Landing plan は**会話の中にしか無く、人間が写して commit する**必要が
-あります。以前ここは「commit しろ」と書いて、**誰が書き出すのかを書いていませんでした。**
+設計レビューの 🧱 Landing plan は会話に返ります。人が表をファイルに写して commit すると、駆動系が次の着地を読み取れます。
 
 **3段が検査不能であることを、緑に見せません。** 6個のチェックのうち3個しか検証していないのに
 6個の緑を出すチェックリストは、チェックリストが無いより悪いので。
@@ -119,16 +115,16 @@ plan」とあります。つまり 🧱 Landing plan は**会話の中にしか�
 
 **「自動か手動か」ではなく「人間がどれだけ深く入るか」の分岐です。** 上2段に人は必ず居ます:
 
-- `/grilling` は質問攻めの面接。**相手が居ない面接は面接ではない。**
-- `da-design-review` の Step 1 は「Restate the plan … **Show this to the user.**」——
+- `da-plan` は未決の設計判断を面談で詰め、利用者の回答を待ちます。
+- `da-review` の設計手順は最初に計画を言い直して利用者に見せます。
   読み違えた計画のレビューは、自信のある無関係な所見を生む。それを一番安く捕まえる場所がそこ。
 
 | 段 | 判定（OR。1つ当たれば上の段） | 設計フェーズ | レビュー | 人間の位置 |
 |---|---|---|---|---|
 | **XS** | ≤5 files・1 layer・one-way 0・risk 0・unconfirmed 0 | 無し | **1周。triage と修正は無し** | ループの**上**。PR を読む |
 | **S** | ≤10 files ／ **unconfirmed** | 無し | 1周 + triage + 修正 | ループの**上**。台帳を読む |
-| **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-design-review` を対話で1周 | 2周 | 承認1回。Landing plan を commit |
-| **L** | >30 files ／ 3 layers ／ **one-way door** | `/grilling` → `/da-spec` → `/da-design-review` | 2周 | ループの**中** |
+| **M** | ≤30 files ／ ≤2 layers ／ **risk surface** | `/da-review` に設計書を指定して対話で1周 | 2周 | 承認1回。Landing plan を commit |
+| **L** | >30 files ／ 3 layers ／ **one-way door** | `/da-plan` で面談・仕様化 → `/da-review` にその仕様を渡す | 2周 | ループの**中** |
 
 **ファイル数を3倍にしたのは実態に合わせたためです。** 旧 ladder は5ファイルの変更と15ファイルの変更を
 同じ段に入れていました。`>30` で上を閉じているのは、「L は約50」を閾値として書くと **31〜49 が M に
@@ -139,8 +135,8 @@ plan」とあります。つまり 🧱 Landing plan は**会話の中にしか�
 XS は S より危険**になります:
 
 1. **レビュー報告をディスクに書く。** `REVIEW_REPORT` はプロセスが終われば消えるシェル変数で、
-   `docs/fix-plans/` を書いていたのは `/da-fix-plan` です。triage を外すと唯一の写しが
-   `/da-pr-describe` への引数になり、**describe の天井超過は停止しない**（`opened-pr-partial-body` で
+   `docs/fix-plans/` を書いていたのは `/da-plan` です。triage を外すと唯一の写しが
+   `/da-pr` への引数になり、**describe の天井超過は停止しない**（`opened-pr-partial-body` で
    続行）。つまり PR が開き、describe が切れ、レビューが丸ごと消える。8回目の実走はまさに天井超過で
    死んでいるので、これは想像ではありません
 2. **未 triage であることを PR 本文に書く。** XS が捨てるのは `needs_decision` の停止 ——
@@ -237,7 +233,7 @@ PR 本文へ書きます。**届かなかった範囲は、綺麗な結果を「
 近づくので。
 
 `unverified` の欠落は 0 として扱います（`fix_now` / `needs_decision` は引き続き拒否）。手打ちの
-`/da-fix-plan` はこのフィールドを知らないので、欠落を unreadable にすると完全な報告で止まります。
+`/da-plan` はこのフィールドを知らないので、欠落を unreadable にすると完全な報告で止まります。
 
 ### 上限が縛るのは「何回レビューするか」であって「最後の修正を当てるか」ではない
 
@@ -309,10 +305,10 @@ CI              gh pr checks（0=緑 / 1=赤 / 8=実行中）
                 あれば /receiving-code-review で対応 → ゲート → commit → push
                 そのあと別ラウンドで返信文を書き、**駆動系が** POST する
   ↓
-/da-pr-describe  ← 最後
+/da-pr <対象URL> 本文の下書き → 駆動系が本文だけを更新し、読み戻す
 ```
 
-**`/da-pr-describe` が最後なのは、本文が「結局この変更が何になったか」を書くためです。** submit 直後に
+**`/da-pr` が最後なのは、本文が「結局この変更が何になったか」を書くためです。** submit 直後に
 書くと1分前のスナップショットの説明で、CI の修正もコメント対応も反映されないまま誰も直しません。
 
 **返信はしますが resolve はしません。** 返信は「何をしたか」の報告で、resolve は「あなたは満足した」の
@@ -321,7 +317,7 @@ CI              gh pr checks（0=緑 / 1=赤 / 8=実行中）
 倒すと、GraphQL を一切使わずに済みます。
 
 **返信文はラウンドが書き、POST は駆動系がやります。** 無人ラウンドに `Bash(gh api:*)` を渡せば、返信の
-ために merge と delete と resolve も渡すことになる。`/da-pr-describe` と同じ形です —— 駆動系が器を作り、
+ために merge と delete と resolve も渡すことになる。`/da-pr` と同じ形です —— 駆動系が器を作り、
 スキルが中身を書く。ラウンドは `{comment_id, body}` の構造化出力を返すだけです。
 
 **コメントの対応と返信が別ラウンドなのは順序のためです。** 対応はコードを変えるのでゲートを通らねば
@@ -364,13 +360,13 @@ implement   周1  tier M・L: /executing-plans <plan>   ← commit 済みの計�
             周2以降 /systematic-debugging   ← 赤いままなら「書く」から「原因を探す」へ切替
             毎周のあと gate.sh verify --json を読む（state-free の probe）
             緑になったら commit（変更パスを名指し。git add -A は使わない）
-review      /da-review-all
+review      /da-review
             + /find-bugs   ← risk surface があるときだけ。2本目、意図的に別の作り
-triage      /da-fix-plan（両方の所見の全文を受け、件数を構造化出力で返す）
+triage      /da-plan（両方の所見の全文を受け、件数を構造化出力で返す）
             needs_decision > 0  → 即停止
             fix_now > 0         → /receiving-code-review で1回だけ適用 → 再検証 → もう1周だけ review
             fix_now == 0        → 次へ
-pr          gh stack push → gh stack submit --auto --open → /da-pr-describe <番号>
+pr          gh stack push → gh stack submit --auto --open → /da-pr <対象URL> 本文の下書き → 本文更新・照合
 ```
 
 ### `/executing-plans` は TDD を保証しません —— プロンプトが保証します
@@ -391,7 +387,7 @@ pr          gh stack push → gh stack submit --auto --open → /da-pr-describe 
 **2つのスキルは交換可能ではありません**: 一方は意図からコードを書き、もう一方は
 **根本原因を持つまで修正案を出すことを拒否します**。周2以降は後者です。
 
-同じ理由で fix ラウンドは `/receiving-code-review` を通します。`da-fix-plan` が
+同じ理由で fix ラウンドは `/receiving-code-review` を通します。`da-plan` が
 **何を直す価値があるか**を既に決めているので、この段が決めるのは**その処方が実際に正しいか**です。
 書いてあるから適用する、はあのスキルが止めるために存在する失敗です。
 
@@ -453,11 +449,11 @@ feature](https://blog.insight-services-apac.dev/2026/07/06/cost-to-a-merged-feat
 - 総コストの **97%** がレビューゲート側だったケースがある（実装側は 3%）。
 - 「実装側が自己レビューしてからゲートへ」が外部サイクルを 3→1 に減らした。
 
-だから **correctness を決めるのは `gate.sh verify` だけ**で、`da-review-all` の所見は
+だから **correctness を決めるのは `gate.sh verify` だけ**で、`da-review` の所見は
 **人間が読むための材料**です。上限を超えた所見は台帳に残して人間に返します。
 
 **tier S は1周です**（`REVIEW_ROUNDS_S`）。**1レビュー周は1スキルではありません** ——
-`/da-review-all` + `/da-fix-plan` の triage で、初めて実走した landing の実測は
+`/da-review` + `/da-plan` の triage で、初めて実走した landing の実測は
 **$5.64（50ターン）+ $2.08（20ターン）**、レビューされた実装のほうは **$1.30** でした。
 2周は **約$15の天井**で、それを**設計フェーズを飛ばすほど小さいと判定した変更**に掛けています。
 
@@ -467,7 +463,7 @@ feature](https://blog.insight-services-apac.dev/2026/07/06/cost-to-a-merged-feat
 50ターンは11個の主張をコードに突き合わせるのに使われ、**そのうち1つが実際に誤りでした。**
 そこを削るのは、安い誤答を買うことです。
 
-`da-fix-plan` の5バケットがそのまま停止条件になります（あのスキル自身が
+`da-plan` の5バケットがそのまま停止条件になります（あのスキル自身が
 「Decline の無いループは出口の無いループ」と書いています）:
 
 | バケット | 駆動系 |
@@ -546,7 +542,7 @@ halted                  needs_decision 2, gave_up 1
 実走の回数とは関係ありません。
 
 **採択率が 50% を下回っていたらループは負けています** —— レビュー作業を人間に押し戻しているだけ。
-`report` はそのとき自分でそう言います。`da-fix-plan` も「採択率 <50% ならレビュー側を直せ」と
+`report` はそのとき自分でそう言います。`da-plan` も「採択率 <50% ならレビュー側を直せ」と
 書いているので、語彙は揃っています。
 
 ### 止まる理由の一覧
@@ -587,11 +583,11 @@ halted                  needs_decision 2, gave_up 1
 | `round_changed_nothing` | その周が編集も commit もしていない（変更パスが空で HEAD も動いていない）。**そのあとの緑は、周が始まる前から緑**でした —— `{files}` スコープのチェックはクリーンなツリーでは丸ごと飛ばされ、ゲートは本物の合格と**バイト単位で同じ** `ok:true` を返します。ゲートには「何か走ったか」を聞けないので、駆動系側で見ています |
 | `gate_unran` | **1つも検査が走らなかった。** 2つの出方がある: `verify --json` が空（`gate.sh` か node が落ちた —— 空を「問題なし」と読まないため）か、`gate: nothing blocking`。後者は**チェックが飛ばされた**のではなく、**チェックを走らせる前にゲートが降りた**という意味で、`pass()`（`hooks/dotagents-verify-gate.sh:400`）からしか出ません —— 他のリポジトリ向けに arm 済み（`:498`）／サブエージェントのターン（`:508`）／既に VERDICT がある（`:545`）／git remote が無い（`:553`）の4つ。**クリーンなツリーで `{files}` のチェックが飛ぶ場合はここに入りません** —— そのときの出力は `gate: all gating checks green` で（`:934`）、本物の合格と**バイト単位で同じ**です。それは1つ上の `round_changed_nothing` が捕まえます。**周を足しても、降りたゲートは登りません。** |
 | `commit_failed` ★ | 変更パスの `git add` が1つでも失敗した、または `git commit` が失敗した。**部分的な set は commit しません** —— 半分を黙って落とした commit は、commit が無いより悪いので。add の結果を捨てていた版では、空の index が「何も無い、順調」と読まれて landing が続いていました |
-| `triage_unreadable` | `da-fix-plan` の周がバケット件数を返さなかった、または数値でない値を返した。**欠けているのは 0 ではありません** —— 0 と読むと「レビューは直すものを見つけなかった」になり、triage されていない PR が、きれいなレビューと区別の付かない台帳の行と共に出ます |
+| `triage_unreadable` | `da-plan` の周がバケット件数を返さなかった、または数値でない値を返した。**欠けているのは 0 ではありません** —— 0 と読むと「レビューは直すものを見つけなかった」になり、triage されていない PR が、きれいなレビューと区別の付かない台帳の行と共に出ます |
 | `tree_unreadable` | `git status --porcelain` 自体が失敗した（index.lock、dubious ownership、work tree でない cwd）。commit 前なら何を commit すべきか分からず、PR 前なら「何も残っていない」を確かめられない。**`changed_paths` の空はクリーンと git の失敗の両方を意味する**ので、読めるかどうかを別に、先に聞いています |
 | `dirty_at_pr` | submit 直前でツリーが汚れている。commit されていない変更は PR に入らないので、そのまま出すと**手元にしか無いものを含んだ「検証済み」**になります |
 | `push_failed` | `gh stack push` が失敗した |
-| `pr_failed` | `gh stack submit --auto --open` が PR の URL を出さなかった。番号が取れないので `/da-pr-describe` に渡す殻がありません |
+| `pr_failed` | `gh stack submit --auto --open` の後に現在のブランチの PR URL を取得できなかった |
 | `ci_pending` | `CI_WAIT_SECONDS`（既定 900s）待っても CI が走り終わらなかった。PR は開いていてコードはローカルのゲートを通っていますが、**分からないのは CI が何と言うか**です。**コードについては何も主張しない停止**で、遅いだけのキューでも起きます |
 | `ci_red` | `CI_ATTEMPTS`（2回。**環境変数では変えられません** —— `scripts/loop.sh:118` は素の代入で、1つ上の `ci_pending` の 900s（`${DOTAGENTS_LOOP_CI_WAIT:-900}`）とは違います。増やすならスクリプトを編集）回直しても CI が赤いまま。**それ以上は失敗した方法を積み上げます** —— 上限に達した最後の1周が報告専用で修正しないのは、そのためです |
 | `ci_fix_changed_nothing` | CI 修正の周が編集を1つもしなかった。次に CI を見ても**同じ問いに同じ答えが返る**だけなので、周を足しません（`round_changed_nothing` と同じ形） |
@@ -608,7 +604,7 @@ halted                  needs_decision 2, gave_up 1
 ### なぜ stack なのか
 
 **landing は構造上すでに stack です。** landing 2 は landing 1 の上に建ち、
-どこで分かれるかとそれぞれの gate は `da-design-review` が既に決めています。
+どこで分かれるかとそれぞれの gate は `da-review` が既に決めています。
 
 > **駆動系の最初の版は全 landing を1ブランチに載せていました。** landing 2 の PR が landing 1 の
 > PR と衝突します。「PR を stack にしておいて」と言われて気づいた欠陥で、
@@ -654,10 +650,9 @@ gh extension install github/gh-stack
 **人間の読む速度が律速だと認めた上限**です。数えるのは head ブランチ名がこの stack のものである PR
 だけ —— `--author @me` で数えると**手で開いた PR で上限が発火**し、上限は切られます。
 
-やっていること: `gh stack push` → `gh stack submit --auto --open`（殻）→
-`claude -p "/da-pr-describe <番号>"`（中身）。**駆動系が殻を作り、スキルが中身を書きます。**
-これで `da-pr-describe` の前提（「PR が既に存在する」「頼まれずに PR を作るな」）が
-字義通り成立したまま使えます。
+`gh stack push` と `gh stack submit --auto --open` の後で GitHub から対象 PR の URL を取得します。CI とレビューコメントへの対応が済んだら、同じ URL の差分と現在の本文を確認し、`/da-pr` に本文の下書きを依頼します。モデルが完成した構造化出力を返しても、その間に head・タイトル・本文が変わっていれば更新を見送ります。
+
+駆動系は `gh pr edit <対象URL> --body-file <下書き>` で本文だけを更新し、同じ URL から読み戻して確認します。本文と対象が一致した時だけ台帳に `opened-pr` を記録します。資料が読めない、下書きが欠けた、更新を拒否された、読み戻しと一致しない場合は `opened-pr-partial-body` と理由を報告します。
 
 **merge は人間です。** stack 全体をまとめて merge するなら `gh stack merge`、下から1本ずつでも。
 下の層が merge されると、残りは GitHub 側が自動で rebase / retarget します。
@@ -773,7 +768,7 @@ $2.07 使い、切られています。**主張を書いている最中に、主
   いない** —— 下に何があるかが分かっただけで、天井の位置はまだ選んだ数字です。データの無い数字では
   なくなった、というのが今言える全部です（上の「`size` と triage にも実測が付いた」）。
 - **`BUDGET_ROUND_PR` だけは、天井に当たって測れました** —— そしてそれが、上の2つと違う点です。
-  2026-08-19 の初の端到達（tier XS、無人）で `/da-pr-describe` の周が **$1.50 に対し $1.55** で切られ、
+  2026-08-19 の初の端到達（tier XS、無人）で `/da-pr` の周が **$1.50 に対し $1.55** で切られ、
   **PR はテンプレートが未記入のまま開きました**（要約なし・検証なし・何も主張していないチェックボックス）。
   `$2.50` に上げましたが、**1点で数字は選べません** —— 根拠は数字ではなく**非対称性**です: 低すぎる側は
   本文が丸ごと失われたうえ landing は止まらず（`opened-pr-partial-body` は停止しない）、高すぎる側は
@@ -838,7 +833,7 @@ PR がどちらがどちらかを言う。** これは禁止を字義通り守�
 ```
 実行中     typecheck: the repository forbids the agent from running this -- deferred to CI
 台帳       "deferred": ["typecheck"]
-PR 本文    /da-pr-describe に「ローカルで未検証」として渡す
+PR 本文    /da-pr に「ローカルで未検証」として渡す
 実行後     「CI が gate です —— merge 前にそこが緑であることを確認してください」
 ```
 

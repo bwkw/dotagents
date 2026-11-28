@@ -55,7 +55,7 @@ test('compose は30秒以降を含む全7シーンの音声を所定の時刻に
       frames: Array.from({ length: 880 }, (_, i) => ({ t: 1000 + i * 0.0995, file: path.join(work, 'frame.jpg') })),
       timeline: ids.map((id, i) => ({ id, t: 1000 + starts[i] })), end: 1087.62,
     }));
-    const demo = path.join(repo, 'skills/da-demo-video/scripts/demo.mjs');
+    const demo = path.join(repo, 'skills/x-present/video/scripts/demo.mjs');
     run(process.execPath, [demo, 'compose', scenario]);
     const movie = path.join(work, 'out.mp4'), audio = decode(movie);
     assert.ok(Math.abs(audio.length / 48000 - 87.62) < 0.1, `音声の実サンプル長: ${audio.length / 48000}秒`);
@@ -93,7 +93,7 @@ test('強調枠はズーム途中・拡大後・解除後・スクロール中�
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.setContent('<style>body{margin:0;width:1440px;height:1800px}#target{position:absolute;left:1050px;top:370px;width:260px;height:90px}</style><div id="target">対象</div>');
-    await page.evaluate(fs.readFileSync(path.join(repo, 'skills/da-demo-video/scripts/overlay.js'), 'utf8'));
+    await page.evaluate(fs.readFileSync(path.join(repo, 'skills/x-present/video/scripts/overlay.js'), 'utf8'));
     const errors = await page.evaluate(async () => {
       const target = document.querySelector('#target');
       window.__ov.hl(target.getBoundingClientRect(), 8, target);
@@ -136,7 +136,7 @@ test('record のh.hlもズームへ追従し、途中・拡大後・解除時の
         if(error>2)throw new Error('h.hlの枠がズームへ追従していません');
         await h.unzoom();await h.hlOff();
       }}]};`);
-    await new Promise((resolve, reject) => execFile(process.execPath, [path.join(repo, 'skills/da-demo-video/scripts/demo.mjs'), 'record', scenario], { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
+    await new Promise((resolve, reject) => execFile(process.execPath, [path.join(repo, 'skills/x-present/video/scripts/demo.mjs'), 'record', scenario], { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
     const stills = fs.readdirSync(path.join(work, 'stills')).filter(file => /^zoom-.*\.jpg$/.test(file));
     assert.equal(stills.length, 4, 'ズーム途中・拡大後・解除途中・解除後の静止画がありません');
   } finally {

@@ -104,9 +104,9 @@ step "シェル構文と bash 4 構文の不使用" syntax
 step "CLAUDE.md が AGENTS.md へのリンクのまま" symlink_intact
 step "配るスクリプトがすべて実行可能" executable_bits
 step "スキルの lint（不変条件、予算、エージェント、上書き範囲）" ./scripts/verify-skills.sh
-step "da-review-all の概要出力の契約" ./scripts/test-da-review-all-overview.sh
-step "da-demo-video が壊れたシナリオを撮影前に弾く" ./scripts/test-da-demo-video.sh
-step "da-adr-figure が壊れた定義と文字のあふれを弾く" ./scripts/test-da-adr-figure.sh
+step "da-review の概要出力の契約" ./scripts/test-da-review-all-overview.sh
+step "x-present が壊れたシナリオを撮影前に弾く" ./scripts/test-da-demo-video.sh
+step "x-present が壊れた定義と文字のあふれを弾く" ./scripts/test-da-adr-figure.sh
 # 意図して高速レーンに置く。静的な突き合わせでミリ秒で済み、守る対象はドキュメントだけの変更（振る舞いの
 # スイートを飛ばす変更そのもの）で編集される。
 step "停止理由: loop.sh と docs/loops.md が一致" ./scripts/verify-halt-docs.sh
@@ -116,6 +116,7 @@ if (( ! FAST )); then
   # ツリーを比べる。何か残すスイートは、次のループの反復でその残骸を commit させる。
   tree_before="$(git status --porcelain 2>/dev/null)"
 
+  step "worktree ごとに失敗回数を分離する" node scripts/test-worktree-isolation.mjs
   step "verify-gate の振る舞い"    ./scripts/test-verify-gate.sh
   step "検証の固定課題と故障注入" ./scripts/test-verification-evidence.sh
   step "lint-hook と lint の範囲" ./scripts/test-lint-hook.sh

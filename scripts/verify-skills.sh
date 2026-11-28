@@ -165,17 +165,17 @@ check_skill() {
   # 人が打つワークフローには公式に正しい書き方で、説明の予算も食わない。誤りになるのは名前で呼ばれるスキルだけ。
   # プログラムからの Skill 呼び出しとサブエージェントの事前読み込みもエラーなしで塞ぐため。docs/decisions.md を参照。
   # 照合は $id ではなく $name で行う。$id は "skills/<name>" で、素の case パターンには当たらない。
+  local DMI_GATE="da-verify"                                                  # dotagents:dmi-gate
+  local DMI_DISPATCH="x-review-backend x-review-frontend x-review-infra x-present" # dotagents:dmi-dispatch
   if has_frontmatter_key "$skill" disable-model-invocation; then
-    # データとして宣言し、case パターンに書き下さずに照合する。下の相互検査がこの 2 行を本ファイルとフックの両方から読む。
-    DMI_GATE="da-verify"                                                  # dotagents:dmi-gate
-    DMI_DISPATCH="x-review-backend x-review-frontend x-review-infra"      # dotagents:dmi-dispatch
-
     # `gate.sh arm` を実行するのは /da-verify だけ。自動呼び出しが無いと Stop ゲートが arm されず毎ターン素通りする。
     if [[ " $DMI_GATE " == *" $name "* ]]; then
       err "$id" "'disable-model-invocation' を付けてはならない -- 'gate.sh arm' を実行するのはこれだけで、付けると Stop ゲートが arm されず毎ターン素通りする（開いたまま失敗する）"
-    # da-review-all がサブエージェント経由で名前で呼ぶ。
+    elif [[ "$name" == "x-present" && " $DMI_DISPATCH " == *" $name "* ]]; then
+      err "$id" "da-adr が ADR 図の生成を依頼する先 -- disable-model-invocation を外す"
+    # da-review がサブエージェント経由で名前で呼ぶ。
     elif [[ " $DMI_DISPATCH " == *" $name "* ]]; then
-      err "$id" "da-review-all が名前で呼ぶ先 -- 'disable-model-invocation' はプログラムからの Skill 呼び出しとサブエージェントの事前読み込みも塞ぐので、da-review-all はこの層をレビュー済みと報告しつつ何もレビューしなくなる"
+      err "$id" "da-review が名前で呼ぶ先 -- 'disable-model-invocation' はプログラムからの Skill 呼び出しとサブエージェントの事前読み込みも塞ぐので、da-review はこの層をレビュー済みと報告しつつ何もレビューしなくなる"
     fi
     # それ以外は正当: 人が打つ専用で、予算は 0、名前で呼ぶものも無い。
   fi
@@ -246,12 +246,31 @@ check_skill() {
       err "$id" "reference ファイルを相対パスで指している（${bare% }）-- サブエージェントの cwd はこちらと違うので、\${CLAUDE_SKILL_DIR}/reference/... を使う"
     fi
 
-    local ref
-    for ref in "$dir"/reference/*; do
-      [[ -f "$ref" ]] || continue
-      grep -qF "$(basename "$ref")" <<<"$body" \
-        || warn "$id" "reference/$(basename "$ref") が SKILL.md のどこにも出てこない"
-    done
+    # 入口から分岐の手順を経由する資料も辿る。参照されない資料同士の循環は到達扱いにしない。
+    local ref orphan
+    while IFS= read -r orphan; do
+      [[ -z "$orphan" ]] || warn "$id" "reference/$orphan に SKILL.md から辿り着けない"
+    done < <(node -e '
+      const fs = require("node:fs"), path = require("node:path");
+      const [dir, repo] = process.argv.slice(1);
+      const root = path.join(dir, "reference"), remaining = new Set();
+      for (const name of fs.readdirSync(root)) {
+        if (fs.statSync(path.join(root, name), {throwIfNoEntry: false})?.isFile()) remaining.add(name);
+      }
+      const queue = [fs.readFileSync(path.join(dir, "SKILL.md"), "utf8").replace(/^---[\s\S]*?\n---\r?\n/, "")];
+      while (queue.length) {
+        const content = queue.pop();
+        for (const name of remaining) {
+          if (!content.includes(name)) continue;
+          remaining.delete(name);
+          const file = path.join(root, name);
+          if (!name.endsWith(".md")) continue;
+          if (fs.lstatSync(file).isSymbolicLink() && !fs.realpathSync(file).startsWith(repo + path.sep)) continue;
+          queue.push(fs.readFileSync(file, "utf8"));
+        }
+      }
+      for (const name of remaining) console.log(name);
+    ' "$dir" "$REPO")
 
     # 逆向きも見る。言及されているのにファイルが無い方が悪い。その文に従った人は開くものが無い。
     local mentioned
@@ -267,7 +286,7 @@ check_skill() {
     local sibling
     for ref in "$dir"/reference/*.md; do
       [[ -f "$ref" && ! -L "$ref" ]] || continue
-      for sibling in $(grep -oE '`[a-z0-9_-]+\.md`' "$ref" | tr -d '`' | sort -u); do
+      for sibling in $(grep -oE '`(\$\{CLAUDE_SKILL_DIR\}/reference/)?[a-z0-9_-]+\.md`' "$ref" | tr -d '`' | sed 's@.*/@@' | sort -u); do
         [[ -e "$dir/reference/$sibling" ]] \
           || err "$id" "reference/$(basename "$ref") が $sibling を名指しているが、このスキルの reference/ に無い -- 書き直しの代わりに置いた 1 行の参照の先が空"
       done
@@ -282,11 +301,11 @@ check_skill() {
     ui="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i' "$skill" \
           | sed -n 's/^user-invocable:[[:space:]]*//p' | tr -d '"'"'"' ')"
     if [[ "$ui" == "false" ]]; then
-      case "$name" in
-        x-review-backend|x-review-frontend|x-review-infra) : ;;  # da-review-all が呼ぶ
-        *)
-          err "$id" "'user-invocable: false' を付けているが、これを呼ぶものが無い -- / メニューから消え、説明文の照合でしか届かない。この検査の呼び出し先一覧に足すか、フィールドを削除する" ;;
-      esac
+      if [[ " $DMI_DISPATCH " != *" $name "* ]]; then
+        err "$id" "'user-invocable: false' を付けているが、これを呼ぶものが無い -- 呼び出し先一覧に足すか、フィールドを削除する"
+      elif [[ "$name" == x-review-* ]]; then
+        err "$id" "'user-invocable: false' は loop.sh の単一層への直行を塞ぐ -- CLI 入力から届くようこのフィールドを外す"
+      fi
       has_frontmatter_key "$skill" disable-model-invocation \
         && err "$id" "'user-invocable: false' と 'disable-model-invocation' を両方付けている -- 前者は打つのを、後者はモデルを塞ぎ、スキルはどの経路からも届かない"
     fi
@@ -385,14 +404,16 @@ if [[ -f "$gate_sh" && -f "$gate_hook" ]]; then
 fi
 
 # --- 設計レビューは着地計画を出すこと -------------------------------------------
-# 作業をどの変更に分けて出すかは、ほかのどこでも決めない（da-fix-plan は 1 変更内のコミット順、da-review-all は
-# 所見として問うだけ）。その節は da-design-review の必須出力で、文章でだけ求める必須節は黙って出なくなるのでここで見る。
-dr="$REPO/skills/da-design-review/SKILL.md"
-if [[ -f "$dr" ]]; then
+# 作業をどの変更に分けて出すかは、ほかのどこでも決めない（da-plan は 1 変更内のコミット順、da-review は
+# 所見として問うだけ）。その節は da-review の必須出力で、文章でだけ求める必須節は黙って出なくなるのでここで見る。
+dr="$REPO/skills/da-review/reference/design.md"
+if [[ ! -f "$dr" ]]; then
+  err "landing-plan" "da-review の設計経路が無い"
+else
   echo
   echo "設計レビューの着地計画を検査する"
   if ! grep -q 'Landing plan' "$dr"; then
-    err "landing-plan" "skills/da-design-review が 'Landing plan' 節を出さなくなった -- 作業をどの変更に分けて出すかを決めるものがツールキットにほかに無い"
+    err "landing-plan" "skills/da-review が 'Landing plan' 節を出さなくなった -- 作業をどの変更に分けて出すかを決めるものがツールキットにほかに無い"
   elif ! grep -q 'What gates it' "$dr"; then
     err "landing-plan" "着地計画の表から 'What gates it' 列が消えた -- ゲートを名指せない着地は検証できず、この列が表をただの一覧以上のものにしている"
   else
@@ -412,7 +433,7 @@ fi
 echo
 echo "レビューの実行形態（inline / fan-out）の規則が本文に書かれているか検査する"
 budget_missing=""
-for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
+for bs in x-review-backend x-review-frontend x-review-infra da-review; do
   bf="$REPO/skills/$bs/SKILL.md"
   [[ -f "$bf" ]] || { budget_missing="$budget_missing $bs(absent)"; continue; }
   bbody="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$bf")"
@@ -421,9 +442,9 @@ for bs in x-review-backend x-review-frontend x-review-infra da-review-all; do
     || budget_missing="$budget_missing $bs"
 done
 # fan-out を決めるのはディスパッチャだけ。閾値と、所見ごとの反証役の名前が本文に無ければ、どちらかの段が黙って落ちる。
-drb="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$REPO/skills/da-review-all/SKILL.md" 2>/dev/null)"
+drb="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$REPO/skills/da-review/SKILL.md" 2>/dev/null)"
 grep -qE '1,000 行' <<<"$drb" && grep -qE 'x-review-verifier' <<<"$drb" \
-  || budget_missing="$budget_missing da-review-all(閾値か反証役)"
+  || budget_missing="$budget_missing da-review(閾値か反証役)"
 if [[ -n "$budget_missing" ]]; then
   err "review-execution-rule" "レビューの実行形態の規則が次の本文に無い:$budget_missing -- Cursor は \${CLAUDE_SKILL_DIR} を解決できないので、reference/ にだけある規則はそこで効かない"
 else
@@ -432,7 +453,7 @@ fi
 
 # --- 差分サイズの計測はレビュー対象の範囲に絞ること ---
 # レビュー系スキルはどれも読む前に差分の大きさを測り、その数でどの手順を読むかと、報告がレビューを名乗れるかが決まる。
-# da-review-all は層ごとのファイル一覧を渡して「差分全体を導き直すな」と言うのに、計測は範囲なしで測っていた。
+# da-review は層ごとのファイル一覧を渡して「差分全体を導き直すな」と言うのに、計測は範囲なしで測っていた。
 # すると 45 ファイルを 15/15/15 に分けた変更で、各層が 45 を測って自分を標本扱いした。報告が実際より控えめになる
 # 方向の失敗なので、何もおかしく見えない。
 #
@@ -572,8 +593,8 @@ docs_mention="$(grep -rlF 'openspec' "$REPO/README.md" "$REPO/docs" 2>/dev/null 
 # reference ファイルではなく SKILL.md の**本文**。Cursor は ${CLAUDE_SKILL_DIR} を解決できず、reference/ にだけある
 # 振り分けはそこで効かない（README に置くのと同じ失敗）。
 #
-# 最初に当たった本文で止めると、兄弟を見ない（不変条件 7 の失敗）。実際に da-spec の本文でフィールド名を仮の名前に
-# 変えたのに、da-design-review 側が本物の名前を持っていて緑だった。共有ファイルを使う本文はすべてフィールドを名指すこと。
+# 最初に当たった本文で止めると、兄弟を見ない（不変条件 7 の失敗）。実際に da-plan の本文でフィールド名を仮の名前に
+# 変えたのに、da-review 側が本物の名前を持っていて緑だった。共有ファイルを使う本文はすべてフィールドを名指すこと。
 skill_mention=""
 spec_partial=""
 for smf in "$REPO"/skills/*/SKILL.md; do
@@ -601,7 +622,7 @@ fi
 
 # --- tier の段は 2 か所に書くので、2 つの写しは同じスキルを名指すこと ---
 # README.md と docs/loops.md の両方が M/L の行を持ち、設計フェーズの欄は人が打つスキルを名指す。入口を 1 つリネームした
-# 瞬間にずれた（README は /da-spec、loops.md は /writing-plans のまま）。文章は意図して違う（片方は案内、片方は手引き）ので、
+# 瞬間にずれた（README は /da-plan、loops.md は /writing-plans のまま）。文章は意図して違う（片方は案内、片方は手引き）ので、
 # 違ってはならない部分、つまり名指すスキルの集合だけを比べる。
 echo
 echo "tier の段が両方の写しで同じスキルを名指しているか検査する"
@@ -629,7 +650,7 @@ else
 fi
 
 # --- 変更表は 3 か所に書くので、3 つは 1 つの表であること -------
-# 決定 15 は、レビュー報告の「変更内容」を da-pr-describe の「変わること」に意図して揃えた。同じ変更に 2 つの語彙があると
+# 決定 15 は、レビュー報告の「変更内容」を da-pr の「変わること」に意図して揃えた。同じ変更に 2 つの語彙があると
 # 読み手が突き合わせる羽目になる。揃いは写しが一致する間だけ本物で、4 列を 3 列に絞った時、3 ファイル中 2 つだけ直しても
 # 全部直したのと同じに見えた。
 #
@@ -637,7 +658,7 @@ fi
 # マーカーを消すと検査が消えるので、欠けていれば黙って飛ばさずエラーにする。
 echo
 echo "変更表が 3 つの写しすべてで同じ表か検査する"
-change_tbl_files="$REPO/skills/_shared/report-format.md $REPO/skills/_shared/review-process-brief.md $REPO/skills/da-pr-describe/reference/pr-template.md"
+change_tbl_files="$REPO/skills/_shared/report-format.md $REPO/skills/_shared/review-process-brief.md $REPO/skills/da-pr/reference/pr-template.md"
 change_cols=""; change_bad=""
 for ctf in $change_tbl_files; do
   [[ -f "$ctf" ]] || { change_bad="$change_bad $(basename "$ctf")(absent)"; continue; }
@@ -837,6 +858,14 @@ else
     [[ -e "$sf" ]] || continue
     from="$(basename "$(dirname "$sf")")"
     body="$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{i=0;next} !i' "$sf")"
+    # 自作の入口では、目的別の手順を reference に置く。そこへ移した呼び出しも導入状態と突き合わせる。
+    # 上流には任意の例や他製品向けの手順があるので、この構成を仮定しない。
+    if [[ "$(frontmatter_value "$sf" source)" == "bwkw/dotagents" ]]; then
+      for route in "$(dirname "$sf")"/reference/*.md; do
+        [[ -f "$route" && ! -L "$route" ]] || continue
+        body+=$'\n'"$(cat "$route")"
+      done
+    fi
     # `superpowers:skill-name` と `/skill-name`。実際の 3 件に両方の形が出た。
     # `anthropic-skills:` は意図して追わない。プラグインの名前空間で、プラグインのスキルはインストール済み集合の
     # ディレクトリではない（da-skills-audit が名指す anthropic-skills:skill-creator は届く）。
@@ -949,7 +978,7 @@ if [[ -d "$REPO/agents" ]]; then
   while read -r ph; do
     [[ -n "$ph" ]] || continue
     err "placeholder" "'$ph' は接頭辞の誤った呼び出し先を名指す -- 内部スキルは x-* なので、実名での一括置換では直らない"
-  done < <(grep -rhoE '`da-review-<[a-z]+>`' "$REPO"/skills/*/SKILL.md 2>/dev/null | sort -u)
+  done < <(grep -rhoE '`da-review-<[a-z]+>`' "$REPO"/skills/*/SKILL.md "$REPO"/skills/*/reference/*.md 2>/dev/null | sort -u)
 
   # _shared/ に対応物があるものは、それへのシンボリックリンクでなければならない。以前は写しで、写しがずれ、_shared/ に
   # 書いた要件がレビュー系スキルのどれにも届かなかった。古い写しも妥当なファイルなので何も報告しない。
@@ -1006,7 +1035,7 @@ PYEOF
     [[ -n "$ref" ]] || continue
     [[ " $agent_defs " == *" $ref "* ]] && continue
     err "agents" "スキルは '$ref' に振るが agents/$ref.md が無い -- 呼び出し側は黙って general-purpose に落ちる"
-  done < <(grep -rhoE '\b(x-review-verifier|x-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
+  done < <(grep -rhoE '\b(x-review-verifier|x-codebase-explorer)\b' "$REPO"/skills/*/SKILL.md "$REPO"/skills/*/reference/*.md "$REPO"/skills/_shared/*.md 2>/dev/null | sort -u)
   printf '%s✓%s 定義済みのエージェント %s 個:%s\n' "$c_green" "$c_off" "$(printf '%s' "$agent_defs" | wc -w | tr -d ' ')" "$agent_defs"
 fi
 

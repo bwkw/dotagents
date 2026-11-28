@@ -64,12 +64,13 @@ for d in claude cursor codex; do
   probe_dmi x-review-backend  deny "$d"
   probe_dmi x-review-frontend deny "$d"
   probe_dmi x-review-infra    deny "$d"
+  probe_dmi x-present         deny "$d"
 done
 
 # allow: 人が打つワークフローなら正当。ask にすると無人実行が許可待ちで止まる。この hook は
 # 検査だけで、止めるのは Stop ゲートの役目。
 for d in claude cursor codex; do
-  probe_dmi da-pr-describe  allow "$d"
+  probe_dmi da-pr  allow "$d"
   probe_dmi da-skills-audit allow "$d"
   probe_dmi anything-else allow "$d"
 done
@@ -89,6 +90,9 @@ grep -q '何もレビューしない' <<<"$(reason x-review-backend)" \
   || bad "x-review-backend: 理由が何が壊れるかを述べていない"
 
 echo
+grep -q 'da-adr' <<<"$(reason x-present)" \
+  && ok "x-present: 理由が ADR の図への影響を述べる" \
+  || bad "x-present: 呼び出し元が説明されない"
 echo "lint hook: 既存の検査がまだ効く"
 
 got="$(payload foo claude "---" "name: foo" "---" "b" | bash "$HOOK" 2>/dev/null | decision)"
@@ -144,15 +148,15 @@ mk() { # name
       "disable-model-invocation: true" "metadata:" "  source: bwkw/dotagents" "---" "" \
       "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$PROBE/$1/SKILL.md"
 }
-for n in da-verify x-review-backend x-review-frontend x-review-infra da-pr-describe da-skills-audit; do mk "$n"; done
+for n in da-verify x-review-backend x-review-frontend x-review-infra x-present da-pr da-skills-audit; do mk "$n"; done
 
 # 照合の前に ANSI の色を落とす。記号と本文の間にリセットが入り、"✗ skills/x" がそのままでは当たらない。
 out="$("$LINTER" "$PROBE" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
-for n in da-verify x-review-backend x-review-frontend x-review-infra; do
+for n in da-verify x-review-backend x-review-frontend x-review-infra x-present; do
   grep -q "^✗ skills/$n:" <<<"$out" \
     && ok "リンターが '$n' をエラーにする" || bad "リンターが '$n' をエラーにしない"
 done
-for n in da-pr-describe da-skills-audit; do
+for n in da-pr da-skills-audit; do
   grep -q "^✗ skills/$n:" <<<"$out" \
     && bad "リンターが '$n' を誤ってエラーにする" || ok "リンターが '$n' を通す"
 done
@@ -173,8 +177,8 @@ mkui() { # name, 追加の frontmatter 行...
       "user-invocable: false" "$@" "metadata:" "  source: bwkw/dotagents" "---" "" \
       "## Preconditions" "| Condition | If unmet |" "|---|---|" "| x | stop |"; } > "$UIP/$n/SKILL.md"
 }
-# 正当: da-review-all が呼ぶ。
-for n in x-review-backend x-review-frontend x-review-infra; do mkui "$n"; done
+# ループは層別の3本を CLI の入力で直に呼ぶ。x-present は ADR から名前で呼ぶ。
+for n in x-review-backend x-review-frontend x-review-infra x-present; do mkui "$n"; done
 # 何からも呼ばれない。説明文の照合でしか届かない。
 mkui da-orphan
 # どの経路からも届かない。
@@ -182,10 +186,12 @@ mkui da-doubly-hidden "disable-model-invocation: true"
 
 uiout="$("$LINTER" "$UIP" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
 for n in x-review-backend x-review-frontend x-review-infra; do
-  grep -q "^✗ skills/$n:.*user-invocable" <<<"$uiout" \
-    && bad "リンターが呼び出し先 '$n' を誤ってエラーにする" \
-    || ok "呼び出し先 '$n' の 'user-invocable: false' をリンターが通す"
+  grep -q "^✗ skills/$n:.*loop.sh" <<<"$uiout" \
+    && ok "ループから直接起動する $n を手動起動不可にすると拒否する" \
+    || bad "ループから $n へ届かなくてもリンターが通す"
 done
+grep -q "^✗ skills/x-present:.*user-invocable" <<<"$uiout" \
+  && bad "内部の図生成を誤ってエラーにする" || ok "x-present はメニューから隠せる"
 grep -q "^✗ skills/da-orphan:.*これを呼ぶものが無い" <<<"$uiout" \
   && ok "何も呼ばないのに 'user-invocable: false' があるとリンターがエラーにする" \
   || bad "届かない孤立スキルをリンターが捕まえない"
@@ -213,6 +219,11 @@ mkref probe-mixed 'Read `${CLAUDE_SKILL_DIR}/reference/a.md` and also `reference
 mkref probe-ghost 'Follow `${CLAUDE_SKILL_DIR}/reference/ghost.md` for the rules.'
 : > "$REFP/probe-ghost/reference/real.md"
 
+mkref probe-routes 'Read `${CLAUDE_SKILL_DIR}/reference/route.md`.'
+printf 'Read `${CLAUDE_SKILL_DIR}/reference/leaf.md` or `${CLAUDE_SKILL_DIR}/reference/lost.md`.\n' > "$REFP/probe-routes/reference/route.md"
+touch "$REFP/probe-routes/reference/leaf.md"
+printf 'See `orphan.md`.\n' > "$REFP/probe-routes/reference/orphan.md"
+
 refout="$("$LINTER" "$REFP" 2>&1 | sed $'s/\033\\[[0-9;]*m//g')"
 grep -q '^✗ skills/probe-mixed:.*相対パス' <<<"$refout" \
   && ok "本文が別の所で CLAUDE_SKILL_DIR に触れていても、相対パスを捕まえる" \
@@ -222,6 +233,13 @@ grep -q '^✗ skills/probe-ghost:.*そのファイルが無い' <<<"$refout" \
   || bad "名指されているが無い reference ファイルが報告されない"
 
 echo
+grep -q '^! skills/probe-routes:.*leaf.md' <<<"$refout" \
+  && bad "手順から読む資料を未使用とした" || ok "手順を介して読む資料に到達できる"
+grep -q '^! skills/probe-routes:.*orphan.md' <<<"$refout" \
+  && ok "自己参照だけの孤立資料は報告する" || bad "孤立資料の警告が消えた"
+grep -q '^✗ skills/probe-routes:.*lost.md' <<<"$refout" \
+  && ok "手順から指す欠落資料も検出する" || bad "手順から指す欠落資料を見落とした"
+
 echo "verify-skills.sh: 保護対象の名前ごとに 2 つの強制箇所を突き合わせる"
 
 # 片側を壊して失敗を要求することで断言する。失敗しえない突き合わせは、防ぐべきものそのもの。
@@ -234,7 +252,7 @@ cp "$LINTER" "$SCOPE/scripts/verify-skills.sh"
 cp "$HOOK" "$SCOPE/hooks/dotagents-lint-skill-frontmatter.sh"
 cp "$REPO/scripts/gate.sh" "$SCOPE/scripts/gate.sh" 2>/dev/null || true
 cp "$REPO/hooks/dotagents-verify-gate.sh" "$SCOPE/hooks/" 2>/dev/null || true
-for n in da-verify x-review-backend x-review-frontend x-review-infra; do
+for n in da-verify x-review-backend x-review-frontend x-review-infra x-present; do
   mkdir -p "$SCOPE/skills/$n"
   { printf '%s\n' "---" "name: $n" "description: Use when testing." \
       "metadata:" "  source: bwkw/dotagents" "---" "" "## Preconditions" "none"; } \
@@ -247,7 +265,7 @@ base="$(scope_run)"
 grep -q '^✗ scope:' <<<"$base" \
   && bad "手を加えていないコピーがすでに食い違う: $(grep '^✗ scope:' <<<"$base" | head -1)" \
   || ok "手を加えていないコピーは保護対象の名前で一致する"
-for n in da-verify x-review-backend x-review-frontend x-review-infra; do
+for n in da-verify x-review-backend x-review-frontend x-review-infra x-present; do
   grep -q "2 つの強制箇所が一致.*$n" <<<"$base" \
     && ok "   '$n' が一致の行に出る" \
     || bad "   '$n' は保護対象なのに突き合わせに出てこない"
@@ -332,7 +350,7 @@ echo "スキル参照: 出力パスと呼び出しを区別する"
 REFS="$PROBE/installed-references"
 mkdir -p "$REFS/reference-source"
 ref_body() {
-  { printf '%s\n' '---' 'name: reference-source' 'description: Use when testing references.' '---' ''
+  { printf '%s\n' '---' 'name: reference-source' 'description: Use when testing references.' 'metadata:' '  source: bwkw/dotagents' '---' ''
     cat
   } > "$REFS/reference-source/SKILL.md"
 }
@@ -347,13 +365,16 @@ ref_out="$(DOTAGENTS_INSTALLED_SKILLS="$REFS" bash "$LINTER" "$REFS" 2>&1)"; ref
   && ok "出力パスを未導入のスキル名として切り取らない" \
   || bad "出力パスでリンターが失敗した: $(grep "スキル '" <<<"$ref_out" | head -1)"
 
+mkdir -p "$REFS/reference-source/reference"
+printf '%s\n' 'この分岐では `/branch-required` を使う。' > "$REFS/reference-source/reference/route.md"
 ref_body <<'BODY'
+Read `${CLAUDE_SKILL_DIR}/reference/route.md` for review.
 Use /first-required and /second-required.
 Then call `/third-required` and superpowers:fourth-required.
 BODY
 ref_out="$(DOTAGENTS_INSTALLED_SKILLS="$REFS" bash "$LINTER" "$REFS" 2>&1)"; ref_rc=$?
 [[ $ref_rc -ne 0 ]] && ok "本物の未導入の呼び出しでは失敗する" || bad "未導入の呼び出しを通した"
-for ref in first-required second-required third-required fourth-required; do
+for ref in first-required second-required third-required fourth-required branch-required; do
   grep -q "スキル '$ref'" <<<"$ref_out" \
     && ok "未導入の $ref を報告する" \
     || bad "未導入の $ref を見失った"

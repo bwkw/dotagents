@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="430" viewBox="0 0 940 430" role="img" aria-labelledby="title desc" lang="ja">
+  <title id="title">ゲートは共有、失敗回数は作業ツリーごと</title>
+  <desc id="desc">作業ツリー A だけで一度失敗した直後、A の失敗回数は 1、B は 0。記録のキーを共通に壊すと、未実行の B も 1 になった。</desc>
+  <!-- 実測と根拠 https://github.com/bwkw/dotagents/blob/a2037950434ee5048e9b2d151fce16892e831ecb/docs/verification.md#L61-L72 -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" markerWidth="8" markerHeight="8" refX="9" refY="5" orient="auto"><path d="M1 1 9 5 1 9" fill="none" stroke="#45666f" stroke-width="1.6"/></marker>
+    <style>
+      text {font-family:"Hiragino Sans","Noto Sans JP",sans-serif;fill:#18313a}
+      .heading {font-size:34px;font-weight:700} .body {font-size:18px} .label {font-size:17px;font-weight:600}
+      .node {font-size:22px;font-weight:600} .number {font-size:35px;font-weight:700}
+      .flow {fill:none;stroke:#45666f;stroke-width:2.4;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="940" height="430" rx="18" fill="#f6f9f8"/>
+  <text x="38" y="55" class="heading">ゲートは共有、失敗回数は作業ツリーごと</text>
+  <text x="39" y="90" class="body">A だけで検査が 1 回失敗した直後、B の再試行枠はどうなるか？</text>
+
+  <rect x="38" y="152" width="224" height="105" rx="12" fill="#e1ecf1" stroke="#8aa8b4"/>
+  <text x="58" y="190" class="node">共有ゲート</text>
+  <text x="58" y="225" class="body">リポジトリで有効化</text>
+  <path d="M262 205 H310 M310 205 V157 H360" class="flow"/>
+  <path d="M310 205 V253 H360" class="flow"/>
+
+  <rect x="366" y="119" width="261" height="77" rx="10" fill="#fff" stroke="#91a8aa"/>
+  <text x="386" y="150" class="node">作業ツリー A</text>
+  <text x="386" y="178" class="body">検査が 1 回失敗</text>
+  <rect x="366" y="215" width="261" height="77" rx="10" fill="#fff" stroke="#91a8aa"/>
+  <text x="386" y="246" class="node">作業ツリー B</text>
+  <text x="386" y="274" class="body">検査はまだ実行していない</text>
+
+  <path d="M627 157 H715" class="flow"/>
+  <path d="M627 253 H715" class="flow"/>
+  <rect x="723" y="119" width="178" height="77" rx="10" fill="#e4f2ed" stroke="#8cb5a8"/>
+  <text x="741" y="165" class="label">失敗回数</text>
+  <text x="865" y="169" text-anchor="middle" class="number">1</text>
+  <rect x="723" y="215" width="178" height="77" rx="10" fill="#e4f2ed" stroke="#8cb5a8"/>
+  <text x="741" y="261" class="label">失敗回数</text>
+  <text x="865" y="265" text-anchor="middle" class="number">0</text>
+
+  <rect x="38" y="321" width="863" height="81" rx="10" fill="#fff2de" stroke="#cfac76"/>
+  <text x="58" y="354" class="node">記録のキーまで共有した故障版</text>
+  <text x="58" y="383" class="body">未実行の B も 1 回になる。TLA+ の反例と実際の hook で同じ結果を確認。</text>
+</svg>
