@@ -73,6 +73,20 @@ printf '%s\n' "{\"title\":\"x\",${sum},\"cards\":[$ok_card,$ok_card,$ok_card]}" 
 node "$FIG" html "$TMP/three.json" "$TMP/three.html" >/dev/null
 grep -q 'grid-template-columns:repeat(3,1fr)' "$TMP/three.html" || { echo 'html がカード 3 枚を 1 列に並べていない' >&2; exit 1; }
 
+# 判断の間に別の節があっても、図には元の ADR の節番号を出す。
+node --input-type=module - "$TMP/three.json" "$TMP/numbered.json" <<'NODE'
+import fs from 'node:fs';
+const [input, output] = process.argv.slice(2);
+const figure = JSON.parse(fs.readFileSync(input, 'utf8'));
+figure.cards[1].no = 4;
+figure.cards[2].no = 7;
+fs.writeFileSync(output, JSON.stringify(figure));
+NODE
+node "$FIG" html "$TMP/numbered.json" "$TMP/numbered.html" >/dev/null
+numbers="$(grep -oE '<span class="num">[0-9]+</span>' "$TMP/numbered.html" | sed -E 's/<[^>]+>//g' | paste -sd, -)"
+[[ "$numbers" == '1,4,7' ]] || { echo "ADR の節番号は 1,4,7、図は $numbers" >&2; exit 1; }
+expect_reject invalid-number "{\"title\":\"x\",${sum},\"cards\":[{\"no\":\"四\",${ok_card#\{}]}" 'cards[0].no'
+
 # 書き出しは依存がある時だけ確かめる
 DEPS="${DA_ADR_FIGURE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/da-adr-figure}"
 if [[ -d "$DEPS/node_modules/playwright" ]]; then
