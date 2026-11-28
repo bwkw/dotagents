@@ -1,1 +1,0 @@
-../../_shared/silent-failure-patterns.md

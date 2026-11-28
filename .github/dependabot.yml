@@ -11,7 +11,7 @@ updates:
       prefix: "ci"
     open-pull-requests-limit: 3
   - package-ecosystem: npm
-    directory: /skills/da-demo-video
+    directory: /skills/x-present/video
     schedule:
       interval: monthly
     commit-message:

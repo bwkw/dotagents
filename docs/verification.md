@@ -58,4 +58,29 @@ node scripts/lib/evaluate-gate.mjs --source /path/to/other-checkout \
 
 故障版は「拒否の終了コードを消す」「未検査の変更を受け入れる」「Cursor の応答キーを壊す」の3つに限る。検出できても他の故障を捕まえる証明にはならない。AIレビューの誤検知・見逃し・費用はこの評価では測らない。これまでの指示比較の限界は [レビュー所見の比較記録](evaluations/2026-11-14-review-evidence.md) にある。
 
-形式検証の最初の候補は、arm・disarm・期限切れ・再試行上限と、worktree 間の状態分離。着手時には、原子的な操作と実装の対応、時刻と並行実行の仮定、探索上限を定める。反例を実スクリプトで再現し、壊した実装も検出してから結果を採用する。今回の固定課題はモデル検査でも形式証明でもない。
+## 作業ツリーごとの試行回数を検査する
+
+**性質は「作業ツリー A の失敗で、B の残り試行回数を減らさない」。** 同じゲートを継ぐ A・B の2本、失敗する検査1件、上限3回に絞った。[TLA+ モデル](verification/WorktreeAttempts.tla) の `stored` は保存した回数、`failures` は観測した失敗回数をツリーごとに表す。`Isolated` は「各ツリーのキーで読み出した回数が、そのツリーで起きた失敗回数と等しい」を調べる。
+
+| 2026-11-28 の観測 | 通常のキー | 2本とも同じキーを返す故障版 |
+|---|---|---|
+| TLC 2.19（配布版1.7.4）、Java 25、幅優先探索 | 終了0。26状態生成、異なる16状態、探索待ち0 | 終了12、`Isolated` 違反。Aで1回失敗した時点で、Bは失敗0回なのにAの保存値1を読む |
+| 実スクリプトを隔離コピーし、実際の linked worktree で A の Stop hook を1回実行 | hook は終了2。`gate.sh status --json` が A=1、B=0 を返し、テスト終了0 | hook は終了2。同じ観測が A=1、B=1 となり、Bの分離を検査する断言でテスト終了1 |
+
+この実行でのモデルの SHA-256 先頭12桁は `2fc68b85e649`。実装側の保存先や失敗時の回数更新が変わったら、対応を読み直してモデルと実装を再検査する。
+
+モデルの `Key` には実装の `gate_worktree_key`、`Fail` には1回の hook の失敗記録が対応する。[ゲートが状態を読む側](../scripts/gate.sh)と[失敗を記録する側](../hooks/dotagents-verify-gate.sh)の一時コピーに同じ故障を入れ、両経路を通した。探索は「失敗の記録が順に完了する」場合に限る。同一ツリーで同時刻に行う書き込み、成功による回数リセット、期限、arm・disarm、ホストによる停止処理はこのモデルの範囲外である。
+
+リポジトリのルートから以下を個別に実行する。TLC は任意の検証依存で、`TLA2TOOLS_JAR` に配布版1.7.4の jar の絶対パスを指定する。一時ディレクトリにコピーすることで、TLC の探索状態を作業ツリーの外に置く。
+
+```bash
+node scripts/test-worktree-isolation.mjs
+node scripts/test-worktree-isolation.mjs --shared-key
+
+model_dir=$(mktemp -d)
+cp docs/verification/WorktreeAttempts.tla docs/verification/*.cfg "$model_dir"
+(cd "$model_dir" && java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC -workers 1 -config Isolated.cfg WorktreeAttempts.tla)
+(cd "$model_dir" && java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC -workers 1 -config Shared.cfg WorktreeAttempts.tla)
+```
+
+故障版は失敗理由まで照合する。[実装を通すテスト](../scripts/test-worktree-isolation.mjs)では `B の試行回数を消費した`、[共有キーの設定](verification/Shared.cfg)では `Invariant Isolated is violated` が再現条件になる。TLC が起動できない場合は未実行として扱う。次にモデルを広げる候補は、期限と掛け直しが作業ツリーの状態にどう作用するかである。

@@ -600,7 +600,7 @@ cmd_doctor() {
   # 直さない。入れるのは `npx skills add` で、利用者の判断（README.md に手順あり）。
   #
   # 一覧はここ 1 か所で宣言する。scripts/verify-skills.sh が各名前が README.md にあることを確かめる。
-  # dotagents:upstream-flow-skills research grilling documentation-and-adrs writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees skill-scanner
+  # dotagents:upstream-flow-skills research grilling writing-plans executing-plans test-driven-development systematic-debugging receiving-code-review using-git-worktrees subagent-driven-development requesting-code-review finishing-a-development-branch verification-before-completion find-bugs skill-scanner
   echo "手順書の流れが使う upstream スキル"
   # 写しを持たずマーカーそのものを読む。写しは verify-skills.sh の検査を受けずにずれる。
   local UPSTREAM_FLOW_SKILLS; UPSTREAM_FLOW_SKILLS="$(sed -n 's/^ *# dotagents:upstream-flow-skills //p' "${BASH_SOURCE[0]}")"

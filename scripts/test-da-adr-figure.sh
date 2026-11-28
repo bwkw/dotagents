@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# da-adr-figure が、要約の無い図・要点を詰め込みすぎた図・壊れた定義を書き出しの前に弾き、文字があふれた図を成功扱いにしないことを確かめる。
+# x-present の ADR 図作成が、要約の無い図・要点を詰め込みすぎた図・壊れた定義を書き出しの前に弾き、文字があふれた図を成功扱いにしないことを確かめる。
 # `check` と `html` は依存パッケージ無しで動く（CI は npm i をしない）。
 # 書き出し（`build`）の検査は、依存が入っている時だけ走らせる。
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIG="$REPO/skills/da-adr-figure/scripts/figure.mjs"
-EXAMPLE="$REPO/skills/da-adr-figure/reference/example.json"
+FIG="$REPO/skills/x-present/figure/scripts/figure.mjs"
+EXAMPLE="$REPO/skills/x-present/figure/reference/example.json"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/da-adr-figure.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
+[[ -f "$FIG" ]] || { echo 'x-present から図の描画器を開けません' >&2; exit 1; }
+# 動画用の依存を入れない環境でも ADR の図を生成できる。
+export DA_DEMO_VIDEO_HOME="$TMP/video-not-installed"
 node --check "$FIG"
 
 # 同梱の見本は通る
@@ -49,8 +52,8 @@ expect_reject many-points "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\
 expect_reject many-alts   "{\"title\":\"x\",${sum},\"cards\":[{\"title\":\"t\",\"parts\":[{\"tag\":\"決定\",\"text\":\"a\"},{\"tag\":\"なぜ\",\"text\":\"b\"},{\"tag\":\"ボツ案\",\"alternatives\":[{\"name\":\"1\",\"result\":\"r\"},{\"name\":\"2\",\"result\":\"r\"}]}]}]}" '1 件まで'
 
 # スキルはリンク経由で配られる。リンクのパスから呼んでも、黙って何もせずに終わらない
-ln -s "$REPO/skills/da-adr-figure" "$TMP/linked-skill"
-out="$(node "$TMP/linked-skill/scripts/figure.mjs" check "$EXAMPLE" 2>&1)" || true
+ln -s "$REPO/skills/x-present" "$TMP/linked-skill"
+out="$(node "$TMP/linked-skill/figure/scripts/figure.mjs" check "$EXAMPLE" 2>&1)" || true
 [[ "$out" == ok* ]] || { printf 'リンク経由の check が何もしなかった: 「%s」\n' "$out" >&2; exit 1; }
 
 # html は文字を書き換えずに載せ、利用者の文をマークアップとして解釈しない

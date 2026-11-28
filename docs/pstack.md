@@ -1,4 +1,6 @@
-# pstack から使うもの（2026-11-16）
+# pstack 7本の導入評価（2026-11-16）
+
+以下は導入時の記録。現在は、来歴を調べる依頼を `da-investigate`、実操作・形式検証の整備を `da-write-checks` から受けます。[現在の用途別一覧](../README.md#何をしたいかで選ぶ)
 
 検証を実際に動かし、失敗できることを確かめ、手順を次の実行者へ残す考え方を取り入れる。既存の TDD・検証ゲート・実装ループと同じ役割のものは重ねない。上流版をそのまま選択導入し、本文の翻訳・改変・vendoring は行わない。
 
@@ -6,7 +8,7 @@
 
 ## 使うコマンド
 
-Claude Code・Cursor は `/why`、Codex は `$why` のように呼ぶ。選択導入は `-a claude-code -a cursor` を指定し、共有実体とClaude Code用リンクを両方配置した。全7本とも上流の `disable-model-invocation: true` を維持する。自動適用や、別のスキルからの `Skill` 呼び出しを保証する構成ではない。使う段階と、上流・dotagents・プロジェクトの責務は [README](../README.md#pstack-の手動コマンド) にまとめた。
+Claude Code・Cursor は `/why`、Codex は `$why` のように呼ぶ。選択導入は `-a claude-code -a cursor` を指定し、共有実体とClaude Code用リンクを両方配置した。全7本とも上流の `disable-model-invocation: true` を維持する。自動適用や、別のスキルからの `Skill` 呼び出しを保証する構成ではない。使う段階と、上流・dotagents・プロジェクトの責務は [README](../README.md#用途に応じて入れるもの) にまとめた。
 
 | 名前 | 補う不足 | 既存との使い分け |
 |---|---|---|

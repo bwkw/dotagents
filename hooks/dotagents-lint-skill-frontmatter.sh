@@ -113,7 +113,7 @@ process.stdin.on("end", () => {
     // データとして宣言し、一覧の置き場をファイルごとに 1 か所にする。scripts/verify-skills.sh がこの 2 行を読み、
     // 自分の写しと一致するか検査する。マーカーコメントはそのために要る。
     const DMI_GATE = ["da-verify"];                                                  // dotagents:dmi-gate
-    const DMI_DISPATCH = ["x-review-backend", "x-review-frontend", "x-review-infra"]; // dotagents:dmi-dispatch
+    const DMI_DISPATCH = ["x-review-backend", "x-review-frontend", "x-review-infra", "x-present"]; // dotagents:dmi-dispatch
 
     // `gate.sh arm` を実行するのは /da-verify だけ。自動呼び出しが無いと Stop ゲートが arm されず、毎ターン素通りする。
     if (DMI_GATE.includes(name)) {
@@ -124,12 +124,15 @@ process.stdin.on("end", () => {
       );
     }
 
-    // da-review-all がサブエージェント経由で名前で呼ぶ。
+    // 公開スキルが名前で呼ぶ内部スキル。
     if (DMI_DISPATCH.includes(name)) {
+      if (name === "x-present") {
+        return deny("da-adr が名前で呼ぶ生成処理。自動呼び出しを止めると ADR の図を作れなくなる。");
+      }
       return deny(
-        `'${name}' は da-review-all が名前で呼ぶ先で、` +
+        `'${name}' は da-review が名前で呼ぶ先で、` +
         "'disable-model-invocation' はプログラムからの Skill 呼び出しとサブエージェントの事前読み込みも塞ぐ。" +
-        "付けると da-review-all はその層をレビュー済みと報告しつつ、何もレビューしない。" +
+        "付けると da-review はその層をレビュー済みと報告しつつ、何もレビューしない。" +
         "エラーも出ない。docs/decisions.md を参照。",
       );
     }

@@ -1,1 +1,0 @@
-../../_shared/review-process-brief.md

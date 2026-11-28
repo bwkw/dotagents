@@ -94,6 +94,23 @@ grep -q 'dotagents-verify-gate' "$FAKE/.claude/settings.json" \
 run_setup install >/dev/null
 check "install は同梱のスキルを全部リンクする" \
   "$(ls "$REPO/skills" | grep -vc '^_')" "$(ls "$FAKE/.claude/skills" | wc -l | tr -d ' ')"
+# 公開名は利用者とループが共有するインターフェース。新旧を両方配ると入口が競合する。
+for catalog in "$FAKE/.agents/skills" "$FAKE/.claude/skills"; do
+  menu=$(cd "$catalog" && ls -d da-* | LC_ALL=C sort | paste -sd ' ' -)
+  check "目的別のメニューを配る（${catalog}）" \
+    "da-adr da-implement da-investigate da-plan da-pr da-review da-skills-audit da-verify da-write-checks" "$menu"
+  if [[ -r "$catalog/x-present/SKILL.md" ]] && grep -Fq '`x-present`' "$catalog/da-adr/SKILL.md"; then
+    ok "ADR から内部の資料生成を利用できる"
+  else
+    no "ADR から内部の資料生成に届かない"
+  fi
+  if [[ -r "$catalog/da-write-checks/reference/formal-methods.md" ]] \
+      && grep -Fq 'reference/formal-methods.md' "$catalog/da-write-checks/SKILL.md"; then
+    ok "検査作成の入口から形式検証の選択手順を読める"
+  else
+    no "検査作成の入口から形式検証の選択手順に届かない"
+  fi
+done
 check "既定のインストールは好みのキーを入れる" '"name-only" "1"' "$(mech)"
 
 grep -q 'do-not-touch-me' "$FAKE/.claude/settings.json" \

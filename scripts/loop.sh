@@ -27,7 +27,7 @@
 #      テストを周が編集・削除すればゲートは正当に緑になる。リポジトリごとに宣言できるようにする件は
 #      docs/fix-plans/2026-08-11-loop-driver.md に follow-up として記録してある。
 #
-# tier XS と S は無人で最後まで回る。`/grilling` は面談で、`da-design-review` は最初のステップで
+# tier XS と S は無人で最後まで回る。`/grilling` は面談で、`da-review` は最初のステップで
 # 「ユーザーに見せる」と言うので、どちらも人が要る。tier の違いは人がどこまで深く入るかで、居るかどうかではない。
 #
 # 未検証（ただし結果に依存しない書き方にしてある）: `claude -p` のターン終了で Stop hook が発火するか。
@@ -103,7 +103,7 @@ CI_GRACE_SECONDS="${DOTAGENTS_LOOP_CI_GRACE:-120}"  # push 後にチェックが
 SCHEMA_FLAG="--json-schema"
 
 # 測った: `claude --print --permission-mode acceptEdits` は無人の run で git を実行できない（"This command requires
-# approval" が返り、承認する人がいないので拒否される）。`/da-review-all` の Step 1 は `git diff` なので、許可が
+# approval" が返り、承認する人がいないので拒否される）。`/da-review` の Step 1 は `git diff` なので、許可が
 # 無いとレビューの周は範囲すら確定できない。
 #
 # **読み取り専用のものを列挙する。** `Bash(git:*)` だと `git diff` のために `git push`・`git reset --hard`・
@@ -386,7 +386,7 @@ ROUND_LOG_DIR=""
 # すべて（公式ドキュメントはスクリプトからの呼び出しに勧めるが、このループにとっては手順書の中の唯一のフェイル
 # オープン）。--dangerously-skip-permissions も使わない。acceptEdits と profile の `forbidden` 一覧と採点器の
 # チェックが封じ込め。
-claude_round() { # <prompt> [インラインのスキーマ JSON]
+claude_round() { # <prompt> [インラインのスキーマ JSON] [この周だけ追加する読み取り許可]
   local prompt="$1" schema="${2:-}" raw out pid t
   # 文字列を引用なしで展開せず*配列*にする。ツールの許可には空白と括弧（`Bash(git diff:*)`）が含まれ、単語分割
   # されると `Bash(git` と `diff:*)` という何にも当たらない 2 つになる。添字配列と `+=` は bash 3.2 で使える
@@ -399,7 +399,7 @@ claude_round() { # <prompt> [インラインのスキーマ JSON]
   # `--permission-mode` を常に許可の直後に置き、終端を無条件にしている（`--max-budget-usd` がたまたま終端に
   # なっていたので、天井の無い周だけが壊れていた）。
   args=(--print --output-format json)
-  args+=(--allowedTools "$ROUND_ALLOWED_TOOLS")
+  args+=(--allowedTools "$ROUND_ALLOWED_TOOLS${3:+,$3}")
   args+=(--permission-mode acceptEdits)
   # このビルドに --max-turns は無く、周ごとの天井は --max-budget-usd だけ。問題になっているもの（お金）を縛り、
   # プロンプトではなくハーネスが強制するので、こちらの方がよい。
@@ -556,7 +556,7 @@ tier_needs_interview()         { case "$1" in XS|S|M) return 1 ;; L) return 0 ;;
 tier_synthesises_landing_row() { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
 # 層が 1 つで変更が小さい: 層のスキルを打ち、層をまたぐディスパッチャは飛ばす。
 review_may_skip_dispatcher()   { case "$1" in XS|S) return 0 ;; M|L) return 1 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
-# XS が落とすのはこれだけ。レビューは走る（レビューなしでは出さない）が、所見は /da-fix-plan に回らず、
+# XS が落とすのはこれだけ。レビューは走る（レビューなしでは出さない）が、所見は /da-plan に回らず、
 # /receiving-code-review の周も適用しない。浮くのは triage（$0.7）+ fix（$1.2）+ ゲート 1 回分。失うものは下の
 # 注記にあり、そのためにレポートをプロンプト引数だけに置かず、PR の周の前にディスクへ書く。
 tier_runs_fix_loop()           { case "$1" in XS) return 1 ;; S|M|L) return 0 ;; *) tier_die "$1" "${FUNCNAME[0]}" ;; esac; }
@@ -651,13 +651,13 @@ backend / frontend / infrastructure のどれに届くか。\`one_way\` は取�
   case "$TIER" in
     S) say "設計フェーズなし。ゲートはこのリポジトリ自身の gating チェック。"
        say "次:  scripts/loop.sh run" ;;
-    M) say "まず設計レビューを、あなたも入って行う。da-design-review は最初のステップで plan の言い直しを"
+    M) say "まず設計レビューを、あなたも入って行う。da-review は最初のステップで plan の言い直しを"
        say "見せる。読み違えた plan からは、自信満々で見当違いの所見が出る。"
-       say "次:  /da-design-review   のあと 🧱 Landing plan を commit し、続けて:"
+       say "次:  /da-review <設計書のパス>   のあと 🧱 Landing plan を commit し、続けて:"
        say "       scripts/loop.sh run <plan-path>" ;;
     L) say "設計フェーズを一通り、有人で行う必要がある。取り返せない一歩があるか、リスク面に触れるか、"
        say "確認できていないものがある —— 測っていない変更は、無人のループに渡すものとして最悪。"
-       say "次:  /grilling   →   /da-spec   →   /da-design-review"
+       say "次:  /grilling   →   /da-plan 仕様を記録   →   /da-review <設計書のパス>"
        say "       のあと 🧱 Landing plan を commit し、続けて:  scripts/loop.sh run <plan-path>" ;;
   esac
 }
@@ -671,7 +671,7 @@ backend / frontend / infrastructure のどれに届くか。\`one_way\` は取�
 # 有人の段階は駆動しないし、できない。`/grilling` は面談で、誰もいない部屋での面談は虚空への質問になる。だから
 # 状態は「進める」「引き渡す」「回す」の 3 つで、引き渡しは exit 0（進められるところまで進み、次は人の番）。
 #
-# landing plan は名前で指定せず見つける。`da-design-review` はファイルを書かないので、plan は 🧱 表をコピーした先の
+# landing plan は名前で指定せず見つける。`da-review` はファイルを書かないので、plan は 🧱 表をコピーした先の
 # ファイルになる。置き場は docs/plans/ という慣習で、表の見出し行で識別する。ツリー全体を内容で探すとその見出しを
 # 引用しているこのリポジトリの文書に当たるので、慣習のディレクトリに絞る。
 landing_plans() {
@@ -734,7 +734,7 @@ cmd_auto() { # <request>
 }
 
 # ---------------------------------------------------------------- 設計
-# 設計フェーズは tier S より上のすべてで*有人*（`/grilling` は面談、`da-design-review` は最初のステップで
+# 設計フェーズは tier S より上のすべてで*有人*（`/grilling` は面談、`da-review` は最初のステップで
 # 「ユーザーに見せる」と言う）。だからこのコマンドは順に回さず、何も尋ねない。次に打つものを出し、実際に検証
 # できるものを報告するだけ。ここで入力を求めるのは禁止: test-non-interactive.sh が対話経路が無いことを確かめて
 # いて、入力待ちで止まる設計フェーズはあのスイートが防ぐための失敗そのもの。
@@ -751,7 +751,34 @@ plan_has_header() { # <file>
     && grep -q '## Global Constraints' "$1" 2>/dev/null \
     && grep -q -- '- \[ \]' "$1" 2>/dev/null
 }
-adr_files() { ls -1 docs/decisions/ADR-*.md docs/adr/*.md 2>/dev/null || true; }
+# 実装に手を触れず、プロファイルで指定された名前の ADR が作業ツリーにあるかだけを返す。
+adr_status() {
+  local profile
+  profile="$(bash "$GATE_SH" profile)"
+  node -e '
+    const fs = require("node:fs"), path = require("node:path"), {execFileSync} = require("node:child_process");
+    const [file, repo] = process.argv.slice(1);
+    let adr;
+    if (file) adr = JSON.parse(fs.readFileSync(file, "utf8")).adr_system;
+    if (adr?.kind === "none") {
+      console.log("このリポジトリでは ADR を記録しない"); process.exit(1);
+    }
+    if (!adr?.roots?.length || !adr.pattern || !["directory", "colocated"].includes(adr.kind)) {
+      console.log("保存先または命名規則が未設定。/da-adr で adr_system を確認"); process.exit(1);
+    }
+    const escapeGlob = s => s.replace(/[?*\[\]\\]/g, "\\$&");
+    const pattern = adr.pattern.split("<subject>").map(escapeGlob).join("?*");
+    const paths = adr.roots.map(root => {
+      const dir = path.posix.normalize(root).replace(/\/$/, "");
+      return ":(top,glob)" + (dir === "." ? "" : escapeGlob(dir) + "/") + "**/" + pattern;
+    });
+    const matches = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...paths],
+      {cwd: repo, encoding: "utf8"}).split("\0");
+    const found = matches.find(f => f && fs.statSync(path.join(repo, f), {throwIfNoEntry: false})?.isFile());
+    if (found) { console.log("見つかった: " + found); process.exit(0); }
+    console.log("指定の保存先に ADR なし（記録に値する判断をした時だけ要る）"); process.exit(1);
+  ' "$profile" "$(repo_root)"
+}
 
 cmd_design() {
   local tier; tier="$(ledger_last size tier)"
@@ -775,7 +802,7 @@ cmd_design() {
     if plan_has_header "$pf"; then have_plan=1; plan_note="$pf"; break; fi
     plan_note="${pf}（必須の見出しが無い。writing-plans は '# … Implementation Plan'・'**Goal:**'・'## Global Constraints'・'- [ ]' のステップを要求するので、これは plan ではなくメモ）"
   done
-  adr="$(adr_files | head -1)"; [[ -n "$adr" ]] && have_adr=1
+  if adr="$(adr_status)"; then have_adr=1; elif [[ -z "$adr" ]]; then adr="ADR の保存先を検査できなかった"; fi
 
   say "段階を順に。自分で打つこと —— どの段階も人が要るので、このコマンドは実行しない。"
   echo
@@ -784,9 +811,9 @@ cmd_design() {
     say "                                  ここからは探せない。"
     say "  2. /grilling                    面談。検査できない —— 会話で変更の形を決め、何も書き残さない。"
   }
-  say "  3. /da-spec                     $( ((have_plan)) && printf '見つかった: %s' "$plan_note" || printf '見つからない%s' "${plan_note:+ -- $plan_note}" )"
-  say "  4. /documentation-and-adrs      $( ((have_adr)) && printf '見つかった: %s' "$adr" || printf 'ADR なし（記録に値する判断をしたときだけ要る）' )"
-  say "  5. /da-design-review            検査できない —— ファイルを一切書かない。🧱 Landing plan は会話の中にしか"
+  say "  3. /da-plan 仕様の記録       $( ((have_plan)) && printf '見つかった: %s' "$plan_note" || printf '見つからない%s' "${plan_note:+ -- $plan_note}" )"
+  say "  4. /da-adr                      $adr"
+  say "  5. /da-review <設計書のパス>    検査できない —— ファイルを一切書かない。🧱 Landing plan は会話の中にしか"
   say "                                  無いので、あなた自身がその表をファイルにコピーして commit する。"
   say "                                  他の誰もしない。"
   echo
@@ -954,26 +981,26 @@ post_round() { # <phase> <landing> <round>
   return 0
 }
 
-# どのレビュースキルを打つか。`/da-review-all` が元を取るのは変更が層をまたぐとき（分類し、層ごとに回し、層の
+# どのレビュースキルを打つか。`/da-review` が元を取るのは変更が層をまたぐとき（分類し、層ごとに回し、層の
 # *間*にあるリスクを探す）。1 層の変更では「層をまたぐ影響なし」を出すだけで、そこへ行くのに自分の本文 12 KB と
 # 分類 1 回を払う。
 #
 # だから tier S で、ツールキットにスキルのある層がちょうど 1 つなら、層のスキルを直接打つ。それ以外はディスパッチャ
 # に戻し、戻し方はわざと単純にする: スキル名を推測すると層を別のチェックリストで見てカバー済みと報告することになり、
-# それは /da-review-all の「Done when」が捕まえるための失敗そのもの。
+# それは /da-review の「Done when」が捕まえるための失敗そのもの。
 review_skill_for_tier() {
   local names layer
-  review_may_skip_dispatcher "$(ledger_last size tier)" || { printf '/da-review-all'; return 0; }
+  review_may_skip_dispatcher "$(ledger_last size tier)" || { printf '/da-review'; return 0; }
   names="$(ledger_last size layer_names)"
   # 名前が 1 つでカンマなし。層 0（docs だけの変更）は 1 層ではなく、スキルも無いので推測せずディスパッチャへ。
   case "$names" in
-    ''|null|*,*) printf '/da-review-all'; return 0 ;;
+    ''|null|*,*) printf '/da-review'; return 0 ;;
   esac
   case "$names" in
     backend|server|api)          layer=backend ;;
     frontend|client|web)         layer=frontend ;;
     infra|infrastructure|iac)    layer=infra ;;
-    *) printf '/da-review-all'; return 0 ;;
+    *) printf '/da-review'; return 0 ;;
   esac
   printf '/x-review-%s' "$layer"
 }
@@ -1088,7 +1115,7 @@ profiles/、hooks/、scripts/ 以下のものは変更しないこと —— そ
   commit_landing "$n" "$what" || return 1
 
   # --- レビュー（上限付き） ------------------------------------------------------
-  # レビューの*周*はスキル 1 つではなく、/da-review-all と /da-fix-plan の triage の組。この組は測って $5.64 + $2.08
+  # レビューの*周*はスキル 1 つではなく、/da-review と /da-plan の triage の組。この組は測って $5.64 + $2.08
   # で、レビュー対象の実装は $1.30 だった。tier S は設計フェーズを飛ばせるほど小さいと判断した変更で、安く済ませる
   # ことがその目的なので、1 周だけ買う。
   #
@@ -1117,7 +1144,7 @@ profiles/、hooks/、scripts/ 以下のものは変更しないこと —— そ
     # 毎回ではなくリスクで絞る（お金がかかるのはレビュー）。走るのは、一度間違えればそれが事故になる場所 ——
     # `size` が risk_surfaces として記録した面 —— だけ。
     #
-    # triage には件数ではなく報告の*全文*を渡す。価値は 1 本目が見逃した具体的な所見にあり、da-fix-plan の
+    # triage には件数ではなく報告の*全文*を渡す。価値は 1 本目が見逃した具体的な所見にあり、da-plan の
     # テンプレートは "**Source:** which review(s)" と複数形なので、報告 2 つは想定済みの形。
     SECOND_REPORT=""
     if [[ "$(ledger_last size risk_surfaces)" != "0" && -n "$(ledger_last size risk_surfaces)" ]]; then
@@ -1133,7 +1160,7 @@ profiles/、hooks/、scripts/ 以下のものは変更しないこと —— そ
     # XS は修正の仕組みを落とす —— ただしレビューと、その記録は落とさない。
     if ! tier_runs_fix_loop "$(ledger_last size tier)"; then
       # 報告は他の何よりも先に、bash でディスクに書く。省略不可。`REVIEW_REPORT` は終了するプロセスのシェル変数で、
-      # triage を外すと唯一の写しは /da-pr-describe への引数になる。その天井超過は止まらない（opened-pr-partial-body
+      # triage を外すと唯一の写しは /da-pr への引数になる。その天井超過は止まらない（opened-pr-partial-body
       # を記録して続く）ので、PR が開き、describe が切られ、レビューがまるごと消える。コストはファイル書き込み
       # 1 回で、周はゼロ。
       mkdir -p "$LOOP_DIR/reviews" 2>/dev/null || true
@@ -1157,7 +1184,7 @@ ${XS_REVIEW_FILE:-（保存に失敗しました）} にあります。**PR 本�
     fi
 
     ROUND_BUDGET="$triage_budget"
-    claude_round "/da-fix-plan
+    claude_round "/da-plan
 
 下のレビューを triage すること。報告するのはバケットの件数だけ。\`fix_now\` は「今すぐ直す（Fix now）」と
 「今すぐ直す、ただし小さく（Fix now, smaller）」の合計。\`decline\` は直さないと決めたものの数。
@@ -1171,7 +1198,7 @@ ${XS_REVIEW_FILE:-（保存に失敗しました）} にあります。**PR 本�
 「問題なし」。これはレビュー自身の届く範囲についての記述で、判断の依頼ではない。**何も止めない**。PR 本文に
 但し書きとして運ばれる。ある file:line を読めば片が付く、という 👤 はこちらで、上ではない。
 
-=== /da-review-all の所見 ===
+=== ${review_skill} の所見 ===
 $REVIEW_REPORT
 ${SECOND_REPORT:+
 === /find-bugs の所見（2本目のレビュア、意図的に別の作り） ===
@@ -1182,7 +1209,7 @@ $SECOND_REPORT}" "$schema"
     FIX_NOW="$(round_structured fix_now)"
     NEEDS_DECISION="$(round_structured needs_decision)"
     DECLINE="$(round_structured decline)"
-    # こちらはわざと、無ければ 0。古い triage の周や手で走らせた /da-fix-plan はこの項目を知らないので、無いことを
+    # こちらはわざと、無ければ 0。古い triage の周や手で走らせた /da-plan はこの項目を知らないので、無いことを
     # 読めないと扱うと、ほかは完全な報告で止まってしまう。但し書きにとっては「報告されなかった」が安全な読みで、
     # `fix_now` ではそうではないので、あちらは拒否のまま。
     UNVERIFIED="$(round_structured unverified)"; UNVERIFIED="${UNVERIFIED:-0}"
@@ -1229,7 +1256,7 @@ docs/fix-plans/ の該当ファイルです。**PR 本文にその件数と、�
     # 上限はもう 1 回レビューが続くかだけを決める。
 
     # エディタに直接ではなく /receiving-code-review を通す。書いてあるから全部実装する、という駆動系がやりがちな
-    # ことを止めるためのスキル。何を直す価値があるかは da-fix-plan がもう決めており、ここは各対処が本当に正しいかを
+    # ことを止めるためのスキル。何を直す価値があるかは da-plan がもう決めており、ここは各対処が本当に正しいかを
     # 決める。検証に耐えない所見は、レビューについての所見として返す。
     dim "   review $rr: 修正を $FIX_NOW 件適用中"
     claude_round "/receiving-code-review
@@ -1292,7 +1319,7 @@ commit_landing() { # <n> <what>
 # landing ごとに PR 1 本を積み重ねる。landing 2 の PR は trunk ではなく landing 1 のブランチを向く。
 #
 # landing は作りからして stack になる: landing N は N-1 の上に積まれ、どこで分けるか・何が各 landing を止めるかは
-# `da-design-review` がもう決めている。全 landing を 1 本のブランチに載せると、2 つ目の PR が 1 つ目とぶつかる。
+# `da-review` がもう決めている。全 landing を 1 本のブランチに載せると、2 つ目の PR が 1 つ目とぶつかる。
 #
 # stack は、エージェントの PR を実際に殺しているものへの答えでもある。測られた最大の却下理由は誰も関わらない
 # こと（放置、33,596 件中 17.3%）で、大きな差分 1 つを前にしたレビュアは止まるが、小さな差分の連なりは上が
@@ -1424,7 +1451,7 @@ $body"
 
   # 返信は周が書き、*駆動系*が投稿する。返信のために無人の周へ `Bash(gh api:*)` を渡すと、merge・削除・resolve まで
   # 渡すことになる —— resolve はこのフェーズがまさにしてはいけないこと。返信は「こうした」と言い、resolve は
-  # 「あなたは納得した」と言い、後者は駆動系が主張することではない。/da-pr-describe と同じ形で、殻は駆動系が作る。
+  # 「あなたは納得した」と言い、後者は駆動系が主張することではない。/da-pr と同じ形で、殻は駆動系が作る。
   ROUND_BUDGET="$BUDGET_ROUND_REPLY"
   claude_round "PR #$num のレビューコメントそれぞれに、今したことを使って返信を 1 件ずつ書くこと。
 
@@ -1539,33 +1566,33 @@ submit_landing() { # <n> <what> <one-way>
   ci_settle "$1" "$num" || return 1
   pr_comments_settle "$1" "$num" || return 1
 
-  # 殻は駆動系が作り、本文はスキルが書く。da-pr-describe の前提は PR がすでに存在し、自分では作らないことで、
-  # こうすればそれが文字どおり真のまま。
-  ROUND_BUDGET="$BUDGET_ROUND_PR"
-  claude_round "/da-pr-describe $num${GATE_DEFERRED:+
+  # PR への書き込みは駆動系がこの URL にだけ行う。モデルは差分と既存本文を読んで下書きを返す。
+  local before problem="" schema
+  if ! before="$(pr_body_state "$url" 2>/dev/null)" || ! gh pr diff "$url" >/dev/null; then
+    problem="対象の PR または差分を取得できなかった"
+  else
+    ROUND_BUDGET="$BUDGET_ROUND_PR"
+    schema='{"type":"object","properties":{"complete":{"type":"boolean"},"body":{"type":"string"}},"required":["complete","body"],"additionalProperties":false}'
+    claude_round "/da-pr $url 既存のタイトルを維持し、本文の下書きだけを作ってください。
+対象の差分と既存本文を読み、利用者の記述を引き継いだ完成稿を構造化出力の body に入れ、complete を true にしてください。
+必要な資料を取得できなかった時は complete を false にしてください。GitHub 上の編集・投稿は駆動系が行います。${GATE_DEFERRED:+
 
 このリポジトリがエージェントに実行を禁じているため、ローカルで検証していないチェックがあります:
   $GATE_DEFERRED
 
-PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}${CI_NONE_NOTE}${XS_UNTRIAGED_NOTE}"
+PR 本文にそれを明記してください —— **CI が走らせるまで、その分は未検証**です。}${UNVERIFIED_NOTE}${UNREVIEWED_FIXES_NOTE}${CI_NONE_NOTE}${XS_UNTRIAGED_NOTE}" "$schema" \
+      "Bash(gh pr diff:*),Bash(rtk gh pr diff:*),Bash(gh pr list:*),Bash(rtk gh pr list:*)"
+    if [[ -n "$ROUND_TRUNCATED" || "$ROUND_EXIT" != 0 ]]; then
+      problem="下書きの周が完了しなかった（${ROUND_TRUNCATED:-exit $ROUND_EXIT}）"
+    elif ! problem="$(apply_pr_body "$url" "$before")"; then
+      problem="${problem:-本文の反映を確認できなかった}"
+    fi
+  fi
 
-  # 止めてもすでに起きたことを戻せない唯一の場所: `gh stack submit` は本文を書く前に PR を開いている。だから
-  # 打ち切られた /da-pr-describe は、書きかけの説明文を持つ*本物の*開いた PR を残し、素の `opened-pr` 行は
-  # 完成したものに読める。
-  #
-  # 先送りしたゲートと同じ前例で run は止めない: 作業そのものは通っていて、未完成なのは説明文。黙って受け入れも
-  # 残りの landing を止める理由にもせず、大きく言って記録する。台帳を読む人が、どの PR を直すか分かる。
-  if [[ -n "$ROUND_TRUNCATED" ]]; then
-    # record の前に読む: `record` が周の数字を消費するので、このメッセージは自分の写しを持たないとコストを 0 と
-    # 出してしまう（天井を上げるのに読む人が必要な数字）。
-    local cut_cost="$ROUND_COST"
+  if [[ -n "$problem" ]]; then
     record pr "$1" 0 opened-pr-partial-body
-    say ""
     say "landing $1 -> $url  (stack の層 $1)"
-    printf '%sloop: PR 本文は部分的 —— /da-pr-describe が打ち切られた（%s）。$%s を使った。%s\n' \
-      "$c_red" "$ROUND_TRUNCATED" "$cut_cost" "$c_off" >&2
-    printf '  PR は開いていて、そのコードはゲートとレビューを通っている。書き終わらなかったのは*説明文*で、
-  誰かがそれを元にレビューする前に読み、BUDGET_ROUND_PR を上げること。\n' >&2
+    printf '%sloop: PR 本文は部分的 —— %s。対象 PR の本文を確認してください。%s\n' "$c_red" "$problem" "$c_off" >&2
     return 0
   fi
   record pr "$1" 0 opened-pr
@@ -1573,6 +1600,39 @@ PR 本文にそれを明記してください —— **CI が走らせるまで�
   say "landing $1 -> $url  (stack の層 $1、レビュー待ち)"
   return 0
 }
+
+# URL、head、本文の組を比較可能な形で読む。gh の失敗・欠けた値・別の PR は前後照合に使えない。
+pr_body_state() { # <PR URL>
+  gh pr view "$1" --json url,headRefOid,title,body | node -e '
+    const fs = require("fs"), p = JSON.parse(fs.readFileSync(0, "utf8"));
+    if (p.url !== process.argv[1] || !p.headRefOid || typeof p.body !== "string" || typeof p.title !== "string") process.exit(1);
+    console.log(JSON.stringify([p.headRefOid, p.title, p.body]));
+  ' "$1"
+}
+
+# 投稿内容は stdout では運ばない。Markdown 末尾の改行を含め、下書きのバイト列を保持する。
+apply_pr_body() ( # <PR URL> <執筆前の状態>。失敗時は理由を stdout に返す
+  local url="$1" before="$2" body_file latest after
+  body_file="$(mktemp "${TMPDIR:-/tmp}/dotagents-pr-body.XXXXXX")" || { echo "本文用の一時ファイルを作れない"; return 1; }
+  trap 'rm -f "$body_file"' EXIT
+  if ! node -e '
+    const draft = JSON.parse(require("fs").readFileSync(0, "utf8")).structured_output;
+    if (draft?.complete !== true || typeof draft.body !== "string" || !draft.body.trim()) process.exit(1);
+    process.stdout.write(draft.body);
+  ' <<<"$ROUND_OUT" >"$body_file" 2>/dev/null; then
+    echo "完了した構造化出力に本文が無い、または下書きが未完了"; return 1
+  fi
+  latest="$(pr_body_state "$url" 2>/dev/null)" || { echo "更新直前の PR を取得できない"; return 1; }
+  [[ "$before" == "$latest" ]] || { echo "下書き中に head・タイトル・本文が変更された"; return 1; }
+  gh pr edit "$url" --body-file "$body_file" >/dev/null || { echo "GitHub が本文更新を受け付けなかった"; return 1; }
+  after="$(pr_body_state "$url" 2>/dev/null)" || { echo "更新後の PR を読み戻せない"; return 1; }
+  printf '%s\n%s\n' "$before" "$after" | node -e '
+    const fs = require("fs");
+    const [before, after] = fs.readFileSync(0, "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
+    const expectedBody = fs.readFileSync(process.argv[1], "utf8");
+    process.exit(after[0] === before[0] && after[1] === before[1] && after[2] === expectedBody ? 0 : 1);
+  ' "$body_file" || { echo "読み戻した PR と適用した本文・head・タイトルが一致しない"; return 1; }
+)
 
 parse_plan() { # <path> -> landing 行ごとに "n<TAB>what<TAB>oneway"
   node -e '

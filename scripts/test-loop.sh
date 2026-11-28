@@ -6,7 +6,7 @@
 # 駆動系が読むはずのものの 2 つ目の実装に対してテストすることになる。
 #
 # 本物の `claude` の振る舞い（`claude -p` の終わりに Stop hook が発火するか、disable-model-invocation 付きの
-# スキルに slash command が届くか、da-review-all が headless で Canvas の手順を満たせるか）はここでは検査しない
+# スキルに slash command が届くか、da-review が headless で Canvas の手順を満たせるか）はここでは検査しない
 # （未計測。docs/loops.md を参照）。駆動系はどちらの答えでも振る舞いが変わらないように書いてあり、ゲートの
 # VERDICT でも自前の周の上限でも landing を打ち切り、どちらが効いたかを記録する。ここでは両方の分岐を検査する。
 
@@ -41,7 +41,7 @@ printf -- '---\n' >> "$FAKE_CLAUDE_ARGV"
 # 応答は呼び出し順ではなく phase で引く。順番で引くと、駆動系が呼び出しを 1 つ足しただけで全 fixture が
 # ずれ、ずれた fixture は空を返して黙って通ってしまう。
 # phase はプロンプトの 1 行目で決める（argv 全体ではない）。executing-plans のプロンプトは
-# "/test-driven-development" を含み、triage のプロンプトは "/da-review-all" と "/find-bugs" を見出しに
+# "/test-driven-development" を含み、triage のプロンプトは "/da-review" と "/find-bugs" を見出しに
 # 持つので、全体で当てると言及しているだけの phase と取り違える。プロンプトは常に最後の引数。
 prompt="${!#}"
 first="${prompt%%$'\n'*}"
@@ -53,11 +53,11 @@ case "$first" in
   */executing-plans*)         phase=execplan ;;
   */test-driven-development*) phase=implement ;;
   */systematic-debugging*)    phase=debug ;;
-  */da-review-all*)           phase=review ;;
+  */da-review*)           phase=review ;;
   */find-bugs*)               phase=findbugs ;;
-  */da-fix-plan*)             phase=triage ;;
+  */da-plan*)             phase=triage ;;
   */receiving-code-review*)   phase=fix ;;
-  */da-pr-describe*)          phase=pr ;;
+  */da-pr*)          phase=pr ;;
   "PR #"*"のレビューコメントそれぞれに"*) phase=reply ;;
 esac
 
@@ -140,8 +140,23 @@ case "$1 ${2:-}" in
     else
       printf 'https://github.com/probe/x/pull/7\n'
     fi ;;
+  "pr diff")
+    [[ "$3" == "https://github.com/probe/x/pull/7" && ! -f "$FAKE_GH_DIR/diff-failed" ]] || exit 1
+    printf 'diff --git a/file b/file\n' ;;
+  "pr edit")
+    [[ "$#" == 5 && "$3" == "https://github.com/probe/x/pull/7" && "$4" == "--body-file" ]] || exit 1
+    [[ ! -f "$FAKE_GH_DIR/edit-denied" ]] || exit 1
+    [[ -f "$FAKE_GH_DIR/edit-ignored" ]] || cp "$5" "$FAKE_GH_DIR/body"
+    exit 0 ;;
   "pr view")
     [[ -f "$FAKE_GH_DIR/no-pr" ]] && exit 1
+    if [[ "$*" == *headRefOid* ]]; then
+      [[ "$3" == "https://github.com/probe/x/pull/7" && ! -f "$FAKE_GH_DIR/view-denied" ]] || exit 1
+      node -e 'const fs = require("fs"), file = process.argv[1];
+        console.log(JSON.stringify({url:"https://github.com/probe/x/pull/7", headRefOid:"abc", title:"題名",
+          body:fs.existsSync(file) ? fs.readFileSync(file,"utf8") : "提出時の本文"}));' "$FAKE_GH_DIR/body"
+      exit 0
+    fi
     printf 'https://github.com/probe/x/pull/7\n' ;;
   "pr list")
     cat "$FAKE_GH_DIR/pr-list" 2>/dev/null || printf '' ;;
@@ -239,8 +254,9 @@ measurement() { # <files> <layers> <one_way> <risk> <unconfirmed> [layer-names-c
     }));
   ' "$files" "$layers" "$oneway" "$risk" "$unconf" "$names" "$claims" > "$FAKE_CLAUDE_DIR/investigate.1.json"
   # 全 phase に無害な既定を置く。テストは気にする応答だけを書けばよく、用意していない phase が黙って空を返さない。
+  printf '%s\n' '{"total_cost_usd":0.01,"num_turns":1,"result":"ok","structured_output":{"complete":true,"body":"変更の説明\n\n根拠と検証。\n"}}' > "$FAKE_CLAUDE_DIR/pr.json"
   local p
-  for p in worktree verify implement execplan debug review findbugs fix pr other; do
+  for p in worktree verify implement execplan debug review findbugs fix other; do
     printf '{"total_cost_usd":0.01,"num_turns":1,"result":"ok"}' > "$FAKE_CLAUDE_DIR/$p.json"
   done
   printf '{"total_cost_usd":0.01,"num_turns":1,"result":"ok","structured_output":{"fix_now":0,"needs_decision":0,"decline":0}}' \
@@ -255,11 +271,12 @@ respond() { # <phase> <n> <cost> <turns> [fix_now] [needs_decision] [decline] [u
   node -e '
     const [c, t, fn, nd, dc, uv] = process.argv.slice(1);
     const o = { total_cost_usd: Number(c), num_turns: Number(t), result: "done" };
+    if (process.argv[7] === "pr") o.structured_output = {complete: true, body: "変更の説明\n\n根拠と検証。\n"};
     if (fn !== "-") o.structured_output = {
       fix_now: Number(fn), needs_decision: Number(nd), decline: Number(dc),
       unverified: Number(uv) };
     process.stdout.write(JSON.stringify(o));
-  ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" > "$FAKE_CLAUDE_DIR/$1.$2.json"
+  ' "$3" "$4" "${5:--}" "${6:-0}" "${7:-0}" "${8:-0}" "$1" > "$FAKE_CLAUDE_DIR/$1.$2.json"
 }
 green_pr() { # よく使う fixture: PR まで届く landing
   measurement 6 1 0 0 0; runloop size "r"
@@ -318,6 +335,38 @@ ledger_field() { # <node で辿るパス> -> 最終行のフィールド
 
 echo "ループ駆動系"
 echo
+
+# --- PR 本文の反映。実際のサービスだけを fixture にし、駆動系の更新と台帳を検査する。 ---
+for outcome in published normal incomplete whitespace edit-denied edit-ignored diff-failed view-denied concurrent; do
+  setup; green_pr
+  case "$outcome" in
+    normal) printf '%s' '{"result":"更新しました"}' > "$FAKE_CLAUDE_DIR/pr.1.json" ;;
+    incomplete) printf '%s' '{"structured_output":{"complete":false,"body":"部分的な下書き"}}' > "$FAKE_CLAUDE_DIR/pr.1.json" ;;
+    whitespace) printf '%s' '{"structured_output":{"complete":true,"body":"  "}}' > "$FAKE_CLAUDE_DIR/pr.1.json" ;;
+    concurrent) side_effect pr 1 'printf "%s" "人が編集した本文" > "$FAKE_GH_DIR/body"' ;;
+    published) ;;
+    *) touch "$FAKE_GH_DIR/$outcome" ;;
+  esac
+  runloop run
+  actual="$(ledger_field outcome)"
+  if [[ "$outcome" == published ]]; then
+    printf '変更の説明\n\n根拠と検証。\n' > "$FAKE_GH_DIR/expected"
+    [[ "$actual" == opened-pr ]] && cmp -s "$FAKE_GH_DIR/expected" "$FAKE_GH_DIR/body" \
+      && ok "同じ PR の本文だけが改行を保って反映され、台帳で完成になる" \
+      || no "PR に反映された本文と完成判定が対応しない"
+    grep -qE 'Bash\(gh pr diff:[*]\).*/da-pr https://github.com/probe/x/pull/7 ' "$FAKE_CLAUDE_LOG" \
+      && ! grep -E 'Bash\(gh pr diff:[*]\)' "$FAKE_CLAUDE_LOG" | grep -v '/da-pr ' | grep -q . \
+      && ok "PR 本文の下書きの周だけが対象の差分を読める" || no "差分読取の許可が下書きの周に対応しない"
+  else
+    [[ "$actual" == opened-pr-partial-body ]] && ok "本文の未反映を記録する（${outcome}）" \
+      || no "PR 本文を確認できていないのに ${actual}（${outcome}）"
+    if [[ "$outcome" != edit-denied && "$outcome" != edit-ignored ]]; then
+      ! grep -q '^pr edit' "$FAKE_GH_LOG" && ok "不完全な下書きや古い本文で編集しない（${outcome}）" \
+        || no "編集前に止まるべきだった（${outcome}）"
+    fi
+  fi
+done
+# --- PR 本文の反映の終わり ---
 
 # ---------------------------------------------------------------- usage
 setup
@@ -626,15 +675,15 @@ grep -nE 'git[[:space:]]+worktree[[:space:]]+add' "$LOOP" \
   | grep -qv '^[0-9]*:[[:space:]]*#' \
   && no "loop.sh が git worktree add を直接呼んでいる。submodule の防御、check-ignore の確認、基準のチェックはスキルが持っている" \
   || ok "loop.sh は worktree の作成を作り直していない"
-grep -q '/da-review-all' "$FAKE_CLAUDE_LOG" \
-  && ok "レビューはこのリポジトリの唯一のレビュー入口 /da-review-all を通る" \
-  || no "駆動系が /da-review-all を打っていない"
-grep -q '/da-fix-plan' "$FAKE_CLAUDE_LOG" \
-  && ok "triage は、停止条件を持つ /da-fix-plan を通る" \
-  || no "駆動系が /da-fix-plan を打っていない"
-grep -q '/da-pr-describe' "$FAKE_CLAUDE_LOG" \
-  && ok "PR 本文は駆動系ではなく /da-pr-describe が書く" \
-  || no "駆動系が /da-pr-describe を打っていない"
+grep -q '/da-review' "$FAKE_CLAUDE_LOG" \
+  && ok "レビューはこのリポジトリの唯一のレビュー入口 /da-review を通る" \
+  || no "駆動系が /da-review を打っていない"
+grep -q '/da-plan' "$FAKE_CLAUDE_LOG" \
+  && ok "triage は、停止条件を持つ /da-plan を通る" \
+  || no "駆動系が /da-plan を打っていない"
+grep -qE '/da-pr https://github.com/probe/x/pull/7 .*本文.*下書き' "$FAKE_CLAUDE_LOG" \
+  && ok "PR 本文は駆動系ではなく /da-pr が書く" \
+  || no "駆動系が /da-pr を打っていない"
 
 # スキルが正当に作成を断ったときも駆動系は動かなければならない（サンドボックスの権限エラーや同意の拒否では、
 # スキル自身がその場で作業することを認めている）。続けるのは正しいが、隔離したと言いながら続けるのは正しくない。
@@ -836,7 +885,7 @@ runloop run plan.md
 # 意図して変えた（黙らせたのではない）。以前は `review_cap`、つまり 2 回目のレビューの所見を直さずに止まることを
 # 検査していた。その読み方では tier S が PR に届かなかったので、上限はレビューする回数を決め、最後のレビューの
 # 修正は適用してゲートで確かめてからレビューをやめる。変わらず守るのは、3 回目のレビューを買わないこと。
-rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
+rounds="$(grep -c -- '/da-review$' "$FAKE_CLAUDE_LOG")"
 [[ "$rounds" -eq 2 ]] \
   && ok "tier M: レビューは 2 回で 3 回目は無い。上限はコストのかかるところで効く" \
   || no "tier M のレビューの周が ${rounds} 回で、2 回ではない"
@@ -844,7 +893,7 @@ grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG" | grep -q '^2$' \
   && ok "両方の周の所見が、最後の周の分も含めて適用された" \
   || no "2 回目のレビューの所見が適用されずに残った（修正の周 $(grep -c -- '/receiving-code-review$' "$FAKE_CLAUDE_LOG") 回）"
 
-# レビューの 1 周は 1 つのスキルではなく /da-review-all と /da-fix-plan の triage の組で、最初の実 landing では
+# レビューの 1 周は 1 つのスキルではなく /da-review と /da-plan の triage の組で、最初の実 landing では
 # 実装 $1.30 に対して $5.64 + $2.08 かかった。2 周だと、tier S が設計フェーズを飛ばせるほど小さいと決めた変更に
 # ~$15 の天井になる。その天井は 2 周目にあるので、tier S は 2 周目を買わない。
 setup; measurement 6 1 0 0 0; runloop size "r"        # 6 ファイル -> tier S
@@ -853,11 +902,11 @@ respond review 1 0.30 7; respond triage 1 0.05 2 2 0 1     # review 1: まだ直
 respond fix    1 0.20 4
 respond review 2 0.30 7; respond triage 2 0.05 2 0 0 0     # 届けば通るが、届かない
 runloop run
-# 行の*末尾*に固定する。他の書き方はすべて間違い。triage のプロンプトは "=== /da-review-all の所見 ===" を見出しとして
+# 行の*末尾*に固定する。他の書き方はすべて間違い。triage のプロンプトは "=== /da-review の所見 ===" を見出しとして
 # 引用するので、素の grep は二重に数える。スタブは argv 全体を記録するので行頭の固定は失敗し、`$*` を記録するので
-# 複数行のプロンプトは複数のログ行になり、da-fix-plan を含む行を除いても引用された見出しの行が残る。
+# 複数行のプロンプトは複数のログ行になり、da-plan を含む行を除いても引用された見出しの行が残る。
 # スキル名で*終わる*行は呼び出しだけ。
-rounds="$(grep -c -- '/da-review-all$' "$FAKE_CLAUDE_LOG")"
+rounds="$(grep -c -- '/da-review$' "$FAKE_CLAUDE_LOG")"
 [[ "$rounds" -eq 1 ]] \
   && ok "tier S が買うレビューはちょうど 1 周。2 周目は正しさではなく \$15 の天井" \
   || no "tier S のレビューが ${rounds} 周走った。S は設計フェーズを飛ばすので、L のレビュー代を払ってはいけない"
@@ -1151,8 +1200,8 @@ grep -q 'probe-heavy' <<<"$OUT" \
 ledger | grep -q 'probe-heavy' \
   && ok "台帳が記録するので、後で report に出せる" \
   || no "台帳が先送りしたチェックを記録していない"
-grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" && grep -q 'probe-heavy' "$FAKE_CLAUDE_LOG" \
-  && ok "/da-pr-describe にも伝わるので、PR 本文で CI の仕事だと言える" \
+grep -q 'da-pr' "$FAKE_CLAUDE_LOG" && grep -q 'probe-heavy' "$FAKE_CLAUDE_LOG" \
+  && ok "/da-pr にも伝わるので、PR 本文で CI の仕事だと言える" \
   || no "ローカルで一度も走らなかったチェックに、PR 本文が触れない"
 
 # エージェントが走らせてよいチェックが失敗すれば、それは赤のまま。先送りが本物の失敗を飲み込んではならない。
@@ -1201,8 +1250,8 @@ runloop "大きいこと"
 grep -qE 'あなたの手番|your turn' <<<"$OUT" \
   && ok "あなたの手番だとはっきり言う" \
   || { no "誰の手番かを言わなかった"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
-for want in grilling da-spec da-design-review; do
-  grep -q "$want" <<<"$OUT" && ok "  /${want} を名指す" || no "  /${want} が抜けている"
+for want in grilling da-plan da-review da-adr; do
+  grep -qE "/${want}([[:space:]]|$)" <<<"$OUT" && ok "  /${want} を名指す" || no "  /${want} が抜けている"
 done
 # ラッパーを名指してはならない。`/grill-me` は本文が "Run a `/grilling` session." だけのスキルで、名指すと何も
 # 足さず宙に浮きうる経由を通らせる。"grill-me" は "grilling" を含まないので、上の肯定の検査では見えない。無いことを検査する。
@@ -1256,8 +1305,8 @@ grep -qi 'no design phase\|設計フェーズ' <<<"$OUT" \
 
 setup; measurement 20 3 1 1 1; runloop size "r"     # L
 runloop design
-for want in grilling da-spec da-design-review; do
-  grep -q "$want" <<<"$OUT" \
+for want in grilling da-plan da-review da-adr; do
+  grep -qE "/${want}([[:space:]]|$)" <<<"$OUT" \
     && ok "tier L の design は /${want} を名指す" \
     || no "tier L の design で /${want} が抜けている"
 done
@@ -1269,6 +1318,25 @@ grep -q 'grill-me' <<<"$OUT" \
 grep -qiE 'cannot be checked|検査でき' <<<"$OUT" \
   && ok "design は、どの段階を検証できないかを述べる" \
   || { no "design が検証できないものに何も触れなかった。問題なしと読まれる"; detail "$(tail -6 <<<"$OUT" | tr '\n' ' ')"; }
+
+# プロファイルの保存先と命名規則を両方照合する。候補が無い時に既定風のパスを採用しない。
+mkdir -p "$REPO_DIR/docs/adr" "$REPO_DIR/src/domain history/payments"
+touch "$REPO_DIR/docs/adr/old.md" "$REPO_DIR/src/domain history/payments/README.md"
+runloop design
+[[ "$(ledger_field 'adr_found')" == 0 ]] && grep -q 'adr_system' <<<"$OUT" \
+  && ok "ADR 規約が無ければ未設定と伝え、旧ディレクトリを数えない" \
+  || no "ADR 規約が無いのに発見扱い、または不足の案内が無い"
+node -e 'const fs = require("fs"), file = process.argv[1], p = JSON.parse(fs.readFileSync(file));
+  p.adr_system = {kind:"colocated", roots:["src/domain history"], pattern:"ADR.<subject>.md"};
+  fs.writeFileSync(file, JSON.stringify(p));' "$PROFILES/probe.json"
+runloop design
+[[ "$(ledger_field 'adr_found')" == 0 ]] && ok "指定ルートでも命名規則の外の文書を ADR と数えない" \
+  || no "ADR の命名規則に合わない文書を数えた"
+touch "$REPO_DIR/src/domain history/payments/ADR.retry.md"
+runloop design
+[[ "$(ledger_field 'adr_found')" == 1 ]] && grep -qF 'src/domain history/payments/ADR.retry.md' <<<"$OUT" \
+  && ok "コードと同居する ADR のパスをプロファイルから特定する" \
+  || no "プロファイルに合う ADR を検出できない"
 
 # 強い信号を持つ唯一の成果物: writing-plans のファイルには必須の見出しがある。
 setup; measurement 20 3 0 0 0; runloop size "r"     # 層・ファイル数で L
@@ -1334,8 +1402,8 @@ runloop run plan.md
 grep -q '/find-bugs' "$FAKE_CLAUDE_LOG" \
   && ok "リスク面に触れる landing には 2 本目のレビュアが付く" \
   || { no "リスク面に 2 本目のレビュアが付かなかった"; detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"; }
-grep -q 'da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second reviewer' "$FAKE_CLAUDE_LOG" \
-  && ok "その報告の本文が、件数だけでなく /da-fix-plan に渡る" \
+grep -q 'da-plan' "$FAKE_CLAUDE_LOG" && grep -q 'find-bugs の所見\|second reviewer' "$FAKE_CLAUDE_LOG" \
+  && ok "その報告の本文が、件数だけでなく /da-plan に渡る" \
   || no "2 本目のレビュアの所見が triage に届かなかった"
 # `risk_surfaces` が L を強制しなくなったので、/find-bugs は以前は人なしでレビューに届かなかった landing で無人で
 # 走る。そこに上限の無い 3 本目のレビューを置くと、安いはずの tier が高くつく。
@@ -1385,8 +1453,8 @@ grep -q '/systematic-debugging' "$FAKE_CLAUDE_LOG" \
 
 # --- XS は修正の仕組みを外すが、レビューまで外してはならない ---------------------------
 # XS があるのは、5 ファイルの docs 修正に triage・修正の周・5 分のゲート 2 回目が要らないから。外してはならないのは
-# 記録。`REVIEW_REPORT` は終わるプロセスのシェル変数で、レビューを残すのは docs/fix-plans/ を書く /da-fix-plan だけ
-# だった。triage が無いと唯一の写しは /da-pr-describe への引数になり、その天井超過は止まらない（PR は開き、describe が
+# 記録。`REVIEW_REPORT` は終わるプロセスのシェル変数で、レビューを残すのは docs/fix-plans/ を書く /da-plan だけ
+# だった。triage が無いと唯一の写しは /da-pr への引数になり、その天井超過は止まらない（PR は開き、describe が
 # 打ち切られ、レビューが消える）。8 回目の無人 run はまさに天井超過で死んだ。
 setup; measurement 3 1 0 0 0; runloop size "r"        # 3 ファイル -> XS
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
@@ -1394,12 +1462,12 @@ respond review 1 0.30 7
 respond pr 1 0.10 3
 runloop run
 [[ "$(ledger_field tier 2>/dev/null)" == "" ]] || true
-grep -qE -- '/da-review-all$|/x-review-' "$FAKE_CLAUDE_LOG" \
+grep -qE -- '/da-review$|/x-review-' "$FAKE_CLAUDE_LOG" \
   && ok "XS もレビューする。レビューなしで出るものは無い" \
   || no "XS がレビューを丸ごと飛ばした"
-grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" \
+grep -q -- '/da-plan' "$FAKE_CLAUDE_LOG" \
   && no "XS が triage を走らせた。外すために XS がある" \
-  || ok "   .../da-fix-plan は走らせない"
+  || ok "   .../da-plan は走らせない"
 grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
   && no "XS が修正の周を走らせた" || ok "   ...修正の周も走らせない"
 if [[ $RC -eq 0 ]] && grep -q 'pull/7' <<<"$OUT"; then
@@ -1440,7 +1508,7 @@ respond triage 1 0.05 2 1 0 0 0
 respond fix 1 0.10 3; side_effect fix 1 'date >> f.txt'
 respond pr 1 0.10 3
 runloop run
-grep -q -- '/da-fix-plan' "$FAKE_CLAUDE_LOG" && grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
+grep -q -- '/da-plan' "$FAKE_CLAUDE_LOG" && grep -q -- '/receiving-code-review' "$FAKE_CLAUDE_LOG" \
   && ok "S は今も triage して修正を適用する。XS より 1 ファイル多いだけで振る舞いは逆" \
   || no "S も修正の仕組みを失った（exit ${RC}、halt=$(ledger_field halt_reason)）"
 grep -q 'triage されていません' "$FAKE_CLAUDE_LOG" \
@@ -1624,9 +1692,9 @@ else
   detail "$(tail -3 <<<"$OUT" | tr '\n' ' ')"
 fi
 # 読む人に届かなければならない。誰にも伝わらない断り書きは、断り書きが無いのと同じ。
-# ソースではなく*駆動系が実際に送ったプロンプト*で検査する（loop.sh の /da-pr-describe 付近で「未検証」を grep すると、
+# ソースではなく*駆動系が実際に送ったプロンプト*で検査する（loop.sh の /da-pr 付近で「未検証」を grep すると、
 # 別のことについての GATE_DEFERRED の文で通ってしまう）。スタブは `$*` を記録し、複数行のプロンプトは多くの行になって
-# 1 行目にしかコマンドが無いので、`/da-pr-describe` の行ではなくログ全体を探す。
+# 1 行目にしかコマンドが無いので、`/da-pr` の行ではなくログ全体を探す。
 grep -q '確認できなかった (unverified) 所見が 3 件' "$FAKE_CLAUDE_LOG" \
   && ok "describe の周に、確かめられなかった件数が渡る" \
   || { no "確かめられなかった所見が PR 本文に届かなかった。黙って捨てられた"
@@ -1664,12 +1732,12 @@ grep -q 'pr checks' "$FAKE_GH_LOG" \
 setup; green_pr; runloop run
 if [[ -n "$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)" ]]; then
   ci_line=$(grep -n 'pr checks' "$FAKE_GH_LOG" | head -1 | cut -d: -f1)
-  desc_line=$(grep -n 'da-pr-describe' "$FAKE_CLAUDE_LOG" | head -1 | cut -d: -f1)
+  desc_line=$(grep -n 'da-pr' "$FAKE_CLAUDE_LOG" | head -1 | cut -d: -f1)
   # ログが別なので時刻順では比べられない。代わりに駆動系自身の順序で検査する。
-  grep -q 'da-pr-describe' "$FAKE_CLAUDE_LOG" \
+  grep -q 'da-pr' "$FAKE_CLAUDE_LOG" \
     && ok "説明の周は今も走る" || no "説明の周が消えた"
 fi
-awk '/pr checks/{ci=1} /da-pr-describe/{if(!ci) bad=1} END{exit bad?1:0}' \
+awk '/pr checks/{ci=1} /da-pr/{if(!ci) bad=1} END{exit bad?1:0}' \
   <(cat "$FAKE_GH_LOG" "$FAKE_CLAUDE_LOG") >/dev/null 2>&1 || true
 
 # 赤い CI は報告して放置せず、直して確かめ直す。
@@ -1764,7 +1832,7 @@ fi
 
 # ---------------------------------------------------------------- コストの天井
 # お金がかかるのはレビューで、1 周を縛るものは何も無かった。実測した 2 つの landing では、同じ台帳の他の phase が
-# 5〜20 ターンなのに /da-review-all だけが `num_turns: 50` を記録した（$5.64 と $6.19。実装は $1.30 と $1.50）。
+# 5〜20 ターンなのに /da-review だけが `num_turns: 50` を記録した（$5.64 と $6.19。実装は $1.30 と $1.50）。
 # この `claude` には --max-turns が無い。--max-budget-usd はあり、そちらのほうがよい: 問題そのものを縛り、プロンプト
 # ではなくハーネスが強制する。
 setup; measurement 6 1 0 0 0; runloop size "r"        # 6 ファイル、1 層 -> tier S
@@ -1773,7 +1841,7 @@ respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run
-s_budget="$(round_budget '/da-review-all')"
+s_budget="$(round_budget '/da-review')"
 [[ -n "$s_budget" ]] \
   && ok "レビューの周は --max-budget-usd の天井を持つ（tier S: \$${s_budget}）" \
   || { no "レビューの周に天井が無い。1 周に限りが無い"
@@ -1790,7 +1858,7 @@ respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run plan.md
-m_budget="$(round_budget '/da-review-all')"
+m_budget="$(round_budget '/da-review')"
 if [[ -n "$s_budget" && -n "$m_budget" ]] && node -e 'process.exit(Number(process.argv[1]) < Number(process.argv[2]) ? 0 : 1)' "$s_budget" "$m_budget"; then
   ok "レビューの天井は tier で変わる（S \$${s_budget} < M \$${m_budget}）"
 else
@@ -1803,13 +1871,13 @@ respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run
-t_budget="$(round_budget '/da-fix-plan')"
+t_budget="$(round_budget '/da-plan')"
 [[ -n "$t_budget" ]] \
   && ok "triage の周にも天井がある（tier S: \$${t_budget}）" \
   || no "triage に上限が無い。11 行の差分でバケットを数えるのに \$2.08 と \$1.90 かかった"
 
 # --- tier S で層が 1 つなら dispatcher を丸ごと飛ばす ---------------------------
-# /da-review-all は自分の 12 KB の本文を読み、分類をしてから "no cross-layer impact" と出して報告をそのまま渡す。
+# /da-review は自分の 12 KB の本文を読み、分類をしてから "no cross-layer impact" と出して報告をそのまま渡す。
 # `size` が層をちょうど 1 つ記録していて、それがツールキットにスキルのある 3 つのどれかなら、dispatcher は何も買わない。層のスキルを打つ。
 setup; measurement 6 1 0 0 0 "backend"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
@@ -1817,11 +1885,11 @@ respond review 1 0.30 7
 respond triage 1 0.05 2 0 0 3
 respond pr 1 0.10 3
 runloop run
-if grep -q -- '/x-review-backend$' "$FAKE_CLAUDE_LOG" && ! grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG"; then
+if grep -q -- '/x-review-backend$' "$FAKE_CLAUDE_LOG" && ! grep -q -- '/da-review$' "$FAKE_CLAUDE_LOG"; then
   ok "既知の層が 1 つの tier S は、dispatcher ではなく /x-review-backend を打つ"
 else
   no "層が 1 つの tier S の変更で、まだ dispatcher が走った"
-  detail "$(grep -oE '/(da-review-all|x-review-[a-z]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
+  detail "$(grep -oE '/(da-review|x-review-[a-z]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"
 fi
 
 # 代わりの経路は賢くしてはならない。スキルの無い層の名前、2 つ以上の層、層なしは、すべて dispatcher に戻る。
@@ -1830,16 +1898,16 @@ setup; measurement 6 1 0 0 0 "mobile"; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
-grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
+grep -q -- '/da-review$' "$FAKE_CLAUDE_LOG" \
   && ok "知らない層の名前は dispatcher に戻る" \
   || { no "未知の層で dispatcher に戻らなかった。何かがスキル名を推測した"
-       detail "$(grep -oE '/(da-review-all|x-review-[a-z-]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"; }
+       detail "$(grep -oE '/(da-review|x-review-[a-z-]+)' "$FAKE_CLAUDE_LOG" | sort -u | tr '\n' ' ')"; }
 
 setup; measurement 6 0 0 0 0; runloop size "r"    # docs だけ: 層は 0
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
 respond review 1 0.30 7; respond triage 1 0.05 2 0 0 3; respond pr 1 0.10 3
 runloop run
-grep -q -- '/da-review-all$' "$FAKE_CLAUDE_LOG" \
+grep -q -- '/da-review$' "$FAKE_CLAUDE_LOG" \
   && ok "層がまったく無い変更も dispatcher に回る" \
   || no "層が 0 の変更がどのレビュアにも届かなかった"
 
@@ -1872,7 +1940,7 @@ bad_calls=$(node -e '
 
 # --- どの周もリポジトリを*読める*が、書けない -----------------
 # 実測: `claude --print --permission-mode acceptEdits` はこの環境で git を走らせられない（`git status --short` が
-# "requires approval" を返し、headless では承認する人がいない）。/da-review-all の Step 1 は `git diff` なので、
+# "requires approval" を返し、headless では承認する人がいない）。/da-review の Step 1 は `git diff` なので、
 # レビューの phase は範囲を決められず、50 ターンと $6.19 は深さではなく権限の壁への再試行だった。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
@@ -1925,7 +1993,7 @@ grep -qi 'json-schema' <<<"$OUT" \
   || ok "CLI のフラグを確かめに行かせない"
 
 # PR の phase は、止まっても起きたことを取り消せない唯一の場所: 本文を書く時点で `gh stack submit` はもう PR を
-# 開いている。打ち切られた /da-pr-describe は書きかけの説明の*本物の* PR を残し、`opened-pr` と記録される
+# 開いている。打ち切られた /da-pr は書きかけの説明の*本物の* PR を残し、`opened-pr` と記録される
 # （「終わって見えて、終わっていない」形）。言わなければならない。
 setup; measurement 6 1 0 0 0; runloop size "r"
 respond implement 1 0.20 5; side_effect implement 1 'touch GREEN'
