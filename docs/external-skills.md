@@ -1,5 +1,50 @@
 # 外部スキルの採否と保守方針
 
+## 日本語の下書きを推敲する
+
+README・PR 本文・社内の案内文には `ja-writing-humanizer` を選んだ。主語と動詞が離れた文や同じ説明の繰り返しを直し、数値や引用、書き手の口調を保つ。短い文章の推敲はスキル本文だけで完結する。[確認した版](https://github.com/viasnake/ja-writing-humanizer/tree/d9a84050a1f74d5359871acf283cddb2f47c67f2/skills/ja-writing-humanizer)
+
+例えば「Cursor の stop フックに関しては、ターンの終了を拒否することができないという制約があります」は「Cursor の stop フックはターンの終了を拒否できません」で伝わる。PR 本文で「macOS では未確認です」と書いてあれば、その条件も残す。
+
+| 候補 | 向いている文章 | 選ぶ理由 |
+|---|---|---|
+| [ja-writing-humanizer](https://github.com/viasnake/ja-writing-humanizer/blob/d9a84050a1f74d5359871acf283cddb2f47c67f2/skills/ja-writing-humanizer/SKILL.md) | README、短い PR 本文、告知の下書き | 必要な箇所だけ直せる。推敲用の実行スクリプトや追加依存がない |
+| [natural-japanese](https://github.com/coji/natural-japanese) | 議事録、調査報告、提案書 | 文書の構成から見直す手順と、日本語の読みにくさを調べる lint がある |
+| [japanese-tech-writing](https://github.com/hikimay/japanese-tech-writing/blob/main/SKILL.md) | 書籍の章、長めの技術解説 | 論証の組み立てから公開前の点検まで扱う。脚注や改行など原稿向けの書式も指定する |
+
+下のコマンドで確認済みの版を導入できる。一時プロジェクトにこの 1 本を入れ、共有ディレクトリの内容と Claude Code 用リンクを照合した。`skill-scanner` の静的検査は指摘 0 件。上流の MIT ライセンスはリポジトリ直下にあり、スキルを選択してコピーすると含まれないので一緒に保存する。
+
+```bash
+npx skills@1.7.4 add https://github.com/viasnake/ja-writing-humanizer/tree/d9a84050a1f74d5359871acf283cddb2f47c67f2 -g -a claude-code -a cursor -s ja-writing-humanizer
+mkdir -p ~/.agents/.skill-licenses/ja-writing-humanizer
+curl -fLsS https://raw.githubusercontent.com/viasnake/ja-writing-humanizer/d9a84050a1f74d5359871acf283cddb2f47c67f2/LICENSE \
+  -o ~/.agents/.skill-licenses/ja-writing-humanizer/LICENSE
+```
+
+## 用途別の導入コマンド
+
+使いたいものの `-s` だけを残して実行する。各リポジトリの選定理由と調査時点は下の記録にある。
+
+```bash
+# 設計・試作・設定案内・振り返り — 監査した上流コミット
+npx skills@1.7.4 add https://github.com/mattpocock/skills/tree/5beb35b040e3de97e54fa9e386d7e42d15c295c2 -g -a claude-code -a cursor \
+  -s retro -s writing-for-agents -s prototype -s wizard \
+  -s codebase-design -s improve-codebase-architecture -s domain-modeling
+
+# 対話的な図解 — 監査・生成検証した安定版
+npx skills@1.7.4 add https://github.com/tt-a1i/archify/tree/v3.2.0 -g -a claude-code -a cursor -s archify
+
+# pstack — 状態図の検査、または繰り返したミスの再発防止。必要な名前だけ指定する
+npx skills@1.7.4 add https://github.com/cursor/plugins/tree/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack -g -a claude-code -a cursor -s statechart -s correct
+# 選択コピーに含まれない上流ルートの著作権表示も保存する
+mkdir -p ~/.agents/.skill-licenses/cursor-plugins-pstack
+curl -fLsS https://raw.githubusercontent.com/cursor/plugins/bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7/pstack/LICENSE \
+  -o ~/.agents/.skill-licenses/cursor-plugins-pstack/LICENSE
+
+# 視覚設計 — Anthropic 公式の監査したコミット
+npx skills@1.7.4 add https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44 -g -a claude-code -a cursor -s frontend-design
+```
+
 ## pstack の追加（2026-11-16）
 
 上流の固定版から7本を選択導入した。既存の39本は維持し、常設のモデル設定は追加していない。実際のコマンド・依存・監査・実行結果・予算と、導入しなかったものの理由は [pstack の採否記録](pstack.md) に分けた。以下は2026-10-26の導入時点の記録として残す。
